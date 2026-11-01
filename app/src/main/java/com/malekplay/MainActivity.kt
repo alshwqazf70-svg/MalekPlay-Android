@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -210,7 +212,7 @@ private fun MalekPlayApp() {
                     Card(shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF142923))) {
                         Column {
-                            Player(uri = item.uri, isFullscreen = isFullscreen, onToggleFullscreen = setFullscreen)
+                            Player(uri = item.uri, isVideo = item.isVideo, title = item.name, isFullscreen = isFullscreen, onToggleFullscreen = setFullscreen)
                             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = { selected = null }) { Text("إغلاق المشغل") }
@@ -424,7 +426,7 @@ private fun Thumbnail(entry: MediaEntry) {
 }
 
 @Composable
-private fun Player(uri: Uri, isFullscreen: Boolean, onToggleFullscreen: (Boolean) -> Unit) {
+private fun Player(uri: Uri, isVideo: Boolean, title: String, isFullscreen: Boolean, onToggleFullscreen: (Boolean) -> Unit) {
     val context = LocalContext.current
     val preferences = remember(context) {
         context.getSharedPreferences("malekplay_playback", Context.MODE_PRIVATE)
@@ -445,6 +447,14 @@ private fun Player(uri: Uri, isFullscreen: Boolean, onToggleFullscreen: (Boolean
             if (savedPosition > 5_000L) seekTo(savedPosition)
             playWhenReady = true
         }
+    }
+    var isPlaying by remember(uri) { mutableStateOf(player.isPlaying) }
+    DisposableEffect(player) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
     }
     var speedMenu by remember { mutableStateOf(false) }
     var speed by remember(uri) { mutableFloatStateOf(1f) }
@@ -487,23 +497,46 @@ private fun Player(uri: Uri, isFullscreen: Boolean, onToggleFullscreen: (Boolean
         }
     }
     Column {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-            AndroidView(
-                factory = { PlayerView(it).apply { this.player = player; useController = !controlsLocked } },
-                update = { it.player = player; it.useController = !controlsLocked },
-                modifier = Modifier.fillMaxSize()
-            )
-            IconButton(
-                onClick = { controlsLocked = !controlsLocked },
-                modifier = Modifier.align(Alignment.TopEnd)
-                    .padding(8.dp)
-                    .background(Color(0x99000000), RoundedCornerShape(50))
-            ) {
-                Icon(
-                    if (controlsLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                    contentDescription = if (controlsLocked) "فتح عناصر التحكم" else "قفل عناصر التحكم",
-                    tint = Color.White
+        if (isVideo) {
+            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                AndroidView(
+                    factory = { PlayerView(it).apply { this.player = player; useController = !controlsLocked } },
+                    update = { it.player = player; it.useController = !controlsLocked },
+                    modifier = Modifier.fillMaxSize()
                 )
+                IconButton(
+                    onClick = { controlsLocked = !controlsLocked },
+                    modifier = Modifier.align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .background(Color(0x99000000), RoundedCornerShape(50))
+                ) {
+                    Icon(
+                        if (controlsLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                        contentDescription = if (controlsLocked) "فتح عناصر التحكم" else "قفل عناصر التحكم",
+                        tint = Color.White
+                    )
+                }
+            }
+        } else {
+            Column(
+                Modifier.fillMaxWidth().background(Color(0xFF142923)).padding(vertical = 22.dp, horizontal = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    Modifier.size(112.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xFF245447)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.MusicNote, null, tint = Color(0xFFE4C27B), modifier = Modifier.size(58.dp))
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(8.dp))
+                IconButton(onClick = { if (player.isPlaying) player.pause() else player.play() }) {
+                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "إيقاف مؤقت" else "تشغيل",
+                        tint = Color.White, modifier = Modifier.size(38.dp))
+                }
             }
         }
         if (!controlsLocked) Row(
