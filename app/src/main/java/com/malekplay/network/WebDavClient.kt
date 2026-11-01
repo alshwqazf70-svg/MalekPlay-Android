@@ -32,7 +32,7 @@ class WebDavClient {
         require(base.protocol.equals("https", true)) { "يجب استخدام WebDAV عبر HTTPS فقط" }
         require(base.userInfo == null) { "ضع بيانات الدخول في مخزن الاعتمادات، وليس داخل الرابط" }
         require(base.host.isNotBlank())
-        val target = URL(base, path.trimStart('/'))
+        val target = URL(base.toExternalForm().trimEnd('/') + "/" + path.trimStart('/') )
         require(target.protocol.equals("https", true) && target.host.equals(base.host, true)) {
             "مسار WebDAV خارج الخادم المحدد"
         }
