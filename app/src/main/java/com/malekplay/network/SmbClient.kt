@@ -1,6 +1,5 @@
 package com.malekplay.network
 
-import com.hierynomus.msdtyp.AccessMask
 import com.hierynomus.msfscc.FileAttributes
 import com.hierynomus.smbj.SMBClient
 import com.hierynomus.smbj.auth.AuthenticationContext
@@ -33,7 +32,7 @@ class SmbClient {
                             val name = entry.fileName
                             if (name == "." || name == "..") null
                             else {
-                                val directory = (entry.fileAttributes and FileAttributes.FILE_ATTRIBUTE_DIRECTORY) != 0
+                                val directory = FileAttributes.FILE_ATTRIBUTE_DIRECTORY in entry.fileAttributes
                                 NetworkEntry(
                                     name = name,
                                     path = listOf(path.trim('/'), name).filter { it.isNotBlank() }.joinToString("/"),
