@@ -3,6 +3,7 @@ package com.malekplay.ui.player
 import android.app.Activity
 import android.content.Context
 import android.media.AudioManager
+import android.media.audiofx.Equalizer
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -36,10 +37,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.MimeTypes
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
 
+@OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(
     uri: Uri,
@@ -106,6 +109,36 @@ fun PlayerScreen(
         onDispose { player.removeListener(listener) }
     }
 
+    var audioSessionId by remember { mutableIntStateOf(0) }
+    var showEqualizer by remember { mutableStateOf(false) }
+    var equalizer by remember { mutableStateOf<Equalizer?>(null) }
+    var equalizerBands by remember { mutableStateOf<List<Float>>(emptyList()) }
+    var equalizerRange by remember { mutableStateOf(shortArrayOf(-1500, 1500)) }
+    DisposableEffect(player) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onAudioSessionIdChanged(id: Int) {
+                audioSessionId = id
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+    DisposableEffect(audioSessionId) {
+        equalizer?.release()
+        equalizer = if (audioSessionId > 0) runCatching {
+            Equalizer(0, audioSessionId).apply { enabled = true }
+        }.getOrNull() else null
+        equalizer?.let { eq ->
+            equalizerRange = eq.bandLevelRange
+            equalizerBands = (0 until eq.numberOfBands.toInt()).map { band ->
+                eq.getBandLevel(band.toShort()).toFloat()
+            }
+        } ?: run { equalizerBands = emptyList() }
+        onDispose {
+            equalizer?.release()
+            equalizer = null
+        }
+    }
     var speedMenu by remember { mutableStateOf(false) }
     var sleepMenu by remember { mutableStateOf(false) }
     val sleepTimerActive by playerViewModel.sleepTimerActive.collectAsState()
@@ -335,6 +368,9 @@ fun PlayerScreen(
                     }
                 }
             }
+            TextButton(onClick = { showEqualizer = true }) {
+                Text("المعادل", color = Color.White)
+            }
             TextButton(onClick = {
                 TrackSelectionDialogBuilder(context, "المسار الصوتي", player, C.TRACK_TYPE_AUDIO)
                     .build().show()
@@ -349,6 +385,52 @@ fun PlayerScreen(
             TextButton(onClick = { onToggleFullscreen(!isFullscreen) }) {
                 Text(if (isFullscreen) "تصغير" else "ملء الشاشة", color = Color.White)
             }
+        }
+        if (showEqualizer) {
+            AlertDialog(
+                onDismissRequest = { showEqualizer = false },
+                title = { Text("المعادل الصوتي") },
+                text = {
+                    if (equalizer == null) {
+                        Text("المعادل الصوتي غير متاح لهذا المسار أو على هذا الجهاز.")
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("تحكم بخمسة نطاقات ترددية")
+                            equalizerBands.forEachIndexed { index, level ->
+                                val frequency = runCatching {
+                                    equalizer?.getCenterFreq(index.toShort())?.div(1000) ?: 0
+                                }.getOrDefault(0)
+                                Text("$frequency Hz")
+                                Slider(
+                                    value = level,
+                                    onValueChange = { next ->
+                                        val updated = equalizerBands.toMutableList()
+                                        updated[index] = next
+                                        equalizerBands = updated
+                                        runCatching {
+                                            equalizer?.setBandLevel(index.toShort(), next.toInt().toShort())
+                                        }
+                                    },
+                                    valueRange = equalizerRange[0].toFloat()..equalizerRange[1].toFloat()
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showEqualizer = false }) { Text("تم") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        equalizer?.let { eq ->
+                            for (band in 0 until eq.numberOfBands.toInt()) {
+                                runCatching { eq.setBandLevel(band.toShort(), 0) }
+                            }
+                            equalizerBands = equalizerBands.map { 0f }
+                        }
+                    }) { Text("إعادة الضبط") }
+                }
+            )
         }
         subtitleName?.let {
             Text("الترجمة الخارجية: $it", color = Color(0xFF718079),
