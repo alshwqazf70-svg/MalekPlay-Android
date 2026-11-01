@@ -59,4 +59,5 @@ dependencies {
     implementation(libs.mlkit.translate)
     implementation(libs.smbj)
     implementation(libs.sshj)
+    implementation(libs.okhttp)
 }
