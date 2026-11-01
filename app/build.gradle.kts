@@ -21,6 +21,14 @@ android {
 
     buildFeatures { compose = true }
 
+    // Remove duplicate OSGi metadata from JVM-only multi-release JAR entries.
+    // These descriptors are not used by the Android runtime.
+    packaging {
+        resources {
+            excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
