@@ -1,6 +1,15 @@
 name: MalekPlay APK Size Audit (Baseline)
 
 on:
+  push:
+    branches:
+      - backup/pre-apk-size-optimization-2026-11-02
+    paths:
+      - ".github/workflows/apk-size-audit.yml"
+      - "app/**"
+      - "gradle/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
   workflow_dispatch:
 
 permissions:
@@ -42,12 +51,13 @@ jobs:
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -f "$APK"
           mkdir -p audit
+          APK_BYTES="$(stat -c%s "$APK")"
           {
             echo "## Baseline APK"
             echo
             echo "- File: $APK"
-            echo "- Size (bytes): $(stat -c%s "$APK")"
-            echo "- Size (MiB): $(awk "BEGIN {printf \"%.2f\", $(stat -c%s "$APK")/1048576}")"
+            echo "- Size (bytes): $APK_BYTES"
+            echo "- Size (MiB): $(awk -v n="$APK_BYTES" 'BEGIN {printf "%.2f", n/1048576}')"
             echo
             echo "## Largest APK entries"
             unzip -l "$APK" | sort -nr | head -35
@@ -71,7 +81,7 @@ jobs:
         shell: bash
         run: |
           {
-            for dep in androidx.media3 com.google.mlkit com.hierynomus com.hierynomus:sshj com.squareup.okhttp3 com.google.dagger androidx.compose.material; do
+            for dep in androidx.media3 com.google.mlkit com.hierynomus com.squareup.okhttp3 com.google.dagger androidx.compose.material; do
               echo "===== $dep ====="
               gradle --no-daemon :app:dependencyInsight --configuration debugRuntimeClasspath --dependency "$dep" || true
             done
