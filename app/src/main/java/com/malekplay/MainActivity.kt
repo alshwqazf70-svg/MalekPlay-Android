@@ -66,6 +66,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES, RECENT }
+private enum class SortMode { NEWEST, OLDEST, NAME, LONGEST, LARGEST }
 private data class MediaEntry(
     val uri: Uri,
     val name: String,
@@ -110,6 +111,10 @@ private fun MalekPlayApp() {
     var selected by remember { mutableStateOf<MediaEntry?>(null) }
     var tab by remember { mutableStateOf(LibraryTab.ALL) }
     var query by remember { mutableStateOf("") }
+    var sortMode by remember {
+        mutableStateOf(runCatching { SortMode.valueOf(libraryPrefsValue(context, "sort_mode", "NEWEST")) }.getOrDefault(SortMode.NEWEST))
+    }
+    var sortMenu by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     val libraryPrefs = remember(context) {
@@ -173,7 +178,7 @@ private fun MalekPlayApp() {
         }
     }
 
-    val shown = remember(entries, tab, query, favoriteUris, recentUris) {
+    val shown = remember(entries, tab, query, favoriteUris, recentUris, sortMode) {
         val filtered = entries.filter {
             (tab == LibraryTab.ALL ||
                 (tab == LibraryTab.VIDEOS && it.isVideo) ||
@@ -184,7 +189,13 @@ private fun MalekPlayApp() {
         }
         if (tab == LibraryTab.RECENT) {
             filtered.sortedBy { recentUris.indexOf(it.uri.toString()).let { index -> if (index < 0) Int.MAX_VALUE else index } }
-        } else filtered
+        } else when (sortMode) {
+            SortMode.NEWEST -> filtered.sortedByDescending { it.dateAdded }
+            SortMode.OLDEST -> filtered.sortedBy { it.dateAdded }
+            SortMode.NAME -> filtered.sortedBy { it.name.lowercase() }
+            SortMode.LONGEST -> filtered.sortedByDescending { it.durationMs }
+            SortMode.LARGEST -> filtered.sortedByDescending { it.sizeBytes }
+        }
     }
 
     MaterialTheme(colorScheme = MalekPlayColors) {
@@ -249,7 +260,40 @@ private fun MalekPlayApp() {
                     placeholder = { Text("ابحث عن فيديو أو أغنية...") },
                     leadingIcon = { Icon(Icons.Default.Search, null) }
                 )
-                Spacer(Modifier.height(9.dp))
+                Spacer(Modifier.height(5.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Box {
+                        TextButton(onClick = { sortMenu = true }) {
+                            Text("ترتيب حسب: " + when (sortMode) {
+                                SortMode.NEWEST -> "الأحدث"
+                                SortMode.OLDEST -> "الأقدم"
+                                SortMode.NAME -> "الاسم"
+                                SortMode.LONGEST -> "المدة"
+                                SortMode.LARGEST -> "الحجم"
+                            })
+                        }
+                        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                            listOf(
+                                SortMode.NEWEST to "الأحدث أولاً",
+                                SortMode.OLDEST to "الأقدم أولاً",
+                                SortMode.NAME to "الاسم أبجدياً",
+                                SortMode.LONGEST to "الأطول مدة",
+                                SortMode.LARGEST to "الأكبر حجماً"
+                            ).forEach { (mode, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        sortMode = mode
+                                        context.getSharedPreferences("malekplay_library", Context.MODE_PRIVATE)
+                                            .edit().putString("sort_mode", mode.name).apply()
+                                        sortMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     LibraryTab.values().forEach { choice ->
                         val label = when (choice) {
@@ -333,6 +377,9 @@ private fun MalekPlayApp() {
         }
     }
 }
+
+private fun libraryPrefsValue(context: Context, key: String, fallback: String): String =
+    context.getSharedPreferences("malekplay_library", Context.MODE_PRIVATE).getString(key, fallback) ?: fallback
 
 private suspend fun loadMedia(context: Context): List<MediaEntry> = withContext(Dispatchers.IO) {
     val resolver = context.contentResolver
