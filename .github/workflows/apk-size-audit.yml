@@ -52,6 +52,8 @@ jobs:
           test -f "$APK"
           mkdir -p audit
           APK_BYTES="$(stat -c%s "$APK")"
+          unzip -l "$APK" > audit/apk-entries-raw.txt
+          sort -nr audit/apk-entries-raw.txt > audit/apk-entries-sorted.txt
           {
             echo "## Baseline APK"
             echo
@@ -60,16 +62,16 @@ jobs:
             echo "- Size (MiB): $(awk -v n="$APK_BYTES" 'BEGIN {printf "%.2f", n/1048576}')"
             echo
             echo "## Largest APK entries"
-            unzip -l "$APK" | sort -nr | head -35
+            sed -n '1,35p' audit/apk-entries-sorted.txt
             echo
             echo "## Native libraries by ABI"
-            unzip -l "$APK" | grep -E 'lib/[^/]+/.*\\.so$' || true
+            grep -E 'lib/[^/]+/.*\.so$' audit/apk-entries-raw.txt || true
             echo
             echo "## DEX files"
-            unzip -l "$APK" | grep -E 'classes[0-9]*\\.dex$' || true
+            grep -E 'classes[0-9]*\.dex$' audit/apk-entries-raw.txt || true
             echo
             echo "## Resource/assets totals"
-            unzip -l "$APK" | awk 'NF >= 4 && $4 !~ /\\/$/ {n++; bytes += $1} END {printf "Entries: %d\\nUncompressed bytes: %d\\n", n, bytes}'
+            awk 'NF >= 4 && $4 !~ /\/$/ {n++; bytes += $1} END {printf "Entries: %d\nUncompressed bytes: %d\n", n, bytes}' audit/apk-entries-raw.txt
           } | tee audit/apk-size-report.txt
 
       - name: Capture runtime dependency graph
