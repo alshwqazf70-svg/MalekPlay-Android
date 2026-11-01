@@ -14,6 +14,7 @@ hiltNavigation = "1.2.0"
 mlkitTranslate = "17.0.3"
 smbj = "0.14.0"
 sshj = "0.40.0"
+okhttp = "4.12.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core" }
@@ -39,6 +40,7 @@ hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-com
 mlkit-translate = { group = "com.google.mlkit", name = "translate", version.ref = "mlkitTranslate" }
 smbj = { group = "com.hierynomus", name = "smbj", version.ref = "smbj" }
 sshj = { group = "com.hierynomus", name = "sshj", version.ref = "sshj" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
