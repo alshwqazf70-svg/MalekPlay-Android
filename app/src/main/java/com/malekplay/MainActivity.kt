@@ -68,10 +68,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import com.malekplay.data.local.MalekPlayDatabase
-import com.malekplay.data.repository.MediaRepository
-import com.malekplay.data.scanner.MediaStoreScanner
 import kotlinx.coroutines.flow.collect
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.malekplay.ui.library.LibraryViewModel
 
 private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES, RECENT, PLAYLISTS }
 private data class UserPlaylist(val name: String, val uris: List<String>)
@@ -115,6 +114,10 @@ private fun hasMediaPermission(context: Context): Boolean =
 @Composable
 private fun MalekPlayApp() {
     val context = LocalContext.current
+    val libraryViewModel: LibraryViewModel = viewModel()
+    val libraryRecords by libraryViewModel.media.collectAsState()
+    val loading by libraryViewModel.isLoading.collectAsState()
+    val libraryLoadError by libraryViewModel.error.collectAsState()
     var permitted by remember { mutableStateOf(hasMediaPermission(context)) }
     var entries by remember { mutableStateOf(emptyList<MediaEntry>()) }
     var selected by remember { mutableStateOf<MediaEntry?>(null) }
@@ -152,7 +155,6 @@ private fun MalekPlayApp() {
         })
         addToPlaylistUri = null
     }
-    var loading by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     var favoriteUris by remember {
         mutableStateOf(libraryPrefs.getStringSet("favorites", emptySet())?.toSet() ?: emptySet())
@@ -204,41 +206,26 @@ private fun MalekPlayApp() {
         }
     }
 
-    val mediaRepository = remember(context) {
-        val database = MalekPlayDatabase.get(context)
-        MediaRepository(database.mediaDao(), MediaStoreScanner(context))
-    }
-    var libraryLoadError by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(permitted, refresh, mediaRepository) {
+    LaunchedEffect(permitted, refresh) {
         if (permitted) {
-            loading = true
-            libraryLoadError = null
-            try {
-                mediaRepository.observeLibrary().collect { records ->
-                    entries = records.map { record ->
-                        val media = record.media
-                        MediaEntry(
-                            uri = Uri.parse(media.uri),
-                            name = media.title,
-                            durationMs = media.duration,
-                            sizeBytes = media.sizeBytes,
-                            dateAdded = media.dateAdded,
-                            isVideo = media.isVideo
-                        )
-                    }
-                    loading = false
-                }
-            } catch (error: SecurityException) {
-                libraryLoadError = "تعذر الوصول إلى بعض ملفات الوسائط. تحقق من أذونات المكتبة."
-                loading = false
-            } catch (error: Exception) {
-                libraryLoadError = "تعذر تحديث المكتبة: ${error.localizedMessage ?: "خطأ غير معروف"}"
-                loading = false
-            }
+            libraryViewModel.refresh()
         } else {
+            libraryViewModel.clearForPermissionDenied()
             entries = emptyList()
-            loading = false
+        }
+    }
+
+    LaunchedEffect(libraryRecords) {
+        entries = libraryRecords.map { record ->
+            val media = record.media
+            MediaEntry(
+                uri = Uri.parse(media.uri),
+                name = media.title,
+                durationMs = media.duration,
+                sizeBytes = media.sizeBytes,
+                dateAdded = media.dateAdded,
+                isVideo = media.isVideo
+            )
         }
     }
 
