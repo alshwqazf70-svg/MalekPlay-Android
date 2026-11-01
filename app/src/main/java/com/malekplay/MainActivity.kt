@@ -68,6 +68,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.malekplay.data.local.MalekPlayDatabase
+import com.malekplay.data.repository.MediaRepository
+import com.malekplay.data.scanner.MediaStoreScanner
+import kotlinx.coroutines.flow.collect
 
 private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES, RECENT, PLAYLISTS }
 private data class UserPlaylist(val name: String, val uris: List<String>)
@@ -200,10 +204,40 @@ private fun MalekPlayApp() {
         }
     }
 
-    LaunchedEffect(permitted, refresh) {
+    val mediaRepository = remember(context) {
+        val database = MalekPlayDatabase.get(context)
+        MediaRepository(database.mediaDao(), MediaStoreScanner(context))
+    }
+    var libraryLoadError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(permitted, refresh, mediaRepository) {
         if (permitted) {
             loading = true
-            entries = loadMedia(context)
+            libraryLoadError = null
+            try {
+                mediaRepository.observeLibrary().collect { records ->
+                    entries = records.map { record ->
+                        val media = record.media
+                        MediaEntry(
+                            uri = Uri.parse(media.uri),
+                            name = media.title,
+                            durationMs = media.duration,
+                            sizeBytes = media.sizeBytes,
+                            dateAdded = media.dateAdded,
+                            isVideo = media.isVideo
+                        )
+                    }
+                    loading = false
+                }
+            } catch (error: SecurityException) {
+                libraryLoadError = "تعذر الوصول إلى بعض ملفات الوسائط. تحقق من أذونات المكتبة."
+                loading = false
+            } catch (error: Exception) {
+                libraryLoadError = "تعذر تحديث المكتبة: ${error.localizedMessage ?: "خطأ غير معروف"}"
+                loading = false
+            }
+        } else {
+            entries = emptyList()
             loading = false
         }
     }
