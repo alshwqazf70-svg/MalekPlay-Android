@@ -1,11 +1,10 @@
 package com.malekplay.ui.library
 
-import android.app.Application
+import androidx.lifecycle.ViewModel
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.malekplay.data.local.MalekPlayDatabase
-import com.malekplay.data.repository.MediaRepository
-import com.malekplay.data.scanner.MediaStoreScanner
 import com.malekplay.domain.model.MediaWithDetails
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,11 +14,10 @@ import kotlinx.coroutines.launch
 /**
  * Owns library loading and Room observation outside the Activity/Composable.
  */
-class LibraryViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = MediaRepository(
-        MalekPlayDatabase.get(application).mediaDao(),
-        MediaStoreScanner(application)
-    )
+@HiltViewModel
+class LibraryViewModel @Inject constructor(
+    private val repository: com.malekplay.data.repository.MediaRepository
+) : ViewModel() {
 
     private val _media = MutableStateFlow<List<MediaWithDetails>>(emptyList())
     val media = _media.asStateFlow()
