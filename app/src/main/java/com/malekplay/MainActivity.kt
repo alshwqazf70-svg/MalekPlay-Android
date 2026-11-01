@@ -71,6 +71,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.collect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.malekplay.ui.library.LibraryViewModel
+import com.malekplay.ui.player.PlayerViewModel
 
 private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES, RECENT, PLAYLISTS }
 private data class UserPlaylist(val name: String, val uris: List<String>)
@@ -686,41 +687,20 @@ private fun Player(
     }
     val safeStartIndex = startIndex.coerceIn(0, playbackQueue.lastIndex)
 
-    val controllerFuture = remember(context) {
-        val token = androidx.media3.session.SessionToken(
-            context,
-            android.content.ComponentName(context, com.malekplay.player.PlaybackService::class.java)
-        )
-        androidx.media3.session.MediaController.Builder(context, token).buildAsync()
-    }
-    var controller by remember { mutableStateOf<androidx.media3.session.MediaController?>(null) }
-    var connectionError by remember { mutableStateOf(false) }
+    val playerViewModel: PlayerViewModel = viewModel()
+    val playerController by playerViewModel.controller.collectAsState()
+    val connectionError by playerViewModel.connectionError.collectAsState()
 
-    DisposableEffect(controllerFuture) {
-        controllerFuture.addListener(
-            {
-                controller = runCatching { controllerFuture.get() }.getOrNull()
-                connectionError = controller == null
-            },
-            ContextCompat.getMainExecutor(context)
-        )
-        onDispose {
-            androidx.media3.session.MediaController.releaseFuture(controllerFuture)
-        }
+    LaunchedEffect(playerViewModel) {
+        playerViewModel.connect()
     }
+    val player = playerController
 
-    val player = controller
     LaunchedEffect(player, uri, playbackQueue, safeStartIndex) {
         if (player != null) {
             val startUri = playbackQueue[safeStartIndex]
             val savedPosition = preferences.getLong("position:$startUri", 0L).coerceAtLeast(0L)
-            player.setMediaItems(
-                playbackQueue.map { androidx.media3.common.MediaItem.fromUri(it) },
-                safeStartIndex,
-                savedPosition
-            )
-            player.prepare()
-            player.playWhenReady = true
+            playerViewModel.playQueue(playbackQueue, safeStartIndex, savedPosition)
         }
     }
 
