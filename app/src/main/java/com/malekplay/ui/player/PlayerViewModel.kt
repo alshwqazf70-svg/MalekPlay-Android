@@ -1,28 +1,25 @@
 package com.malekplay.ui.player
 
-import android.content.Context
 import android.content.ComponentName
+import android.content.Context
 import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
-import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
+import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.malekplay.player.PlaybackService
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import androidx.lifecycle.viewModelScope
+import javax.inject.Inject
 
-/**
- * Owns the UI-side MediaController connection. The PlaybackService remains
- * the owner of the actual ExoPlayer instance.
- */
+/** Owns the UI-side MediaController connection. PlaybackService owns ExoPlayer. */
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     @ApplicationContext private val app: Context
@@ -38,16 +35,28 @@ class PlayerViewModel @Inject constructor(
     private val _sleepTimerActive = MutableStateFlow(false)
     val sleepTimerActive = _sleepTimerActive.asStateFlow()
 
+    /** Safe to call repeatedly; a failed connection can be retried by the UI. */
     fun connect() {
-        if (_controller.value != null || controllerFuture != null) return
+        if (_controller.value != null) return
+        val pending = controllerFuture
+        if (pending != null && !pending.isDone) return
+
+        _connectionError.value = false
         val token = SessionToken(app, ComponentName(app, PlaybackService::class.java))
         val future = MediaController.Builder(app, token).buildAsync()
         controllerFuture = future
         future.addListener(
             {
+                if (controllerFuture !== future) return@addListener
                 val connected = runCatching { future.get() }.getOrNull()
-                _controller.value = connected
-                _connectionError.value = connected == null
+                if (connected != null) {
+                    _controller.value = connected
+                    _connectionError.value = false
+                } else {
+                    // Clear the failed future so a later connect() call can retry.
+                    controllerFuture = null
+                    _connectionError.value = true
+                }
             },
             ContextCompat.getMainExecutor(app)
         )
