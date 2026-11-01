@@ -116,8 +116,11 @@ private fun MalekPlayApp() {
     var selected by remember { mutableStateOf<MediaEntry?>(null) }
     var tab by remember { mutableStateOf(LibraryTab.ALL) }
     var query by remember { mutableStateOf("") }
+    val libraryPrefs = remember(context) {
+        context.getSharedPreferences("malekplay_library", Context.MODE_PRIVATE)
+    }
     var sortMode by remember {
-        mutableStateOf(runCatching { SortMode.valueOf(libraryPrefsValue(context, "sort_mode", "NEWEST")) }.getOrDefault(SortMode.NEWEST))
+        mutableStateOf(runCatching { SortMode.valueOf(libraryPrefs.getString("sort_mode", "NEWEST") ?: "NEWEST") }.getOrDefault(SortMode.NEWEST))
     }
     var sortMenu by remember { mutableStateOf(false) }
     var playlists by remember { mutableStateOf(loadPlaylists(libraryPrefsValue(context, "playlists_json", "[]"))) }
@@ -147,9 +150,6 @@ private fun MalekPlayApp() {
     }
     var loading by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
-    val libraryPrefs = remember(context) {
-        context.getSharedPreferences("malekplay_library", Context.MODE_PRIVATE)
-    }
     var favoriteUris by remember {
         mutableStateOf(libraryPrefs.getStringSet("favorites", emptySet())?.toSet() ?: emptySet())
     }
@@ -306,7 +306,7 @@ private fun MalekPlayApp() {
                         Icon(Icons.Default.PlaylistPlay, null)
                         Text("قوائم التشغيل")
                     }
-                    TextButton(onClick = { filePicker.launch(arrayOf("video/*", "audio/*")) })
+                    TextButton(onClick = { filePicker.launch(arrayOf("video/*", "audio/*")) }) {
                         Icon(Icons.Default.FolderOpen, null)
                         Spacer(Modifier.width(4.dp))
                         Text("فتح ملف")
