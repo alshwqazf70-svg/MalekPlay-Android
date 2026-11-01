@@ -57,4 +57,6 @@ dependencies {
     kapt(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
     implementation(libs.mlkit.translate)
+    implementation(libs.smbj)
+    implementation(libs.sshj)
 }
