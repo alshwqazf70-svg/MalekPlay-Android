@@ -3,6 +3,7 @@ package com.malekplay
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
@@ -45,6 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
@@ -103,6 +106,7 @@ private fun MalekPlayApp() {
     var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
+    var isFullscreen by remember { mutableStateOf(false) }
 
     val permissionRequest = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -165,7 +169,17 @@ private fun MalekPlayApp() {
                     Card(shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF142923))) {
                         Column {
-                            Player(uri = item.uri)
+                            Player(uri = item.uri, isFullscreen = isFullscreen, onToggleFullscreen = { enabled ->
+                                isFullscreen = enabled
+                                val activity = context as? ComponentActivity
+                                activity?.requestedOrientation = if (enabled) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                    else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                activity?.window?.let { window ->
+                                    val controller = WindowInsetsControllerCompat(window, window.decorView)
+                                    if (enabled) controller.hide(WindowInsetsCompat.Type.systemBars())
+                                    else controller.show(WindowInsetsCompat.Type.systemBars())
+                                }
+                            })
                             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = { selected = null }) { Text("إغلاق المشغل") }
@@ -177,6 +191,7 @@ private fun MalekPlayApp() {
                     }
                 }
 
+                if (!isFullscreen) {
                 Spacer(Modifier.height(15.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
@@ -272,6 +287,7 @@ private fun MalekPlayApp() {
                 Text("MALEKPLAY  •  مكتبة الوسائط",
                     Modifier.align(Alignment.CenterHorizontally).padding(vertical = 5.dp),
                     color = Color(0xFF9AA69F), fontSize = 10.sp, letterSpacing = 1.5.sp)
+                }
             }
         }
     }
@@ -356,7 +372,7 @@ private fun Thumbnail(entry: MediaEntry) {
 }
 
 @Composable
-private fun Player(uri: Uri) {
+private fun Player(uri: Uri, isFullscreen: Boolean, onToggleFullscreen: (Boolean) -> Unit) {
     val context = LocalContext.current
     val preferences = remember(context) {
         context.getSharedPreferences("malekplay_playback", Context.MODE_PRIVATE)
@@ -450,6 +466,9 @@ private fun Player(uri: Uri) {
                 TrackSelectionDialogBuilder(context, "الترجمة", player, C.TRACK_TYPE_TEXT)
                     .build().show()
             }) { Text("الترجمة", color = Color.White) }
+            TextButton(onClick = { onToggleFullscreen(!isFullscreen) }) {
+                Text(if (isFullscreen) "تصغير" else "ملء الشاشة", color = Color.White)
+            }
         }
     }
 }
