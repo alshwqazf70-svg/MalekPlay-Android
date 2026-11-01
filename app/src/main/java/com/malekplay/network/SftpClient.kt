@@ -33,7 +33,7 @@ class SftpClient {
                     else NetworkEntry(
                         name = name,
                         path = remotePath.trimEnd('/') + "/" + name,
-                        isDirectory = item.attributes.isDirectory,
+                        isDirectory = item.isDirectory,
                         sizeBytes = item.attributes.size
                     )
                 }
