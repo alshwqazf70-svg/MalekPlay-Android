@@ -731,6 +731,8 @@ private fun Player(
     }
 
     var speedMenu by remember { mutableStateOf(false) }
+    var sleepMenu by remember { mutableStateOf(false) }
+    val sleepTimerActive by playerViewModel.sleepTimerActive.collectAsState()
     var speed by remember { mutableFloatStateOf(1f) }
     var controlsLocked by remember { mutableStateOf(false) }
     var subtitleName by remember { mutableStateOf<String?>(null) }
@@ -853,6 +855,31 @@ private fun Player(
                                 speed = value
                                 player.setPlaybackSpeed(value)
                                 speedMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+            Box {
+                TextButton(onClick = { sleepMenu = true }) {
+                    Text(if (sleepTimerActive) "المؤقت ✓" else "مؤقت النوم", color = Color.White)
+                }
+                DropdownMenu(expanded = sleepMenu, onDismissRequest = { sleepMenu = false }) {
+                    listOf(15, 30, 45, 60, 90, 120).forEach { minutes ->
+                        DropdownMenuItem(
+                            text = { Text("إيقاف بعد $minutes دقيقة") },
+                            onClick = {
+                                playerViewModel.setSleepTimer(minutes)
+                                sleepMenu = false
+                            }
+                        )
+                    }
+                    if (sleepTimerActive) {
+                        DropdownMenuItem(
+                            text = { Text("إلغاء المؤقت") },
+                            onClick = {
+                                playerViewModel.cancelSleepTimer()
+                                sleepMenu = false
                             }
                         )
                     }
