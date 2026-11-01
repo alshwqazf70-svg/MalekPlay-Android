@@ -22,9 +22,18 @@ class SubtitleTranslationEngine(private val context: Context) {
         val input = context.contentResolver.openInputStream(source)
             ?: error("تعذر فتح ملف الترجمة")
         val sourceText = input.use { stream ->
-            val bytes = stream.readBytes()
-            require(bytes.size in 1..5_000_000) { "حجم ملف الترجمة يجب ألا يتجاوز 5 ميجابايت" }
-            String(bytes, StandardCharsets.UTF_8).removePrefix("\uFEFF")
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val count = stream.read(buffer)
+                if (count < 0) break
+                total += count
+                require(total <= 5_000_000) { "حجم ملف الترجمة يجب ألا يتجاوز 5 ميجابايت" }
+                output.write(buffer, 0, count)
+            }
+            require(total > 0) { "ملف الترجمة فارغ" }
+            String(output.toByteArray(), StandardCharsets.UTF_8).removePrefix("\uFEFF")
         }
         val options = TranslatorOptions.Builder()
             .setSourceLanguage(TranslateLanguage.ENGLISH)
