@@ -1,10 +1,13 @@
 package com.malekplay.ui.player
 
-import android.app.Application
+import android.content.Context
 import android.content.ComponentName
 import android.net.Uri
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 import androidx.media3.common.MediaItem
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -20,7 +23,10 @@ import androidx.lifecycle.viewModelScope
  * Owns the UI-side MediaController connection. The PlaybackService remains
  * the owner of the actual ExoPlayer instance.
  */
-class PlayerViewModel(application: Application) : AndroidViewModel(application) {
+@HiltViewModel
+class PlayerViewModel @Inject constructor(
+    @ApplicationContext private val app: Context
+) : ViewModel() {
     private val _controller = MutableStateFlow<MediaController?>(null)
     val controller = _controller.asStateFlow()
 
@@ -34,7 +40,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun connect() {
         if (_controller.value != null || controllerFuture != null) return
-        val app = getApplication<Application>()
         val token = SessionToken(app, ComponentName(app, PlaybackService::class.java))
         val future = MediaController.Builder(app, token).buildAsync()
         controllerFuture = future
