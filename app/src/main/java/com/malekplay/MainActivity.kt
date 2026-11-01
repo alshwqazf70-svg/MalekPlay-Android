@@ -24,6 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -44,10 +46,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.activity.ComponentActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -359,6 +365,14 @@ private fun Player(uri: Uri) {
     val player = remember(uri) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(uri))
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                true
+            )
+            setHandleAudioBecomingNoisy(true)
             val savedPosition = preferences.getLong("position:${uri}", 0L)
             prepare()
             if (savedPosition > 5_000L) seekTo(savedPosition)
@@ -367,20 +381,41 @@ private fun Player(uri: Uri) {
     }
     var speedMenu by remember { mutableStateOf(false) }
     var speed by remember(uri) { mutableFloatStateOf(1f) }
+    var controlsLocked by remember(uri) { mutableStateOf(false) }
 
-    DisposableEffect(player, uri) {
+    DisposableEffect(player, uri, context) {
+        val activity = context as? ComponentActivity
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) player.pause()
+        }
+        activity?.lifecycle?.addObserver(observer)
         onDispose {
+            activity?.lifecycle?.removeObserver(observer)
             preferences.edit().putLong("position:${uri}", player.currentPosition).apply()
             player.release()
         }
     }
     Column {
-        AndroidView(
-            factory = { PlayerView(it).apply { this.player = player; useController = true } },
-            update = { it.player = player },
-            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-        )
-        Row(
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+            AndroidView(
+                factory = { PlayerView(it).apply { this.player = player; useController = !controlsLocked } },
+                update = { it.player = player; it.useController = !controlsLocked },
+                modifier = Modifier.fillMaxSize()
+            )
+            IconButton(
+                onClick = { controlsLocked = !controlsLocked },
+                modifier = Modifier.align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .background(Color(0x99000000), RoundedCornerShape(50))
+            ) {
+                Icon(
+                    if (controlsLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                    contentDescription = if (controlsLocked) "فتح عناصر التحكم" else "قفل عناصر التحكم",
+                    tint = Color.White
+                )
+            }
+        }
+        if (!controlsLocked) Row(
             Modifier.fillMaxWidth().background(Color(0xFF142923)).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly
