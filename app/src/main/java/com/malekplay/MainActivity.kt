@@ -63,7 +63,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES }
+private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES, RECENT }
 private data class MediaEntry(
     val uri: Uri,
     val name: String,
@@ -116,6 +116,14 @@ private fun MalekPlayApp() {
     var favoriteUris by remember {
         mutableStateOf(libraryPrefs.getStringSet("favorites", emptySet())?.toSet() ?: emptySet())
     }
+    var recentUris by remember {
+        mutableStateOf(libraryPrefs.getString("recent", "")?.split("\\n")?.filter { it.isNotBlank() } ?: emptyList())
+    }
+    fun markRecentlyPlayed(uri: Uri) {
+        val updated = (listOf(uri.toString()) + recentUris.filterNot { it == uri.toString() }).take(50)
+        recentUris = updated
+        libraryPrefs.edit().putString("recent", updated.joinToString("\\n")).apply()
+    }
     fun toggleFavorite(uri: Uri) {
         val key = uri.toString()
         val updated = if (key in favoriteUris) favoriteUris - key else favoriteUris + key
@@ -163,14 +171,18 @@ private fun MalekPlayApp() {
         }
     }
 
-    val shown = remember(entries, tab, query) {
-        entries.filter {
+    val shown = remember(entries, tab, query, favoriteUris, recentUris) {
+        val filtered = entries.filter {
             (tab == LibraryTab.ALL ||
                 (tab == LibraryTab.VIDEOS && it.isVideo) ||
                 (tab == LibraryTab.AUDIO && !it.isVideo) ||
-                (tab == LibraryTab.FAVORITES && it.uri.toString() in favoriteUris)) &&
+                (tab == LibraryTab.FAVORITES && it.uri.toString() in favoriteUris) ||
+                (tab == LibraryTab.RECENT && it.uri.toString() in recentUris)) &&
                 it.name.contains(query.trim(), ignoreCase = true)
         }
+        if (tab == LibraryTab.RECENT) {
+            filtered.sortedBy { recentUris.indexOf(it.uri.toString()).let { index -> if (index < 0) Int.MAX_VALUE else index } }
+        } else filtered
     }
 
     MaterialTheme(colorScheme = MalekPlayColors) {
@@ -243,6 +255,7 @@ private fun MalekPlayApp() {
                             LibraryTab.VIDEOS -> "الفيديوهات"
                             LibraryTab.AUDIO -> "الصوتيات"
                             LibraryTab.FAVORITES -> "المفضلة"
+                            LibraryTab.RECENT -> "الأخيرة"
                         }
                         Surface(
                             Modifier.weight(1f).clip(RoundedCornerShape(11.dp)).clickable { tab = choice },
@@ -305,7 +318,7 @@ private fun MalekPlayApp() {
                                 selected = selected?.uri == entry.uri,
                                 favorite = entry.uri.toString() in favoriteUris,
                                 onFavoriteClick = { toggleFavorite(entry.uri) },
-                                onClick = { selected = entry }
+                                onClick = { selected = entry; markRecentlyPlayed(entry.uri) }
                             )
                         }
                     }
