@@ -1,16 +1,27 @@
 package com.malekplay.network
 
-import android.util.Base64
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.w3c.dom.Element
-import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.TimeUnit
 import javax.xml.parsers.DocumentBuilderFactory
 
 /** WebDAV directory listing. HTTPS is mandatory and platform TLS validation stays enabled. */
 class WebDavClient {
+    private val http = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(25, TimeUnit.SECONDS)
+        .build()
+
     suspend fun list(
         endpoint: String,
         path: String,
@@ -22,28 +33,24 @@ class WebDavClient {
         require(base.userInfo == null) { "ضع بيانات الدخول في مخزن الاعتمادات، وليس داخل الرابط" }
         require(base.host.isNotBlank())
         val target = URL(base, path.trimStart('/'))
-        require(target.protocol == "https" && target.host.equals(base.host, true)) {
+        require(target.protocol.equals("https", true) && target.host.equals(base.host, true)) {
             "مسار WebDAV خارج الخادم المحدد"
         }
-        val connection = (target.openConnection() as HttpURLConnection).apply {
-            requestMethod = "PROPFIND"
-            connectTimeout = 12_000
-            readTimeout = 20_000
-            doOutput = true
-            setRequestProperty("Depth", "1")
-            setRequestProperty("Content-Type", "application/xml; charset=utf-8")
-            val token = Base64.encodeToString(
-                (username + ":" + password).toByteArray(StandardCharsets.UTF_8),
-                Base64.NO_WRAP
+        val token = okhttp3.Credentials.basic(username, password, StandardCharsets.UTF_8)
+        val request = Request.Builder()
+            .url(target)
+            .header("Depth", "1")
+            .header("Authorization", token)
+            .method(
+                "PROPFIND",
+                PROPFIND_BODY.toRequestBody("application/xml; charset=utf-8".toMediaType())
             )
-            setRequestProperty("Authorization", "Basic $token")
-        }
-        try {
-            connection.outputStream.use {
-                it.write(PROPFIND_BODY.toByteArray(StandardCharsets.UTF_8))
+            .build()
+        http.newCall(request).execute().use { response ->
+            require(response.code == 207 || response.isSuccessful) {
+                "فشل WebDAV برمز HTTP ${response.code}; لم يتم اتباع التحويلات لحماية بيانات الدخول"
             }
-            val status = connection.responseCode
-            require(status == 207 || status in 200..299) { "فشل WebDAV برمز HTTP $status" }
+            val body = response.body ?: error("استجابة WebDAV فارغة")
             val factory = DocumentBuilderFactory.newInstance().apply {
                 setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
                 setFeature("http://xml.org/sax/features/external-general-entities", false)
@@ -51,29 +58,27 @@ class WebDavClient {
                 isXIncludeAware = false
                 isExpandEntityReferences = false
             }
-            val document = connection.inputStream.use { factory.newDocumentBuilder().parse(it) }
+            val document = body.byteStream().use { factory.newDocumentBuilder().parse(it) }
             val responses = document.getElementsByTagNameNS("*", "response")
             buildList {
                 for (i in 0 until responses.length) {
-                    val response = responses.item(i) as? Element ?: continue
-                    val href = response.getElementsByTagNameNS("*", "href")
+                    val item = responses.item(i) as? Element ?: continue
+                    val href = item.getElementsByTagNameNS("*", "href")
                         .item(0)?.textContent?.trim().orEmpty()
                     if (href.isBlank()) continue
                     val resolved = URL(base, href)
-                    if (!resolved.host.equals(base.host, true) || resolved.protocol != "https") continue
-                    val name = response.getElementsByTagNameNS("*", "displayname")
+                    if (!resolved.host.equals(base.host, true) || !resolved.protocol.equals("https", true)) continue
+                    val name = item.getElementsByTagNameNS("*", "displayname")
                         .item(0)?.textContent?.trim()?.takeIf { it.isNotBlank() }
                         ?: resolved.path.substringAfterLast('/').ifBlank { "/" }
-                    val collection = response.getElementsByTagNameNS("*", "collection").length > 0
-                    val size = response.getElementsByTagNameNS("*", "getcontentlength")
+                    val collection = item.getElementsByTagNameNS("*", "collection").length > 0
+                    val size = item.getElementsByTagNameNS("*", "getcontentlength")
                         .item(0)?.textContent?.trim()?.toLongOrNull() ?: 0L
                     if (resolved.toExternalForm().trimEnd('/') != target.toExternalForm().trimEnd('/')) {
                         add(NetworkEntry(name, resolved.toExternalForm(), collection, size.coerceAtLeast(0L)))
                     }
                 }
             }
-        } finally {
-            connection.disconnect()
         }
     }
 
