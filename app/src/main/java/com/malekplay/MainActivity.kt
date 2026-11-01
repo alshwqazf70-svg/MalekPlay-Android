@@ -52,6 +52,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
@@ -400,6 +401,30 @@ private fun Player(uri: Uri, isFullscreen: Boolean, onToggleFullscreen: (Boolean
     var speedMenu by remember { mutableStateOf(false) }
     var speed by remember(uri) { mutableFloatStateOf(1f) }
     var controlsLocked by remember(uri) { mutableStateOf(false) }
+    var subtitleName by remember(uri) { mutableStateOf<String?>(null) }
+    val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { subtitleUri ->
+        if (subtitleUri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    subtitleUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: SecurityException) { }
+            val subtitle = MediaItem.SubtitleConfiguration.Builder(subtitleUri)
+                .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+                .setLanguage("ar")
+                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                .build()
+            val resumeAt = player.currentPosition
+            player.setMediaItem(
+                MediaItem.Builder().setUri(uri)
+                    .setSubtitleConfigurations(listOf(subtitle)).build(),
+                resumeAt
+            )
+            player.prepare()
+            player.playWhenReady = true
+            subtitleName = subtitleUri.lastPathSegment?.substringAfterLast('/') ?: "تم اختيار الترجمة"
+        }
+    }
 
     DisposableEffect(player, uri, context) {
         val activity = context as? ComponentActivity
@@ -469,6 +494,9 @@ private fun Player(uri: Uri, isFullscreen: Boolean, onToggleFullscreen: (Boolean
                 TrackSelectionDialogBuilder(context, "الترجمة", player, C.TRACK_TYPE_TEXT)
                     .build().show()
             }) { Text("الترجمة", color = Color.White) }
+            TextButton(onClick = {
+                subtitlePicker.launch(arrayOf("application/x-subrip", "text/plain", "text/*"))
+            }) { Text("ملف SRT", color = Color.White) }
             TextButton(onClick = { onToggleFullscreen(!isFullscreen) }) {
                 Text(if (isFullscreen) "تصغير" else "ملء الشاشة", color = Color.White)
             }
