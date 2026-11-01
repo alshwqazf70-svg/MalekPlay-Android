@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.util.TypedValue
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -50,7 +51,8 @@ fun PlayerScreen(
     onToggleFullscreen: (Boolean) -> Unit,
     resumePlayback: Boolean = true,
     defaultPlaybackSpeed: Float = 1f,
-    rememberBrightness: Boolean = true
+    rememberBrightness: Boolean = true,
+    subtitleSizeSp: Int = 20
 ) {
     val context = LocalContext.current
     val preferences = remember(context) {
@@ -164,11 +166,13 @@ fun PlayerScreen(
                         PlayerView(it).apply {
                             this.player = player
                             useController = !controlsLocked
+                            subtitleView?.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, subtitleSizeSp.coerceIn(12, 48).toFloat())
                         }
                     },
                     update = {
                         it.player = player
                         it.useController = !controlsLocked
+                        it.subtitleView?.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, subtitleSizeSp.coerceIn(12, 48).toFloat())
                     },
                     modifier = Modifier.fillMaxSize()
                 )
