@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 
 private val Context.malekPlayDataStore by preferencesDataStore(name = "malekplay_settings")
 
@@ -56,4 +57,10 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.theme] = next.theme.takeIf { it in setOf("light", "dark", "system") } ?: "light"
         }
     }
+    suspend fun currentSettings(): PlayerSettings = settings.first()
+
+    suspend fun restoreSettings(value: PlayerSettings) {
+        update { value }
+    }
+
 }
