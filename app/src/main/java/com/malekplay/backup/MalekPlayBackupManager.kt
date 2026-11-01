@@ -54,9 +54,17 @@ class MalekPlayBackupManager(
         val input = context.contentResolver.openInputStream(source)
             ?: error("تعذر فتح ملف النسخة الاحتياطية")
         val bytes = input.use { stream ->
-            val data = stream.readNBytes(MAX_BACKUP_BYTES + 1)
-            require(data.size <= MAX_BACKUP_BYTES) { "ملف النسخة الاحتياطية يتجاوز الحد المسموح" }
-            data
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val count = stream.read(buffer)
+                if (count < 0) break
+                total += count
+                require(total <= MAX_BACKUP_BYTES) { "ملف النسخة الاحتياطية يتجاوز الحد المسموح" }
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
         }
         val root = JSONObject(String(bytes, StandardCharsets.UTF_8))
         require(root.optString("format") == "malekplay-backup") { "صيغة الملف ليست نسخة MalekPlay" }
