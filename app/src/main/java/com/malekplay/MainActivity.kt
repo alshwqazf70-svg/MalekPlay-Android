@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -77,6 +78,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.malekplay.ui.library.LibraryViewModel
 import com.malekplay.ui.player.PlayerViewModel
 import com.malekplay.ui.player.PlayerScreen
+import com.malekplay.ui.settings.SettingsViewModel
+import com.malekplay.ui.settings.SettingsDialog
 
 private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES, RECENT, PLAYLISTS }
 private data class UserPlaylist(val name: String, val uris: List<String>)
@@ -121,6 +124,9 @@ private fun hasMediaPermission(context: Context): Boolean =
 private fun MalekPlayApp() {
     val context = LocalContext.current
     val libraryViewModel: LibraryViewModel = viewModel()
+    val settingsViewModel: SettingsViewModel = viewModel()
+    val playerSettings by settingsViewModel.settings.collectAsState()
+    var showSettings by remember { mutableStateOf(false) }
     val libraryRecords by libraryViewModel.media.collectAsState()
     val loading by libraryViewModel.isLoading.collectAsState()
     val libraryLoadError by libraryViewModel.error.collectAsState()
@@ -285,6 +291,13 @@ private fun MalekPlayApp() {
     }
 
     MaterialTheme(colorScheme = MalekPlayColors) {
+        if (showSettings) {
+            SettingsDialog(
+                settings = playerSettings,
+                onSettingsChange = settingsViewModel::update,
+                onDismiss = { showSettings = false }
+            )
+        }
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
@@ -294,6 +307,9 @@ private fun MalekPlayApp() {
                             color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Settings, "الإعدادات", tint = Color(0xFF176B5B))
+                        }
                         IconButton(onClick = { refresh++ }) {
                             Icon(Icons.Default.Refresh, "تحديث المكتبة", tint = Color(0xFF176B5B))
                         }
@@ -309,7 +325,7 @@ private fun MalekPlayApp() {
                     Card(shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF142923))) {
                         Column {
-                            PlayerScreen(uri = item.uri, isVideo = item.isVideo, title = item.name, queueUris = queueUris, startIndex = queueStartIndex, isFullscreen = isFullscreen, onToggleFullscreen = setFullscreen)
+                            PlayerScreen(uri = item.uri, isVideo = item.isVideo, title = item.name, queueUris = queueUris, startIndex = queueStartIndex, isFullscreen = isFullscreen, onToggleFullscreen = setFullscreen, resumePlayback = playerSettings.resumePlayback, defaultPlaybackSpeed = playerSettings.defaultPlaybackSpeed, rememberBrightness = playerSettings.rememberBrightness)
                             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = { selected = null }) { Text("إغلاق المشغل") }
