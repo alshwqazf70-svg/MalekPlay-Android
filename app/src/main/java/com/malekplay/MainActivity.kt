@@ -360,7 +360,7 @@ private fun Player(uri: Uri) {
     }
     DisposableEffect(player) { onDispose { player.release() } }
     AndroidView(
-        factory = { PlayerView(it).apply { player = player; useController = true } },
+        factory = { PlayerView(it).apply { this.player = player; useController = true } },
         update = { it.player = player },
         modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
     )
