@@ -39,6 +39,7 @@ import com.malekplay.ui.backup.BackupViewModel
 fun SettingsDialog(
     settings: PlayerSettings,
     onSettingsChange: ((PlayerSettings) -> PlayerSettings) -> Unit,
+    onChildModeChanged: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -65,6 +66,7 @@ fun SettingsDialog(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (!childModeEnabled) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
                         checked = settings.resumePlayback,
@@ -102,6 +104,7 @@ fun SettingsDialog(
                     valueRange = 14f..36f,
                     steps = 10
                 )
+                }
                 Text("العائلة والخصوصية", style = MaterialTheme.typography.titleSmall)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(if (childModeEnabled) "وضع الأطفال مفعّل" else "وضع الأطفال متوقف")
@@ -113,17 +116,19 @@ fun SettingsDialog(
                     }) { Text(if (childModeEnabled) "إيقاف" else "تفعيل") }
                 }
                 Text("يطلب وضع الأطفال رمز PIN قبل تعطيله. الرمز من 4 إلى 8 أرقام.")
-                Text("النسخ الاحتياطي", style = MaterialTheme.typography.titleSmall)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(enabled = !backupBusy, onClick = { exportLauncher.launch("malekplay-backup.json") }) {
-                        Text("تصدير")
+                if (!childModeEnabled) {
+                    Text("النسخ الاحتياطي", style = MaterialTheme.typography.titleSmall)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(enabled = !backupBusy, onClick = { exportLauncher.launch("malekplay-backup.json") }) {
+                            Text("تصدير")
+                        }
+                        Button(enabled = !backupBusy, onClick = {
+                            importLauncher.launch(arrayOf("application/json", "text/*"))
+                        }) { Text("استعادة") }
                     }
-                    Button(enabled = !backupBusy, onClick = {
-                        importLauncher.launch(arrayOf("application/json", "text/*"))
-                    }) { Text("استعادة") }
+                    backupMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    Text("تشمل النسخة الإعدادات والمفضلة وقوائم التشغيل، ولا تنسخ ملفات الوسائط أو قاعدة البيانات الحية.")
                 }
-                backupMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                Text("تشمل النسخة الإعدادات والمفضلة وقوائم التشغيل، ولا تنسخ ملفات الوسائط أو قاعدة البيانات الحية.")
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("تم") } }
@@ -160,6 +165,7 @@ fun SettingsDialog(
                         else parental.enableAfterPin(pinInput)
                         if (success) {
                             childModeEnabled = parental.isEnabled
+                            onChildModeChanged(childModeEnabled)
                             showPinDialog = false
                         } else pinError = "الرمز غير صحيح أو أن المحاولات مقفلة مؤقتاً"
                     } catch (error: Exception) {
