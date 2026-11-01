@@ -32,7 +32,7 @@ class SmbClient {
                             val name = entry.fileName
                             if (name == "." || name == "..") null
                             else {
-                                val directory = FileAttributes.FILE_ATTRIBUTE_DIRECTORY in entry.fileAttributes
+                                val directory = entry.fileAttributes.contains(FileAttributes.FILE_ATTRIBUTE_DIRECTORY)
                                 NetworkEntry(
                                     name = name,
                                     path = listOf(path.trim('/'), name).filter { it.isNotBlank() }.joinToString("/"),

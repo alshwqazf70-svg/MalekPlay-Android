@@ -3,7 +3,7 @@ package com.malekplay.translation
 import android.content.Context
 import android.net.Uri
 import com.google.android.gms.tasks.Task
-import com.google.mlkit.nl.translate.DownloadConditions
+import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
@@ -40,7 +40,7 @@ class SubtitleTranslationEngine(private val context: Context) {
             .setTargetLanguage(TranslateLanguage.ARABIC)
             .build()
         val translator = Translation.getClient(options)
-        try {
+        return try {
             translator.downloadModelIfNeeded(DownloadConditions.Builder().build()).awaitResult()
             val translated = sourceText.split(Regex("\\r?\\n\\s*\\r?\\n"))
                 .map { block ->
