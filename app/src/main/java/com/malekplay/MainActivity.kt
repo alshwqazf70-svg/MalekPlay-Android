@@ -83,6 +83,7 @@ import com.malekplay.ui.player.PlayerScreen
 import com.malekplay.ui.settings.SettingsViewModel
 import com.malekplay.ui.settings.SettingsDialog
 import com.malekplay.safety.ParentalControlManager
+import com.malekplay.ui.network.NetworkSourcesDialog
 
 private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES, RECENT, PLAYLISTS }
 private data class UserPlaylist(val name: String, val uris: List<String>)
@@ -140,6 +141,7 @@ private fun MalekPlayApp() {
     val settingsViewModel: SettingsViewModel = hiltViewModel()
     val playerSettings by settingsViewModel.settings.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
+    var showNetworkSources by remember { mutableStateOf(false) }
     var childModeEnabled by remember(context) { mutableStateOf(ParentalControlManager(context).isEnabled) }
     val libraryRecords by libraryViewModel.media.collectAsState()
     val loading by libraryViewModel.isLoading.collectAsState()
@@ -319,6 +321,9 @@ private fun MalekPlayApp() {
                 onDismiss = { showSettings = false }
             )
         }
+        if (showNetworkSources) {
+            NetworkSourcesDialog(onDismiss = { showNetworkSources = false })
+        }
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
@@ -328,6 +333,9 @@ private fun MalekPlayApp() {
                             color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { showNetworkSources = true }) {
+                            Icon(Icons.Default.FolderOpen, "مصادر الشبكة", tint = Color(0xFF176B5B))
+                        }
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, "الإعدادات", tint = Color(0xFF176B5B))
                         }

@@ -15,7 +15,8 @@ data class NetworkProfile(
     val host: String,
     val port: Int,
     val username: String,
-    val rootPath: String
+    val rootPath: String,
+    val displayName: String = host
 ) {
     init {
         require(id.matches(Regex("[A-Za-z0-9_-]{1,64}")))

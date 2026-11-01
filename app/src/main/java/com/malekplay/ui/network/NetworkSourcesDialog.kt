@@ -50,7 +50,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit) {
         if (uri != null) {
             runCatching {
                 val target = File(context.filesDir, "network_known_hosts")
-                context.contentResolver.openInputStream(uri)!!.use { input -> target.outputStream().use(input::copyTo) }
+                context.contentResolver.openInputStream(uri)!!.use { input -> target.outputStream().use { output -> input.copyTo(output) } }
                 knownHosts = target
                 message = "تم استيراد ملف known_hosts"
             }.onFailure { message = "تعذر استيراد الملف: ${it.localizedMessage}" }
@@ -63,7 +63,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit) {
             next.forEach { p ->
                 put(JSONObject().put("id", p.id).put("protocol", p.protocol.name)
                     .put("host", p.host).put("port", p.port).put("username", p.username)
-                    .put("rootPath", p.rootPath).put("name", nameFor(p)))
+                    .put("rootPath", p.rootPath).put("name", p.displayName))
             }
         }
         prefs.edit().putString("profiles", json.toString()).apply()
@@ -129,11 +129,11 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit) {
                     if (protocol == NetworkProtocol.SFTP) {
                         TextButton(onClick = { knownHostsPicker.launch(arrayOf("*/*")) }) { Text("استيراد ملف known_hosts") }
                     }
-                    Button(enabled = host.isNotBlank() && port.toIntOrNull() in 1..65535 && password.isNotEmpty(),
+                    Button(enabled = host.isNotBlank() && (port.toIntOrNull()?.let { it in 1..65535 } == true) && password.isNotEmpty(),
                         onClick = {
                             val id = "net_" + java.util.UUID.randomUUID().toString().replace("-", "")
                             runCatching {
-                                val profile = NetworkProfile(id, protocol, host.trim(), port.toInt(), username.trim(), rootPath.trim().ifBlank { "/" })
+                                val profile = NetworkProfile(id, protocol, host.trim(), port.toInt(), username.trim(), rootPath.trim().ifBlank { "/" }, name.trim().ifBlank { host.trim() })
                                 vault.save(id, username, password)
                                 saveProfiles(profiles + profile)
                                 name = ""; host = ""; username = ""; password = ""; rootPath = "/"
@@ -205,10 +205,10 @@ private fun loadProfiles(raw: String): List<NetworkProfile> = runCatching {
         for (i in 0 until array.length()) {
             val o = array.getJSONObject(i)
             add(NetworkProfile(o.getString("id"), NetworkProtocol.valueOf(o.getString("protocol")),
-                o.getString("host"), o.getInt("port"), o.optString("username"), o.optString("rootPath", "/")))
+                o.getString("host"), o.getInt("port"), o.optString("username"), o.optString("rootPath", "/"), o.optString("name", o.getString("host")) ))
         }
     }
 }.getOrDefault(emptyList())
 
 private fun nameFor(profile: NetworkProfile): String =
-    profile.host + " (" + profile.protocol.name + ")"
+    profile.displayName
