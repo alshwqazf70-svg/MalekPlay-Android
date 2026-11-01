@@ -194,8 +194,14 @@ fun PlayerScreen(
     DisposableEffect(player, context, isVideo) {
         val activity = context as? ComponentActivity
         val observer = LifecycleEventObserver { _, event ->
-            // Audio continues through the service; video pauses when its UI leaves foreground.
-            if (event == Lifecycle.Event.ON_STOP && isVideo) player.pause()
+            // Persist the current position when the app leaves the foreground.
+            // Playback remains owned by MediaSessionService and is not paused here.
+            if (event == Lifecycle.Event.ON_STOP) {
+                val currentUri = player.currentMediaItem?.localConfiguration?.uri ?: uri
+                preferences.edit()
+                    .putLong("position:$currentUri", player.currentPosition)
+                    .apply()
+            }
         }
         activity?.lifecycle?.addObserver(observer)
         onDispose {
