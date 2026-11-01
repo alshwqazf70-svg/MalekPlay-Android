@@ -117,12 +117,12 @@ private fun MalekPlayApp() {
         mutableStateOf(libraryPrefs.getStringSet("favorites", emptySet())?.toSet() ?: emptySet())
     }
     var recentUris by remember {
-        mutableStateOf(libraryPrefs.getString("recent", "")?.split("\\n")?.filter { it.isNotBlank() } ?: emptyList())
+        mutableStateOf(libraryPrefs.getString("recent", "")?.split("|")?.filter { it.isNotBlank() } ?: emptyList())
     }
     fun markRecentlyPlayed(uri: Uri) {
         val updated = (listOf(uri.toString()) + recentUris.filterNot { it == uri.toString() }).take(50)
         recentUris = updated
-        libraryPrefs.edit().putString("recent", updated.joinToString("\\n")).apply()
+        libraryPrefs.edit().putString("recent", updated.joinToString("|")).apply()
     }
     fun toggleFavorite(uri: Uri) {
         val key = uri.toString()
