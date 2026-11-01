@@ -1,16 +1,18 @@
 package com.malekplay.ui.settings
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import androidx.lifecycle.viewModelScope
 import com.malekplay.data.preferences.PlayerSettings
-import com.malekplay.data.preferences.SettingsRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class SettingsViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = SettingsRepository(application)
+@HiltViewModel
+class SettingsViewModel @Inject constructor(
+    private val repository: com.malekplay.data.preferences.SettingsRepository
+) : ViewModel() {
 
     val settings = repository.settings.stateIn(
         viewModelScope,
