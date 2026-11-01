@@ -13,6 +13,8 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Size
 import androidx.activity.ComponentActivity
+import dagger.hilt.android.AndroidEntryPoint
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -93,6 +95,7 @@ private data class MediaEntry(
     val isVideo: Boolean
 )
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -132,8 +135,8 @@ private fun hasMediaPermission(context: Context): Boolean =
 @Composable
 private fun MalekPlayApp() {
     val context = LocalContext.current
-    val libraryViewModel: LibraryViewModel = viewModel()
-    val settingsViewModel: SettingsViewModel = viewModel()
+    val libraryViewModel: LibraryViewModel = hiltViewModel()
+    val settingsViewModel: SettingsViewModel = hiltViewModel()
     val playerSettings by settingsViewModel.settings.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
     val libraryRecords by libraryViewModel.media.collectAsState()
