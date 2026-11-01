@@ -5,7 +5,6 @@ import android.content.ComponentName
 import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -56,7 +55,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     override fun onCleared() {
-        controllerFuture?.let(MediaController::releaseFuture)
+        controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         _controller.value = null
         super.onCleared()
