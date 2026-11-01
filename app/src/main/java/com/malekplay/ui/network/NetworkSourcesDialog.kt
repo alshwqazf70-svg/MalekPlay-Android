@@ -22,7 +22,7 @@ import org.json.JSONObject
 import java.io.File
 
 @Composable
-fun NetworkSourcesDialog(onDismiss: () -> Unit) {
+fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String) -> Unit) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE) }
     val vault = remember(context) { NetworkCredentialVault(context) }
@@ -95,7 +95,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit) {
                 }
                 active = profile
                 currentPath = path.ifBlank { profile.rootPath }
-                message = "تم الاتصال. التصفح متاح؛ تشغيل ملفات الشبكة داخل المشغل لم يكتمل بعد."
+                message = "تم الاتصال بالمصدر. اختر ملف WebDAV لتشغيله مباشرة."
             } catch (error: Exception) {
                 message = "تعذر الاتصال: ${error.localizedMessage ?: "خطأ غير معروف"}"
             } finally { busy = false }
@@ -178,8 +178,18 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit) {
                                             else -> entry.path
                                         }
                                         connect(profile, next)
+                                    } else if (profile.protocol == NetworkProtocol.WEBDAV) {
+                                        val mediaUri = runCatching { Uri.parse(entry.path) }.getOrNull()
+                                        if (mediaUri == null || mediaUri.scheme != "https" ||
+                                            !mediaUri.host.equals(profile.host, true) ||
+                                            (if (mediaUri.port == -1) 443 else mediaUri.port) != profile.port) {
+                                            message = "رابط الملف لا يطابق خادم WebDAV المحفوظ؛ تم رفض تشغيله."
+                                        } else {
+                                            message = "جارٍ فتح ${entry.name} في المشغل..."
+                                            onPlayNetworkMedia(mediaUri, entry.name)
+                                        }
                                     } else {
-                                        message = "تم العثور على الملف، لكن تشغيل SMB/SFTP/WebDAV من داخل المشغل يحتاج موصل بث آمن مخصصاً؛ لم يتم تفعيل تشغيل غير مكتمل."
+                                        message = "التصفح يعمل، لكن تشغيل SMB وSFTP داخل المشغل لم يُفعّل بعد. سنفعّلهما بعد إضافة موصل بث قابل للبحث والتنقل واختباره."
                                     }
                                 }
                             ) {
