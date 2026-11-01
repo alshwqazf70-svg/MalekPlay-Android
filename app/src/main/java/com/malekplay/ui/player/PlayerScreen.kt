@@ -5,6 +5,8 @@ import android.content.Context
 import android.media.AudioManager
 import android.media.audiofx.Equalizer
 import android.net.Uri
+import com.malekplay.translation.SubtitleTranslationEngine
+import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -149,10 +151,16 @@ fun PlayerScreen(
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
     var subtitleName by remember { mutableStateOf<String?>(null) }
+    var externalSubtitleUri by remember { mutableStateOf<Uri?>(null) }
+    var translatingSubtitle by remember { mutableStateOf(false) }
+    var translationMessage by remember { mutableStateOf<String?>(null) }
+    val translationScope = rememberCoroutineScope()
     val subtitlePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { subtitleUri ->
         if (subtitleUri != null) {
+            externalSubtitleUri = subtitleUri
+            translationMessage = null
             try {
                 context.contentResolver.takePersistableUriPermission(
                     subtitleUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -382,6 +390,36 @@ fun PlayerScreen(
             TextButton(onClick = {
                 subtitlePicker.launch(arrayOf("application/x-subrip", "text/plain", "text/*"))
             }) { Text("ملف SRT", color = Color.White) }
+            if (externalSubtitleUri != null) {
+                TextButton(enabled = !translatingSubtitle, onClick = {
+                    val source = externalSubtitleUri
+                    if (source != null) {
+                        translatingSubtitle = true
+                        translationMessage = "جارٍ تجهيز نموذج الترجمة..."
+                        translationScope.launch {
+                            try {
+                                val translatedUri = SubtitleTranslationEngine(context).translateSrtToArabic(source)
+                                val currentPosition = player.currentPosition
+                                val currentItem = player.currentMediaItem ?: androidx.media3.common.MediaItem.fromUri(uri)
+                                val config = androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(translatedUri)
+                                    .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+                                    .setLanguage("ar")
+                                    .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                                    .build()
+                                player.setMediaItem(currentItem.buildUpon().setSubtitleConfigurations(listOf(config)).build(), currentPosition)
+                                player.prepare()
+                                player.playWhenReady = true
+                                subtitleName = "ترجمة آلية إلى العربية"
+                                translationMessage = "اكتملت الترجمة محلياً"
+                            } catch (error: Exception) {
+                                translationMessage = "تعذرت الترجمة: " + (error.localizedMessage ?: "تحقق من اتصال الإنترنت لتنزيل النموذج")
+                            } finally {
+                                translatingSubtitle = false
+                            }
+                        }
+                    }
+                }) { Text(if (translatingSubtitle) "جارٍ الترجمة..." else "ترجمة للعربية", color = Color.White) }
+            }
             TextButton(onClick = { onToggleFullscreen(!isFullscreen) }) {
                 Text(if (isFullscreen) "تصغير" else "ملء الشاشة", color = Color.White)
             }
@@ -431,6 +469,10 @@ fun PlayerScreen(
                     }) { Text("إعادة الضبط") }
                 }
             )
+        }
+        translationMessage?.let {
+            Text(it, color = Color(0xFF718079), fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
         }
         subtitleName?.let {
             Text("الترجمة الخارجية: $it", color = Color(0xFF718079),
