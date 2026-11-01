@@ -32,7 +32,8 @@ jobs:
         with:
           gradle-version: "8.9"
       - name: Install Android SDK
-        run: "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
       - name: Build optimized release APK
         run: gradle --no-daemon :app:clean :app:assembleRelease
       - name: Verify APK structure, ABI, package and signature
@@ -43,8 +44,8 @@ jobs:
           test -s "$APK"
           mkdir -p audit
           cp "$APK" MalekPlay-Note9-arm64-optimized.apk
-          apksigner verify --verbose "$APK" | tee audit/signature-verification.txt
-          aapt dump badging "$APK" | tee audit/apk-badging.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK" | tee audit/signature-verification.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee audit/apk-badging.txt
           grep -q "package: name='com.malekplay'" audit/apk-badging.txt
           unzip -l "$APK" > audit/apk-entries.txt
           if grep -Eq 'lib/(armeabi-v7a|x86|x86_64)/' audit/apk-entries.txt; then
