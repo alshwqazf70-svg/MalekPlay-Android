@@ -46,7 +46,10 @@ fun PlayerScreen(
     queueUris: List<Uri>,
     startIndex: Int,
     isFullscreen: Boolean,
-    onToggleFullscreen: (Boolean) -> Unit
+    onToggleFullscreen: (Boolean) -> Unit,
+    resumePlayback: Boolean = true,
+    defaultPlaybackSpeed: Float = 1f,
+    rememberBrightness: Boolean = true
 ) {
     val context = LocalContext.current
     val preferences = remember(context) {
@@ -69,8 +72,8 @@ fun PlayerScreen(
     LaunchedEffect(player, uri, playbackQueue, safeStartIndex) {
         if (player != null) {
             val startUri = playbackQueue[safeStartIndex]
-            val savedPosition = preferences.getLong("position:$startUri", 0L).coerceAtLeast(0L)
-            playerViewModel.playQueue(playbackQueue, safeStartIndex, savedPosition)
+            val savedPosition = if (resumePlayback) preferences.getLong("position:$startUri", 0L).coerceAtLeast(0L) else 0L
+            playerViewModel.playQueue(playbackQueue, safeStartIndex, savedPosition, defaultPlaybackSpeed)
         }
     }
 
@@ -103,7 +106,7 @@ fun PlayerScreen(
     var speedMenu by remember { mutableStateOf(false) }
     var sleepMenu by remember { mutableStateOf(false) }
     val sleepTimerActive by playerViewModel.sleepTimerActive.collectAsState()
-    var speed by remember { mutableFloatStateOf(1f) }
+    var speed by remember { mutableFloatStateOf(defaultPlaybackSpeed) }
     var controlsLocked by remember { mutableStateOf(false) }
     var gestureHint by remember { mutableStateOf<String?>(null) }
     val audioManager = remember(context) {
@@ -175,7 +178,7 @@ fun PlayerScreen(
                                 detectVerticalDragGestures { change, dragAmount ->
                                     change.consume()
                                     val window = (context as? Activity)?.window
-                                    if (window != null) {
+                                    if (window != null && rememberBrightness) {
                                         val current = window.attributes.screenBrightness
                                             .takeIf { it >= 0f } ?: 0.5f
                                         val next = (current - dragAmount / 900f).coerceIn(0.05f, 1f)
