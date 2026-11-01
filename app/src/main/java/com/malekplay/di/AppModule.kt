@@ -6,6 +6,11 @@ import com.malekplay.data.local.MalekPlayDatabase
 import com.malekplay.data.preferences.SettingsRepository
 import com.malekplay.data.repository.MediaRepository
 import com.malekplay.data.scanner.MediaStoreScanner
+import com.malekplay.network.NetworkCredentialVault
+import com.malekplay.network.WebDavClient
+import com.malekplay.network.SftpClient
+import com.malekplay.network.SmbClient
+import com.malekplay.translation.SubtitleTranslationEngine
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -44,4 +49,26 @@ object AppModule {
     @Singleton
     fun provideSettingsRepository(@ApplicationContext context: Context) =
         SettingsRepository(context)
+    @Provides
+    @Singleton
+    fun provideNetworkCredentialVault(@ApplicationContext context: Context) =
+        NetworkCredentialVault(context)
+
+    @Provides
+    @Singleton
+    fun provideWebDavClient() = WebDavClient()
+
+    @Provides
+    @Singleton
+    fun provideSftpClient() = SftpClient()
+
+    @Provides
+    @Singleton
+    fun provideSmbClient() = SmbClient()
+
+    @Provides
+    @Singleton
+    fun provideSubtitleTranslationEngine(@ApplicationContext context: Context) =
+        SubtitleTranslationEngine(context)
+
 }
