@@ -66,7 +66,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         _sleepTimerActive.value = false
     }
 
-    fun playQueue(uris: List<Uri>, startIndex: Int, startPositionMs: Long) {
+    fun playQueue(uris: List<Uri>, startIndex: Int, startPositionMs: Long, speed: Float = 1f) {
         val player = _controller.value ?: return
         if (uris.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, uris.lastIndex)
@@ -75,6 +75,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             safeIndex,
             startPositionMs.coerceAtLeast(0L)
         )
+        player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
         player.prepare()
         player.playWhenReady = true
     }
