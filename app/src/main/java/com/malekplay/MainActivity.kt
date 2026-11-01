@@ -82,6 +82,7 @@ import com.malekplay.ui.player.PlayerViewModel
 import com.malekplay.ui.player.PlayerScreen
 import com.malekplay.ui.settings.SettingsViewModel
 import com.malekplay.ui.settings.SettingsDialog
+import com.malekplay.safety.ParentalControlManager
 
 private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES, RECENT, PLAYLISTS }
 private data class UserPlaylist(val name: String, val uris: List<String>)
@@ -139,6 +140,7 @@ private fun MalekPlayApp() {
     val settingsViewModel: SettingsViewModel = hiltViewModel()
     val playerSettings by settingsViewModel.settings.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
+    var childModeEnabled by remember(context) { mutableStateOf(ParentalControlManager(context).isEnabled) }
     val libraryRecords by libraryViewModel.media.collectAsState()
     val loading by libraryViewModel.isLoading.collectAsState()
     val libraryLoadError by libraryViewModel.error.collectAsState()
@@ -313,6 +315,7 @@ private fun MalekPlayApp() {
             SettingsDialog(
                 settings = playerSettings,
                 onSettingsChange = settingsViewModel::update,
+                onChildModeChanged = { childModeEnabled = it },
                 onDismiss = { showSettings = false }
             )
         }
@@ -359,18 +362,22 @@ private fun MalekPlayApp() {
                 Spacer(Modifier.height(15.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { showCreatePlaylist = true }) {
-                        Icon(Icons.Default.Add, null)
-                        Text("قائمة جديدة")
+                    if (!childModeEnabled) {
+                        TextButton(onClick = { showCreatePlaylist = true }) {
+                            Icon(Icons.Default.Add, null)
+                            Text("قائمة جديدة")
+                        }
                     }
                     TextButton(onClick = { tab = LibraryTab.PLAYLISTS; activePlaylist = null }) {
                         Icon(Icons.Default.PlaylistPlay, null)
                         Text("قوائم التشغيل")
                     }
-                    TextButton(onClick = { filePicker.launch(arrayOf("video/*", "audio/*")) }) {
-                        Icon(Icons.Default.FolderOpen, null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("فتح ملف")
+                    if (!childModeEnabled) {
+                        TextButton(onClick = { filePicker.launch(arrayOf("video/*", "audio/*")) }) {
+                            Icon(Icons.Default.FolderOpen, null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("فتح ملف")
+                        }
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text("مكتبة الوسائط", fontSize = 22.sp, fontWeight = FontWeight.Bold)
