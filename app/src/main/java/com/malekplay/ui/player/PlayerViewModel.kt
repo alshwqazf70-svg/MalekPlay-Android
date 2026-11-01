@@ -11,6 +11,10 @@ import androidx.media3.session.SessionToken
 import com.malekplay.player.PlaybackService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.lifecycle.viewModelScope
 
 /**
  * Owns the UI-side MediaController connection. The PlaybackService remains
@@ -24,6 +28,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     val connectionError = _connectionError.asStateFlow()
 
     private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
+    private var sleepTimerJob: Job? = null
+    private val _sleepTimerActive = MutableStateFlow(false)
+    val sleepTimerActive = _sleepTimerActive.asStateFlow()
 
     fun connect() {
         if (_controller.value != null || controllerFuture != null) return
@@ -41,6 +48,24 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
+    fun setSleepTimer(minutes: Int) {
+        require(minutes in 1..240) { "Sleep timer must be between 1 and 240 minutes" }
+        sleepTimerJob?.cancel()
+        _sleepTimerActive.value = true
+        sleepTimerJob = viewModelScope.launch {
+            delay(minutes * 60_000L)
+            _controller.value?.pause()
+            _sleepTimerActive.value = false
+            sleepTimerJob = null
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        _sleepTimerActive.value = false
+    }
+
     fun playQueue(uris: List<Uri>, startIndex: Int, startPositionMs: Long) {
         val player = _controller.value ?: return
         if (uris.isEmpty()) return
@@ -55,6 +80,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     override fun onCleared() {
+        sleepTimerJob?.cancel()
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         _controller.value = null
