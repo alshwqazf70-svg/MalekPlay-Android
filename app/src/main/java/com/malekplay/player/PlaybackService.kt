@@ -2,34 +2,86 @@ package com.malekplay.player
 
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.malekplay.network.NetworkCredentialVault
+import okhttp3.Credentials
+import okhttp3.OkHttpClient
+import org.json.JSONArray
+import java.util.concurrent.TimeUnit
 
-/**
- * Owns the single application player and media session.
- * The service, not a Compose screen, owns and releases ExoPlayer.
- */
+/** Owns ExoPlayer and safely supplies credentials to matching HTTPS WebDAV requests. */
+@OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
 
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this).build().apply {
-            setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .build(),
-                true
-            )
-            setHandleAudioBecomingNoisy(true)
+        val httpClient = OkHttpClient.Builder()
+            // Refuse redirects so Authorization is never forwarded to another origin.
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+        val upstream = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(httpClient))
+        val vault = NetworkCredentialVault(this)
+        val resolver = ResolvingDataSource.Resolver { dataSpec ->
+            val uri = dataSpec.uri
+            if (!uri.scheme.equals("https", true) || uri.userInfo != null) {
+                dataSpec
+            } else {
+                val raw = getSharedPreferences("malekplay_network_profiles", MODE_PRIVATE)
+                    .getString("profiles", "[]") ?: "[]"
+                val profiles = runCatching { JSONArray(raw) }.getOrNull()
+                var authorization: String? = null
+                if (profiles != null) {
+                    for (index in 0 until profiles.length()) {
+                        val profile = profiles.optJSONObject(index) ?: continue
+                        if (!profile.optString("protocol").equals("WEBDAV", true)) continue
+                        val host = profile.optString("host")
+                        val port = profile.optInt("port", 443)
+                        val uriPort = if (uri.port == -1) 443 else uri.port
+                        if (host.equals(uri.host, true) && port == uriPort) {
+                            val credentials = runCatching { vault.load(profile.optString("id")) }.getOrNull()
+                            if (credentials != null) {
+                                authorization = Credentials.basic(credentials.first, credentials.second)
+                            }
+                            break
+                        }
+                    }
+                }
+                if (authorization == null) dataSpec
+                else dataSpec.buildUpon()
+                    .setHttpRequestHeaders(dataSpec.httpRequestHeaders + ("Authorization" to authorization!!))
+                    .build()
+            }
         }
+        val resolvingFactory = ResolvingDataSource.Factory(upstream, resolver)
+        val player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(resolvingFactory))
+            .build()
+            .apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .build(),
+                    true
+                )
+                setHandleAudioBecomingNoisy(true)
+            }
         mediaSession = MediaSession.Builder(this, player).build()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
-        mediaSession
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onDestroy() {
         mediaSession?.let { session ->
