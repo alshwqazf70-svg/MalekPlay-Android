@@ -100,13 +100,22 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val MalekPlayColors = lightColorScheme(
+private val MalekPlayLightColors = lightColorScheme(
     primary = Color(0xFF176B5B),
     onPrimary = Color.White,
     secondary = Color(0xFFDAA84A),
     background = Color(0xFFF4F7F5),
     surface = Color.White,
     onSurface = Color(0xFF17211F)
+)
+
+private val MalekPlayDarkColors = darkColorScheme(
+    primary = Color(0xFF78C7B2),
+    onPrimary = Color(0xFF073B32),
+    secondary = Color(0xFFE5BD70),
+    background = Color(0xFF101715),
+    surface = Color(0xFF19231F),
+    onSurface = Color(0xFFE5EEE9)
 )
 
 private fun mediaPermissions(): Array<String> =
@@ -290,7 +299,13 @@ private fun MalekPlayApp() {
         )
     }
 
-    MaterialTheme(colorScheme = MalekPlayColors) {
+    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val useDarkTheme = when (playerSettings.theme) {
+        "dark" -> true
+        "system" -> systemDark
+        else -> false
+    }
+    MaterialTheme(colorScheme = if (useDarkTheme) MalekPlayDarkColors else MalekPlayLightColors) {
         if (showSettings) {
             SettingsDialog(
                 settings = playerSettings,
