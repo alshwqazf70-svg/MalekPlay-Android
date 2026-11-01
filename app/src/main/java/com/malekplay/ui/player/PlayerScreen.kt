@@ -34,7 +34,7 @@ import android.util.TypedValue
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
 import androidx.media3.ui.PlayerView
@@ -63,7 +63,7 @@ fun PlayerScreen(
     }
     val safeStartIndex = startIndex.coerceIn(0, playbackQueue.lastIndex)
 
-    val playerViewModel: PlayerViewModel = viewModel()
+    val playerViewModel: PlayerViewModel = hiltViewModel()
     val playerController by playerViewModel.controller.collectAsState()
     val connectionError by playerViewModel.connectionError.collectAsState()
 
