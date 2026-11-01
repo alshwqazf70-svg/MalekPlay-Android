@@ -322,7 +322,22 @@ private fun MalekPlayApp() {
             )
         }
         if (showNetworkSources) {
-            NetworkSourcesDialog(onDismiss = { showNetworkSources = false })
+            NetworkSourcesDialog(
+                onDismiss = { showNetworkSources = false },
+                onPlayNetworkMedia = { uri, title ->
+                    val extension = uri.lastPathSegment.orEmpty().substringAfterLast('.', "").lowercase()
+                    val videoExtensions = setOf("mp4", "mkv", "webm", "avi", "mov", "m4v", "3gp", "ts", "mpeg", "mpg")
+                    val networkEntry = MediaEntry(
+                        uri, title, 0L, 0L, System.currentTimeMillis() / 1000L,
+                        extension in videoExtensions
+                    )
+                    queueUris = listOf(uri)
+                    queueStartIndex = 0
+                    selected = networkEntry
+                    markRecentlyPlayed(uri)
+                    showNetworkSources = false
+                }
+            )
         }
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp)) {
