@@ -24,6 +24,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Lock
@@ -65,7 +69,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES, RECENT }
+private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES, RECENT, PLAYLISTS }
+private data class UserPlaylist(val name: String, val uris: List<String>)
 private enum class SortMode { NEWEST, OLDEST, NAME, LONGEST, LARGEST }
 private data class MediaEntry(
     val uri: Uri,
@@ -115,6 +120,31 @@ private fun MalekPlayApp() {
         mutableStateOf(runCatching { SortMode.valueOf(libraryPrefsValue(context, "sort_mode", "NEWEST")) }.getOrDefault(SortMode.NEWEST))
     }
     var sortMenu by remember { mutableStateOf(false) }
+    var playlists by remember { mutableStateOf(loadPlaylists(libraryPrefsValue(context, "playlists_json", "[]"))) }
+    var activePlaylist by remember { mutableStateOf<String?>(null) }
+    var showCreatePlaylist by remember { mutableStateOf(false) }
+    var playlistNameInput by remember { mutableStateOf("") }
+    var addToPlaylistUri by remember { mutableStateOf<Uri?>(null) }
+    var queueUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var queueStartIndex by remember { mutableIntStateOf(0) }
+    fun persistPlaylists(updated: List<UserPlaylist>) {
+        playlists = updated
+        libraryPrefs.edit().putString("playlists_json", savePlaylists(updated)).apply()
+    }
+    fun createPlaylist() {
+        val name = playlistNameInput.trim()
+        if (name.isNotEmpty() && playlists.none { it.name.equals(name, true) }) {
+            persistPlaylists(playlists + UserPlaylist(name, emptyList()))
+            playlistNameInput = ""
+            showCreatePlaylist = false
+        }
+    }
+    fun addMediaToPlaylist(uri: Uri, name: String) {
+        persistPlaylists(playlists.map { p ->
+            if (p.name == name && uri.toString() !in p.uris) p.copy(uris = p.uris + uri.toString()) else p
+        })
+        addToPlaylistUri = null
+    }
     var loading by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     val libraryPrefs = remember(context) {
@@ -184,7 +214,7 @@ private fun MalekPlayApp() {
                 (tab == LibraryTab.VIDEOS && it.isVideo) ||
                 (tab == LibraryTab.AUDIO && !it.isVideo) ||
                 (tab == LibraryTab.FAVORITES && it.uri.toString() in favoriteUris) ||
-                (tab == LibraryTab.RECENT && it.uri.toString() in recentUris)) &&
+                (tab == LibraryTab.RECENT && it.uri.toString() in recentUris) || tab == LibraryTab.PLAYLISTS) &&
                 it.name.contains(query.trim(), ignoreCase = true)
         }
         if (tab == LibraryTab.RECENT) {
@@ -196,6 +226,35 @@ private fun MalekPlayApp() {
             SortMode.LONGEST -> filtered.sortedByDescending { it.durationMs }
             SortMode.LARGEST -> filtered.sortedByDescending { it.sizeBytes }
         }
+    }
+
+
+    if (showCreatePlaylist) {
+        AlertDialog(
+            onDismissRequest = { showCreatePlaylist = false },
+            title = { Text("إنشاء قائمة تشغيل") },
+            text = { OutlinedTextField(value = playlistNameInput, onValueChange = { playlistNameInput = it }, singleLine = true, label = { Text("اسم القائمة") }) },
+            confirmButton = { TextButton(onClick = { createPlaylist() }) { Text("إنشاء") } },
+            dismissButton = { TextButton(onClick = { showCreatePlaylist = false }) { Text("إلغاء") } }
+        )
+    }
+    addToPlaylistUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { addToPlaylistUri = null },
+            title = { Text("إضافة إلى قائمة تشغيل") },
+            text = {
+                Column {
+                    if (playlists.isEmpty()) Text("أنشئ قائمة أولاً لإضافة المقاطع إليها.")
+                    playlists.forEach { playlist ->
+                        TextButton(onClick = { addMediaToPlaylist(uri, playlist.name) }, modifier = Modifier.fillMaxWidth()) {
+                            Text("${playlist.name}  (${playlist.uris.size})")
+                        }
+                    }
+                    TextButton(onClick = { addToPlaylistUri = null; showCreatePlaylist = true }) { Text("إنشاء قائمة جديدة") }
+                }
+            },
+            confirmButton = { TextButton(onClick = { addToPlaylistUri = null }) { Text("إغلاق") } }
+        )
     }
 
     MaterialTheme(colorScheme = MalekPlayColors) {
@@ -223,7 +282,7 @@ private fun MalekPlayApp() {
                     Card(shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF142923))) {
                         Column {
-                            Player(uri = item.uri, isVideo = item.isVideo, title = item.name, isFullscreen = isFullscreen, onToggleFullscreen = setFullscreen)
+                            Player(uri = item.uri, isVideo = item.isVideo, title = item.name, queueUris = queueUris, startIndex = queueStartIndex, isFullscreen = isFullscreen, onToggleFullscreen = setFullscreen)
                             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = { selected = null }) { Text("إغلاق المشغل") }
@@ -239,7 +298,15 @@ private fun MalekPlayApp() {
                 Spacer(Modifier.height(15.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { filePicker.launch(arrayOf("video/*", "audio/*")) }) {
+                    TextButton(onClick = { showCreatePlaylist = true }) {
+                        Icon(Icons.Default.Add, null)
+                        Text("قائمة جديدة")
+                    }
+                    TextButton(onClick = { tab = LibraryTab.PLAYLISTS; activePlaylist = null }) {
+                        Icon(Icons.Default.PlaylistPlay, null)
+                        Text("قوائم التشغيل")
+                    }
+                    TextButton(onClick = { filePicker.launch(arrayOf("video/*", "audio/*")) })
                         Icon(Icons.Default.FolderOpen, null)
                         Spacer(Modifier.width(4.dp))
                         Text("فتح ملف")
@@ -302,6 +369,7 @@ private fun MalekPlayApp() {
                             LibraryTab.AUDIO -> "الصوتيات"
                             LibraryTab.FAVORITES -> "المفضلة"
                             LibraryTab.RECENT -> "الأخيرة"
+                            LibraryTab.PLAYLISTS -> "القوائم"
                         }
                         Surface(
                             Modifier.weight(1f).clip(RoundedCornerShape(11.dp)).clickable { tab = choice },
@@ -337,6 +405,71 @@ private fun MalekPlayApp() {
                     loading -> Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
+
+                    tab == LibraryTab.PLAYLISTS -> {
+                        val currentPlaylist = playlists.firstOrNull { it.name == activePlaylist }
+                        Column(Modifier.weight(1f)) {
+                            if (currentPlaylist == null) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    Text("قوائمك الموسيقية", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                    Button(onClick = { showCreatePlaylist = true }) { Text("إنشاء قائمة") }
+                                }
+                                if (playlists.isEmpty()) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("لم تنشئ أي قائمة تشغيل بعد", color = Color(0xFF718079))
+                                    }
+                                } else {
+                                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(playlists, key = { it.name }) { playlist ->
+                                            Card(Modifier.fillMaxWidth().clickable { activePlaylist = playlist.name },
+                                                colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                                                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Default.PlaylistPlay, null, tint = Color(0xFF176B5B))
+                                                    Spacer(Modifier.width(10.dp))
+                                                    Column(Modifier.weight(1f)) {
+                                                        Text(playlist.name, fontWeight = FontWeight.Bold)
+                                                        Text("${playlist.uris.size} مقطع", color = Color(0xFF718079), fontSize = 12.sp)
+                                                    }
+                                                    IconButton(onClick = { persistPlaylists(playlists.filterNot { it.name == playlist.name }) }) {
+                                                        Icon(Icons.Default.Delete, "حذف القائمة", tint = Color(0xFFB34B42))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    TextButton(onClick = { activePlaylist = null }) { Text("رجوع للقوائم") }
+                                    Spacer(Modifier.weight(1f))
+                                    Text(currentPlaylist.name, fontWeight = FontWeight.Bold)
+                                }
+                                val playlistEntries = currentPlaylist.uris.mapNotNull { key -> entries.firstOrNull { it.uri.toString() == key } }
+                                if (playlistEntries.isEmpty()) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("هذه القائمة فارغة أو بعض ملفاتها لم تعد متاحة")
+                                    }
+                                } else {
+                                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(playlistEntries, key = { it.uri.toString() }) { entry ->
+                                            MediaRow(entry, selected?.uri == entry.uri, entry.uri.toString() in favoriteUris,
+                                                { toggleFavorite(entry.uri) },
+                                                { persistPlaylists(playlists.map { p ->
+                                                    if (p.name == currentPlaylist.name) p.copy(uris = p.uris - entry.uri.toString()) else p
+                                                }) },
+                                                {
+                                                    queueUris = playlistEntries.map { it.uri }
+                                                    queueStartIndex = playlistEntries.indexOf(entry)
+                                                    selected = entry
+                                                    markRecentlyPlayed(entry.uri)
+                                                })
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     shown.isEmpty() -> Column(
                         Modifier.fillMaxWidth().weight(1f),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -364,7 +497,13 @@ private fun MalekPlayApp() {
                                 selected = selected?.uri == entry.uri,
                                 favorite = entry.uri.toString() in favoriteUris,
                                 onFavoriteClick = { toggleFavorite(entry.uri) },
-                                onClick = { selected = entry; markRecentlyPlayed(entry.uri) }
+                                onAddPlaylist = { addToPlaylistUri = entry.uri },
+                                onClick = {
+                                    queueUris = listOf(entry.uri)
+                                    queueStartIndex = 0
+                                    selected = entry
+                                    markRecentlyPlayed(entry.uri)
+                                }
                             )
                         }
                     }
@@ -376,6 +515,29 @@ private fun MalekPlayApp() {
             }
         }
     }
+}
+
+
+private fun loadPlaylists(raw: String): List<UserPlaylist> = runCatching {
+    val array = org.json.JSONArray(raw)
+    (0 until array.length()).mapNotNull { index ->
+        val item = array.optJSONObject(index) ?: return@mapNotNull null
+        val name = item.optString("name").trim()
+        val tracks = item.optJSONArray("uris") ?: org.json.JSONArray()
+        if (name.isBlank()) null else UserPlaylist(name, (0 until tracks.length()).map { tracks.optString(it) }.filter { it.isNotBlank() })
+    }
+}.getOrDefault(emptyList())
+
+private fun savePlaylists(playlists: List<UserPlaylist>): String {
+    val array = org.json.JSONArray()
+    playlists.forEach { playlist ->
+        val item = org.json.JSONObject().put("name", playlist.name)
+        val tracks = org.json.JSONArray()
+        playlist.uris.forEach { tracks.put(it) }
+        item.put("uris", tracks)
+        array.put(item)
+    }
+    return array.toString()
 }
 
 private fun libraryPrefsValue(context: Context, key: String, fallback: String): String =
@@ -423,6 +585,7 @@ private fun MediaRow(
     selected: Boolean,
     favorite: Boolean,
     onFavoriteClick: () -> Unit,
+    onAddPlaylist: () -> Unit,
     onClick: () -> Unit
 ) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -437,6 +600,9 @@ private fun MediaRow(
                 val kind = if (entry.isVideo) "فيديو" else "صوت"
                 Text(kind + "  •  " + durationText(entry.durationMs) + "  •  " +
                     sizeText(entry.sizeBytes), color = Color(0xFF7A8981), fontSize = 11.sp)
+            }
+            IconButton(onClick = onAddPlaylist) {
+                Icon(Icons.Default.PlaylistAdd, contentDescription = "إضافة إلى قائمة تشغيل", tint = Color(0xFF176B5B))
             }
             IconButton(onClick = onFavoriteClick) {
                 Icon(
@@ -473,14 +639,16 @@ private fun Thumbnail(entry: MediaEntry) {
 }
 
 @Composable
-private fun Player(uri: Uri, isVideo: Boolean, title: String, isFullscreen: Boolean, onToggleFullscreen: (Boolean) -> Unit) {
+private fun Player(uri: Uri, isVideo: Boolean, title: String, queueUris: List<Uri>, startIndex: Int, isFullscreen: Boolean, onToggleFullscreen: (Boolean) -> Unit) {
     val context = LocalContext.current
     val preferences = remember(context) {
         context.getSharedPreferences("malekplay_playback", Context.MODE_PRIVATE)
     }
-    val player = remember(uri) {
+    val playbackQueue = remember(uri, queueUris) { if (queueUris.isEmpty()) listOf(uri) else queueUris }
+    val safeStartIndex = startIndex.coerceIn(0, playbackQueue.lastIndex)
+    val player = remember(uri, playbackQueue, safeStartIndex) {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(uri))
+            setMediaItems(playbackQueue.map { MediaItem.fromUri(it) }, safeStartIndex, 0L)
             setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
