@@ -681,59 +681,113 @@ private fun Thumbnail(entry: MediaEntry) {
 }
 
 @Composable
-private fun Player(uri: Uri, isVideo: Boolean, title: String, queueUris: List<Uri>, startIndex: Int, isFullscreen: Boolean, onToggleFullscreen: (Boolean) -> Unit) {
+private fun Player(
+    uri: Uri,
+    isVideo: Boolean,
+    title: String,
+    queueUris: List<Uri>,
+    startIndex: Int,
+    isFullscreen: Boolean,
+    onToggleFullscreen: (Boolean) -> Unit
+) {
     val context = LocalContext.current
     val preferences = remember(context) {
         context.getSharedPreferences("malekplay_playback", Context.MODE_PRIVATE)
     }
-    val playbackQueue = remember(uri, queueUris) { if (queueUris.isEmpty()) listOf(uri) else queueUris }
+    val playbackQueue = remember(uri, queueUris) {
+        if (queueUris.isEmpty()) listOf(uri) else queueUris
+    }
     val safeStartIndex = startIndex.coerceIn(0, playbackQueue.lastIndex)
-    val player = remember(uri, playbackQueue, safeStartIndex) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItems(playbackQueue.map { MediaItem.fromUri(it) }, safeStartIndex, 0L)
-            setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .build(),
-                true
-            )
-            setHandleAudioBecomingNoisy(true)
-            val savedPosition = preferences.getLong("position:${uri}", 0L)
-            prepare()
-            if (savedPosition > 5_000L) seekTo(savedPosition)
-            playWhenReady = true
+
+    val controllerFuture = remember(context) {
+        val token = androidx.media3.session.SessionToken(
+            context,
+            android.content.ComponentName(context, com.malekplay.player.PlaybackService::class.java)
+        )
+        androidx.media3.session.MediaController.Builder(context, token).buildAsync()
+    }
+    var controller by remember { mutableStateOf<androidx.media3.session.MediaController?>(null) }
+    var connectionError by remember { mutableStateOf(false) }
+
+    DisposableEffect(controllerFuture) {
+        controllerFuture.addListener(
+            {
+                controller = runCatching { controllerFuture.get() }.getOrNull()
+                connectionError = controller == null
+            },
+            ContextCompat.getMainExecutor(context)
+        )
+        onDispose {
+            androidx.media3.session.MediaController.releaseFuture(controllerFuture)
         }
     }
-    var isPlaying by remember(uri) { mutableStateOf(player.isPlaying) }
+
+    val player = controller
+    LaunchedEffect(player, uri, playbackQueue, safeStartIndex) {
+        if (player != null) {
+            val startUri = playbackQueue[safeStartIndex]
+            val savedPosition = preferences.getLong("position:$startUri", 0L).coerceAtLeast(0L)
+            player.setMediaItems(
+                playbackQueue.map { androidx.media3.common.MediaItem.fromUri(it) },
+                safeStartIndex,
+                savedPosition
+            )
+            player.prepare()
+            player.playWhenReady = true
+        }
+    }
+
+    if (player == null) {
+        Column(
+            Modifier.fillMaxWidth().padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            if (!connectionError) CircularProgressIndicator()
+            Spacer(Modifier.height(10.dp))
+            Text(
+                if (connectionError) "تعذر الاتصال بخدمة التشغيل" else "جارٍ تجهيز المشغل...",
+                color = Color(0xFF718079)
+            )
+        }
+        return
+    }
+
+    var isPlaying by remember { mutableStateOf(player.isPlaying) }
     DisposableEffect(player) {
         val listener = object : androidx.media3.common.Player.Listener {
-            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
         }
         player.addListener(listener)
         onDispose { player.removeListener(listener) }
     }
+
     var speedMenu by remember { mutableStateOf(false) }
-    var speed by remember(uri) { mutableFloatStateOf(1f) }
-    var controlsLocked by remember(uri) { mutableStateOf(false) }
-    var subtitleName by remember(uri) { mutableStateOf<String?>(null) }
-    val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { subtitleUri ->
+    var speed by remember { mutableFloatStateOf(1f) }
+    var controlsLocked by remember { mutableStateOf(false) }
+    var subtitleName by remember { mutableStateOf<String?>(null) }
+    val subtitlePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { subtitleUri ->
         if (subtitleUri != null) {
             try {
                 context.contentResolver.takePersistableUriPermission(
                     subtitleUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (_: SecurityException) { }
-            val subtitle = MediaItem.SubtitleConfiguration.Builder(subtitleUri)
+            val subtitle = androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(subtitleUri)
                 .setMimeType(MimeTypes.APPLICATION_SUBRIP)
                 .setLanguage("ar")
                 .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                 .build()
-            val resumeAt = player.currentPosition
+            val currentPosition = player.currentPosition
+            val currentItem = player.currentMediaItem ?: androidx.media3.common.MediaItem.fromUri(uri)
             player.setMediaItem(
-                MediaItem.Builder().setUri(uri)
-                    .setSubtitleConfigurations(listOf(subtitle)).build(),
-                resumeAt
+                currentItem.buildUpon()
+                    .setSubtitleConfigurations(listOf(subtitle))
+                    .build(),
+                currentPosition
             )
             player.prepare()
             player.playWhenReady = true
@@ -741,24 +795,34 @@ private fun Player(uri: Uri, isVideo: Boolean, title: String, queueUris: List<Ur
         }
     }
 
-    DisposableEffect(player, uri, context) {
+    DisposableEffect(player, context, isVideo) {
         val activity = context as? ComponentActivity
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) player.pause()
+            // Audio continues through the service; video pauses when its UI leaves foreground.
+            if (event == Lifecycle.Event.ON_STOP && isVideo) player.pause()
         }
         activity?.lifecycle?.addObserver(observer)
         onDispose {
             activity?.lifecycle?.removeObserver(observer)
-            preferences.edit().putLong("position:${uri}", player.currentPosition).apply()
-            player.release()
+            val currentUri = player.currentMediaItem?.localConfiguration?.uri ?: uri
+            preferences.edit().putLong("position:$currentUri", player.currentPosition).apply()
         }
     }
+
     Column {
         if (isVideo) {
             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                 AndroidView(
-                    factory = { PlayerView(it).apply { this.player = player; useController = !controlsLocked } },
-                    update = { it.player = player; it.useController = !controlsLocked },
+                    factory = {
+                        PlayerView(it).apply {
+                            this.player = player
+                            useController = !controlsLocked
+                        }
+                    },
+                    update = {
+                        it.player = player
+                        it.useController = !controlsLocked
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
                 IconButton(
@@ -776,18 +840,21 @@ private fun Player(uri: Uri, isVideo: Boolean, title: String, queueUris: List<Ur
             }
         } else {
             Column(
-                Modifier.fillMaxWidth().background(Color(0xFF142923)).padding(vertical = 22.dp, horizontal = 16.dp),
+                Modifier.fillMaxWidth().background(Color(0xFF142923))
+                    .padding(vertical = 22.dp, horizontal = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(
-                    Modifier.size(112.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xFF245447)),
+                    Modifier.size(112.dp).clip(RoundedCornerShape(24.dp))
+                        .background(Color(0xFF245447)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.MusicNote, null, tint = Color(0xFFE4C27B), modifier = Modifier.size(58.dp))
+                    Icon(Icons.Default.MusicNote, null, tint = Color(0xFFE4C27B),
+                        modifier = Modifier.size(58.dp))
                 }
                 Spacer(Modifier.height(12.dp))
-                Text(title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis)
+                Text(title, color = Color.White, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(8.dp))
                 IconButton(onClick = { if (player.isPlaying) player.pause() else player.play() }) {
                     Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -801,12 +868,12 @@ private fun Player(uri: Uri, isVideo: Boolean, title: String, queueUris: List<Ur
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            TextButton(onClick = { player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L)) }) {
-                Text("−10 ث", color = Color.White)
-            }
-            TextButton(onClick = { player.seekTo(player.currentPosition + 10_000L) }) {
-                Text("+10 ث", color = Color.White)
-            }
+            TextButton(onClick = {
+                player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
+            }) { Text("−10 ث", color = Color.White) }
+            TextButton(onClick = {
+                player.seekTo(player.currentPosition + 10_000L)
+            }) { Text("+10 ث", color = Color.White) }
             Box {
                 TextButton(onClick = { speedMenu = true }) {
                     Text("${speed}×", color = Color.White)
@@ -838,6 +905,10 @@ private fun Player(uri: Uri, isVideo: Boolean, title: String, queueUris: List<Ur
             TextButton(onClick = { onToggleFullscreen(!isFullscreen) }) {
                 Text(if (isFullscreen) "تصغير" else "ملء الشاشة", color = Color.White)
             }
+        }
+        subtitleName?.let {
+            Text("الترجمة الخارجية: $it", color = Color(0xFF718079),
+                fontSize = 11.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
         }
     }
 }
