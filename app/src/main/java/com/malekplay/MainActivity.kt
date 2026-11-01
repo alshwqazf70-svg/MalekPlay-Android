@@ -1,10 +1,12 @@
 package com.malekplay
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -18,6 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -47,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -735,6 +739,10 @@ private fun Player(
     val sleepTimerActive by playerViewModel.sleepTimerActive.collectAsState()
     var speed by remember { mutableFloatStateOf(1f) }
     var controlsLocked by remember { mutableStateOf(false) }
+    var gestureHint by remember { mutableStateOf<String?>(null) }
+    val audioManager = remember(context) {
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
     var subtitleName by remember { mutableStateOf<String?>(null) }
     val subtitlePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -794,6 +802,54 @@ private fun Player(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+                if (!controlsLocked) {
+                    Box(
+                        Modifier.align(Alignment.CenterStart).width(58.dp).fillMaxHeight()
+                            .pointerInput(context) {
+                                detectVerticalDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    val window = (context as? Activity)?.window
+                                    if (window != null) {
+                                        val current = window.attributes.screenBrightness
+                                            .takeIf { it >= 0f } ?: 0.5f
+                                        val next = (current - dragAmount / 900f).coerceIn(0.05f, 1f)
+                                        window.attributes = window.attributes.apply {
+                                            screenBrightness = next
+                                        }
+                                        gestureHint = "سطوع الشاشة " + (next * 100).toInt() + "٪"
+                                    }
+                                }
+                            }
+                    )
+                    Box(
+                        Modifier.align(Alignment.CenterEnd).width(58.dp).fillMaxHeight()
+                            .pointerInput(audioManager) {
+                                var accumulated = 0f
+                                detectVerticalDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    accumulated += dragAmount
+                                    if (accumulated <= -12f || accumulated >= 12f) {
+                                        val direction = if (accumulated < 0f) 1 else -1
+                                        val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                                        val maximum = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                                        val next = (current + direction).coerceIn(0, maximum)
+                                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+                                        gestureHint = "مستوى الصوت " + (next * 100 / maximum.coerceAtLeast(1)) + "٪"
+                                        accumulated = 0f
+                                    }
+                                }
+                            }
+                    )
+                }
+                gestureHint?.let { hint ->
+                    Surface(
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 52.dp),
+                        color = Color(0xCC142923),
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        Text(hint, color = Color.White, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
+                    }
+                }
                 IconButton(
                     onClick = { controlsLocked = !controlsLocked },
                     modifier = Modifier.align(Alignment.TopEnd)
