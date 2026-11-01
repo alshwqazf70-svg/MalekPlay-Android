@@ -22,11 +22,11 @@ class MalekPlayBackupManager(
         val prefs = context.getSharedPreferences("malekplay_library", Context.MODE_PRIVATE)
         val settings = settingsRepository.currentSettings()
         val favorites = JSONArray().apply {
-            prefs.getStringSet("favorites", emptySet()).orEmpty().sorted().forEach(::put)
+            prefs.getStringSet("favorites", emptySet()).orEmpty().sorted().forEach { put(it) }
         }
         val recent = JSONArray().apply {
             prefs.getString("recent", "").orEmpty().split("|")
-                .filter { it.isNotBlank() }.take(50).forEach(::put)
+                .filter { it.isNotBlank() }.take(50).forEach { put(it) }
         }
         val playlistsText = prefs.getString("playlists_json", "[]") ?: "[]"
         val playlists = JSONArray(playlistsText)
