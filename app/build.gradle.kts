@@ -47,5 +47,6 @@ dependencies {
     implementation(libs.media3.session)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
+    implementation(libs.datastore.preferences)
     ksp(libs.room.compiler)
 }
