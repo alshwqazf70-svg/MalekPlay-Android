@@ -340,7 +340,7 @@ private fun MalekPlayApp() {
                     Card(shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF142923))) {
                         Column {
-                            PlayerScreen(uri = item.uri, isVideo = item.isVideo, title = item.name, queueUris = queueUris, startIndex = queueStartIndex, isFullscreen = isFullscreen, onToggleFullscreen = setFullscreen, resumePlayback = playerSettings.resumePlayback, defaultPlaybackSpeed = playerSettings.defaultPlaybackSpeed, rememberBrightness = playerSettings.rememberBrightness)
+                            PlayerScreen(uri = item.uri, isVideo = item.isVideo, title = item.name, queueUris = queueUris, startIndex = queueStartIndex, isFullscreen = isFullscreen, onToggleFullscreen = setFullscreen, resumePlayback = playerSettings.resumePlayback, defaultPlaybackSpeed = playerSettings.defaultPlaybackSpeed, rememberBrightness = playerSettings.rememberBrightness, subtitleSizeSp = playerSettings.subtitleSizeSp)
                             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = { selected = null }) { Text("إغلاق المشغل") }
