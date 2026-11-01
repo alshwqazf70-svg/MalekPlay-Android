@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Size
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -107,6 +108,18 @@ private fun MalekPlayApp() {
     var loading by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     var isFullscreen by remember { mutableStateOf(false) }
+    val setFullscreen: (Boolean) -> Unit = { enabled ->
+        isFullscreen = enabled
+        val activity = context as? ComponentActivity
+        activity?.requestedOrientation = if (enabled) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        activity?.window?.let { window ->
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            if (enabled) controller.hide(WindowInsetsCompat.Type.systemBars())
+            else controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+    BackHandler(enabled = isFullscreen) { setFullscreen(false) }
 
     val permissionRequest = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -169,17 +182,7 @@ private fun MalekPlayApp() {
                     Card(shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF142923))) {
                         Column {
-                            Player(uri = item.uri, isFullscreen = isFullscreen, onToggleFullscreen = { enabled ->
-                                isFullscreen = enabled
-                                val activity = context as? ComponentActivity
-                                activity?.requestedOrientation = if (enabled) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                    else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                                activity?.window?.let { window ->
-                                    val controller = WindowInsetsControllerCompat(window, window.decorView)
-                                    if (enabled) controller.hide(WindowInsetsCompat.Type.systemBars())
-                                    else controller.show(WindowInsetsCompat.Type.systemBars())
-                                }
-                            })
+                            Player(uri = item.uri, isFullscreen = isFullscreen, onToggleFullscreen = setFullscreen)
                             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = { selected = null }) { Text("إغلاق المشغل") }
