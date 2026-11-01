@@ -361,6 +361,14 @@ private fun MalekPlayApp() {
                     placeholder = { Text("ابحث عن فيديو أو أغنية...") },
                     leadingIcon = { Icon(Icons.Default.Search, null) }
                 )
+                libraryLoadError?.let { message ->
+                    Text(
+                        message,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        color = Color(0xFFB34B42),
+                        fontSize = 12.sp
+                    )
+                }
                 Spacer(Modifier.height(5.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Box {
