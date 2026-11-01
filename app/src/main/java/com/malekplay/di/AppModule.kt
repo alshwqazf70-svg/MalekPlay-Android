@@ -11,6 +11,7 @@ import com.malekplay.network.WebDavClient
 import com.malekplay.network.SftpClient
 import com.malekplay.network.SmbClient
 import com.malekplay.translation.SubtitleTranslationEngine
+import com.malekplay.backup.MalekPlayBackupManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -70,5 +71,12 @@ object AppModule {
     @Singleton
     fun provideSubtitleTranslationEngine(@ApplicationContext context: Context) =
         SubtitleTranslationEngine(context)
+
+    @Provides
+    @Singleton
+    fun provideBackupManager(
+        @ApplicationContext context: Context,
+        settingsRepository: SettingsRepository
+    ) = MalekPlayBackupManager(context, settingsRepository)
 
 }
