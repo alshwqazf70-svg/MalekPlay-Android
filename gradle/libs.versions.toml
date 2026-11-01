@@ -12,6 +12,8 @@ datastore = "1.1.2"
 hilt = "2.57.1"
 hiltNavigation = "1.2.0"
 mlkitTranslate = "17.0.3"
+smbj = "0.14.0"
+sshj = "0.40.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core" }
@@ -35,6 +37,8 @@ hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref
 hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
 hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavigation" }
 mlkit-translate = { group = "com.google.mlkit", name = "translate", version.ref = "mlkitTranslate" }
+smbj = { group = "com.hierynomus", name = "smbj", version.ref = "smbj" }
+sshj = { group = "com.hierynomus", name = "sshj", version.ref = "sshj" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
