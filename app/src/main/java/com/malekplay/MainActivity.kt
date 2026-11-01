@@ -31,6 +31,8 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -61,7 +63,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private enum class LibraryTab { ALL, VIDEOS, AUDIO }
+private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES }
 private data class MediaEntry(
     val uri: Uri,
     val name: String,
@@ -108,6 +110,18 @@ private fun MalekPlayApp() {
     var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
+    val libraryPrefs = remember(context) {
+        context.getSharedPreferences("malekplay_library", Context.MODE_PRIVATE)
+    }
+    var favoriteUris by remember {
+        mutableStateOf(libraryPrefs.getStringSet("favorites", emptySet())?.toSet() ?: emptySet())
+    }
+    fun toggleFavorite(uri: Uri) {
+        val key = uri.toString()
+        val updated = if (key in favoriteUris) favoriteUris - key else favoriteUris + key
+        favoriteUris = updated
+        libraryPrefs.edit().putStringSet("favorites", updated).apply()
+    }
     var isFullscreen by remember { mutableStateOf(false) }
     val setFullscreen: (Boolean) -> Unit = { enabled ->
         isFullscreen = enabled
@@ -153,7 +167,8 @@ private fun MalekPlayApp() {
         entries.filter {
             (tab == LibraryTab.ALL ||
                 (tab == LibraryTab.VIDEOS && it.isVideo) ||
-                (tab == LibraryTab.AUDIO && !it.isVideo)) &&
+                (tab == LibraryTab.AUDIO && !it.isVideo) ||
+                (tab == LibraryTab.FAVORITES && it.uri.toString() in favoriteUris)) &&
                 it.name.contains(query.trim(), ignoreCase = true)
         }
     }
@@ -227,6 +242,7 @@ private fun MalekPlayApp() {
                             LibraryTab.ALL -> "الكل"
                             LibraryTab.VIDEOS -> "الفيديوهات"
                             LibraryTab.AUDIO -> "الصوتيات"
+                            LibraryTab.FAVORITES -> "المفضلة"
                         }
                         Surface(
                             Modifier.weight(1f).clip(RoundedCornerShape(11.dp)).clickable { tab = choice },
@@ -284,7 +300,13 @@ private fun MalekPlayApp() {
                         Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(shown, key = { it.uri.toString() }) { entry ->
-                            MediaRow(entry, selected?.uri == entry.uri) { selected = entry }
+                            MediaRow(
+                                entry = entry,
+                                selected = selected?.uri == entry.uri,
+                                favorite = entry.uri.toString() in favoriteUris,
+                                onFavoriteClick = { toggleFavorite(entry.uri) },
+                                onClick = { selected = entry }
+                            )
                         }
                     }
                 }
@@ -334,7 +356,13 @@ private suspend fun loadMedia(context: Context): List<MediaEntry> = withContext(
 }
 
 @Composable
-private fun MediaRow(entry: MediaEntry, selected: Boolean, onClick: () -> Unit) {
+private fun MediaRow(
+    entry: MediaEntry,
+    selected: Boolean,
+    favorite: Boolean,
+    onFavoriteClick: () -> Unit,
+    onClick: () -> Unit
+) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(15.dp),
         colors = CardDefaults.cardColors(containerColor =
@@ -348,7 +376,14 @@ private fun MediaRow(entry: MediaEntry, selected: Boolean, onClick: () -> Unit) 
                 Text(kind + "  •  " + durationText(entry.durationMs) + "  •  " +
                     sizeText(entry.sizeBytes), color = Color(0xFF7A8981), fontSize = 11.sp)
             }
-            Spacer(Modifier.width(12.dp))
+            IconButton(onClick = onFavoriteClick) {
+                Icon(
+                    if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
+                    contentDescription = if (favorite) "إزالة من المفضلة" else "إضافة إلى المفضلة",
+                    tint = if (favorite) Color(0xFFD39A24) else Color(0xFF87958D)
+                )
+            }
+            Spacer(Modifier.width(4.dp))
             Thumbnail(entry)
         }
     }
