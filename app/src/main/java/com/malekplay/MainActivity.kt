@@ -43,9 +43,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.TrackSelectionDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -351,19 +353,71 @@ private fun Thumbnail(entry: MediaEntry) {
 @Composable
 private fun Player(uri: Uri) {
     val context = LocalContext.current
+    val preferences = remember(context) {
+        context.getSharedPreferences("malekplay_playback", Context.MODE_PRIVATE)
+    }
     val player = remember(uri) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(uri))
+            val savedPosition = preferences.getLong("position:${uri}", 0L)
             prepare()
+            if (savedPosition > 5_000L) seekTo(savedPosition)
             playWhenReady = true
         }
     }
-    DisposableEffect(player) { onDispose { player.release() } }
-    AndroidView(
-        factory = { PlayerView(it).apply { this.player = player; useController = true } },
-        update = { it.player = player },
-        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-    )
+    var speedMenu by remember { mutableStateOf(false) }
+    var speed by remember(uri) { mutableFloatStateOf(1f) }
+
+    DisposableEffect(player, uri) {
+        onDispose {
+            preferences.edit().putLong("position:${uri}", player.currentPosition).apply()
+            player.release()
+        }
+    }
+    Column {
+        AndroidView(
+            factory = { PlayerView(it).apply { this.player = player; useController = true } },
+            update = { it.player = player },
+            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+        )
+        Row(
+            Modifier.fillMaxWidth().background(Color(0xFF142923)).padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            TextButton(onClick = { player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L)) }) {
+                Text("−10 ث", color = Color.White)
+            }
+            TextButton(onClick = { player.seekTo(player.currentPosition + 10_000L) }) {
+                Text("+10 ث", color = Color.White)
+            }
+            Box {
+                TextButton(onClick = { speedMenu = true }) {
+                    Text("${speed}×", color = Color.White)
+                }
+                DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
+                    listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { value ->
+                        DropdownMenuItem(
+                            text = { Text("${value}×") },
+                            onClick = {
+                                speed = value
+                                player.setPlaybackSpeed(value)
+                                speedMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+            TextButton(onClick = {
+                TrackSelectionDialogBuilder(context, "المسار الصوتي", player, C.TRACK_TYPE_AUDIO)
+                    .build().show()
+            }) { Text("الصوت", color = Color.White) }
+            TextButton(onClick = {
+                TrackSelectionDialogBuilder(context, "الترجمة", player, C.TRACK_TYPE_TEXT)
+                    .build().show()
+            }) { Text("الترجمة", color = Color.White) }
+        }
+    }
 }
 
 private fun durationText(ms: Long): String {
