@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -204,6 +205,26 @@ fun PlayerScreen(
                                         val next = (current + direction).coerceIn(0, maximum)
                                         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
                                         gestureHint = "مستوى الصوت " + (next * 100 / maximum.coerceAtLeast(1)) + "٪"
+                                        accumulated = 0f
+                                    }
+                                }
+                            }
+                    )
+                }
+                if (!controlsLocked) {
+                    Box(
+                        Modifier.align(Alignment.TopCenter).fillMaxWidth().height(34.dp)
+                            .pointerInput(player) {
+                                var accumulated = 0f
+                                detectHorizontalDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    accumulated += dragAmount
+                                    if (accumulated >= 28f || accumulated <= -28f) {
+                                        val seconds = if (accumulated > 0f) -5L else 5L
+                                        val target = (player.currentPosition + seconds * 1000L)
+                                            .coerceIn(0L, player.duration.takeIf { it > 0L } ?: Long.MAX_VALUE)
+                                        player.seekTo(target)
+                                        gestureHint = if (seconds > 0) "تقديم 5 ثوانٍ" else "رجوع 5 ثوانٍ"
                                         accumulated = 0f
                                     }
                                 }
