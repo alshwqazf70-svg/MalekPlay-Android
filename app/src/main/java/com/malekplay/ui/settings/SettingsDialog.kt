@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Slider
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -59,6 +60,19 @@ fun SettingsDialog(
                     },
                     valueRange = 0.5f..2f
                 )
+                Text("مظهر التطبيق", style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+                listOf("light" to "فاتح", "dark" to "داكن", "system" to "حسب إعدادات الجهاز").forEach { (value, label) ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = settings.theme == value,
+                            onClick = { onSettingsChange { it.copy(theme = value) } }
+                        )
+                        Text(label)
+                    }
+                }
                 Text("حجم الترجمة: ${settings.subtitleSizeSp} نقطة")
                 Slider(
                     value = settings.subtitleSizeSp.toFloat(),
