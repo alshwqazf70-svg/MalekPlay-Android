@@ -96,6 +96,12 @@ fun PlayerScreen(
                 if (connectionError) "تعذر الاتصال بخدمة التشغيل" else "جارٍ تجهيز المشغل...",
                 color = Color(0xFF718079)
             )
+            if (connectionError) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = { playerViewModel.connect() }) {
+                    Text("إعادة المحاولة")
+                }
+            }
         }
         return
     }
