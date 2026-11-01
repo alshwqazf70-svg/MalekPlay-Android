@@ -17,15 +17,31 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
+
+        // Device-specific build: Samsung Galaxy Note 9 (Snapdragon), 64-bit ARM.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildFeatures { compose = true }
 
-    // Remove duplicate OSGi metadata from JVM-only multi-release JAR entries.
-    // These descriptors are not used by the Android runtime.
     packaging {
         resources {
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            // Temporary QA signing only; replace with a private release key before public distribution.
+            signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 
