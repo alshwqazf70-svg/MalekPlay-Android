@@ -32,6 +32,7 @@ class MediaRepository(
         )
     }
 
+    suspend fun getMediaWithDetails(mediaId: String) = dao.getMediaWithDetails(mediaId)
     suspend fun getPlaybackState(mediaId: String) = dao.getPlaybackState(mediaId)
     suspend fun getTrackPreference(mediaId: String) = dao.getTrackPreference(mediaId)
     suspend fun saveTrackPreference(preference: TrackPreferenceEntity) =
