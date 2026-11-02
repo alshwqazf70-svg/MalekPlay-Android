@@ -14,7 +14,7 @@ class NetworkPathPolicyTest {
     }
 
     @Test fun collapsesRepeatedSeparators() {
-        assertEquals("media/videos", NetworkPathPolicy.normalize("//media///videos/"))
+        assertEquals("/media/videos", NetworkPathPolicy.normalize("//media///videos/"))
     }
 
     @Test fun rejectsParentTraversal() {

@@ -214,7 +214,11 @@ class PlaybackService : MediaSessionService() {
                                         .trim('/')
                                         .split('/')
                                         .filter { it.isNotEmpty() }
-                                        .forEach { segment -> addPathSegment(Uri.decode(segment)) }
+                                        .forEach { segment ->
+                                            val decodedSegment = Uri.decode(segment)
+                                            require(decodedSegment != "." && decodedSegment != "..")
+                                            addPathSegment(decodedSegment)
+                                        }
                                 }
                                 .build()
                                 .encodedPath
