@@ -97,9 +97,6 @@ class PlaybackService : MediaSessionService() {
         val activePlayer = player ?: return null
         val item = activePlayer.currentMediaItem ?: return null
         val mediaId = item.mediaId
-        // Persist only MediaStore-indexed local items; document-picker and network
-        // sources continue using the UI's SharedPreferences fallback.
-        if (!mediaId.startsWith("content://")) return null
         val position = activePlayer.currentPosition.coerceAtLeast(0L)
         val duration = activePlayer.duration.takeIf { it > 0L } ?: 0L
         val speed = activePlayer.playbackParameters.speed
@@ -107,7 +104,16 @@ class PlaybackService : MediaSessionService() {
         val subtitleTrack = currentTrackId(C.TRACK_TYPE_TEXT)
         return persistenceScope.launch {
             runCatching {
-                if (mediaRepository.getMediaWithDetails(mediaId) != null) {
+                // Always preserve progress for remote and document-picker URIs as well.
+                getSharedPreferences("malekplay_playback", MODE_PRIVATE).edit()
+                    .putLong("position:$mediaId", position)
+                    .putFloat("speed:$mediaId", speed)
+                    .apply()
+
+                // Room adds relational history and track preferences for indexed MediaStore items.
+                if (mediaId.startsWith("content://") &&
+                    mediaRepository.getMediaWithDetails(mediaId) != null
+                ) {
                     mediaRepository.savePlayback(mediaId, position, speed, duration)
                     if (audioTrack != null || subtitleTrack != null) {
                         mediaRepository.saveTrackPreference(
