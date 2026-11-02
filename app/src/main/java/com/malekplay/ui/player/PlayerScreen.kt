@@ -45,6 +45,7 @@ import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.MimeTypes
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.TrackSelectionDialogBuilder
 
 @UnstableApi
@@ -132,7 +133,7 @@ fun PlayerScreen(
 
     if (player == null) {
         Column(
-            Modifier.fillMaxWidth().padding(28.dp),
+            (if (isFullscreen) Modifier.fillMaxSize().background(Color.Black) else Modifier.fillMaxWidth().padding(28.dp)),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (!connectionError) CircularProgressIndicator()
@@ -156,7 +157,7 @@ fun PlayerScreen(
         mutableStateOf(isVideoMedia(context, uri, isVideo))
     }
     var currentTitle by remember(player, uri, title) { mutableStateOf(title) }
-    var controlsLocked by remember { mutableStateOf(false) }
+    var controlsLocked by rememberSaveable { mutableStateOf(false) }
     var subtitleName by remember { mutableStateOf<String?>(null) }
     var externalSubtitleUri by remember { mutableStateOf<Uri?>(null) }
     var translatingSubtitle by remember { mutableStateOf(false) }
@@ -307,19 +308,21 @@ fun PlayerScreen(
         }
     }
 
-    Column {
+    Column(modifier = if (isFullscreen) Modifier.fillMaxSize().background(Color.Black) else Modifier) {
         if (currentIsVideo) {
             Box(if (isFullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                 AndroidView(
                     factory = {
                         PlayerView(it).apply {
                             this.player = player
+                            resizeMode = if (isFullscreen) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
                             useController = !controlsLocked
                             subtitleView?.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, subtitleSizeSp.coerceIn(12, 48).toFloat())
                         }
                     },
                     update = {
                         it.player = player
+                        it.resizeMode = if (isFullscreen) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
                         it.useController = !controlsLocked
                         it.subtitleView?.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, subtitleSizeSp.coerceIn(12, 48).toFloat())
                     },
@@ -556,12 +559,13 @@ fun PlayerScreen(
                 Modifier.fillMaxWidth().background(Color(0xFF142923)),
                 horizontalArrangement = Arrangement.End
             ) {
-                IconButton(onClick = { controlsLocked = false }) {
-                    Icon(
-                        Icons.Default.LockOpen,
-                        contentDescription = "فتح عناصر التحكم",
-                        tint = Color.White
-                    )
+                FilledTonalButton(
+                    onClick = { controlsLocked = false },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Default.LockOpen, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("فتح عناصر التحكم")
                 }
             }
         }
