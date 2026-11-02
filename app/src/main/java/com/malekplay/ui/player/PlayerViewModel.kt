@@ -80,15 +80,6 @@ class PlayerViewModel @Inject constructor(
     suspend fun getSavedPlaybackState(mediaId: String) =
         runCatching { mediaRepository.getPlaybackState(mediaId) }.getOrNull()
 
-    fun savePlaybackState(mediaId: String, positionMs: Long, speed: Float, durationMs: Long) {
-        viewModelScope.launch {
-            runCatching {
-                if (mediaRepository.getMediaWithDetails(mediaId) != null) {
-                    mediaRepository.savePlayback(mediaId, positionMs, speed, durationMs)
-                }
-            }
-        }
-    }
 
     /** Timer runs in PlaybackService and survives the Activity being removed. */
     fun setSleepTimer(minutes: Int) {
