@@ -10,6 +10,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.malekplay.player.PlaybackService
+import com.malekplay.data.repository.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
@@ -22,7 +23,8 @@ import javax.inject.Inject
 /** Owns the UI-side MediaController connection. PlaybackService owns ExoPlayer. */
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    @ApplicationContext private val app: Context
+    @ApplicationContext private val app: Context,
+    private val mediaRepository: MediaRepository
 ) : ViewModel() {
     private val _controller = MutableStateFlow<MediaController?>(null)
     val controller = _controller.asStateFlow()
@@ -60,6 +62,20 @@ class PlayerViewModel @Inject constructor(
             },
             ContextCompat.getMainExecutor(app)
         )
+    }
+
+    /**
+     * Persist progress only for items already indexed in the local Room library.
+     * Network streams and one-off document-picker URIs are intentionally skipped.
+     */
+    fun savePlaybackState(mediaId: String, positionMs: Long, speed: Float, durationMs: Long) {
+        viewModelScope.launch {
+            runCatching {
+                if (mediaRepository.getMediaWithDetails(mediaId) != null) {
+                    mediaRepository.savePlayback(mediaId, positionMs, speed, durationMs)
+                }
+            }
+        }
     }
 
     fun setSleepTimer(minutes: Int) {
