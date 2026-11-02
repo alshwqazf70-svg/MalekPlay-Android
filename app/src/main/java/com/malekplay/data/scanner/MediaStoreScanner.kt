@@ -5,7 +5,6 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import com.malekplay.data.local.entity.MediaItemEntity
-import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -82,7 +81,7 @@ class MediaStoreScanner(context: Context) {
                     ?.takeIf { it.isNotBlank() }
                     ?: "مجلدات أخرى"
                 // Use the normalized path as the stable grouping key across audio/video.
-                val folderId = relativePath?.lowercase(Locale.ROOT) ?: "0"
+                val folderId = relativePath ?: "0"
                 val fallbackMime = if (isVideo) "video/*" else "audio/*"
 
                 result += MediaItemEntity(
