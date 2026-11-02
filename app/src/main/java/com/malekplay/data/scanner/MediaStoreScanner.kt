@@ -71,7 +71,7 @@ class MediaStoreScanner(context: Context) {
                     ?.takeIf { it.isNotBlank() }
                     ?: "مجلدات أخرى"
                 // Use the normalized path as the stable grouping key across audio/video.
-                val folderId = relativePath?.lowercase()?.hashCode()?.toString() ?: "0"
+                val folderId = relativePath?.lowercase() ?: "0"
                 val fallbackMime = if (isVideo) "video/*" else "audio/*"
 
                 result += MediaItemEntity(
