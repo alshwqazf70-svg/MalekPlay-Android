@@ -7,6 +7,7 @@ import android.media.audiofx.Equalizer
 import android.net.Uri
 import com.malekplay.translation.SubtitleTranslationEngine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -151,6 +152,19 @@ fun PlayerScreen(
     var sleepMenu by remember { mutableStateOf(false) }
     val sleepTimerActive by playerViewModel.sleepTimerActive.collectAsState()
     var speed by remember { mutableFloatStateOf(defaultPlaybackSpeed) }
+
+    LaunchedEffect(player, uri) {
+        while (true) {
+            delay(10_000L)
+            val currentUri = player.currentMediaItem?.localConfiguration?.uri ?: uri
+            playerViewModel.savePlaybackState(
+                currentUri.toString(),
+                player.currentPosition.coerceAtLeast(0L),
+                player.playbackParameters.speed,
+                player.duration.takeIf { it > 0L } ?: 0L
+            )
+        }
+    }
     var controlsLocked by remember { mutableStateOf(false) }
     var gestureHint by remember { mutableStateOf<String?>(null) }
     val audioManager = remember(context) {
@@ -199,8 +213,14 @@ fun PlayerScreen(
             if (event == Lifecycle.Event.ON_STOP) {
                 val currentUri = player.currentMediaItem?.localConfiguration?.uri ?: uri
                 preferences.edit()
-                    .putLong("position:$currentUri", player.currentPosition)
+                    .putLong("position:$currentUri", player.currentPosition.coerceAtLeast(0L))
                     .apply()
+                playerViewModel.savePlaybackState(
+                    currentUri.toString(),
+                    player.currentPosition.coerceAtLeast(0L),
+                    player.playbackParameters.speed,
+                    player.duration.takeIf { it > 0L } ?: 0L
+                )
             }
         }
         activity?.lifecycle?.addObserver(observer)
