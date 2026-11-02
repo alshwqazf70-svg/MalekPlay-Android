@@ -1,17 +1,17 @@
 package com.malekplay.di
 
 import android.content.Context
-import androidx.room.Room
+import com.malekplay.backup.MalekPlayBackupManager
 import com.malekplay.data.local.MalekPlayDatabase
+import com.malekplay.data.local.dao.MediaDao
 import com.malekplay.data.preferences.SettingsRepository
 import com.malekplay.data.repository.MediaRepository
 import com.malekplay.data.scanner.MediaStoreScanner
 import com.malekplay.network.NetworkCredentialVault
-import com.malekplay.network.WebDavClient
 import com.malekplay.network.SftpClient
 import com.malekplay.network.SmbClient
+import com.malekplay.network.WebDavClient
 import com.malekplay.translation.SubtitleTranslationEngine
-import com.malekplay.backup.MalekPlayBackupManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -22,54 +22,54 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MalekPlayDatabase =
-        Room.databaseBuilder(
-            context,
-            MalekPlayDatabase::class.java,
-            "malekplay.db"
-        ).build()
-
-    @Provides
-    fun provideMediaDao(database: MalekPlayDatabase) = database.mediaDao()
+        MalekPlayDatabase.get(context) // استخدام البناء الآمن مع كود التهجير وحماية الانهيار
 
     @Provides
     @Singleton
-    fun provideMediaStoreScanner(@ApplicationContext context: Context) =
+    fun provideMediaDao(database: MalekPlayDatabase): MediaDao = 
+        database.mediaDao()
+
+    @Provides
+    @Singleton
+    fun provideMediaStoreScanner(@ApplicationContext context: Context): MediaStoreScanner =
         MediaStoreScanner(context)
 
     @Provides
     @Singleton
     fun provideMediaRepository(
-        dao: com.malekplay.data.local.dao.MediaDao,
+        dao: MediaDao,
         scanner: MediaStoreScanner
-    ) = MediaRepository(dao, scanner)
+    ): MediaRepository = MediaRepository(dao, scanner)
 
     @Provides
     @Singleton
-    fun provideSettingsRepository(@ApplicationContext context: Context) =
+    fun provideSettingsRepository(@ApplicationContext context: Context): SettingsRepository =
         SettingsRepository(context)
+
     @Provides
     @Singleton
-    fun provideNetworkCredentialVault(@ApplicationContext context: Context) =
+    fun provideNetworkCredentialVault(@ApplicationContext context: Context): NetworkCredentialVault =
         NetworkCredentialVault(context)
 
     @Provides
     @Singleton
-    fun provideWebDavClient() = WebDavClient()
+    fun provideWebDavClient(): WebDavClient = WebDavClient()
 
     @Provides
     @Singleton
-    fun provideSftpClient() = SftpClient()
+    fun provideSftpClient(): SftpClient = SftpClient()
 
     @Provides
     @Singleton
-    fun provideSmbClient() = SmbClient()
+    fun provideSmbClient(): SmbClient = SmbClient()
 
     @Provides
     @Singleton
-    fun provideSubtitleTranslationEngine(@ApplicationContext context: Context) =
+    fun provideSubtitleTranslationEngine(@ApplicationContext context: Context): SubtitleTranslationEngine =
         SubtitleTranslationEngine(context)
 
     @Provides
@@ -77,6 +77,5 @@ object AppModule {
     fun provideBackupManager(
         @ApplicationContext context: Context,
         settingsRepository: SettingsRepository
-    ) = MalekPlayBackupManager(context, settingsRepository)
-
+    ): MalekPlayBackupManager = MalekPlayBackupManager(context, settingsRepository)
 }
