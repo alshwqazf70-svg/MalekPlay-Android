@@ -78,11 +78,30 @@ fun PlayerScreen(
     }
     val player = playerController
 
-    LaunchedEffect(player, uri, playbackQueue, safeStartIndex) {
+    LaunchedEffect(player, uri, playbackQueue, safeStartIndex, resumePlayback, defaultPlaybackSpeed, title) {
         if (player != null) {
             val startUri = playbackQueue[safeStartIndex]
-            val savedPosition = if (resumePlayback) preferences.getLong("position:$startUri", 0L).coerceAtLeast(0L) else 0L
-            playerViewModel.playQueue(playbackQueue, safeStartIndex, savedPosition, defaultPlaybackSpeed)
+            val roomState = if (resumePlayback) {
+                playerViewModel.getSavedPlaybackState(startUri.toString())
+            } else {
+                null
+            }
+            // Room is authoritative for indexed local media; SharedPreferences remains
+            // the fallback for network streams and one-off document-picker URIs.
+            val savedPosition = if (resumePlayback) {
+                roomState?.position?.coerceAtLeast(0L)
+                    ?: preferences.getLong("position:$startUri", 0L).coerceAtLeast(0L)
+            } else {
+                0L
+            }
+            val savedSpeed = roomState?.playbackSpeed ?: defaultPlaybackSpeed
+            playerViewModel.playQueue(
+                playbackQueue,
+                safeStartIndex,
+                savedPosition,
+                savedSpeed,
+                title
+            )
         }
     }
 
@@ -227,7 +246,14 @@ fun PlayerScreen(
         onDispose {
             activity?.lifecycle?.removeObserver(observer)
             val currentUri = player.currentMediaItem?.localConfiguration?.uri ?: uri
-            preferences.edit().putLong("position:$currentUri", player.currentPosition).apply()
+            val position = player.currentPosition.coerceAtLeast(0L)
+            preferences.edit().putLong("position:$currentUri", position).apply()
+            playerViewModel.savePlaybackState(
+                currentUri.toString(),
+                position,
+                player.playbackParameters.speed,
+                player.duration.takeIf { it > 0L } ?: 0L
+            )
         }
     }
 
