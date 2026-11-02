@@ -197,8 +197,9 @@ private fun missingMediaPermissions(context: Context): Array<String> = when {
         if (!hasAudioMediaPermission(context)) add(Manifest.permission.READ_MEDIA_AUDIO)
         val fullVideo = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
         val selectedVideo = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
-        if (!fullVideo && !selectedVideo) add(Manifest.permission.READ_MEDIA_VIDEO)
-        if (!fullVideo && !selectedVideo) add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        // Selected-only access is valid but still needs an explicit path to request full video access.
+        if (!fullVideo) add(Manifest.permission.READ_MEDIA_VIDEO)
+        if (!selectedVideo) add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
     }.toTypedArray()
     Build.VERSION.SDK_INT >= 33 -> buildList {
         if (!hasAudioMediaPermission(context)) add(Manifest.permission.READ_MEDIA_AUDIO)
