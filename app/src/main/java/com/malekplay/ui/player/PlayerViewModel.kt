@@ -3,19 +3,22 @@ package com.malekplay.ui.player
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import com.malekplay.data.repository.MediaRepository
 import com.malekplay.player.PlaybackService
+import com.malekplay.player.PlayerCommands
+import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -33,8 +36,7 @@ class PlayerViewModel @Inject constructor(
     private val _connectionError = MutableStateFlow(false)
     val connectionError = _connectionError.asStateFlow()
 
-    private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
-    private var sleepTimerJob: Job? = null
+    private var controllerFuture: ListenableFuture<MediaController>? = null
     private val _sleepTimerActive = MutableStateFlow(false)
     val sleepTimerActive = _sleepTimerActive.asStateFlow()
 
@@ -64,10 +66,7 @@ class PlayerViewModel @Inject constructor(
         )
     }
 
-    /**
-     * Persist progress only for items already indexed in the local Room library.
-     * Network streams and one-off document-picker URIs are intentionally skipped.
-     */
+    /** Read the saved Room state for an indexed local media item. */
     suspend fun getSavedPlaybackState(mediaId: String) =
         runCatching { mediaRepository.getPlaybackState(mediaId) }.getOrNull()
 
@@ -81,22 +80,44 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    /** Timer runs in PlaybackService and survives the Activity being removed. */
     fun setSleepTimer(minutes: Int) {
-        require(minutes in 1..240) { "Sleep timer must be between 1 and 240 minutes" }
-        sleepTimerJob?.cancel()
-        _sleepTimerActive.value = true
-        sleepTimerJob = viewModelScope.launch {
-            delay(minutes * 60_000L)
-            _controller.value?.pause()
-            _sleepTimerActive.value = false
-            sleepTimerJob = null
-        }
+        val controller = _controller.value ?: return
+        val args = Bundle().apply { putInt(PlayerCommands.EXTRA_MINUTES, minutes.coerceIn(1, 240)) }
+        val command = SessionCommand(PlayerCommands.ACTION_SLEEP_TIMER, Bundle.EMPTY)
+        val future = runCatching { controller.sendCustomCommand(command, args) }.getOrNull() ?: return
+        future.addListener(
+            {
+                val result = runCatching { future.get() }.getOrNull()
+                _sleepTimerActive.value = result?.resultCode == SessionResult.RESULT_SUCCESS
+            },
+            ContextCompat.getMainExecutor(app)
+        )
     }
 
     fun cancelSleepTimer() {
-        sleepTimerJob?.cancel()
-        sleepTimerJob = null
-        _sleepTimerActive.value = false
+        val controller = _controller.value
+        if (controller == null) {
+            _sleepTimerActive.value = false
+            return
+        }
+        val command = SessionCommand(PlayerCommands.ACTION_CANCEL_SLEEP_TIMER, Bundle.EMPTY)
+        val future = runCatching {
+            controller.sendCustomCommand(command, Bundle.EMPTY)
+        }.getOrNull()
+        if (future == null) {
+            _sleepTimerActive.value = false
+            return
+        }
+        future.addListener(
+            {
+                val result = runCatching { future.get() }.getOrNull()
+                if (result?.resultCode == SessionResult.RESULT_SUCCESS) {
+                    _sleepTimerActive.value = false
+                }
+            },
+            ContextCompat.getMainExecutor(app)
+        )
     }
 
     fun playQueue(
@@ -135,7 +156,6 @@ class PlayerViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        sleepTimerJob?.cancel()
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         _controller.value = null
