@@ -127,14 +127,22 @@ private val MalekPlayDarkColors = darkColorScheme(
     onSurface = Color(0xFFE5EEE9)
 )
 
-private fun mediaPermissions(): Array<String> =
-    if (Build.VERSION.SDK_INT >= 33) arrayOf(
+private fun mediaPermissions(): Array<String> = when {
+    Build.VERSION.SDK_INT >= 34 -> arrayOf(
+        Manifest.permission.READ_MEDIA_VIDEO,
+        Manifest.permission.READ_MEDIA_AUDIO,
+        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+    )
+    Build.VERSION.SDK_INT >= 33 -> arrayOf(
         Manifest.permission.READ_MEDIA_VIDEO,
         Manifest.permission.READ_MEDIA_AUDIO
-    ) else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    )
+    else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+}
 
+// Audio-only, video-only, and Android 14 selected-media access are all useful grants.
 private fun hasMediaPermission(context: Context): Boolean =
-    mediaPermissions().all {
+    mediaPermissions().any {
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
     }
 
@@ -233,9 +241,19 @@ private fun MalekPlayApp() {
                     uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (_: SecurityException) { }
-            val mime = context.contentResolver.getType(uri).orEmpty()
-            selected = MediaEntry(uri, uri.lastPathSegment?.substringAfterLast('/') ?: "ملف مختار",
-                0L, 0L, 0L, mime.startsWith("video"))
+            val mime = context.contentResolver.getType(uri).orEmpty().lowercase()
+            val extension = uri.lastPathSegment.orEmpty()
+                .substringAfterLast('.', "")
+                .lowercase()
+            val isVideo = mime.startsWith("video/") ||
+                extension in setOf("mp4", "mkv", "webm", "avi", "mov", "m4v", "3gp", "ts", "mpeg", "mpg")
+            val displayName = Uri.decode(uri.lastPathSegment.orEmpty())
+                .substringAfterLast('/')
+                .ifBlank { "ملف مختار" }
+            queueUris = listOf(uri)
+            queueStartIndex = 0
+            selected = MediaEntry(uri, displayName, 0L, 0L, 0L, isVideo)
+            markRecentlyPlayed(uri)
         }
     }
 
