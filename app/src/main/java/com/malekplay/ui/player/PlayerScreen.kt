@@ -48,7 +48,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
 
-@OptIn(UnstableApi::class)
+@UnstableApi
 @Composable
 fun PlayerScreen(
     uri: Uri,
