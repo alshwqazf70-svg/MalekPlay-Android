@@ -43,7 +43,13 @@ class WebDavClient {
         // encoded slash (%2F) inside a filename into a directory separator.
         path.trim('/').split('/')
             .filter { it.isNotEmpty() }
-            .forEach { segment -> targetBuilder.addPathSegment(Uri.decode(segment)) }
+            .forEach { segment ->
+                val decodedSegment = Uri.decode(segment)
+                require(decodedSegment != "." && decodedSegment != "..") {
+                    "مسار WebDAV يحتوي على انتقال نسبي غير مسموح"
+                }
+                targetBuilder.addPathSegment(decodedSegment)
+            }
         val target = targetBuilder.build()
 
         val token = okhttp3.Credentials.basic(username, password, StandardCharsets.UTF_8)

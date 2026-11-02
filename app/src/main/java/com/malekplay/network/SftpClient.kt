@@ -26,13 +26,14 @@ class SftpClient {
             ssh.loadKnownHosts(knownHostsFile)
             ssh.connect(host, port)
             ssh.authPassword(username, password)
+            val safeRemotePath = NetworkPathPolicy.normalize(remotePath, '/', preserveLeadingSlash = true).ifBlank { "/" }
             ssh.newSFTPClient().use { sftp ->
-                sftp.ls(remotePath).mapNotNull { item ->
+                sftp.ls(safeRemotePath).mapNotNull { item ->
                     val name = item.name
                     if (name == "." || name == "..") null
                     else NetworkEntry(
                         name = name,
-                        path = remotePath.trimEnd('/') + "/" + name,
+                        path = safeRemotePath.trimEnd('/') + "/" + name,
                         isDirectory = item.isDirectory,
                         sizeBytes = item.attributes.size
                     )

@@ -27,7 +27,7 @@ class SmbClient {
                     val share = session.connectShare(shareName) as? DiskShare
                         ?: error("المشاركة ليست مجلداً من نوع DiskShare")
                     share.use {
-                        val normalized = path.trim('/').replace('/', '\\')
+                        val normalized = NetworkPathPolicy.normalize(path, separator = '\\', preserveLeadingSlash = false)
                         share.list(normalized).mapNotNull { entry ->
                             val name = entry.fileName
                             if (name == "." || name == "..") null
@@ -35,7 +35,7 @@ class SmbClient {
                                 val directory = (entry.fileAttributes and FileAttributes.FILE_ATTRIBUTE_DIRECTORY.value) != 0L
                                 NetworkEntry(
                                     name = name,
-                                    path = listOf(path.trim('/'), name).filter { it.isNotBlank() }.joinToString("/"),
+                                    path = listOf(normalized.replace('\\', '/'), name).filter { it.isNotBlank() }.joinToString("/"),
                                     isDirectory = directory,
                                     sizeBytes = entry.endOfFile.coerceAtLeast(0L)
                                 )

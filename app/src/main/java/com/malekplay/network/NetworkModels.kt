@@ -23,5 +23,6 @@ data class NetworkProfile(
         require(host.isNotBlank() && host.length <= 253)
         require(port in 1..65535)
         require(rootPath.length <= 2048 && !rootPath.contains('\u0000'))
+        NetworkPathPolicy.normalize(rootPath)
     }
 }

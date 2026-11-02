@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: malekplay-android-${{ github.ref }}
+  group: malekplay-android-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -53,6 +53,17 @@ jobs:
 
       - name: Build debug and release variants
         run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlay-lint-report
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+          if-no-files-found: ignore
+
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
