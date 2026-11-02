@@ -96,6 +96,11 @@ class PlaybackService : MediaSessionService() {
             persistCurrentState()
         }
 
+        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            // Persist user-selected embedded audio/subtitle tracks immediately.
+            persistCurrentState()
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
                 persistCurrentState()
@@ -155,7 +160,7 @@ class PlaybackService : MediaSessionService() {
         for (group in activePlayer.currentTracks.groups) {
             if (group.type != type) continue
             for (index in 0 until group.length) {
-                if (group.isTrackSelected(index)) return "${group.type}:$index"
+                if (group.isTrackSelected(index)) return TrackPreferenceKey.from(group.getTrackFormat(index))
             }
         }
         return null

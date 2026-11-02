@@ -9,12 +9,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.C
+import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import com.malekplay.data.repository.MediaRepository
+import com.malekplay.data.local.entity.TrackPreferenceEntity
+import com.malekplay.player.TrackPreferenceKey
 import com.malekplay.player.PlaybackService
 import com.malekplay.player.PlayerCommands
 import com.malekplay.player.PlaybackBus
@@ -82,6 +88,8 @@ class PlayerViewModel @Inject constructor(
     suspend fun getSavedPlaybackState(mediaId: String) =
         runCatching { mediaRepository.getPlaybackState(mediaId) }.getOrNull()
 
+    suspend fun getSavedTrackPreference(mediaId: String): TrackPreferenceEntity? =
+        runCatching { mediaRepository.getTrackPreference(mediaId) }.getOrNull()
 
     /** Timer runs in PlaybackService and survives the Activity being removed. */
     fun setSleepTimer(minutes: Int) {
@@ -130,7 +138,8 @@ class PlayerViewModel @Inject constructor(
         startIndex: Int,
         startPositionMs: Long,
         speed: Float = 1f,
-        currentTitle: String? = null
+        currentTitle: String? = null,
+        trackPreference: TrackPreferenceEntity? = null
     ) {
         val player = _controller.value ?: return
         if (uris.isEmpty()) return
@@ -154,10 +163,55 @@ class PlayerViewModel @Inject constructor(
                 .build()
         }
 
+        trackPreference
+            ?.takeIf { it.mediaId == items[safeIndex].mediaId }
+            ?.let { attachTrackPreference(player, it) }
+
         player.setMediaItems(items, safeIndex, startPositionMs.coerceAtLeast(0L))
         player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
         player.prepare()
         player.playWhenReady = true
+    }
+
+    private fun attachTrackPreference(player: MediaController, preference: TrackPreferenceEntity) {
+        val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                if (player.currentMediaItem?.mediaId != preference.mediaId) return
+
+                val builder = player.trackSelectionParameters.buildUpon()
+                var changed = false
+                tracks.groups.forEach { group ->
+                    val preferredKey = when (group.type) {
+                        C.TRACK_TYPE_AUDIO -> preference.audioTrackId
+                        C.TRACK_TYPE_TEXT -> preference.subtitleTrackId
+                        else -> null
+                    } ?: return@forEach
+
+                    for (index in 0 until group.length) {
+                        if (TrackPreferenceKey.from(group.getTrackFormat(index)) == preferredKey) {
+                            builder.setOverrideForType(
+                                TrackSelectionOverride(group.mediaTrackGroup, listOf(index))
+                            )
+                            changed = true
+                            break
+                        }
+                    }
+                }
+
+                if (preference.subtitleTrackId != null && preference.isSubtitleEnabled) {
+                    builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    changed = true
+                } else if (!preference.isSubtitleEnabled) {
+                    builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    changed = true
+                }
+                if (changed) player.trackSelectionParameters = builder.build()
+                // Tracks are now known; if an old saved format no longer exists, keep
+                // Media3's default selection rather than retaining a listener indefinitely.
+                player.removeListener(this)
+            }
+        }
+        player.addListener(listener)
     }
 
     override fun onCleared() {

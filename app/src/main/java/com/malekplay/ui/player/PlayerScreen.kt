@@ -104,6 +104,11 @@ fun PlayerScreen(
             } else {
                 null
             }
+            val trackPreference = if (resumePlayback) {
+                playerViewModel.getSavedTrackPreference(startUri.toString())
+            } else {
+                null
+            }
             // Room is authoritative for indexed local media; SharedPreferences remains
             // the fallback for network streams and one-off document-picker URIs.
             val savedPosition = if (resumePlayback) {
@@ -119,7 +124,8 @@ fun PlayerScreen(
                 safeStartIndex,
                 savedPosition,
                 savedSpeed,
-                title
+                title,
+                trackPreference
             )
         }
     }
