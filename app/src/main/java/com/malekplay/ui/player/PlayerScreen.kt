@@ -1,8 +1,11 @@
 package com.malekplay.ui.player
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.os.Build
 import android.media.audiofx.Equalizer
 import android.net.Uri
 import com.malekplay.translation.SubtitleTranslationEngine
@@ -77,6 +80,22 @@ fun PlayerScreen(
         playerViewModel.connect()
     }
     val player = playerController
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        preferences.edit().putBoolean("notification_permission_requested", true).apply()
+    }
+
+    LaunchedEffect(player) {
+        if (player != null &&
+            Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !preferences.getBoolean("notification_permission_requested", false)
+        ) {
+            preferences.edit().putBoolean("notification_permission_requested", true).apply()
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     LaunchedEffect(player, uri, playbackQueue, safeStartIndex, resumePlayback, defaultPlaybackSpeed, title) {
         if (player != null) {
