@@ -63,7 +63,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
         val json = JSONArray().apply {
             next.forEach { p ->
                 put(JSONObject().put("id", p.id).put("protocol", p.protocol.name)
-                    .put("host", p.host).put("port", p.port).put("username", p.username)
+                    .put("host", p.host).put("port", p.port)
                     .put("rootPath", p.rootPath).put("name", p.displayName))
             }
         }
