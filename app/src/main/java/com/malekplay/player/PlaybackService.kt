@@ -2,6 +2,7 @@ package com.malekplay.player
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -42,8 +43,10 @@ import kotlinx.coroutines.sync.withLock
 import com.malekplay.network.NetworkCredentialVault
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl
 import org.json.JSONArray
 import java.io.File
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -200,12 +203,40 @@ class PlaybackService : MediaSessionService() {
                         val host = profile.optString("host")
                         val port = profile.optInt("port", 443)
                         val uriPort = if (uri.port == -1) 443 else uri.port
-                        if (host.equals(uri.host, true) && port == uriPort) {
+                        val rootPath = runCatching {
+                            HttpUrl.Builder()
+                                .scheme("https")
+                                .host(host)
+                                .port(port)
+                                .encodedPath("/")
+                                .apply {
+                                    profile.optString("rootPath", "/")
+                                        .trim('/')
+                                        .split('/')
+                                        .filter { it.isNotEmpty() }
+                                        .forEach { segment -> addPathSegment(Uri.decode(segment)) }
+                                }
+                                .build()
+                                .encodedPath
+                                .trimEnd('/')
+                                .ifBlank { "/" }
+                        }.getOrNull()
+                        val requestPath = uri.encodedPath ?: ""
+                        val isInsideConfiguredRoot = rootPath != null && (
+                            rootPath == "/" ||
+                                requestPath == rootPath ||
+                                requestPath.startsWith("$rootPath/")
+                            )
+                        if (host.equals(uri.host, true) && port == uriPort && isInsideConfiguredRoot) {
                             val credentials = runCatching {
                                 vault.load(profile.optString("id"))
                             }.getOrNull()
                             if (credentials != null) {
-                                authorization = Credentials.basic(credentials.first, credentials.second)
+                                authorization = Credentials.basic(
+                                    credentials.first,
+                                    credentials.second,
+                                    StandardCharsets.UTF_8
+                                )
                             }
                             break
                         }
