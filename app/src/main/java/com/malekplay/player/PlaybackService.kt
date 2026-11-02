@@ -27,6 +27,16 @@ import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.malekplay.MainActivity
+import com.malekplay.data.local.entity.TrackPreferenceEntity
+import com.malekplay.data.repository.MediaRepository
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import com.malekplay.network.NetworkCredentialVault
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
@@ -37,15 +47,94 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Owns the single ExoPlayer instance and MediaSession, including background sleep timer. */
 @OptIn(UnstableApi::class)
+@AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
+    @Inject lateinit var mediaRepository: MediaRepository
+
     private var mediaSession: MediaSession? = null
     private var player: ExoPlayer? = null
     private var mediaCache: SimpleCache? = null
     private val timerHandler = Handler(Looper.getMainLooper())
+    private val progressHandler = Handler(Looper.getMainLooper())
+    private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var timerDeadlineMs = 0L
     private var timerDurationMs = 0L
     private var originalVolume = 1f
     private var timerActive = false
+
+    private val progressTicker = object : Runnable {
+        override fun run() {
+            val activePlayer = player ?: return
+            if (activePlayer.isPlaying) {
+                persistCurrentState()
+                progressHandler.postDelayed(this, PROGRESS_SAVE_INTERVAL_MS)
+            }
+        }
+    }
+
+    private val playbackListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            progressHandler.removeCallbacks(progressTicker)
+            if (isPlaying) {
+                progressHandler.postDelayed(progressTicker, PROGRESS_SAVE_INTERVAL_MS)
+            } else {
+                persistCurrentState()
+            }
+        }
+
+        override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            persistCurrentState()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
+                persistCurrentState()
+            }
+        }
+    }
+
+    private fun persistCurrentState(): Job? {
+        val activePlayer = player ?: return null
+        val item = activePlayer.currentMediaItem ?: return null
+        val mediaId = item.mediaId
+        // Persist only MediaStore-indexed local items; document-picker and network
+        // sources continue using the UI's SharedPreferences fallback.
+        if (!mediaId.startsWith("content://")) return null
+        val position = activePlayer.currentPosition.coerceAtLeast(0L)
+        val duration = activePlayer.duration.takeIf { it > 0L } ?: 0L
+        val speed = activePlayer.playbackParameters.speed
+        val audioTrack = currentTrackId(C.TRACK_TYPE_AUDIO)
+        val subtitleTrack = currentTrackId(C.TRACK_TYPE_TEXT)
+        return persistenceScope.launch {
+            runCatching {
+                if (mediaRepository.getMediaWithDetails(mediaId) != null) {
+                    mediaRepository.savePlayback(mediaId, position, speed, duration)
+                    if (audioTrack != null || subtitleTrack != null) {
+                        mediaRepository.saveTrackPreference(
+                            TrackPreferenceEntity(
+                                mediaId = mediaId,
+                                audioTrackId = audioTrack,
+                                subtitleTrackId = subtitleTrack,
+                                subtitleDelayMs = 0L,
+                                isSubtitleEnabled = subtitleTrack != null
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun currentTrackId(type: Int): String? {
+        val activePlayer = player ?: return null
+        for (group in activePlayer.currentTracks.groups) {
+            if (group.type != type) continue
+            for (index in 0 until group.length) {
+                if (group.isTrackSelected(index)) return "${group.type}:$index"
+            }
+        }
+        return null
+    }
 
     private val sleepTimerTick = object : Runnable {
         override fun run() {
@@ -149,6 +238,7 @@ class PlaybackService : MediaSessionService() {
                     true
                 )
                 setHandleAudioBecomingNoisy(true)
+                addListener(playbackListener)
             }
         player = activePlayer
 
@@ -226,6 +316,10 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        progressHandler.removeCallbacks(progressTicker)
+        val finalSave = persistCurrentState()
+        finalSave?.invokeOnCompletion { persistenceScope.cancel() } ?: persistenceScope.cancel()
+        player?.removeListener(playbackListener)
         cancelSleepTimer()
         mediaSession?.release()
         mediaSession = null
@@ -238,6 +332,7 @@ class PlaybackService : MediaSessionService() {
 
     private companion object {
         const val CACHE_BYTES = 256L * 1024L * 1024L
+        const val PROGRESS_SAVE_INTERVAL_MS = 15_000L
     }
 }
 
