@@ -1,31 +1,34 @@
 package com.malekplay.ui.player
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.media.audiofx.Equalizer
 import android.net.Uri
-import com.malekplay.translation.SubtitleTranslationEngine
-import kotlinx.coroutines.launch
+import android.os.Build
+import android.util.TypedValue
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -33,18 +36,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.util.TypedValue
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.C
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
+import com.malekplay.translation.SubtitleTranslationEngine
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-@OptIn(UnstableApi::class)
+@UnstableApi
 @Composable
 fun PlayerScreen(
     uri: Uri,
@@ -77,38 +83,124 @@ fun PlayerScreen(
     }
     val player = playerController
 
-    LaunchedEffect(player, uri, playbackQueue, safeStartIndex) {
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        preferences.edit().putBoolean("notification_permission_requested", true).apply()
+    }
+
+    LaunchedEffect(player) {
+        if (player != null &&
+            Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !preferences.getBoolean("notification_permission_requested", false)
+        ) {
+            preferences.edit().putBoolean("notification_permission_requested", true).apply()
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    LaunchedEffect(player, uri, playbackQueue, safeStartIndex, resumePlayback, defaultPlaybackSpeed, title) {
         if (player != null) {
             val startUri = playbackQueue[safeStartIndex]
-            val savedPosition = if (resumePlayback) preferences.getLong("position:$startUri", 0L).coerceAtLeast(0L) else 0L
-            playerViewModel.playQueue(playbackQueue, safeStartIndex, savedPosition, defaultPlaybackSpeed)
+            val roomState = if (resumePlayback) playerViewModel.getSavedPlaybackState(startUri.toString()) else null
+            val trackPreference = playerViewModel.getSavedTrackPreference(startUri.toString())
+            val savedPosition = if (resumePlayback) {
+                roomState?.position?.coerceAtLeast(0L) ?: preferences.getLong("position:$startUri", 0L).coerceAtLeast(0L)
+            } else 0L
+            val savedSpeed = roomState?.playbackSpeed ?: preferences.getFloat("speed:$startUri", defaultPlaybackSpeed).coerceIn(0.25f, 4f)
+            
+            playerViewModel.playQueue(
+                playbackQueue,
+                safeStartIndex,
+                savedPosition,
+                savedSpeed,
+                title,
+                trackPreference
+            )
         }
     }
 
     if (player == null) {
-        Column(
-            Modifier.fillMaxWidth().padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentAlignment = Alignment.Center
         ) {
-            if (!connectionError) CircularProgressIndicator()
-            Spacer(Modifier.height(10.dp))
-            Text(
-                if (connectionError) "تعذر الاتصال بخدمة التشغيل" else "جارٍ تجهيز المشغل...",
-                color = Color(0xFF718079)
-            )
-            if (connectionError) {
-                Spacer(Modifier.height(8.dp))
-                TextButton(onClick = { playerViewModel.connect() }) {
-                    Text("إعادة المحاولة")
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (!connectionError) CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    if (connectionError) "تعذر الاتصال بخدمة المشغل" else "جارٍ تهيئة المشغل الخارق...",
+                    color = Color.White,
+                    fontSize = 15.sp
+                )
+                if (connectionError) {
+                    Spacer(Modifier.height(10.dp))
+                    Button(onClick = { playerViewModel.connect() }) {
+                        Text("إعادة المحاولة")
+                    }
                 }
             }
         }
         return
     }
 
+    // --- حالات المشغل والواجهة ---
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
+    var currentIsVideo by remember(player, uri, isVideo) { mutableStateOf(isVideoMedia(context, uri, isVideo)) }
+    var currentTitle by remember(player, uri, title) { mutableStateOf(title) }
+    var controlsLocked by rememberSaveable { mutableStateOf(false) }
+    var areControlsVisible by remember { mutableStateOf(true) }
+    var currentPosition by remember { mutableLongStateOf(0L) }
+    var duration by remember { mutableLongStateOf(0L) }
+    var isDraggingSeek by remember { mutableStateOf(false) }
+    var dragSeekPosition by remember { mutableLongStateOf(0L) }
+    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+
+    // الترجمة
+    var externalSubtitleUri by remember { mutableStateOf<Uri?>(null) }
+    var translatingSubtitle by remember { mutableStateOf(false) }
+    var translationMessage by remember { mutableStateOf<String?>(null) }
+    val translationScope = rememberCoroutineScope()
+
+    // الإيماءات والمؤشرات
+    var gestureIndicator by remember { mutableStateOf<String?>(null) }
+    var gestureIcon by remember { mutableStateOf<androidx.compose.ui.graphics.vector.ImageVector?>(null) }
+
+    val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+
+    // حلقة تحديث الوقت المنقضي
+    LaunchedEffect(player, isPlaying) {
+        while (true) {
+            if (!isDraggingSeek) {
+                currentPosition = player.currentPosition.coerceAtLeast(0L)
+                duration = player.duration.coerceAtLeast(0L)
+            }
+            delay(500)
+        }
+    }
+
+    // إخفاء الأزرار تلقائياً بعد 4 ثوانٍ
+    LaunchedEffect(areControlsVisible, isPlaying) {
+        if (areControlsVisible && isPlaying && !controlsLocked) {
+            delay(4000)
+            areControlsVisible = false
+        }
+    }
+
+    // مراقبة أحداث المشغل
     DisposableEffect(player) {
         val listener = object : androidx.media3.common.Player.Listener {
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                val nextUri = mediaItem?.localConfiguration?.uri ?: return
+                currentIsVideo = isVideoMedia(context, nextUri, currentIsVideo)
+                currentTitle = mediaItem.mediaMetadata.title?.toString()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: Uri.decode(nextUri.lastPathSegment.orEmpty()).substringAfterLast('/').ifBlank { title }
+                externalSubtitleUri = null
+                translatingSubtitle = false
+                translationMessage = null
+            }
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
             }
@@ -117,379 +209,441 @@ fun PlayerScreen(
         onDispose { player.removeListener(listener) }
     }
 
-    var audioSessionId by remember { mutableIntStateOf(0) }
+    // المعادل الصوتي
     var showEqualizer by remember { mutableStateOf(false) }
     var equalizer by remember { mutableStateOf<Equalizer?>(null) }
     var equalizerBands by remember { mutableStateOf<List<Float>>(emptyList()) }
     var equalizerRange by remember { mutableStateOf(shortArrayOf(-1500, 1500)) }
+    var audioSessionId by remember { mutableIntStateOf(0) }
+
     DisposableEffect(player) {
         val listener = object : androidx.media3.common.Player.Listener {
-            override fun onAudioSessionIdChanged(id: Int) {
-                audioSessionId = id
-            }
+            override fun onAudioSessionIdChanged(id: Int) { audioSessionId = id }
         }
         player.addListener(listener)
         onDispose { player.removeListener(listener) }
     }
+
     DisposableEffect(audioSessionId) {
         equalizer?.release()
-        equalizer = if (audioSessionId > 0) runCatching {
-            Equalizer(0, audioSessionId).apply { enabled = true }
-        }.getOrNull() else null
+        equalizer = if (audioSessionId > 0) runCatching { Equalizer(0, audioSessionId).apply { enabled = true } }.getOrNull() else null
         equalizer?.let { eq ->
             equalizerRange = eq.bandLevelRange
-            equalizerBands = (0 until eq.numberOfBands.toInt()).map { band ->
-                eq.getBandLevel(band.toShort()).toFloat()
-            }
-        } ?: run { equalizerBands = emptyList() }
-        onDispose {
-            equalizer?.release()
-            equalizer = null
+            equalizerBands = (0 until eq.numberOfBands.toInt()).map { eq.getBandLevel(it.toShort()).toFloat() }
         }
+        onDispose { equalizer?.release() }
     }
+
+    // السرعة ومؤقت النوم
     var speedMenu by remember { mutableStateOf(false) }
     var sleepMenu by remember { mutableStateOf(false) }
     val sleepTimerActive by playerViewModel.sleepTimerActive.collectAsState()
     var speed by remember { mutableFloatStateOf(defaultPlaybackSpeed) }
-    var controlsLocked by remember { mutableStateOf(false) }
-    var gestureHint by remember { mutableStateOf<String?>(null) }
-    val audioManager = remember(context) {
-        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    }
-    var subtitleName by remember { mutableStateOf<String?>(null) }
-    var externalSubtitleUri by remember { mutableStateOf<Uri?>(null) }
-    var translatingSubtitle by remember { mutableStateOf(false) }
-    var translationMessage by remember { mutableStateOf<String?>(null) }
-    val translationScope = rememberCoroutineScope()
-    val subtitlePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { subtitleUri ->
-        if (subtitleUri != null) {
-            externalSubtitleUri = subtitleUri
-            translationMessage = null
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    subtitleUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (_: SecurityException) { }
-            val subtitle = androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(subtitleUri)
+
+    val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { subUri ->
+        if (subUri != null) {
+            externalSubtitleUri = subUri
+            val subtitleConfig = androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(subUri)
                 .setMimeType(MimeTypes.APPLICATION_SUBRIP)
                 .setLanguage("ar")
                 .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                 .build()
-            val currentPosition = player.currentPosition
-            val currentItem = player.currentMediaItem ?: androidx.media3.common.MediaItem.fromUri(uri)
-            player.setMediaItem(
-                currentItem.buildUpon()
-                    .setSubtitleConfigurations(listOf(subtitle))
-                    .build(),
-                currentPosition
-            )
-            player.prepare()
-            player.playWhenReady = true
-            subtitleName = subtitleUri.lastPathSegment?.substringAfterLast('/') ?: "تم اختيار الترجمة"
+            val currentItem = player.currentMediaItem ?: return@rememberLauncherForActivityResult
+            player.replaceMediaItem(player.currentMediaItemIndex, currentItem.buildUpon().setSubtitleConfigurations(listOf(subtitleConfig)).build())
+            player.seekTo(player.currentPosition)
+            translationMessage = "تم تحميل الترجمة"
         }
     }
 
-    DisposableEffect(player, context, isVideo) {
-        val activity = context as? ComponentActivity
-        val observer = LifecycleEventObserver { _, event ->
-            // Persist the current position when the app leaves the foreground.
-            // Playback remains owned by MediaSessionService and is not paused here.
-            if (event == Lifecycle.Event.ON_STOP) {
-                val currentUri = player.currentMediaItem?.localConfiguration?.uri ?: uri
-                preferences.edit()
-                    .putLong("position:$currentUri", player.currentPosition)
-                    .apply()
-            }
-        }
-        activity?.lifecycle?.addObserver(observer)
-        onDispose {
-            activity?.lifecycle?.removeObserver(observer)
-            val currentUri = player.currentMediaItem?.localConfiguration?.uri ?: uri
-            preferences.edit().putLong("position:$currentUri", player.currentPosition).apply()
-        }
-    }
-
-    Column {
-        if (isVideo) {
-            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-                AndroidView(
-                    factory = {
-                        PlayerView(it).apply {
-                            this.player = player
-                            useController = !controlsLocked
-                            subtitleView?.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, subtitleSizeSp.coerceIn(12, 48).toFloat())
-                        }
-                    },
-                    update = {
-                        it.player = player
-                        it.useController = !controlsLocked
-                        it.subtitleView?.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, subtitleSizeSp.coerceIn(12, 48).toFloat())
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-                if (!controlsLocked) {
-                    Box(
-                        Modifier.align(Alignment.CenterStart).width(58.dp).fillMaxHeight()
-                            .pointerInput(context) {
-                                detectVerticalDragGestures { change, dragAmount ->
-                                    change.consume()
-                                    val window = (context as? Activity)?.window
-                                    if (window != null && rememberBrightness) {
-                                        val current = window.attributes.screenBrightness
-                                            .takeIf { it >= 0f } ?: 0.5f
-                                        val next = (current - dragAmount / 900f).coerceIn(0.05f, 1f)
-                                        window.attributes = window.attributes.apply {
-                                            screenBrightness = next
-                                        }
-                                        gestureHint = "سطوع الشاشة " + (next * 100).toInt() + "٪"
-                                    }
-                                }
-                            }
-                    )
-                    Box(
-                        Modifier.align(Alignment.CenterEnd).width(58.dp).fillMaxHeight()
-                            .pointerInput(audioManager) {
-                                var accumulated = 0f
-                                detectVerticalDragGestures { change, dragAmount ->
-                                    change.consume()
-                                    accumulated += dragAmount
-                                    if (accumulated <= -12f || accumulated >= 12f) {
-                                        val direction = if (accumulated < 0f) 1 else -1
-                                        val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                                        val maximum = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                                        val next = (current + direction).coerceIn(0, maximum)
-                                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
-                                        gestureHint = "مستوى الصوت " + (next * 100 / maximum.coerceAtLeast(1)) + "٪"
-                                        accumulated = 0f
-                                    }
-                                }
-                            }
-                    )
-                }
-                if (!controlsLocked) {
-                    Box(
-                        Modifier.align(Alignment.TopCenter).fillMaxWidth().height(34.dp)
-                            .pointerInput(player) {
-                                var accumulated = 0f
-                                detectHorizontalDragGestures { change, dragAmount ->
-                                    change.consume()
-                                    accumulated += dragAmount
-                                    if (accumulated >= 28f || accumulated <= -28f) {
-                                        val seconds = if (accumulated > 0f) -5L else 5L
-                                        val target = (player.currentPosition + seconds * 1000L)
-                                            .coerceIn(0L, player.duration.takeIf { it > 0L } ?: Long.MAX_VALUE)
-                                        player.seekTo(target)
-                                        gestureHint = if (seconds > 0) "تقديم 5 ثوانٍ" else "رجوع 5 ثوانٍ"
-                                        accumulated = 0f
-                                    }
-                                }
-                            }
-                    )
-                }
-                gestureHint?.let { hint ->
-                    Surface(
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 52.dp),
-                        color = Color(0xCC142923),
-                        shape = RoundedCornerShape(18.dp)
-                    ) {
-                        Text(hint, color = Color.White, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
-                    }
-                }
-                IconButton(
-                    onClick = { controlsLocked = !controlsLocked },
-                    modifier = Modifier.align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .background(Color(0x99000000), RoundedCornerShape(50))
-                ) {
-                    Icon(
-                        if (controlsLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                        contentDescription = if (controlsLocked) "فتح عناصر التحكم" else "قفل عناصر التحكم",
-                        tint = Color.White
-                    )
-                }
-            }
-        } else {
-            Column(
-                Modifier.fillMaxWidth().background(Color(0xFF142923))
-                    .padding(vertical = 22.dp, horizontal = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+    // واجهة الشاشة
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
             ) {
-                Box(
-                    Modifier.size(112.dp).clip(RoundedCornerShape(24.dp))
-                        .background(Color(0xFF245447)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.MusicNote, null, tint = Color(0xFFE4C27B),
-                        modifier = Modifier.size(58.dp))
-                }
-                Spacer(Modifier.height(12.dp))
-                Text(title, color = Color.White, fontWeight = FontWeight.Bold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(8.dp))
-                IconButton(onClick = { if (player.isPlaying) player.pause() else player.play() }) {
-                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "إيقاف مؤقت" else "تشغيل",
-                        tint = Color.White, modifier = Modifier.size(38.dp))
+                if (!controlsLocked) {
+                    areControlsVisible = !areControlsVisible
                 }
             }
-        }
-        if (!controlsLocked) Row(
-            Modifier.fillMaxWidth().background(Color(0xFF142923)).padding(horizontal = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            TextButton(onClick = {
-                player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
-            }) { Text("−10 ث", color = Color.White) }
-            TextButton(onClick = {
-                player.seekTo(player.currentPosition + 10_000L)
-            }) { Text("+10 ث", color = Color.White) }
-            Box {
-                TextButton(onClick = { speedMenu = true }) {
-                    Text("${speed}×", color = Color.White)
-                }
-                DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
-                    listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).forEach { value ->
-                        DropdownMenuItem(
-                            text = { Text("${value}×") },
-                            onClick = {
-                                speed = value
-                                player.setPlaybackSpeed(value)
-                                speedMenu = false
-                            }
-                        )
-                    }
-                }
-            }
-            Box {
-                TextButton(onClick = { sleepMenu = true }) {
-                    Text(if (sleepTimerActive) "المؤقت ✓" else "مؤقت النوم", color = Color.White)
-                }
-                DropdownMenu(expanded = sleepMenu, onDismissRequest = { sleepMenu = false }) {
-                    listOf(15, 30, 45, 60, 90, 120).forEach { minutes ->
-                        DropdownMenuItem(
-                            text = { Text("إيقاف بعد $minutes دقيقة") },
-                            onClick = {
-                                playerViewModel.setSleepTimer(minutes)
-                                sleepMenu = false
-                            }
-                        )
-                    }
-                    if (sleepTimerActive) {
-                        DropdownMenuItem(
-                            text = { Text("إلغاء المؤقت") },
-                            onClick = {
-                                playerViewModel.cancelSleepTimer()
-                                sleepMenu = false
-                            }
-                        )
-                    }
-                }
-            }
-            TextButton(onClick = { showEqualizer = true }) {
-                Text("المعادل", color = Color.White)
-            }
-            TextButton(onClick = {
-                TrackSelectionDialogBuilder(context, "المسار الصوتي", player, C.TRACK_TYPE_AUDIO)
-                    .build().show()
-            }) { Text("الصوت", color = Color.White) }
-            TextButton(onClick = {
-                TrackSelectionDialogBuilder(context, "الترجمة", player, C.TRACK_TYPE_TEXT)
-                    .build().show()
-            }) { Text("الترجمة", color = Color.White) }
-            TextButton(onClick = {
-                subtitlePicker.launch(arrayOf("application/x-subrip", "text/plain", "text/*"))
-            }) { Text("ملف SRT", color = Color.White) }
-            if (externalSubtitleUri != null) {
-                TextButton(enabled = !translatingSubtitle, onClick = {
-                    val source = externalSubtitleUri
-                    if (source != null) {
-                        translatingSubtitle = true
-                        translationMessage = "جارٍ تجهيز نموذج الترجمة..."
-                        translationScope.launch {
-                            try {
-                                val translatedUri = SubtitleTranslationEngine(context).translateSrtToArabic(source)
-                                val currentPosition = player.currentPosition
-                                val currentItem = player.currentMediaItem ?: androidx.media3.common.MediaItem.fromUri(uri)
-                                val config = androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(translatedUri)
-                                    .setMimeType(MimeTypes.APPLICATION_SUBRIP)
-                                    .setLanguage("ar")
-                                    .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                                    .build()
-                                player.setMediaItem(currentItem.buildUpon().setSubtitleConfigurations(listOf(config)).build(), currentPosition)
-                                player.prepare()
-                                player.playWhenReady = true
-                                subtitleName = "ترجمة آلية إلى العربية"
-                                translationMessage = "اكتملت الترجمة محلياً"
-                            } catch (error: Exception) {
-                                translationMessage = "تعذرت الترجمة: " + (error.localizedMessage ?: "تحقق من اتصال الإنترنت لتنزيل النموذج")
-                            } finally {
-                                translatingSubtitle = false
-                            }
-                        }
-                    }
-                }) { Text(if (translatingSubtitle) "جارٍ الترجمة..." else "ترجمة للعربية", color = Color.White) }
-            }
-            TextButton(onClick = { onToggleFullscreen(!isFullscreen) }) {
-                Text(if (isFullscreen) "تصغير" else "ملء الشاشة", color = Color.White)
-            }
-        }
-        if (showEqualizer) {
-            AlertDialog(
-                onDismissRequest = { showEqualizer = false },
-                title = { Text("المعادل الصوتي") },
-                text = {
-                    if (equalizer == null) {
-                        Text("المعادل الصوتي غير متاح لهذا المسار أو على هذا الجهاز.")
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("تحكم بخمسة نطاقات ترددية")
-                            equalizerBands.forEachIndexed { index, level ->
-                                val frequency = runCatching {
-                                    equalizer?.getCenterFreq(index.toShort())?.div(1000) ?: 0
-                                }.getOrDefault(0)
-                                Text("$frequency Hz")
-                                Slider(
-                                    value = level,
-                                    onValueChange = { next ->
-                                        val updated = equalizerBands.toMutableList()
-                                        updated[index] = next
-                                        equalizerBands = updated
-                                        runCatching {
-                                            equalizer?.setBandLevel(index.toShort(), next.toInt().toShort())
-                                        }
-                                    },
-                                    valueRange = equalizerRange[0].toFloat()..equalizerRange[1].toFloat()
-                                )
-                            }
-                        }
+    ) {
+        if (currentIsVideo) {
+            // عرض الفيديو الأساسي
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        this.player = player
+                        this.resizeMode = resizeMode
+                        this.useController = false // نستخدم واجهتنا الخرافية بدلاً من الافتراضية
+                        this.subtitleView?.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, subtitleSizeSp.toFloat())
                     }
                 },
-                confirmButton = {
-                    TextButton(onClick = { showEqualizer = false }) { Text("تم") }
+                update = { view ->
+                    view.player = player
+                    view.resizeMode = resizeMode
+                    view.subtitleView?.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, subtitleSizeSp.toFloat())
                 },
-                dismissButton = {
-                    TextButton(onClick = {
-                        equalizer?.let { eq ->
-                            for (band in 0 until eq.numberOfBands.toInt()) {
-                                runCatching { eq.setBandLevel(band.toShort(), 0) }
-                            }
-                            equalizerBands = equalizerBands.map { 0f }
-                        }
-                    }) { Text("إعادة الضبط") }
-                }
+                modifier = Modifier.fillMaxSize()
             )
+
+            // --- نظام إيماءات اللمس الشامل (MX Gestures Zones) ---
+            if (!controlsLocked) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            var dragDirection = 0 // 1: عمودي يسار (سطوع), 2: عمودي يمين (صوت), 3: أفقي (تقديم)
+                            var totalDragX = 0f
+                            var totalDragY = 0f
+
+                            detectDragGestures(
+                                onDragStart = { offset ->
+                                    totalDragX = 0f
+                                    totalDragY = 0f
+                                    dragDirection = if (offset.x < size.width * 0.4f) 1 else if (offset.x > size.width * 0.6f) 2 else 3
+                                },
+                                onDragEnd = {
+                                    gestureIndicator = null
+                                    gestureIcon = null
+                                    dragDirection = 0
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    totalDragX += dragAmount.x
+                                    totalDragY += dragAmount.y
+
+                                    when (dragDirection) {
+                                        1 -> { // السطوع (يسار الشاشة)
+                                            val window = (context as? Activity)?.window
+                                            if (window != null && rememberBrightness) {
+                                                val current = window.attributes.screenBrightness.takeIf { it >= 0f } ?: 0.5f
+                                                val next = (current - dragAmount.y / 800f).coerceIn(0.05f, 1f)
+                                                window.attributes = window.attributes.apply { screenBrightness = next }
+                                                gestureIndicator = "${(next * 100).toInt()}%"
+                                                gestureIcon = Icons.Default.BrightnessMedium
+                                            }
+                                        }
+                                        2 -> { // الصوت (يمين الشاشة)
+                                            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                                            val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                                            val step = if (dragAmount.y < 0) 1 else -1
+                                            if (Math.abs(totalDragY) > 25f) {
+                                                val next = (current + step).coerceIn(0, max)
+                                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+                                                gestureIndicator = "${(next * 100 / max)}%"
+                                                gestureIcon = if (next == 0) Icons.Default.VolumeMute else Icons.Default.VolumeUp
+                                                totalDragY = 0f
+                                            }
+                                        }
+                                        3 -> { // التقديم والتأخير (منتصف الشاشة)
+                                            val seekSeconds = (totalDragX / 15f).toLong()
+                                            val target = (player.currentPosition + seekSeconds * 1000L).coerceIn(0L, duration)
+                                            player.seekTo(target)
+                                            gestureIndicator = "${if (seekSeconds >= 0) "+" else ""}$seekSeconds ث"
+                                            gestureIcon = if (seekSeconds >= 0) Icons.Default.FastForward else Icons.Default.FastRewind
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                )
+            }
         }
-        translationMessage?.let {
-            Text(it, color = Color(0xFF718079), fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+
+        // --- مؤشر الإيماءات في منتصف الشاشة (Gesture HUD) ---
+        gestureIndicator?.let { text ->
+            Surface(
+                modifier = Modifier.align(Alignment.Center),
+                color = Color.Black.copy(alpha = 0.75f),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    gestureIcon?.let { icon ->
+                        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    Text(text, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
-        subtitleName?.let {
-            Text("الترجمة الخارجية: $it", color = Color(0xFF718079),
-                fontSize = 11.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+
+        // --- عناصر التحكم العلوية والسفلية (Controls Overlay) ---
+        AnimatedVisibility(
+            visible = areControlsVisible && !controlsLocked,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // 1. الشريط العلوي (Top Controls)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { onToggleFullscreen(false) }) {
+                        Icon(Icons.Default.ArrowForward, contentDescription = "رجوع", tint = Color.White)
+                    }
+
+                    Text(
+                        text = currentTitle,
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+
+                    // زر المسار الصوتي
+                    IconButton(onClick = {
+                        TrackSelectionDialogBuilder(context, "المسار الصوتي", player, C.TRACK_TYPE_AUDIO).build().show()
+                    }) {
+                        Icon(Icons.Default.Audiotrack, contentDescription = "الصوت", tint = Color.White)
+                    }
+
+                    // زر الترجمة
+                    IconButton(onClick = {
+                        TrackSelectionDialogBuilder(context, "الترجمة", player, C.TRACK_TYPE_TEXT).build().show()
+                    }) {
+                        Icon(Icons.Default.Subtitles, contentDescription = "الترجمة", tint = Color.White)
+                    }
+
+                    // زر الذكاء الاصطناعي لترجمة الـ SRT الفورية (الميزة الخارقة)
+                    IconButton(onClick = {
+                        if (externalSubtitleUri != null && !translatingSubtitle) {
+                            translatingSubtitle = true
+                            translationScope.launch {
+                                try {
+                                    val translated = SubtitleTranslationEngine(context).translateSrtToArabic(externalSubtitleUri!!)
+                                    val config = androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(translated)
+                                        .setMimeType(MimeTypes.APPLICATION_SUBRIP).setLanguage("ar").build()
+                                    player.replaceMediaItem(player.currentMediaItemIndex, player.currentMediaItem!!.buildUpon().setSubtitleConfigurations(listOf(config)).build())
+                                    translationMessage = "تمت الترجمة للعربية بنجاح ✓"
+                                } catch (e: Exception) {
+                                    translationMessage = "فشلت الترجمة: ${e.localizedMessage}"
+                                } finally {
+                                    translatingSubtitle = false
+                                }
+                            }
+                        } else {
+                            subtitlePicker.launch(arrayOf("application/x-subrip", "text/plain", "text/*"))
+                        }
+                    }) {
+                        Icon(
+                            Icons.Default.Translate,
+                            contentDescription = "ترجمة الذكاء الاصطناعي",
+                            tint = if (translatingSubtitle) MaterialTheme.colorScheme.primary else Color.White
+                        )
+                    }
+
+                    // زر أبعاد الشاشة (Fit / Zoom / Stretch)
+                    IconButton(onClick = {
+                        resizeMode = when (resizeMode) {
+                            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        }
+                    }) {
+                        Icon(Icons.Default.AspectRatio, contentDescription = "أبعاد الشاشة", tint = Color.White)
+                    }
+
+                    // المعادل والسرعة
+                    IconButton(onClick = { showEqualizer = true }) {
+                        Icon(Icons.Default.Equalizer, contentDescription = "المعادل", tint = Color.White)
+                    }
+                }
+
+                // 2. الشريط السفلي (Bottom Controls & Seekbar)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    // سطر التوقيت وشريط التقدم
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = formatTime(if (isDraggingSeek) dragSeekPosition else currentPosition),
+                            color = Color.White,
+                            fontSize = 12.sp
+                        )
+
+                        Slider(
+                            value = (if (isDraggingSeek) dragSeekPosition else currentPosition).toFloat(),
+                            onValueChange = {
+                                isDraggingSeek = true
+                                dragSeekPosition = it.toLong()
+                            },
+                            onValueChangeFinished = {
+                                player.seekTo(dragSeekPosition)
+                                isDraggingSeek = false
+                            },
+                            valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+                            modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.primary,
+                                activeTrackColor = MaterialTheme.colorScheme.primary,
+                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                            )
+                        )
+
+                        Text(
+                            text = formatTime(duration),
+                            color = Color.White,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    // أزرار التشغيل والتنقل الرئيسية
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // قفل الشاشة (Lock)
+                        IconButton(onClick = {
+                            controlsLocked = true
+                            areControlsVisible = false
+                        }) {
+                            Icon(Icons.Default.LockOpen, contentDescription = "قفل", tint = Color.White)
+                        }
+
+                        // الأزرار المركزية (سابق، -10، تشغيل/إيقاف، +10، تالي)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { player.seekToPreviousMediaItem() }) {
+                                Icon(Icons.Default.SkipPrevious, contentDescription = null, tint = Color.White)
+                            }
+                            IconButton(onClick = { player.seekTo((player.currentPosition - 10000L).coerceAtLeast(0L)) }) {
+                                Icon(Icons.Default.Replay10, contentDescription = null, tint = Color.White)
+                            }
+
+                            // زر التشغيل/الإيقاف الكبير
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(54.dp).padding(4.dp)
+                            ) {
+                                IconButton(onClick = { if (player.isPlaying) player.pause() else player.play() }) {
+                                    Icon(
+                                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                            }
+
+                            IconButton(onClick = { player.seekTo((player.currentPosition + 10000L).coerceAtMost(duration)) }) {
+                                Icon(Icons.Default.Forward10, contentDescription = null, tint = Color.White)
+                            }
+                            IconButton(onClick = { player.seekToNextMediaItem() }) {
+                                Icon(Icons.Default.SkipNext, contentDescription = null, tint = Color.White)
+                            }
+                        }
+
+                        // زر التحكم بالسرعة
+                        Box {
+                            TextButton(onClick = { speedMenu = true }) {
+                                Text("${speed}x", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                            DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
+                                listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f).forEach { s ->
+                                    DropdownMenuItem(
+                                        text = { Text("${s}x") },
+                                        onClick = {
+                                            speed = s
+                                            player.setPlaybackSpeed(s)
+                                            speedMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+
+        // --- زر فك القفل العائم (Floating Unlock Button) ---
+        if (controlsLocked) {
+            IconButton(
+                onClick = {
+                    controlsLocked = false
+                    areControlsVisible = true
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(20.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+            ) {
+                Icon(Icons.Default.Lock, contentDescription = "فك القفل", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+
+    // نافذة المعادل الصوتي
+    if (showEqualizer) {
+        AlertDialog(
+            onDismissRequest = { showEqualizer = false },
+            title = { Text("المعادل الصوتي الاحترافي (5-Band)") },
+            text = {
+                if (equalizer == null) {
+                    Text("المعادل الصوتي غير مدعوم على هذا الجهاز.")
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        equalizerBands.forEachIndexed { index, level ->
+                            val freq = runCatching { equalizer?.getCenterFreq(index.toShort())?.div(1000) ?: 0 }.getOrDefault(0)
+                            Text("$freq Hz", fontSize = 12.sp)
+                            Slider(
+                                value = level,
+                                onValueChange = { next ->
+                                    val updated = equalizerBands.toMutableList()
+                                    updated[index] = next
+                                    equalizerBands = updated
+                                    runCatching { equalizer?.setBandLevel(index.toShort(), next.toInt().toShort()) }
+                                },
+                                valueRange = equalizerRange[0].toFloat()..equalizerRange[1].toFloat()
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showEqualizer = false }) { Text("تم") } }
+        )
     }
 }
 
+// دالة تنسيق الوقت (00:00 أو 00:00:00)
+fun formatTime(ms: Long): String {
+    val totalSeconds = (ms / 1000).coerceAtLeast(0)
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        String.format("%02d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format("%02d:%02d", minutes, seconds)
+    }
+}
+
+private fun isVideoMedia(context: Context, uri: Uri, fallback: Boolean): Boolean {
+    val mimeType = runCatching {
+        if (uri.scheme.equals("content", ignoreCase = true)) {
+            context.contentResolver.getType(uri)
+        } else null
+    }.getOrNull()
+    return MediaTypeDetector.isVideo(mimeType, uri.lastPathSegment, fallback)
+}
