@@ -1,8 +1,10 @@
 package com.malekplay.data.scanner
 
+import android.Manifest
 import android.content.ContentResolver
 import android.content.Context
-import android.database.Cursor
+import android.content.pm.PackageManager
+import android.os.Build
 import android.net.Uri
 import android.provider.MediaStore
 import com.malekplay.data.local.entity.MediaItemEntity
@@ -22,7 +24,8 @@ data class MediaScanResult(
  * its query succeeds; callers must never prune records from a denied/failed collection.
  */
 class MediaStoreScanner(context: Context) {
-    private val resolver: ContentResolver = context.applicationContext.contentResolver
+    private val appContext = context.applicationContext
+    private val resolver: ContentResolver = appContext.contentResolver
 
     suspend fun scan(): MediaScanResult = withContext(Dispatchers.IO) {
         val timestamp = nextScanTimestamp()
@@ -115,13 +118,25 @@ class MediaStoreScanner(context: Context) {
                         lastSeenAt = scanTimestamp
                     )
                 }
-                CollectionResult(result, true)
+                // A successful query under Android 14's selected-media grant is only a
+                // partial view. Never delete hidden, unselected rows from playback history.
+                CollectionResult(result, hasFullCollectionAccess(isVideo))
             }
         } catch (_: SecurityException) {
             CollectionResult(emptyList(), false)
         } catch (_: RuntimeException) {
             CollectionResult(emptyList(), false)
         }
+    }
+
+    private fun hasFullCollectionAccess(isVideo: Boolean): Boolean {
+        val permission = if (Build.VERSION.SDK_INT >= 33) {
+            if (isVideo) Manifest.permission.READ_MEDIA_VIDEO
+            else Manifest.permission.READ_MEDIA_AUDIO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+        return appContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
     }
 
     private companion object {
