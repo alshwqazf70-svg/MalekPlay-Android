@@ -48,7 +48,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Owns the single ExoPlayer instance and MediaSession, including background sleep timer. */
-@OptIn(UnstableApi::class)
+@UnstableApi
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
     @Inject lateinit var mediaRepository: MediaRepository
