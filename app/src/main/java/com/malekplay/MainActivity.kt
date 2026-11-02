@@ -290,6 +290,15 @@ private fun MalekPlayApp() {
     }
     BackHandler(enabled = isFullscreen) { setFullscreen(false) }
 
+    // Re-apply immersive mode after configuration changes and state restoration.
+    SideEffect {
+        (context as? Activity)?.window?.let { window ->
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            if (isFullscreen) controller.hide(WindowInsetsCompat.Type.systemBars())
+            else controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
     // Re-check access every time Android returns from Settings or another app.
     DisposableEffect(context) {
         val activity = context as? ComponentActivity
