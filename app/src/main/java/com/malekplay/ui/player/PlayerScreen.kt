@@ -113,7 +113,8 @@ fun PlayerScreen(
             } else {
                 0L
             }
-            val savedSpeed = roomState?.playbackSpeed ?: defaultPlaybackSpeed
+            val savedSpeed = roomState?.playbackSpeed
+                ?: preferences.getFloat("speed:$startUri", defaultPlaybackSpeed).coerceIn(0.25f, 4f)
             playerViewModel.playQueue(
                 playbackQueue,
                 safeStartIndex,
@@ -195,10 +196,16 @@ fun PlayerScreen(
         while (true) {
             delay(10_000L)
             val currentUri = player.currentMediaItem?.localConfiguration?.uri ?: uri
+            val position = player.currentPosition.coerceAtLeast(0L)
+            val currentSpeed = player.playbackParameters.speed
+            preferences.edit()
+                .putLong("position:$currentUri", position)
+                .putFloat("speed:$currentUri", currentSpeed)
+                .apply()
             playerViewModel.savePlaybackState(
                 currentUri.toString(),
-                player.currentPosition.coerceAtLeast(0L),
-                player.playbackParameters.speed,
+                position,
+                currentSpeed,
                 player.duration.takeIf { it > 0L } ?: 0L
             )
         }
@@ -250,13 +257,16 @@ fun PlayerScreen(
             // Playback remains owned by MediaSessionService and is not paused here.
             if (event == Lifecycle.Event.ON_STOP) {
                 val currentUri = player.currentMediaItem?.localConfiguration?.uri ?: uri
+                val position = player.currentPosition.coerceAtLeast(0L)
+                val currentSpeed = player.playbackParameters.speed
                 preferences.edit()
-                    .putLong("position:$currentUri", player.currentPosition.coerceAtLeast(0L))
+                    .putLong("position:$currentUri", position)
+                    .putFloat("speed:$currentUri", currentSpeed)
                     .apply()
                 playerViewModel.savePlaybackState(
                     currentUri.toString(),
-                    player.currentPosition.coerceAtLeast(0L),
-                    player.playbackParameters.speed,
+                    position,
+                    currentSpeed,
                     player.duration.takeIf { it > 0L } ?: 0L
                 )
             }
@@ -266,11 +276,15 @@ fun PlayerScreen(
             activity?.lifecycle?.removeObserver(observer)
             val currentUri = player.currentMediaItem?.localConfiguration?.uri ?: uri
             val position = player.currentPosition.coerceAtLeast(0L)
-            preferences.edit().putLong("position:$currentUri", position).apply()
+            val currentSpeed = player.playbackParameters.speed
+            preferences.edit()
+                .putLong("position:$currentUri", position)
+                .putFloat("speed:$currentUri", currentSpeed)
+                .apply()
             playerViewModel.savePlaybackState(
                 currentUri.toString(),
                 position,
-                player.playbackParameters.speed,
+                currentSpeed,
                 player.duration.takeIf { it > 0L } ?: 0L
             )
         }
