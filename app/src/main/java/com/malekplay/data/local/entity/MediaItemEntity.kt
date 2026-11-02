@@ -5,7 +5,16 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "media_items")
+/**
+ * جدول الوسائط الرئيسي مع دعم تصنيف وفهرسة المجلدات كـ MX Player
+ */
+@Entity(
+    tableName = "media_items",
+    indices = [
+        Index(value = ["bucketId"]),
+        Index(value = ["isVideo"])
+    ]
+)
 data class MediaItemEntity(
     @PrimaryKey val mediaId: String,
     val title: String,
@@ -15,6 +24,8 @@ data class MediaItemEntity(
     val sizeBytes: Long,
     val dateAdded: Long,
     val isVideo: Boolean,
+    val bucketId: String = "0",
+    val bucketName: String = "مجلدات أخرى",
     val thumbnailPath: String? = null
 )
 
