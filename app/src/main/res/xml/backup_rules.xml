@@ -2,6 +2,7 @@
 <full-backup-content>
     <!-- Credentials are encrypted with a device-bound Android Keystore key.
          Restoring the ciphertext without that key would create unusable profiles. -->
+    <exclude domain="database" path="malekplay.db" />
     <exclude domain="sharedpref" path="malekplay_network_secrets.xml" />
     <exclude domain="sharedpref" path="malekplay_network_profiles.xml" />
     <exclude domain="file" path="network_known_hosts" />

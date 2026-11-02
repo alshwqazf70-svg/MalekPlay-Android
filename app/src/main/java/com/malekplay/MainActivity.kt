@@ -376,8 +376,10 @@ private fun MalekPlayApp() {
                             color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { showNetworkSources = true }) {
-                            Icon(Icons.Default.FolderOpen, "مصادر الشبكة", tint = Color(0xFF176B5B))
+                        if (!childModeEnabled) {
+                            IconButton(onClick = { showNetworkSources = true }) {
+                                Icon(Icons.Default.FolderOpen, "مصادر الشبكة", tint = Color(0xFF176B5B))
+                            }
                         }
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, "الإعدادات", tint = Color(0xFF176B5B))
