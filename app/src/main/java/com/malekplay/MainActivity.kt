@@ -29,8 +29,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.filled.PlaylistPlay
-import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
@@ -459,7 +459,7 @@ private fun MalekPlayApp() {
                         }
                     }
                     TextButton(onClick = { tab = LibraryTab.PLAYLISTS; activePlaylist = null }) {
-                        Icon(Icons.Default.PlaylistPlay, null)
+                        Icon(Icons.AutoMirrored.Filled.PlaylistPlay, null)
                         Text("قوائم التشغيل")
                     }
                     if (!childModeEnabled) {
@@ -669,7 +669,7 @@ private fun MalekPlayApp() {
                                             Card(Modifier.fillMaxWidth().clickable { activePlaylist = playlist.name },
                                                 colors = CardDefaults.cardColors(containerColor = Color.White)) {
                                                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                    Icon(Icons.Default.PlaylistPlay, null, tint = Color(0xFF176B5B))
+                                                    Icon(Icons.AutoMirrored.Filled.PlaylistPlay, null, tint = Color(0xFF176B5B))
                                                     Spacer(Modifier.width(10.dp))
                                                     Column(Modifier.weight(1f)) {
                                                         Text(playlist.name, fontWeight = FontWeight.Bold)
@@ -810,7 +810,7 @@ private fun MediaRow(
                     sizeText(entry.sizeBytes), color = Color(0xFF7A8981), fontSize = 11.sp)
             }
             IconButton(onClick = onAddPlaylist) {
-                Icon(Icons.Default.PlaylistAdd, contentDescription = "إضافة إلى قائمة تشغيل", tint = Color(0xFF176B5B))
+                Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = "إضافة إلى قائمة تشغيل", tint = Color(0xFF176B5B))
             }
             IconButton(onClick = onFavoriteClick) {
                 Icon(
