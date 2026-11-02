@@ -332,10 +332,11 @@ class PlaybackService : MediaSessionService() {
         finalSave?.invokeOnCompletion { persistenceScope.cancel() } ?: persistenceScope.cancel()
         player?.removeListener(playbackListener)
         cancelSleepTimer()
-        mediaSession?.release()
-        mediaSession = null
+        // Release the service-owned player before releasing its MediaSession.
         player?.release()
         player = null
+        mediaSession?.release()
+        mediaSession = null
         mediaCache?.release()
         mediaCache = null
         super.onDestroy()
