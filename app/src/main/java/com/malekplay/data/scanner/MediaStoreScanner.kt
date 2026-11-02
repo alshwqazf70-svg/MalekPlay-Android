@@ -2,13 +2,16 @@ package com.malekplay.data.scanner
 
 import android.content.ContentResolver
 import android.content.Context
-import android.database.Cursor
 import android.net.Uri
 import android.provider.MediaStore
 import com.malekplay.data.local.entity.MediaItemEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * Scans audio and video using public MediaStore columns available from API 29.
+ * RELATIVE_PATH works for both audio and video; legacy bucket columns do not.
+ */
 class MediaStoreScanner(context: Context) {
     private val resolver: ContentResolver = context.applicationContext.contentResolver
 
@@ -20,58 +23,68 @@ class MediaStoreScanner(context: Context) {
     }
 
     private fun scanCollection(collection: Uri, isVideo: Boolean): List<MediaItemEntity> {
-        val baseColumns = arrayOf(
+        val columns = arrayOf(
             MediaStore.MediaColumns._ID,
             MediaStore.MediaColumns.DISPLAY_NAME,
             MediaStore.MediaColumns.DURATION,
             MediaStore.MediaColumns.SIZE,
             MediaStore.MediaColumns.DATE_ADDED,
-            MediaStore.MediaColumns.MIME_TYPE
+            MediaStore.MediaColumns.MIME_TYPE,
+            MediaStore.MediaColumns.RELATIVE_PATH
         )
-        val folderColumns = baseColumns + arrayOf("bucket_id", "bucket_display_name")
         val result = mutableListOf<MediaItemEntity>()
-
-        // Some providers expose bucket metadata only for video/images. Fall back to the
-        // portable media columns instead of failing the entire library scan.
         val cursor = try {
-            resolver.query(collection, folderColumns, null, null,
-                "${MediaStore.MediaColumns.DATE_ADDED} DESC")
+            resolver.query(
+                collection,
+                columns,
+                null,
+                null,
+                "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+            )
         } catch (_: IllegalArgumentException) {
-            resolver.query(collection, baseColumns, null, null,
-                "${MediaStore.MediaColumns.DATE_ADDED} DESC")
+            // Keep the library usable with non-standard MediaStore providers.
+            resolver.query(
+                collection,
+                columns.take(6).toTypedArray(),
+                null,
+                null,
+                "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+            )
         } ?: return result
 
-        cursor.use {
-            val idIndex = it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-            val nameIndex = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-            val durationIndex = it.getColumnIndex(MediaStore.MediaColumns.DURATION)
-            val sizeIndex = it.getColumnIndex(MediaStore.MediaColumns.SIZE)
-            val dateIndex = it.getColumnIndex(MediaStore.MediaColumns.DATE_ADDED)
-            val mimeIndex = it.getColumnIndex(MediaStore.MediaColumns.MIME_TYPE)
-            val bucketIdIndex = it.getColumnIndex("bucket_id")
-            val bucketNameIndex = it.getColumnIndex("bucket_display_name")
+        cursor.use { c ->
+            val idIndex = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+            val nameIndex = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+            val durationIndex = c.getColumnIndex(MediaStore.MediaColumns.DURATION)
+            val sizeIndex = c.getColumnIndex(MediaStore.MediaColumns.SIZE)
+            val dateIndex = c.getColumnIndex(MediaStore.MediaColumns.DATE_ADDED)
+            val mimeIndex = c.getColumnIndex(MediaStore.MediaColumns.MIME_TYPE)
+            val pathIndex = c.getColumnIndex(MediaStore.MediaColumns.RELATIVE_PATH)
 
-            while (it.moveToNext()) {
-                val itemUri = Uri.withAppendedPath(collection, it.getLong(idIndex).toString())
+            while (c.moveToNext()) {
+                val itemUri = Uri.withAppendedPath(collection, c.getLong(idIndex).toString())
+                val relativePath = if (pathIndex >= 0) {
+                    c.getString(pathIndex)?.trim('/')?.takeIf { it.isNotBlank() }
+                } else null
+                val folderName = relativePath
+                    ?.substringAfterLast('/')
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "مجلدات أخرى"
+                // Use the normalized path as the stable grouping key across audio/video.
+                val folderId = relativePath?.lowercase()?.hashCode()?.toString() ?: "0"
                 val fallbackMime = if (isVideo) "video/*" else "audio/*"
-                val bucketName = if (bucketNameIndex >= 0) {
-                    it.getString(bucketNameIndex)?.takeIf(String::isNotBlank)
-                } else null
-                val bucketId = if (bucketIdIndex >= 0) {
-                    it.getString(bucketIdIndex)?.takeIf(String::isNotBlank)
-                } else null
 
                 result += MediaItemEntity(
                     mediaId = itemUri.toString(),
-                    title = it.getString(nameIndex) ?: "بدون اسم",
-                    duration = if (durationIndex >= 0) it.getLong(durationIndex) else 0L,
+                    title = c.getString(nameIndex) ?: "بدون اسم",
+                    duration = if (durationIndex >= 0) c.getLong(durationIndex) else 0L,
                     uri = itemUri.toString(),
-                    mimeType = if (mimeIndex >= 0) it.getString(mimeIndex) ?: fallbackMime else fallbackMime,
-                    sizeBytes = if (sizeIndex >= 0) it.getLong(sizeIndex) else 0L,
-                    dateAdded = if (dateIndex >= 0) it.getLong(dateIndex) * 1000L else 0L,
+                    mimeType = if (mimeIndex >= 0) c.getString(mimeIndex) ?: fallbackMime else fallbackMime,
+                    sizeBytes = if (sizeIndex >= 0) c.getLong(sizeIndex) else 0L,
+                    dateAdded = if (dateIndex >= 0) c.getLong(dateIndex) * 1000L else 0L,
                     isVideo = isVideo,
-                    bucketId = bucketId ?: "0",
-                    bucketName = bucketName ?: "مجلدات أخرى"
+                    bucketId = folderId,
+                    bucketName = folderName
                 )
             }
         }
