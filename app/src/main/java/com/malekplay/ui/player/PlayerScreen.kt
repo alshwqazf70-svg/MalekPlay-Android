@@ -149,6 +149,8 @@ fun PlayerScreen(
     var currentIsVideo by remember(player, uri, isVideo) {
         mutableStateOf(isVideoMedia(context, uri, isVideo))
     }
+    var currentTitle by remember(player, uri, title) { mutableStateOf(title) }
+    var controlsLocked by remember { mutableStateOf(false) }
     var subtitleName by remember { mutableStateOf<String?>(null) }
     var externalSubtitleUri by remember { mutableStateOf<Uri?>(null) }
     var translatingSubtitle by remember { mutableStateOf(false) }
@@ -161,6 +163,10 @@ fun PlayerScreen(
             ) {
                 val nextUri = mediaItem?.localConfiguration?.uri ?: return
                 currentIsVideo = isVideoMedia(context, nextUri, currentIsVideo)
+                currentTitle = mediaItem.mediaMetadata.title?.toString()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: Uri.decode(nextUri.lastPathSegment.orEmpty()).substringAfterLast('/').ifBlank { title }
+                controlsLocked = false
                 // An external subtitle belongs to one media item only.
                 externalSubtitleUri = null
                 subtitleName = null
@@ -228,7 +234,6 @@ fun PlayerScreen(
         onDispose { player.removeListener(listener) }
     }
 
-    var controlsLocked by remember { mutableStateOf(false) }
     var gestureHint by remember { mutableStateOf<String?>(null) }
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -410,7 +415,7 @@ fun PlayerScreen(
                         modifier = Modifier.size(58.dp))
                 }
                 Spacer(Modifier.height(12.dp))
-                Text(title, color = Color.White, fontWeight = FontWeight.Bold,
+                Text(currentTitle, color = Color.White, fontWeight = FontWeight.Bold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(8.dp))
                 IconButton(onClick = { if (player.isPlaying) player.pause() else player.play() }) {

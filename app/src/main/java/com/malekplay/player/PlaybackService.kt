@@ -48,6 +48,7 @@ import org.json.JSONArray
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Owns the single ExoPlayer instance and MediaSession, including background sleep timer. */
@@ -63,6 +64,9 @@ class PlaybackService : MediaSessionService() {
     private val progressHandler = Handler(Looper.getMainLooper())
     private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val persistenceMutex = Mutex()
+    // A delayed IO task must never overwrite a newer snapshot for the same media item.
+    private val saveRevisions = ConcurrentHashMap<String, Long>()
+    private var revisionCounter = 0L
     private var timerDeadlineMs = 0L
     private var timerDurationMs = 0L
     private var originalVolume = 1f
@@ -108,8 +112,15 @@ class PlaybackService : MediaSessionService() {
         val speed = activePlayer.playbackParameters.speed
         val audioTrack = currentTrackId(C.TRACK_TYPE_AUDIO)
         val subtitleTrack = currentTrackId(C.TRACK_TYPE_TEXT)
+        val revision = synchronized(saveRevisions) {
+            revisionCounter += 1L
+            saveRevisions[mediaId] = revisionCounter
+            revisionCounter
+        }
         return persistenceScope.launch {
             persistenceMutex.withLock {
+                val isLatestSnapshot = saveRevisions[mediaId] == revision
+                if (!isLatestSnapshot) return@withLock
                 runCatching {
                     // Always preserve progress for remote and document-picker URIs as well.
                     getSharedPreferences("malekplay_playback", MODE_PRIVATE).edit()

@@ -16,7 +16,16 @@ class MediaRepository(
     private val scanner: MediaStoreScanner
 ) {
     fun observeLibrary(): Flow<List<MediaWithDetails>> = flow {
-        dao.upsertMedia(scanner.scan())
+        val snapshot = scanner.scan()
+        dao.upsertMedia(snapshot.items)
+        // A denied or failed collection is deliberately left untouched. This matters
+        // on Android 13+ where audio and video permissions are granted independently.
+        if (snapshot.videoScanCompleted) {
+            dao.deleteMediaNotSeenSince(true, snapshot.scanTimestamp)
+        }
+        if (snapshot.audioScanCompleted) {
+            dao.deleteMediaNotSeenSince(false, snapshot.scanTimestamp)
+        }
         emitAll(dao.observeAllMediaWithDetails())
     }.flowOn(Dispatchers.IO)
 

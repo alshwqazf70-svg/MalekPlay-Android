@@ -18,7 +18,8 @@ data class MediaItemEntity(
     val isVideo: Boolean,
     val thumbnailPath: String? = null,
     @ColumnInfo(defaultValue = "'0'") val bucketId: String = "0",
-    @ColumnInfo(defaultValue = "'مجلدات أخرى'") val bucketName: String = "مجلدات أخرى"
+    @ColumnInfo(defaultValue = "'مجلدات أخرى'") val bucketName: String = "مجلدات أخرى",
+    @ColumnInfo(defaultValue = "0") val lastSeenAt: Long = 0L
 )
 
 @Entity(
