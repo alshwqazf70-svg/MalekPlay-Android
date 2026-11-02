@@ -10,7 +10,6 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.MediaStore
 import android.util.Size
 import androidx.activity.ComponentActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -744,42 +743,6 @@ private fun savePlaylists(playlists: List<UserPlaylist>): String {
 
 private fun libraryPrefsValue(context: Context, key: String, fallback: String): String =
     context.getSharedPreferences("malekplay_library", Context.MODE_PRIVATE).getString(key, fallback) ?: fallback
-
-private suspend fun loadMedia(context: Context): List<MediaEntry> = withContext(Dispatchers.IO) {
-    val resolver = context.contentResolver
-    val output = mutableListOf<MediaEntry>()
-    val columns = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME,
-        MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_ADDED, MediaStore.MediaColumns.DURATION)
-
-    fun scan(collection: Uri, video: Boolean) {
-        try {
-            resolver.query(collection, columns, null, null,
-                MediaStore.MediaColumns.DATE_ADDED + " DESC")?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-                val sizeCol = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
-                val dateCol = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_ADDED)
-                val durationCol = cursor.getColumnIndex(MediaStore.MediaColumns.DURATION)
-                while (cursor.moveToNext()) {
-                    val id = cursor.getLong(idCol)
-                    output.add(MediaEntry(
-                        Uri.withAppendedPath(collection, id.toString()),
-                        cursor.getString(nameCol) ?: "ملف بدون اسم",
-                        if (durationCol >= 0) cursor.getLong(durationCol) else 0L,
-                        if (sizeCol >= 0) cursor.getLong(sizeCol) else 0L,
-                        if (dateCol >= 0) cursor.getLong(dateCol) else 0L,
-                        video
-                    ))
-                }
-            }
-        } catch (_: SecurityException) {
-        } catch (_: IllegalArgumentException) {
-        }
-    }
-    scan(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true)
-    scan(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, false)
-    output.sortedByDescending { it.dateAdded }
-}
 
 @Composable
 private fun MediaRow(
