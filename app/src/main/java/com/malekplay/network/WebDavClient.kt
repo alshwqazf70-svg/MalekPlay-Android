@@ -1,5 +1,7 @@
 package com.malekplay.network
 
+import android.net.Uri
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -7,7 +9,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.w3c.dom.Element
-import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 import javax.xml.parsers.DocumentBuilderFactory
@@ -28,14 +29,21 @@ class WebDavClient {
         username: String,
         password: String
     ): List<NetworkEntry> = withContext(Dispatchers.IO) {
-        val base = URL(endpoint)
-        require(base.protocol.equals("https", true)) { "يجب استخدام WebDAV عبر HTTPS فقط" }
-        require(base.userInfo == null) { "ضع بيانات الدخول في مخزن الاعتمادات، وليس داخل الرابط" }
-        require(base.host.isNotBlank())
-        val target = URL(base.toExternalForm().trimEnd('/') + "/" + path.trimStart('/') )
-        require(target.protocol.equals("https", true) && target.host.equals(base.host, true)) {
-            "مسار WebDAV خارج الخادم المحدد"
+        val base = endpoint.toHttpUrl()
+        require(base.isHttps) { "يجب استخدام WebDAV عبر HTTPS فقط" }
+        require(base.username.isEmpty() && base.password.isEmpty()) {
+            "ضع بيانات الدخول في مخزن الاعتمادات، وليس داخل الرابط"
         }
+        require(base.host.isNotBlank())
+
+        // Treat the supplied path as decoded path text. HttpUrl encodes spaces,
+        // Arabic letters, #, ?, and other reserved characters without corrupting URI syntax.
+        val targetBuilder = base.newBuilder().encodedPath("/")
+        Uri.decode(path).trim('/').split('/')
+            .filter { it.isNotEmpty() }
+            .forEach(targetBuilder::addPathSegment)
+        val target = targetBuilder.build()
+
         val token = okhttp3.Credentials.basic(username, password, StandardCharsets.UTF_8)
         val request = Request.Builder()
             .url(target)
@@ -46,6 +54,7 @@ class WebDavClient {
                 PROPFIND_BODY.toRequestBody("application/xml; charset=utf-8".toMediaType())
             )
             .build()
+
         http.newCall(request).execute().use { response ->
             require(response.code == 207 || response.isSuccessful) {
                 "فشل WebDAV برمز HTTP ${response.code}; لم يتم اتباع التحويلات لحماية بيانات الدخول"
@@ -66,16 +75,26 @@ class WebDavClient {
                     val href = item.getElementsByTagNameNS("*", "href")
                         .item(0)?.textContent?.trim().orEmpty()
                     if (href.isBlank()) continue
-                    val resolved = URL(base, href)
-                    if (!resolved.host.equals(base.host, true) || !resolved.protocol.equals("https", true)) continue
+
+                    val resolved = target.resolve(href) ?: continue
+                    // A hostile or misconfigured server must not make us disclose Basic
+                    // credentials to another scheme, host, port, or user-info URL.
+                    if (!resolved.isHttps ||
+                        resolved.host != base.host ||
+                        resolved.port != base.port ||
+                        resolved.username.isNotEmpty() ||
+                        resolved.password.isNotEmpty()
+                    ) continue
+
                     val name = item.getElementsByTagNameNS("*", "displayname")
                         .item(0)?.textContent?.trim()?.takeIf { it.isNotBlank() }
-                        ?: resolved.path.substringAfterLast('/').ifBlank { "/" }
+                        ?: resolved.encodedPath.substringAfterLast('/').ifBlank { "/" }
                     val collection = item.getElementsByTagNameNS("*", "collection").length > 0
                     val size = item.getElementsByTagNameNS("*", "getcontentlength")
                         .item(0)?.textContent?.trim()?.toLongOrNull() ?: 0L
-                    if (resolved.toExternalForm().trimEnd('/') != target.toExternalForm().trimEnd('/')) {
-                        add(NetworkEntry(name, resolved.toExternalForm(), collection, size.coerceAtLeast(0L)))
+
+                    if (resolved.encodedPath.trimEnd('/') != target.encodedPath.trimEnd('/')) {
+                        add(NetworkEntry(name, resolved.toString(), collection, size.coerceAtLeast(0L)))
                     }
                 }
             }
