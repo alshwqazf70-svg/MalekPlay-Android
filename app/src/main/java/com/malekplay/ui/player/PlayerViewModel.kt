@@ -176,7 +176,21 @@ class PlayerViewModel @Inject constructor(
     private fun attachTrackPreference(player: MediaController, preference: TrackPreferenceEntity) {
         val listener = object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
-                if (player.currentMediaItem?.mediaId != preference.mediaId) return
+                applyPreferenceWhenReady(tracks)
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    applyPreferenceWhenReady(player.currentTracks)
+                }
+            }
+
+            private fun applyPreferenceWhenReady(tracks: Tracks) {
+                if (player.playbackState != Player.STATE_READY) return
+                if (player.currentMediaItem?.mediaId != preference.mediaId) {
+                    player.removeListener(this)
+                    return
+                }
 
                 val builder = player.trackSelectionParameters.buildUpon()
                 var changed = false
@@ -206,8 +220,7 @@ class PlayerViewModel @Inject constructor(
                     changed = true
                 }
                 if (changed) player.trackSelectionParameters = builder.build()
-                // Tracks are now known; if an old saved format no longer exists, keep
-                // Media3's default selection rather than retaining a listener indefinitely.
+                // Wait for READY so an early empty tracks callback cannot consume the preference.
                 player.removeListener(this)
             }
         }

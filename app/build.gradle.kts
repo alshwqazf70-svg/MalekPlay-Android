@@ -17,14 +17,29 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
-
-        // Ship Android phone ABIs only; omit Intel emulator/device ABIs.
         ndk {
             abiFilters += setOf("arm64-v8a", "armeabi-v7a")
         }
     }
 
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = false
+        }
+    }
+
     buildTypes {
+        debug {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -37,8 +52,6 @@ android {
 
     buildFeatures { compose = true }
 
-    // Remove duplicate OSGi metadata from JVM-only multi-release JAR entries.
-    // These descriptors are not used by the Android runtime.
     packaging {
         resources {
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"

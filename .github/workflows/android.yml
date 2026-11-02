@@ -64,19 +64,30 @@ jobs:
             app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
           if-no-files-found: ignore
 
-
-      - name: Upload debug APK
+      - name: Upload debug APK for Samsung Note 9 (arm64)
         uses: actions/upload-artifact@v4
         with:
-          name: MalekPlay-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: MalekPlay-debug-arm64
+          path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
           if-no-files-found: error
 
-      # This release variant is intentionally unsigned in CI. A production APK
-      # must be signed locally/with protected GitHub secrets after device testing.
-      - name: Upload unsigned release APK
+      - name: Upload debug APK for 32-bit phones (armv7)
         uses: actions/upload-artifact@v4
         with:
-          name: MalekPlay-release-unsigned
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          name: MalekPlay-debug-armv7
+          path: app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk
+          if-no-files-found: error
+
+      - name: Upload unsigned release APK for arm64
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlay-release-arm64-unsigned
+          path: app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk
+          if-no-files-found: error
+
+      - name: Upload unsigned release APK for armv7
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlay-release-armv7-unsigned
+          path: app/build/outputs/apk/release/app-armeabi-v7a-release-unsigned.apk
           if-no-files-found: error
