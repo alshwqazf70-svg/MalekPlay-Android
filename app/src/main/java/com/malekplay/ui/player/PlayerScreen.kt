@@ -147,6 +147,22 @@ fun PlayerScreen(
     }
 
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
+    var currentIsVideo by remember(player, uri, isVideo) {
+        mutableStateOf(isVideoMedia(context, uri, isVideo))
+    }
+    DisposableEffect(player, context) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onMediaItemTransition(
+                mediaItem: androidx.media3.common.MediaItem?,
+                reason: Int
+            ) {
+                val nextUri = mediaItem?.localConfiguration?.uri ?: return
+                currentIsVideo = isVideoMedia(context, nextUri, currentIsVideo)
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
     DisposableEffect(player) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
@@ -192,18 +208,6 @@ fun PlayerScreen(
     val sleepTimerActive by playerViewModel.sleepTimerActive.collectAsState()
     var speed by remember { mutableFloatStateOf(defaultPlaybackSpeed) }
 
-    LaunchedEffect(player, uri) {
-        while (true) {
-            delay(10_000L)
-            val currentUri = player.currentMediaItem?.localConfiguration?.uri ?: uri
-            val position = player.currentPosition.coerceAtLeast(0L)
-            val currentSpeed = player.playbackParameters.speed
-            preferences.edit()
-                .putLong("position:$currentUri", position)
-                .putFloat("speed:$currentUri", currentSpeed)
-                .apply()
-        }
-    }
     var controlsLocked by remember { mutableStateOf(false) }
     var gestureHint by remember { mutableStateOf<String?>(null) }
     val audioManager = remember(context) {
@@ -232,14 +236,18 @@ fun PlayerScreen(
                 .build()
             val currentPosition = player.currentPosition
             val currentItem = player.currentMediaItem ?: androidx.media3.common.MediaItem.fromUri(uri)
-            player.setMediaItem(
-                currentItem.buildUpon()
-                    .setSubtitleConfigurations(listOf(subtitle))
-                    .build(),
-                currentPosition
-            )
-            player.prepare()
-            player.playWhenReady = true
+            val currentIndex = player.currentMediaItemIndex
+            if (currentIndex != C.INDEX_UNSET) {
+                // Replace only the active item so the rest of the queue is preserved.
+                player.replaceMediaItem(
+                    currentIndex,
+                    currentItem.buildUpon()
+                        .setSubtitleConfigurations(listOf(subtitle))
+                        .build()
+                )
+                player.seekTo(currentIndex, currentPosition)
+                player.playWhenReady = true
+            }
             subtitleName = subtitleUri.lastPathSegment?.substringAfterLast('/') ?: "تم اختيار الترجمة"
         }
     }
@@ -273,7 +281,7 @@ fun PlayerScreen(
     }
 
     Column {
-        if (isVideo) {
+        if (currentIsVideo) {
             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                 AndroidView(
                     factory = {
@@ -479,9 +487,18 @@ fun PlayerScreen(
                                     .setLanguage("ar")
                                     .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                                     .build()
-                                player.setMediaItem(currentItem.buildUpon().setSubtitleConfigurations(listOf(config)).build(), currentPosition)
-                                player.prepare()
-                                player.playWhenReady = true
+                                val currentIndex = player.currentMediaItemIndex
+                                if (currentIndex != C.INDEX_UNSET) {
+                                    // Keep every queued item while attaching the translated subtitle.
+                                    player.replaceMediaItem(
+                                        currentIndex,
+                                        currentItem.buildUpon()
+                                            .setSubtitleConfigurations(listOf(config))
+                                            .build()
+                                    )
+                                    player.seekTo(currentIndex, currentPosition)
+                                    player.playWhenReady = true
+                                }
                                 subtitleName = "ترجمة آلية إلى العربية"
                                 translationMessage = "اكتملت الترجمة محلياً"
                             } catch (error: Exception) {
@@ -495,6 +512,20 @@ fun PlayerScreen(
             }
             TextButton(onClick = { onToggleFullscreen(!isFullscreen) }) {
                 Text(if (isFullscreen) "تصغير" else "ملء الشاشة", color = Color.White)
+            }
+        }
+        if (controlsLocked && !currentIsVideo) {
+            Row(
+                Modifier.fillMaxWidth().background(Color(0xFF142923)),
+                horizontalArrangement = Arrangement.End
+            ) {
+                IconButton(onClick = { controlsLocked = false }) {
+                    Icon(
+                        Icons.Default.LockOpen,
+                        contentDescription = "فتح عناصر التحكم",
+                        tint = Color.White
+                    )
+                }
             }
         }
         if (showEqualizer) {
@@ -554,3 +585,20 @@ fun PlayerScreen(
     }
 }
 
+private fun isVideoMedia(context: Context, uri: Uri, fallback: Boolean): Boolean {
+    val mimeType = runCatching {
+        if (uri.scheme.equals("content", ignoreCase = true)) {
+            context.contentResolver.getType(uri)
+        } else null
+    }.getOrNull()
+    if (!mimeType.isNullOrBlank()) return mimeType.startsWith("video/", ignoreCase = true)
+
+    val extension = uri.lastPathSegment
+        ?.substringAfterLast('.', missingDelimiterValue = "")
+        ?.lowercase()
+    return when (extension) {
+        "mp4", "m4v", "mkv", "webm", "avi", "mov", "3gp", "ts", "m2ts", "mpg", "mpeg", "ogv" -> true
+        "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr", "mid", "midi" -> false
+        else -> fallback
+    }
+}

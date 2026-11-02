@@ -101,6 +101,7 @@ private data class MediaEntry(
     val bucketName: String = "مجلدات أخرى"
 )
 
+@UnstableApi
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
