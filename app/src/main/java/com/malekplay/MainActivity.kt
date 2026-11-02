@@ -172,17 +172,21 @@ private fun hasAudioMediaPermission(context: Context): Boolean =
         else Manifest.permission.READ_EXTERNAL_STORAGE
     ) == PackageManager.PERMISSION_GRANTED
 
-private fun hasVideoMediaPermission(context: Context): Boolean =
-    if (Build.VERSION.SDK_INT >= 34) {
-        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
-    } else {
+private fun hasFullVideoMediaPermission(context: Context): Boolean =
+    ContextCompat.checkSelfPermission(
+        context,
+        if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO
+        else Manifest.permission.READ_EXTERNAL_STORAGE
+    ) == PackageManager.PERMISSION_GRANTED
+
+private fun hasSelectedVideoMediaPermission(context: Context): Boolean =
+    Build.VERSION.SDK_INT >= 34 &&
         ContextCompat.checkSelfPermission(
-            context,
-            if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO
-            else Manifest.permission.READ_EXTERNAL_STORAGE
+            context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
         ) == PackageManager.PERMISSION_GRANTED
-    }
+
+private fun hasVideoMediaPermission(context: Context): Boolean =
+    hasFullVideoMediaPermission(context) || hasSelectedVideoMediaPermission(context)
 
 // Either media category keeps the library usable; the UI separately explains partial access.
 private fun hasMediaPermission(context: Context): Boolean =
@@ -634,7 +638,8 @@ private fun MalekPlayApp() {
                         ) {
                             Text(
                                 if (!hasAudioMediaPermission(context)) "الوصول إلى الصوت غير مسموح؛ مكتبة الصوت قد تكون ناقصة."
-                                else "الوصول إلى الفيديو محدود أو غير مكتمل.",
+                                else if (hasSelectedVideoMediaPermission(context) && !hasFullVideoMediaPermission(context)) "الوصول إلى الفيديو محدود بالملفات التي اخترتها."
+                                else "الوصول الكامل إلى الفيديو غير ممنوح.",
                                 modifier = Modifier.weight(1f), fontSize = 12.sp
                             )
                             TextButton(onClick = { permissionRequest.launch(missingMediaPermissions(context)) }) {
