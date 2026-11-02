@@ -17,6 +17,11 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
+
+        // Ship Android phone ABIs only; omit Intel emulator/device ABIs.
+        ndk {
+            abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildFeatures { compose = true }
