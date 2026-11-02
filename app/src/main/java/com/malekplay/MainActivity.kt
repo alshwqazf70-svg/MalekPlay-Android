@@ -18,7 +18,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -140,7 +139,6 @@ private fun MalekPlayApp() {
     var childModeEnabled by remember(context) { mutableStateOf(ParentalControlManager(context).isEnabled) }
     var permitted by remember { mutableStateOf(hasMediaPermission(context)) }
 
-    // الفيديو المحدد للتشغيل حالياً
     var selected by rememberSaveable(stateSaver = mediaEntrySaver) { mutableStateOf<MediaEntry?>(null) }
     var queueUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var queueStartIndex by remember { mutableIntStateOf(0) }
@@ -159,7 +157,6 @@ private fun MalekPlayApp() {
         }
     }
 
-    // زر الرجوع عند تشغيل الفيديو يعيدنا للمكتبة
     BackHandler(enabled = selected != null) {
         selected = null
         setFullscreen(false)
@@ -217,7 +214,6 @@ private fun MalekPlayApp() {
 
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             when {
-                // 1. حالة تشغيل الفيديو (عرض مشغل الفيديو الخارق)
                 selected != null -> {
                     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                         PlayerScreen(
@@ -236,7 +232,6 @@ private fun MalekPlayApp() {
                     }
                 }
 
-                // 2. حالة عدم وجود أذونات
                 !permitted -> {
                     Column(
                         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -265,10 +260,8 @@ private fun MalekPlayApp() {
                     }
                 }
 
-                // 3. الحالة الرئيسية الافتراضية: عرض شاشة المجلدات الخرافية (MX Style)
                 else -> {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        // الشريط العلوي الرئيسي للتطبيق
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -298,26 +291,25 @@ private fun MalekPlayApp() {
                             }
                         }
 
-                        // استدعاء شاشة المجلدات التي صممناها
                         LibraryScreen(
                             viewModel = libraryViewModel,
                             onVideoClick = { mediaWithDetails ->
                                 val media = mediaWithDetails.media
-                                val uri = Uri.parse(media.uriString ?: media.path ?: "")
-                                val title = media.displayName ?: media.title ?: "فيديو"
-                                val isVideo = media.isVideo ?: true
+                                val uri = Uri.parse(media.uri)
+                                val title = media.title
+                                val isVideo = media.isVideo
 
                                 queueUris = listOf(uri)
                                 queueStartIndex = 0
                                 selected = MediaEntry(
                                     uri = uri,
                                     name = title,
-                                    durationMs = media.durationMs ?: 0L,
-                                    sizeBytes = media.sizeBytes ?: 0L,
-                                    dateAdded = media.dateAdded ?: 0L,
+                                    durationMs = media.duration,
+                                    sizeBytes = media.sizeBytes,
+                                    dateAdded = media.dateAdded,
                                     isVideo = isVideo
                                 )
-                                setFullscreen(true) // تشغيل بملء الشاشة فوراً كما في MX
+                                setFullscreen(true)
                             },
                             modifier = Modifier.weight(1f)
                         )
