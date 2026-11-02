@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
@@ -27,6 +28,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /** Owns the UI-side MediaController connection. PlaybackService owns ExoPlayer. */
+@UnstableApi
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     @ApplicationContext private val app: Context,
