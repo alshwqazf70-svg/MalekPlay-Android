@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import com.malekplay.data.local.entity.MediaItemEntity
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -41,15 +42,25 @@ class MediaStoreScanner(context: Context) {
                 null,
                 "${MediaStore.MediaColumns.DATE_ADDED} DESC"
             )
+        } catch (_: SecurityException) {
+            // Android 13+ lets users grant audio and video access independently.
+            // A denied collection must not hide media from the collection they allowed.
+            null
         } catch (_: IllegalArgumentException) {
             // Keep the library usable with non-standard MediaStore providers.
-            resolver.query(
-                collection,
-                columns.take(6).toTypedArray(),
-                null,
-                null,
-                "${MediaStore.MediaColumns.DATE_ADDED} DESC"
-            )
+            try {
+                resolver.query(
+                    collection,
+                    columns.take(6).toTypedArray(),
+                    null,
+                    null,
+                    "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+                )
+            } catch (_: SecurityException) {
+                null
+            } catch (_: IllegalArgumentException) {
+                null
+            }
         } ?: return result
 
         cursor.use { c ->
@@ -71,7 +82,7 @@ class MediaStoreScanner(context: Context) {
                     ?.takeIf { it.isNotBlank() }
                     ?: "مجلدات أخرى"
                 // Use the normalized path as the stable grouping key across audio/video.
-                val folderId = relativePath?.lowercase() ?: "0"
+                val folderId = relativePath?.lowercase(Locale.ROOT) ?: "0"
                 val fallbackMime = if (isVideo) "video/*" else "audio/*"
 
                 result += MediaItemEntity(
