@@ -77,7 +77,7 @@ private val mediaEntrySaver = Saver<MediaEntry?, List<String>>(
     }
 )
 
-@UnstableApi
+@OptIn(UnstableApi::class)
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -126,7 +126,7 @@ private fun mediaPermissions(): Array<String> = when {
     else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
 }
 
-@UnstableApi
+@OptIn(UnstableApi::class)
 @Composable
 private fun MalekPlayApp() {
     val context = LocalContext.current
