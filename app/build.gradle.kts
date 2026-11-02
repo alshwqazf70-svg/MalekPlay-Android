@@ -17,15 +17,44 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    buildFeatures { compose = true }
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            signingConfig = signingConfigs.getByName("debug") // للتجربة وبناء APK فوراً في GitHub
+        }
+        debug {
+            isMinifyEnabled = false
+            applicationIdSuffix = ".debug"
+        }
+    }
 
-    // Remove duplicate OSGi metadata from JVM-only multi-release JAR entries.
-    // These descriptors are not used by the Android runtime.
+    buildFeatures {
+        compose = true
+    }
+
+    // تنظيف وحل تعارض الملفات المكررة لمكتبات الشبكات (SSHJ, SMBJ, OkHttp)
     packaging {
         resources {
-            excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            excludes += listOf(
+                "/META-INF/versions/9/OSGI-INF/MANIFEST.MF",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/license.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/notice.txt",
+                "META-INF/ASL2.0",
+                "META-INF/*.kotlin_module"
+            )
         }
     }
 
@@ -34,7 +63,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 }
 
 ksp {
@@ -44,6 +75,7 @@ ksp {
 dependencies {
     implementation(platform(libs.compose.bom))
     androidTestImplementation(platform(libs.compose.bom))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.runtime.ktx)
@@ -54,18 +86,30 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.icons.extended)
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // Media3 (ExoPlayer & Session)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation(libs.media3.session)
     implementation(libs.media3.datasource.okhttp)
+
+    // Room Database
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
-    implementation(libs.datastore.preferences)
     ksp(libs.room.compiler)
+
+    // DataStore
+    implementation(libs.datastore.preferences)
+
+    // Hilt Dependency Injection
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
+
+    // On-Device ML Kit Subtitle Translation
     implementation(libs.mlkit.translate)
+
+    // Network Streaming (SMB, SFTP, WebDAV)
     implementation(libs.smbj)
     implementation(libs.sshj)
     implementation(libs.okhttp)
