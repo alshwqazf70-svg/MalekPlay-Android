@@ -68,6 +68,9 @@ class PlayerViewModel @Inject constructor(
      * Persist progress only for items already indexed in the local Room library.
      * Network streams and one-off document-picker URIs are intentionally skipped.
      */
+    suspend fun getSavedPlaybackState(mediaId: String) =
+        runCatching { mediaRepository.getPlaybackState(mediaId) }.getOrNull()
+
     fun savePlaybackState(mediaId: String, positionMs: Long, speed: Float, durationMs: Long) {
         viewModelScope.launch {
             runCatching {
