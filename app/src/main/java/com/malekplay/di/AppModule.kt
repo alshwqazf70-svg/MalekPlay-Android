@@ -29,7 +29,8 @@ object AppModule {
             context,
             MalekPlayDatabase::class.java,
             "malekplay.db"
-        ).build()
+        ).addMigrations(MalekPlayDatabase.MIGRATION_1_2, MalekPlayDatabase.MIGRATION_2_3)
+        .build()
 
     @Provides
     fun provideMediaDao(database: MalekPlayDatabase) = database.mediaDao()

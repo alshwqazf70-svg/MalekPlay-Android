@@ -20,33 +20,53 @@ class NetworkCredentialVault(context: Context) {
         "malekplay_network_secrets", Context.MODE_PRIVATE
     )
 
+    @Synchronized
     fun save(profileId: String, username: String, password: String) {
-        require(profileId.matches(Regex("[A-Za-z0-9_-]{1,64}")))
+        require(profileId.matches(PROFILE_ID_PATTERN))
         val plain = (username + "\u0000" + password).toByteArray(StandardCharsets.UTF_8)
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
-        val encrypted = cipher.doFinal(plain)
-        val packed = cipher.iv + encrypted
-        check(preferences.edit().putString(profileId, Base64.encodeToString(packed, Base64.NO_WRAP)).commit())
+        try {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+            val encrypted = cipher.doFinal(plain)
+            val packed = cipher.iv + encrypted
+            check(preferences.edit().putString(profileId, Base64.encodeToString(packed, Base64.NO_WRAP)).commit())
+        } finally {
+            plain.fill(0)
+        }
     }
 
+    /**
+     * A restored preference may outlive the device-bound Keystore key. Treat corrupt or
+     * undecryptable ciphertext as a missing credential instead of crashing the UI/service.
+     */
+    @Synchronized
     fun load(profileId: String): Pair<String, String>? {
-        val packed = preferences.getString(profileId, null)?.let {
-            runCatching { Base64.decode(it, Base64.NO_WRAP) }.getOrNull()
-        } ?: return null
-        if (packed.size <= IV_LENGTH + 16) return null
-        val iv = packed.copyOfRange(0, IV_LENGTH)
-        val ciphertext = packed.copyOfRange(IV_LENGTH, packed.size)
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
-        val decoded = String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
-        val separator = decoded.indexOf('\u0000')
-        if (separator < 0) return null
-        return decoded.substring(0, separator) to decoded.substring(separator + 1)
+        if (!profileId.matches(PROFILE_ID_PATTERN)) return null
+        val result = runCatching {
+            val packed = preferences.getString(profileId, null)?.let {
+                Base64.decode(it, Base64.NO_WRAP)
+            } ?: return null
+            if (packed.size <= IV_LENGTH + 16) return null
+
+            val iv = packed.copyOfRange(0, IV_LENGTH)
+            val ciphertext = packed.copyOfRange(IV_LENGTH, packed.size)
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
+            val decoded = String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
+            val separator = decoded.indexOf('\u0000')
+            if (separator < 0) null
+            else decoded.substring(0, separator) to decoded.substring(separator + 1)
+        }.getOrNull()
+
+        if (result == null) preferences.edit().remove(profileId).apply()
+        return result
     }
 
+    @Synchronized
     fun remove(profileId: String) {
-        preferences.edit().remove(profileId).apply()
+        if (profileId.matches(PROFILE_ID_PATTERN)) {
+            preferences.edit().remove(profileId).apply()
+        }
     }
 
     private fun getOrCreateKey(): SecretKey {
@@ -68,6 +88,7 @@ class NetworkCredentialVault(context: Context) {
     }
 
     private companion object {
+        val PROFILE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
         const val KEY_ALIAS = "malekplay.network.credentials.v1"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val IV_LENGTH = 12

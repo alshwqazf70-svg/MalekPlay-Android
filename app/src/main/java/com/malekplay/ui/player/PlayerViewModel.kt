@@ -3,26 +3,42 @@ package com.malekplay.ui.player
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.C
+import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
+import com.malekplay.data.repository.MediaRepository
+import com.malekplay.data.local.entity.TrackPreferenceEntity
+import com.malekplay.player.TrackPreferenceKey
 import com.malekplay.player.PlaybackService
+import com.malekplay.player.PlayerCommands
+import com.malekplay.player.PlaybackBus
+import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /** Owns the UI-side MediaController connection. PlaybackService owns ExoPlayer. */
+@UnstableApi
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    @ApplicationContext private val app: Context
+    @ApplicationContext private val app: Context,
+    private val mediaRepository: MediaRepository
 ) : ViewModel() {
     private val _controller = MutableStateFlow<MediaController?>(null)
     val controller = _controller.asStateFlow()
@@ -30,10 +46,17 @@ class PlayerViewModel @Inject constructor(
     private val _connectionError = MutableStateFlow(false)
     val connectionError = _connectionError.asStateFlow()
 
-    private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
-    private var sleepTimerJob: Job? = null
+    private var controllerFuture: ListenableFuture<MediaController>? = null
     private val _sleepTimerActive = MutableStateFlow(false)
     val sleepTimerActive = _sleepTimerActive.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            PlaybackBus.sleepTimerRemaining.collect { remaining ->
+                _sleepTimerActive.value = remaining > 0L
+            }
+        }
+    }
 
     /** Safe to call repeatedly; a failed connection can be retried by the UI. */
     fun connect() {
@@ -53,7 +76,6 @@ class PlayerViewModel @Inject constructor(
                     _controller.value = connected
                     _connectionError.value = false
                 } else {
-                    // Clear the failed future so a later connect() call can retry.
                     controllerFuture = null
                     _connectionError.value = true
                 }
@@ -62,40 +84,150 @@ class PlayerViewModel @Inject constructor(
         )
     }
 
+    /** Read the saved Room state for an indexed local media item. */
+    suspend fun getSavedPlaybackState(mediaId: String) =
+        runCatching { mediaRepository.getPlaybackState(mediaId) }.getOrNull()
+
+    suspend fun getSavedTrackPreference(mediaId: String): TrackPreferenceEntity? =
+        runCatching { mediaRepository.getTrackPreference(mediaId) }.getOrNull()
+
+    /** Timer runs in PlaybackService and survives the Activity being removed. */
     fun setSleepTimer(minutes: Int) {
-        require(minutes in 1..240) { "Sleep timer must be between 1 and 240 minutes" }
-        sleepTimerJob?.cancel()
-        _sleepTimerActive.value = true
-        sleepTimerJob = viewModelScope.launch {
-            delay(minutes * 60_000L)
-            _controller.value?.pause()
-            _sleepTimerActive.value = false
-            sleepTimerJob = null
-        }
+        val controller = _controller.value ?: return
+        val args = Bundle().apply { putInt(PlayerCommands.EXTRA_MINUTES, minutes.coerceIn(1, 240)) }
+        val command = SessionCommand(PlayerCommands.ACTION_SLEEP_TIMER, Bundle.EMPTY)
+        val future = runCatching { controller.sendCustomCommand(command, args) }.getOrNull() ?: return
+        future.addListener(
+            {
+                val result = runCatching { future.get() }.getOrNull()
+                if (result?.resultCode != SessionResult.RESULT_SUCCESS) {
+                    _sleepTimerActive.value = false
+                }
+            },
+            ContextCompat.getMainExecutor(app)
+        )
     }
 
     fun cancelSleepTimer() {
-        sleepTimerJob?.cancel()
-        sleepTimerJob = null
-        _sleepTimerActive.value = false
+        val controller = _controller.value
+        if (controller == null) {
+            _sleepTimerActive.value = false
+            return
+        }
+        val command = SessionCommand(PlayerCommands.ACTION_CANCEL_SLEEP_TIMER, Bundle.EMPTY)
+        val future = runCatching {
+            controller.sendCustomCommand(command, Bundle.EMPTY)
+        }.getOrNull()
+        if (future == null) {
+            _sleepTimerActive.value = false
+            return
+        }
+        future.addListener(
+            {
+                val result = runCatching { future.get() }.getOrNull()
+                if (result?.resultCode == SessionResult.RESULT_SUCCESS) {
+                    _sleepTimerActive.value = false
+                }
+            },
+            ContextCompat.getMainExecutor(app)
+        )
     }
 
-    fun playQueue(uris: List<Uri>, startIndex: Int, startPositionMs: Long, speed: Float = 1f) {
+    fun playQueue(
+        uris: List<Uri>,
+        startIndex: Int,
+        startPositionMs: Long,
+        speed: Float = 1f,
+        currentTitle: String? = null,
+        trackPreference: TrackPreferenceEntity? = null
+    ) {
         val player = _controller.value ?: return
         if (uris.isEmpty()) return
+
         val safeIndex = startIndex.coerceIn(0, uris.lastIndex)
-        player.setMediaItems(
-            uris.map { MediaItem.fromUri(it) },
-            safeIndex,
-            startPositionMs.coerceAtLeast(0L)
-        )
+        val items = uris.mapIndexed { index, uri ->
+            val fallbackTitle = uri.lastPathSegment
+                ?.let(Uri::decode)
+                ?.substringAfterLast('/')
+                ?.takeIf { it.isNotBlank() }
+                ?: "وسائط"
+            val itemTitle = if (index == safeIndex) {
+                currentTitle?.takeIf { it.isNotBlank() } ?: fallbackTitle
+            } else {
+                fallbackTitle
+            }
+            MediaItem.Builder()
+                .setMediaId(uri.toString())
+                .setUri(uri)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(itemTitle).build())
+                .build()
+        }
+
+        trackPreference
+            ?.takeIf { it.mediaId == items[safeIndex].mediaId }
+            ?.let { attachTrackPreference(player, it) }
+
+        player.setMediaItems(items, safeIndex, startPositionMs.coerceAtLeast(0L))
         player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
         player.prepare()
         player.playWhenReady = true
     }
 
+    private fun attachTrackPreference(player: MediaController, preference: TrackPreferenceEntity) {
+        val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                applyPreferenceWhenReady(tracks)
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    applyPreferenceWhenReady(player.currentTracks)
+                }
+            }
+
+            private fun applyPreferenceWhenReady(tracks: Tracks) {
+                if (player.playbackState != Player.STATE_READY) return
+                if (player.currentMediaItem?.mediaId != preference.mediaId) {
+                    player.removeListener(this)
+                    return
+                }
+
+                val builder = player.trackSelectionParameters.buildUpon()
+                var changed = false
+                tracks.groups.forEach { group ->
+                    val preferredKey = when (group.type) {
+                        C.TRACK_TYPE_AUDIO -> preference.audioTrackId
+                        C.TRACK_TYPE_TEXT -> preference.subtitleTrackId
+                        else -> null
+                    } ?: return@forEach
+
+                    for (index in 0 until group.length) {
+                        if (TrackPreferenceKey.from(group.getTrackFormat(index)) == preferredKey) {
+                            builder.setOverrideForType(
+                                TrackSelectionOverride(group.mediaTrackGroup, listOf(index))
+                            )
+                            changed = true
+                            break
+                        }
+                    }
+                }
+
+                if (preference.subtitleTrackId != null && preference.isSubtitleEnabled) {
+                    builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    changed = true
+                } else if (!preference.isSubtitleEnabled) {
+                    builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    changed = true
+                }
+                if (changed) player.trackSelectionParameters = builder.build()
+                // Wait for READY so an early empty tracks callback cannot consume the preference.
+                player.removeListener(this)
+            }
+        }
+        player.addListener(listener)
+    }
+
     override fun onCleared() {
-        sleepTimerJob?.cancel()
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         _controller.value = null

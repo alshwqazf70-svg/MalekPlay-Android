@@ -16,6 +16,9 @@ interface MediaDao {
     @Upsert
     suspend fun upsertMedia(items: List<MediaItemEntity>)
 
+    @Query("DELETE FROM media_items WHERE isVideo = :isVideo AND lastSeenAt < :scanTimestamp")
+    suspend fun deleteMediaNotSeenSince(isVideo: Boolean, scanTimestamp: Long)
+
     @Transaction
     @Query("SELECT * FROM media_items ORDER BY dateAdded DESC")
     fun observeAllMediaWithDetails(): Flow<List<MediaWithDetails>>

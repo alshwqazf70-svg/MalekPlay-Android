@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="malekplay.db" />
+        <exclude domain="sharedpref" path="malekplay_network_secrets.xml" />
+        <exclude domain="sharedpref" path="malekplay_network_profiles.xml" />
+        <exclude domain="file" path="network_known_hosts" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" path="malekplay.db" />
+        <exclude domain="sharedpref" path="malekplay_network_secrets.xml" />
+        <exclude domain="sharedpref" path="malekplay_network_profiles.xml" />
+        <exclude domain="file" path="network_known_hosts" />
+    </device-transfer>
+</data-extraction-rules>

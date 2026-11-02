@@ -2,13 +2,13 @@ name: Build MalekPlay Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "feature/advanced-library-player" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
 
 concurrency:
-  group: malekplay-android-${{ github.ref }}
+  group: malekplay-android-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   build:
-    name: Build debug APK
+    name: Build debug and release APKs
     runs-on: ubuntu-latest
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
@@ -51,12 +51,43 @@ jobs:
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Build APK
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Build debug and release variants
+        run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
 
-      - name: Upload APK
+      - name: Upload lint report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: MalekPlay-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: MalekPlay-lint-report
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+          if-no-files-found: ignore
+
+      - name: Upload debug APK for Samsung Note 9 (arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlay-debug-arm64
+          path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+          if-no-files-found: error
+
+      - name: Upload debug APK for 32-bit phones (armv7)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlay-debug-armv7
+          path: app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk
+          if-no-files-found: error
+
+      - name: Upload unsigned release APK for arm64
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlay-release-arm64-unsigned
+          path: app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk
+          if-no-files-found: error
+
+      - name: Upload unsigned release APK for armv7
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlay-release-armv7-unsigned
+          path: app/build/outputs/apk/release/app-armeabi-v7a-release-unsigned.apk
           if-no-files-found: error

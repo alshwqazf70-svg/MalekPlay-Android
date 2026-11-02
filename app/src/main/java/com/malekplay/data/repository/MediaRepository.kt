@@ -16,22 +16,32 @@ class MediaRepository(
     private val scanner: MediaStoreScanner
 ) {
     fun observeLibrary(): Flow<List<MediaWithDetails>> = flow {
-        dao.upsertMedia(scanner.scan())
+        val snapshot = scanner.scan()
+        dao.upsertMedia(snapshot.items)
+        // A denied or failed collection is deliberately left untouched. This matters
+        // on Android 13+ where audio and video permissions are granted independently.
+        if (snapshot.videoScanCompleted) {
+            dao.deleteMediaNotSeenSince(true, snapshot.scanTimestamp)
+        }
+        if (snapshot.audioScanCompleted) {
+            dao.deleteMediaNotSeenSince(false, snapshot.scanTimestamp)
+        }
         emitAll(dao.observeAllMediaWithDetails())
     }.flowOn(Dispatchers.IO)
 
     suspend fun savePlayback(mediaId: String, position: Long, speed: Float, duration: Long) {
-        val completed = duration > 0L && position >= duration - 2_000L
+        val progress = PlaybackProgressPolicy.evaluate(position, duration)
         dao.upsertPlaybackState(
             PlaybackStateEntity(
                 mediaId = mediaId,
-                position = if (completed) 0L else position.coerceAtLeast(0L),
+                position = if (progress.completed) 0L else progress.positionMs,
                 playbackSpeed = speed.coerceIn(0.25f, 4.0f),
-                isCompleted = completed
+                isCompleted = progress.completed
             )
         )
     }
 
+    suspend fun getMediaWithDetails(mediaId: String) = dao.getMediaWithDetails(mediaId)
     suspend fun getPlaybackState(mediaId: String) = dao.getPlaybackState(mediaId)
     suspend fun getTrackPreference(mediaId: String) = dao.getTrackPreference(mediaId)
     suspend fun saveTrackPreference(preference: TrackPreferenceEntity) =

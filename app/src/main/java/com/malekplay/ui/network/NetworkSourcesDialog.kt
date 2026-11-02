@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.malekplay.network.*
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +63,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
         val json = JSONArray().apply {
             next.forEach { p ->
                 put(JSONObject().put("id", p.id).put("protocol", p.protocol.name)
-                    .put("host", p.host).put("port", p.port).put("username", p.username)
+                    .put("host", p.host).put("port", p.port)
                     .put("rootPath", p.rootPath).put("name", p.displayName))
             }
         }
@@ -83,9 +84,23 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                         )
                         NetworkProtocol.SMB -> {
                             val parts = profile.rootPath.trim('/').split('/', limit = 2)
-                            require(parts.firstOrNull().orEmpty().isNotBlank()) { "أدخل اسم مشاركة SMB في المسار، مثل media/" }
-                            smb.list(profile.host, parts[0], path.ifBlank { parts.getOrNull(1).orEmpty() },
-                                credentials.first, credentials.second)
+                            val shareName = parts.firstOrNull().orEmpty()
+                            require(shareName.isNotBlank()) { "أدخل اسم مشاركة SMB في المسار، مثل media/" }
+                            val configuredRoot = parts.getOrNull(1).orEmpty()
+                            val requestedPath = if (
+                                path.isBlank() || path.trim('/') == profile.rootPath.trim('/')
+                            ) {
+                                configuredRoot
+                            } else {
+                                path.trim('/')
+                            }
+                            smb.list(
+                                profile.host,
+                                shareName,
+                                requestedPath,
+                                credentials.first,
+                                credentials.second
+                            )
                         }
                         NetworkProtocol.SFTP -> sftp.list(profile.host, profile.port, credentials.first,
                             credentials.second, path.ifBlank { profile.rootPath }, knownHosts
@@ -95,7 +110,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                 }
                 active = profile
                 currentPath = path.ifBlank { profile.rootPath }
-                message = "تم الاتصال بالمصدر. اختر ملف WebDAV لتشغيله مباشرة."
+                message = "تم الاتصال بالمصدر. تشغيل الملفات مباشرة متاح حالياً عبر WebDAV."
             } catch (error: Exception) {
                 message = "تعذر الاتصال: ${error.localizedMessage ?: "خطأ غير معروف"}"
             } finally { busy = false }
@@ -124,7 +139,13 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                     OutlinedTextField(host, { host = it }, label = { Text("اسم الخادم أو عنوان IP") }, singleLine = true)
                     OutlinedTextField(port, { port = it.filter(Char::isDigit).take(5) }, label = { Text("المنفذ") }, singleLine = true)
                     OutlinedTextField(username, { username = it }, label = { Text("اسم المستخدم") }, singleLine = true)
-                    OutlinedTextField(password, { password = it }, label = { Text("كلمة المرور") }, singleLine = true)
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("كلمة المرور") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation()
+                    )
                     OutlinedTextField(rootPath, { rootPath = it }, label = { Text(if (protocol == NetworkProtocol.SMB) "المشاركة/المجلد (مثال: media/videos)" else "المسار الجذر") }, singleLine = true)
                     if (protocol == NetworkProtocol.SFTP) {
                         TextButton(onClick = { knownHostsPicker.launch(arrayOf("*/*")) }) { Text("استيراد ملف known_hosts") }
@@ -163,8 +184,29 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("محتويات ${nameFor(profile)}", style = MaterialTheme.typography.titleSmall)
                         TextButton(enabled = !busy, onClick = {
-                            val parent = currentPath.trimEnd('/').substringBeforeLast('/', "")
-                            connect(profile, if (parent.isBlank()) profile.rootPath else parent)
+                            val configuredRoot = profile.rootPath.trim('/')
+                            val current = currentPath.trim('/')
+                            val parent = when (profile.protocol) {
+                                NetworkProtocol.SMB -> {
+                                    val rootParts = configuredRoot.split('/', limit = 2)
+                                    val rootRelative = rootParts.getOrNull(1).orEmpty()
+                                    val currentRelative = if (current == configuredRoot) rootRelative else current
+                                    val slash = currentRelative.lastIndexOf('/')
+                                    val parentRelative = if (slash >= 0) currentRelative.substring(0, slash) else ""
+                                    if (parentRelative == rootRelative || parentRelative.isBlank()) {
+                                        profile.rootPath
+                                    } else {
+                                        parentRelative
+                                    }
+                                }
+                                else -> {
+                                    val root = profile.rootPath.trimEnd('/').ifBlank { "/" }
+                                    val slash = currentPath.trimEnd('/').lastIndexOf('/')
+                                    val candidate = if (slash >= 0) currentPath.substring(0, slash) else root
+                                    if (currentPath.trimEnd('/') == root || candidate.isBlank()) root else candidate
+                                }
+                            }
+                            connect(profile, parent)
                         }) { Text("رجوع") }
                     }
                     LazyColumn(Modifier.weight(1f, fill = false)) {
