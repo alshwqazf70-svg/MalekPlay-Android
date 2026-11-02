@@ -26,6 +26,18 @@ android {
 
     buildFeatures { compose = true }
 
+    // Release-only optimization. Debug builds remain unminified for easier testing.
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+
     // Remove duplicate OSGi metadata from JVM-only multi-release JAR entries.
     // These descriptors are not used by the Android runtime.
     packaging {
