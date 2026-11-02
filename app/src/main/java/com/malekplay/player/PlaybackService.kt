@@ -33,6 +33,7 @@ import okhttp3.OkHttpClient
 import org.json.JSONArray
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Owns the single ExoPlayer instance and MediaSession, including background sleep timer. */
 @OptIn(UnstableApi::class)
@@ -42,7 +43,6 @@ class PlaybackService : MediaSessionService() {
     private var mediaCache: SimpleCache? = null
     private val timerHandler = Handler(Looper.getMainLooper())
     private var timerDeadlineMs = 0L
-    private var timerStartMs = 0L
     private var timerDurationMs = 0L
     private var originalVolume = 1f
     private var timerActive = false
@@ -59,6 +59,7 @@ class PlaybackService : MediaSessionService() {
                 activePlayer.volume = originalVolume *
                     (remaining.toFloat() / fadeWindow.toFloat()).coerceIn(0f, 1f)
             }
+            PlaybackBus.sleepTimerRemaining.value = remaining
             if (remaining == 0L) {
                 timerActive = false
                 activePlayer.volume = originalVolume
@@ -202,8 +203,8 @@ class PlaybackService : MediaSessionService() {
         cancelSleepTimer()
         val activePlayer = player ?: return
         timerDurationMs = minutes * 60_000L
-        timerStartMs = SystemClock.elapsedRealtime()
-        timerDeadlineMs = timerStartMs + timerDurationMs
+        timerDeadlineMs = SystemClock.elapsedRealtime() + timerDurationMs
+        PlaybackBus.sleepTimerRemaining.value = timerDurationMs
         originalVolume = activePlayer.volume
         timerActive = true
         timerHandler.postDelayed(sleepTimerTick, 1_000L)
@@ -215,6 +216,7 @@ class PlaybackService : MediaSessionService() {
         player?.volume = originalVolume
         timerDeadlineMs = 0L
         timerDurationMs = 0L
+        PlaybackBus.sleepTimerRemaining.value = 0L
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -243,4 +245,9 @@ object PlayerCommands {
     const val ACTION_SLEEP_TIMER = "com.malekplay.command.SLEEP_TIMER"
     const val ACTION_CANCEL_SLEEP_TIMER = "com.malekplay.command.CANCEL_SLEEP_TIMER"
     const val EXTRA_MINUTES = "minutes"
+}
+
+/** Same-process timer state observed by the player UI. */
+object PlaybackBus {
+    val sleepTimerRemaining = MutableStateFlow(0L)
 }
