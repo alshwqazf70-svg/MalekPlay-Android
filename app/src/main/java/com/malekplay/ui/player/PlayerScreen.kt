@@ -149,6 +149,10 @@ fun PlayerScreen(
     var currentIsVideo by remember(player, uri, isVideo) {
         mutableStateOf(isVideoMedia(context, uri, isVideo))
     }
+    var subtitleName by remember { mutableStateOf<String?>(null) }
+    var externalSubtitleUri by remember { mutableStateOf<Uri?>(null) }
+    var translatingSubtitle by remember { mutableStateOf(false) }
+    var translationMessage by remember { mutableStateOf<String?>(null) }
     DisposableEffect(player, context) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onMediaItemTransition(
@@ -157,6 +161,11 @@ fun PlayerScreen(
             ) {
                 val nextUri = mediaItem?.localConfiguration?.uri ?: return
                 currentIsVideo = isVideoMedia(context, nextUri, currentIsVideo)
+                // An external subtitle belongs to one media item only.
+                externalSubtitleUri = null
+                subtitleName = null
+                translatingSubtitle = false
+                translationMessage = null
             }
         }
         player.addListener(listener)
@@ -224,10 +233,6 @@ fun PlayerScreen(
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
-    var subtitleName by remember { mutableStateOf<String?>(null) }
-    var externalSubtitleUri by remember { mutableStateOf<Uri?>(null) }
-    var translatingSubtitle by remember { mutableStateOf(false) }
-    var translationMessage by remember { mutableStateOf<String?>(null) }
     val translationScope = rememberCoroutineScope()
     val subtitlePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -486,13 +491,23 @@ fun PlayerScreen(
                 TextButton(enabled = !translatingSubtitle, onClick = {
                     val source = externalSubtitleUri
                     if (source != null) {
+                        val sourceMediaId = player.currentMediaItem?.mediaId
+                        val sourceIndex = player.currentMediaItemIndex
                         translatingSubtitle = true
                         translationMessage = "جارٍ تجهيز نموذج الترجمة..."
                         translationScope.launch {
                             try {
                                 val translatedUri = SubtitleTranslationEngine(context).translateSrtToArabic(source)
+                                // Do not attach a slow translation result to a different track.
+                                if (sourceMediaId == null ||
+                                    player.currentMediaItem?.mediaId != sourceMediaId ||
+                                    player.currentMediaItemIndex != sourceIndex
+                                ) {
+                                    translationMessage = "تم تغيير المقطع؛ لم تُرفق الترجمة بالمقطع الجديد."
+                                    return@launch
+                                }
                                 val currentPosition = player.currentPosition
-                                val currentItem = player.currentMediaItem ?: androidx.media3.common.MediaItem.fromUri(uri)
+                                val currentItem = player.currentMediaItem ?: return@launch
                                 val config = androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(translatedUri)
                                     .setMimeType(MimeTypes.APPLICATION_SUBRIP)
                                     .setLanguage("ar")
