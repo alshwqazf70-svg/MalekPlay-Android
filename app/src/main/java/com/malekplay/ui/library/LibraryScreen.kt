@@ -38,7 +38,6 @@ fun LibraryScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
 
-    // الرجوع التلقائي: إذا كان المستخدم داخل مجلد، يرجع للمجلدات بدلاً من الخروج من التطبيق
     BackHandler(enabled = selectedFolder != null) {
         viewModel.navigateBackFromFolder()
     }
@@ -70,7 +69,7 @@ fun LibraryScreen(
                 navigationIcon = {
                     if (selectedFolder != null) {
                         IconButton(onClick = { viewModel.navigateBackFromFolder() }) {
-                            Icon(Icons.Default.ArrowForward, contentDescription = "رجوع") // للأجهزة العربية
+                            Icon(Icons.Default.ArrowForward, contentDescription = "رجوع")
                         }
                     } else if (isSearchActive) {
                         IconButton(onClick = {
@@ -93,7 +92,6 @@ fun LibraryScreen(
                             Icon(Icons.Default.Refresh, contentDescription = "تحديث")
                         }
 
-                        // قائمة خيارات الترتيب
                         DropdownMenu(
                             expanded = showSortMenu,
                             onDismissRequest = { showSortMenu = false }
@@ -145,7 +143,6 @@ fun LibraryScreen(
                 }
 
                 selectedFolder != null -> {
-                    // عرض الفيديوهات داخل المجلد المفتوح
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 16.dp)
@@ -160,7 +157,6 @@ fun LibraryScreen(
                 }
 
                 else -> {
-                    // عرض قائمة المجلدات الرئيسية (نفس MX Player تماماً)
                     if (folders.isEmpty()) {
                         Text(
                             text = "لا توجد ملفات فيديو في الجهاز",
@@ -186,9 +182,6 @@ fun LibraryScreen(
     }
 }
 
-/**
- * تصميم عنصر المجلد المطابق والمطور عن MX Player
- */
 @Composable
 fun FolderItemRow(
     folder: FolderUiModel,
@@ -208,12 +201,11 @@ fun FolderItemRow(
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // أيقونة المجلد مع الشارة الحمراء للعدد الجديد (New Badge مثل MX)
             BadgedBox(
                 badge = {
                     if (folder.newVideosCount > 0) {
                         Badge(
-                            containerColor = Color(0xFFE53935), // أحمر MX Player المميز
+                            containerColor = Color(0xFFE53935),
                             contentColor = Color.White
                         ) {
                             Text(text = folder.newVideosCount.toString(), fontSize = 11.sp)
@@ -239,7 +231,6 @@ fun FolderItemRow(
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // اسم المجلد وعدد الفيديوهات
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = folder.folderName,
@@ -256,7 +247,6 @@ fun FolderItemRow(
                 )
             }
 
-            // سهم التنقل لليسار (مناسب للغة العربية)
             Icon(
                 imageVector = Icons.Default.ChevronLeft,
                 contentDescription = null,
@@ -266,16 +256,13 @@ fun FolderItemRow(
     }
 }
 
-/**
- * تصميم عنصر الفيديو الفردي داخل المجلد
- */
 @Composable
 fun VideoItemRow(
     mediaItem: MediaWithDetails,
     onClick: () -> Unit
 ) {
-    val title = mediaItem.media.displayName ?: mediaItem.media.title ?: "فيديو"
-    val durationText = formatDuration(mediaItem.media.durationMs ?: 0L)
+    val title = mediaItem.media.title
+    val durationText = formatDuration(mediaItem.media.duration)
 
     Row(
         modifier = Modifier
@@ -284,7 +271,6 @@ fun VideoItemRow(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // معاينة مصغرة للفيديو
         Box(
             modifier = Modifier
                 .size(width = 85.dp, height = 55.dp)
@@ -298,7 +284,6 @@ fun VideoItemRow(
                 tint = Color.White.copy(alpha = 0.8f),
                 modifier = Modifier.size(24.dp)
             )
-            // مدة الفيديو في الأسفل
             Text(
                 text = durationText,
                 color = Color.White,
@@ -312,7 +297,6 @@ fun VideoItemRow(
 
         Spacer(modifier = Modifier.width(14.dp))
 
-        // اسم الفيديو ومعلوماته
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
@@ -323,7 +307,7 @@ fun VideoItemRow(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = formatFileSize(mediaItem.media.sizeBytes ?: 0L),
+                text = formatFileSize(mediaItem.media.sizeBytes),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -331,7 +315,6 @@ fun VideoItemRow(
     }
 }
 
-// دالة تنسيق وقت الفيديو
 fun formatDuration(durationMs: Long): String {
     val totalSeconds = durationMs / 1000
     val minutes = totalSeconds / 60
@@ -339,7 +322,6 @@ fun formatDuration(durationMs: Long): String {
     return String.format("%02d:%02d", minutes, seconds)
 }
 
-// دالة تنسيق حجم الملف
 fun formatFileSize(bytes: Long): String {
     if (bytes <= 0) return ""
     val mb = bytes / (1024.0 * 1024.0)
