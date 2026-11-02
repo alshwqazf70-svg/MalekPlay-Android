@@ -13,7 +13,7 @@ import com.malekplay.data.local.entity.TrackPreferenceEntity
 @Database(
     entities = [MediaItemEntity::class, PlaybackStateEntity::class, TrackPreferenceEntity::class],
     version = 2,
-    exportSchema = true
+    exportSchema = false
 )
 abstract class MalekPlayDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao
