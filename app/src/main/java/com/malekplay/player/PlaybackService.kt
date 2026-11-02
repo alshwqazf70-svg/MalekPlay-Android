@@ -37,6 +37,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.malekplay.network.NetworkCredentialVault
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
@@ -57,6 +59,7 @@ class PlaybackService : MediaSessionService() {
     private val timerHandler = Handler(Looper.getMainLooper())
     private val progressHandler = Handler(Looper.getMainLooper())
     private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val persistenceMutex = Mutex()
     private var timerDeadlineMs = 0L
     private var timerDurationMs = 0L
     private var originalVolume = 1f
@@ -103,28 +106,30 @@ class PlaybackService : MediaSessionService() {
         val audioTrack = currentTrackId(C.TRACK_TYPE_AUDIO)
         val subtitleTrack = currentTrackId(C.TRACK_TYPE_TEXT)
         return persistenceScope.launch {
-            runCatching {
-                // Always preserve progress for remote and document-picker URIs as well.
-                getSharedPreferences("malekplay_playback", MODE_PRIVATE).edit()
-                    .putLong("position:$mediaId", position)
-                    .putFloat("speed:$mediaId", speed)
-                    .apply()
+            persistenceMutex.withLock {
+                runCatching {
+                    // Always preserve progress for remote and document-picker URIs as well.
+                    getSharedPreferences("malekplay_playback", MODE_PRIVATE).edit()
+                        .putLong("position:$mediaId", position)
+                        .putFloat("speed:$mediaId", speed)
+                        .apply()
 
-                // Room adds relational history and track preferences for indexed MediaStore items.
-                if (mediaId.startsWith("content://") &&
-                    mediaRepository.getMediaWithDetails(mediaId) != null
-                ) {
-                    mediaRepository.savePlayback(mediaId, position, speed, duration)
-                    if (audioTrack != null || subtitleTrack != null) {
-                        mediaRepository.saveTrackPreference(
-                            TrackPreferenceEntity(
-                                mediaId = mediaId,
-                                audioTrackId = audioTrack,
-                                subtitleTrackId = subtitleTrack,
-                                subtitleDelayMs = 0L,
-                                isSubtitleEnabled = subtitleTrack != null
+                    // Room adds relational history and track preferences for indexed MediaStore items.
+                    if (mediaId.startsWith("content://") &&
+                        mediaRepository.getMediaWithDetails(mediaId) != null
+                    ) {
+                        mediaRepository.savePlayback(mediaId, position, speed, duration)
+                        if (audioTrack != null || subtitleTrack != null) {
+                            mediaRepository.saveTrackPreference(
+                                TrackPreferenceEntity(
+                                    mediaId = mediaId,
+                                    audioTrackId = audioTrack,
+                                    subtitleTrackId = subtitleTrack,
+                                    subtitleDelayMs = 0L,
+                                    isSubtitleEnabled = subtitleTrack != null
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
