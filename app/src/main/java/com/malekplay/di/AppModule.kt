@@ -29,7 +29,7 @@ object AppModule {
             context,
             MalekPlayDatabase::class.java,
             "malekplay.db"
-        ).addMigrations(MalekPlayDatabase.MIGRATION_1_2)
+        ).addMigrations(MalekPlayDatabase.MIGRATION_1_2, MalekPlayDatabase.MIGRATION_2_3)
         .build()
 
     @Provides
