@@ -7,10 +7,11 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import com.malekplay.player.PlaybackService
 import com.malekplay.data.repository.MediaRepository
+import com.malekplay.player.PlaybackService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
@@ -55,7 +56,6 @@ class PlayerViewModel @Inject constructor(
                     _controller.value = connected
                     _connectionError.value = false
                 } else {
-                    // Clear the failed future so a later connect() call can retry.
                     controllerFuture = null
                     _connectionError.value = true
                 }
@@ -99,15 +99,36 @@ class PlayerViewModel @Inject constructor(
         _sleepTimerActive.value = false
     }
 
-    fun playQueue(uris: List<Uri>, startIndex: Int, startPositionMs: Long, speed: Float = 1f) {
+    fun playQueue(
+        uris: List<Uri>,
+        startIndex: Int,
+        startPositionMs: Long,
+        speed: Float = 1f,
+        currentTitle: String? = null
+    ) {
         val player = _controller.value ?: return
         if (uris.isEmpty()) return
+
         val safeIndex = startIndex.coerceIn(0, uris.lastIndex)
-        player.setMediaItems(
-            uris.map { MediaItem.fromUri(it) },
-            safeIndex,
-            startPositionMs.coerceAtLeast(0L)
-        )
+        val items = uris.mapIndexed { index, uri ->
+            val fallbackTitle = uri.lastPathSegment
+                ?.let(Uri::decode)
+                ?.substringAfterLast('/')
+                ?.takeIf { it.isNotBlank() }
+                ?: "وسائط"
+            val itemTitle = if (index == safeIndex) {
+                currentTitle?.takeIf { it.isNotBlank() } ?: fallbackTitle
+            } else {
+                fallbackTitle
+            }
+            MediaItem.Builder()
+                .setMediaId(uri.toString())
+                .setUri(uri)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(itemTitle).build())
+                .build()
+        }
+
+        player.setMediaItems(items, safeIndex, startPositionMs.coerceAtLeast(0L))
         player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
         player.prepare()
         player.playWhenReady = true
