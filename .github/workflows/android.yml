@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   build:
-    name: Build debug APK
+    name: Build debug and release APKs
     runs-on: ubuntu-latest
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
@@ -51,12 +51,21 @@ jobs:
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Build APK
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Build debug and release variants
+        run: gradle --no-daemon :app:assembleDebug :app:assembleRelease
 
-      - name: Upload APK
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: MalekPlay-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      # This release variant is intentionally unsigned in CI. A production APK
+      # must be signed locally/with protected GitHub secrets after device testing.
+      - name: Upload unsigned release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlay-release-unsigned
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
