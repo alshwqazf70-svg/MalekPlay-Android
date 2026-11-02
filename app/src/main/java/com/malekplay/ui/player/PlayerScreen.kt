@@ -645,5 +645,13 @@ private fun isVideoMedia(context: Context, uri: Uri, fallback: Boolean): Boolean
             context.contentResolver.getType(uri)
         } else null
     }.getOrNull()
-    return MediaTypeDetector.isVideo(mimeType, uri.lastPathSegment, fallback)
+
+    if (mimeType != null) {
+        return mimeType.startsWith("video/", ignoreCase = true)
+    }
+
+    val path = uri.lastPathSegment?.lowercase() ?: return fallback
+    val videoExtensions = setOf("mp4", "mkv", "webm", "avi", "mov", "m4v", "3gp", "ts", "flv", "wmv")
+    val ext = path.substringAfterLast('.', "")
+    return if (ext.isNotEmpty()) ext in videoExtensions else fallback
 }
