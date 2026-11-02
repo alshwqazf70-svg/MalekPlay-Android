@@ -2,7 +2,7 @@ name: Build MalekPlay Android APK
 
 on:
   push:
-    branches: [ "main", "feature/advanced-library-player" ]
+    branches: [ "main", "feature/advanced-library-player", "optimization/r8-resource-shrinking" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
