@@ -1,5 +1,6 @@
 package com.malekplay.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -15,7 +16,9 @@ data class MediaItemEntity(
     val sizeBytes: Long,
     val dateAdded: Long,
     val isVideo: Boolean,
-    val thumbnailPath: String? = null
+    val thumbnailPath: String? = null,
+    @ColumnInfo(defaultValue = "'0'") val bucketId: String = "0",
+    @ColumnInfo(defaultValue = "'مجلدات أخرى'") val bucketName: String = "مجلدات أخرى"
 )
 
 @Entity(
