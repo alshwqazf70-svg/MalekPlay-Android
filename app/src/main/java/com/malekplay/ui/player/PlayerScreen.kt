@@ -202,12 +202,6 @@ fun PlayerScreen(
                 .putLong("position:$currentUri", position)
                 .putFloat("speed:$currentUri", currentSpeed)
                 .apply()
-            playerViewModel.savePlaybackState(
-                currentUri.toString(),
-                position,
-                currentSpeed,
-                player.duration.takeIf { it > 0L } ?: 0L
-            )
         }
     }
     var controlsLocked by remember { mutableStateOf(false) }
@@ -263,12 +257,6 @@ fun PlayerScreen(
                     .putLong("position:$currentUri", position)
                     .putFloat("speed:$currentUri", currentSpeed)
                     .apply()
-                playerViewModel.savePlaybackState(
-                    currentUri.toString(),
-                    position,
-                    currentSpeed,
-                    player.duration.takeIf { it > 0L } ?: 0L
-                )
             }
         }
         activity?.lifecycle?.addObserver(observer)
@@ -281,12 +269,6 @@ fun PlayerScreen(
                 .putLong("position:$currentUri", position)
                 .putFloat("speed:$currentUri", currentSpeed)
                 .apply()
-            playerViewModel.savePlaybackState(
-                currentUri.toString(),
-                position,
-                currentSpeed,
-                player.duration.takeIf { it > 0L } ?: 0L
-            )
         }
     }
 
