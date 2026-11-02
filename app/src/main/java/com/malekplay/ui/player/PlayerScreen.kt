@@ -10,7 +10,6 @@ import android.media.audiofx.Equalizer
 import android.net.Uri
 import com.malekplay.translation.SubtitleTranslationEngine
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -207,6 +206,18 @@ fun PlayerScreen(
     var sleepMenu by remember { mutableStateOf(false) }
     val sleepTimerActive by playerViewModel.sleepTimerActive.collectAsState()
     var speed by remember { mutableFloatStateOf(defaultPlaybackSpeed) }
+    DisposableEffect(player) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onPlaybackParametersChanged(
+                playbackParameters: androidx.media3.common.PlaybackParameters
+            ) {
+                speed = playbackParameters.speed
+            }
+        }
+        player.addListener(listener)
+        speed = player.playbackParameters.speed
+        onDispose { player.removeListener(listener) }
+    }
 
     var controlsLocked by remember { mutableStateOf(false) }
     var gestureHint by remember { mutableStateOf<String?>(null) }
@@ -282,7 +293,7 @@ fun PlayerScreen(
 
     Column {
         if (currentIsVideo) {
-            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+            Box(if (isFullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                 AndroidView(
                     factory = {
                         PlayerView(it).apply {
@@ -404,7 +415,7 @@ fun PlayerScreen(
                 }
             }
         }
-        if (!controlsLocked) Row(
+        if (!isFullscreen && !controlsLocked) Row(
             Modifier.fillMaxWidth().background(Color(0xFF142923)).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly

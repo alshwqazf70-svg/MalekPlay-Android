@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
@@ -367,8 +368,8 @@ private fun MalekPlayApp() {
             )
         }
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+            Column(Modifier.fillMaxSize().then(if (isFullscreen) Modifier else Modifier.padding(horizontal = 18.dp, vertical = 14.dp))) {
+                if (!isFullscreen) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
                     Surface(shape = RoundedCornerShape(14.dp), color = Color(0xFF176B5B)) {
                         Text("M", Modifier.padding(horizontal = 15.dp, vertical = 8.dp),
@@ -392,17 +393,54 @@ private fun MalekPlayApp() {
                 }
 
                 selected?.let { item ->
-                    Spacer(Modifier.height(12.dp))
-                    Card(shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF142923))) {
-                        Column {
-                            PlayerScreen(uri = item.uri, isVideo = item.isVideo, title = item.name, queueUris = queueUris, startIndex = queueStartIndex, isFullscreen = isFullscreen, onToggleFullscreen = setFullscreen, resumePlayback = playerSettings.resumePlayback, defaultPlaybackSpeed = playerSettings.defaultPlaybackSpeed, rememberBrightness = playerSettings.rememberBrightness, subtitleSizeSp = playerSettings.subtitleSizeSp)
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(onClick = { selected = null }) { Text("إغلاق المشغل") }
-                                Spacer(Modifier.weight(1f))
-                                Text(item.name, color = Color.White, maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                    if (isFullscreen) {
+                        Box(Modifier.fillMaxSize().background(Color.Black)) {
+                            PlayerScreen(
+                                uri = item.uri,
+                                isVideo = item.isVideo,
+                                title = item.name,
+                                queueUris = queueUris,
+                                startIndex = queueStartIndex,
+                                isFullscreen = true,
+                                onToggleFullscreen = setFullscreen,
+                                resumePlayback = playerSettings.resumePlayback,
+                                defaultPlaybackSpeed = playerSettings.defaultPlaybackSpeed,
+                                rememberBrightness = playerSettings.rememberBrightness,
+                                subtitleSizeSp = playerSettings.subtitleSizeSp
+                            )
+                            IconButton(
+                                onClick = { setFullscreen(false) },
+                                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
+                                    .background(Color(0x99000000), RoundedCornerShape(50))
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "إنهاء ملء الشاشة", tint = Color.White)
+                            }
+                        }
+                    } else {
+                        Spacer(Modifier.height(12.dp))
+                        Card(shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF142923))) {
+                            Column {
+                                PlayerScreen(
+                                    uri = item.uri,
+                                    isVideo = item.isVideo,
+                                    title = item.name,
+                                    queueUris = queueUris,
+                                    startIndex = queueStartIndex,
+                                    isFullscreen = false,
+                                    onToggleFullscreen = setFullscreen,
+                                    resumePlayback = playerSettings.resumePlayback,
+                                    defaultPlaybackSpeed = playerSettings.defaultPlaybackSpeed,
+                                    rememberBrightness = playerSettings.rememberBrightness,
+                                    subtitleSizeSp = playerSettings.subtitleSizeSp
+                                )
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    TextButton(onClick = { selected = null }) { Text("إغلاق المشغل") }
+                                    Spacer(Modifier.weight(1f))
+                                    Text(item.name, color = Color.White, maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                                }
                             }
                         }
                     }
