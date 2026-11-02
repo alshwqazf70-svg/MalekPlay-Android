@@ -12,17 +12,44 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MediaDao {
-    // Upsert preserves dependent playback/track rows; REPLACE can trigger FK cascades.
     @Upsert
     suspend fun upsertMedia(items: List<MediaItemEntity>)
 
+    // مراقبة كل الوسائط مرتبة بالأحدث
     @Transaction
     @Query("SELECT * FROM media_items ORDER BY dateAdded DESC")
     fun observeAllMediaWithDetails(): Flow<List<MediaWithDetails>>
 
+    // مراقبة وسائط مجلد معين فقط (MX Player Fast Folder Query)
+    @Transaction
+    @Query("SELECT * FROM media_items WHERE bucketId = :bucketId ORDER BY dateAdded DESC")
+    fun observeMediaByBucket(bucketId: String): Flow<List<MediaWithDetails>>
+
+    // مراقبة الفيديوهات فقط
+    @Transaction
+    @Query("SELECT * FROM media_items WHERE isVideo = 1 ORDER BY dateAdded DESC")
+    fun observeVideos(): Flow<List<MediaWithDetails>>
+
+    // مراقبة الصوتيات فقط (مشغل الموسيقى)
+    @Transaction
+    @Query("SELECT * FROM media_items WHERE isVideo = 0 ORDER BY dateAdded DESC")
+    fun observeAudios(): Flow<List<MediaWithDetails>>
+
     @Transaction
     @Query("SELECT * FROM media_items WHERE mediaId = :mediaId LIMIT 1")
     suspend fun getMediaWithDetails(mediaId: String): MediaWithDetails?
+
+    // البحث المباشر في قاعدة البيانات
+    @Transaction
+    @Query("SELECT * FROM media_items WHERE title LIKE '%' || :query || '%' ORDER BY title ASC")
+    fun searchMedia(query: String): Flow<List<MediaWithDetails>>
+
+    // حذف الملفات التي تم مسحها من الهاتف تلقائياً
+    @Query("DELETE FROM media_items WHERE mediaId NOT IN (:validMediaIds)")
+    suspend fun deleteMissingMedia(validMediaIds: List<String>)
+
+    @Query("DELETE FROM media_items WHERE mediaId = :mediaId")
+    suspend fun deleteMediaById(mediaId: String)
 
     @Upsert
     suspend fun upsertPlaybackState(state: PlaybackStateEntity)
