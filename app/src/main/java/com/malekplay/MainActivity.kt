@@ -85,7 +85,7 @@ import com.malekplay.ui.settings.SettingsDialog
 import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.network.NetworkSourcesDialog
 
-private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES, RECENT, PLAYLISTS }
+private enum class LibraryTab { ALL, VIDEOS, AUDIO, FAVORITES, RECENT, FOLDERS, PLAYLISTS }
 private data class UserPlaylist(val name: String, val uris: List<String>)
 private enum class SortMode { NEWEST, OLDEST, NAME, LONGEST, LARGEST }
 private data class MediaEntry(
@@ -94,7 +94,9 @@ private data class MediaEntry(
     val durationMs: Long,
     val sizeBytes: Long,
     val dateAdded: Long,
-    val isVideo: Boolean
+    val isVideo: Boolean,
+    val bucketId: String = "0",
+    val bucketName: String = "مجلدات أخرى"
 )
 
 @AndroidEntryPoint
@@ -160,6 +162,7 @@ private fun MalekPlayApp() {
     var sortMenu by remember { mutableStateOf(false) }
     var playlists by remember { mutableStateOf(loadPlaylists(libraryPrefsValue(context, "playlists_json", "[]"))) }
     var activePlaylist by remember { mutableStateOf<String?>(null) }
+    var activeFolderId by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
     var playlistNameInput by remember { mutableStateOf("") }
     var addToPlaylistUri by remember { mutableStateOf<Uri?>(null) }
@@ -252,7 +255,9 @@ private fun MalekPlayApp() {
                 durationMs = media.duration,
                 sizeBytes = media.sizeBytes,
                 dateAdded = media.dateAdded,
-                isVideo = media.isVideo
+                isVideo = media.isVideo,
+                bucketId = media.bucketId,
+                bucketName = media.bucketName
             )
         }
     }
@@ -468,6 +473,7 @@ private fun MalekPlayApp() {
                             LibraryTab.AUDIO -> "الصوتيات"
                             LibraryTab.FAVORITES -> "المفضلة"
                             LibraryTab.RECENT -> "الأخيرة"
+                            LibraryTab.FOLDERS -> "المجلدات"
                             LibraryTab.PLAYLISTS -> "القوائم"
                         }
                         Surface(
@@ -503,6 +509,83 @@ private fun MalekPlayApp() {
                     }
                     loading -> Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
+                    }
+
+                    tab == LibraryTab.FOLDERS -> {
+                        val folderGroups = entries
+                            .filter { it.name.contains(query.trim(), ignoreCase = true) || query.isBlank() }
+                            .groupBy { it.bucketId }
+                            .map { (id, files) ->
+                                Triple(id, files.firstOrNull()?.bucketName ?: "مجلدات أخرى", files)
+                            }
+                            .sortedBy { it.second.lowercase() }
+
+                        Column(Modifier.weight(1f)) {
+                            if (activeFolderId == null) {
+                                Text("مجلدات الجهاز", fontWeight = FontWeight.Bold, fontSize = 17.sp,
+                                    modifier = Modifier.padding(vertical = 8.dp))
+                                if (folderGroups.isEmpty()) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("لا توجد مجلدات وسائط لعرضها", color = Color(0xFF718079))
+                                    }
+                                } else {
+                                    LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                                        items(folderGroups, key = { it.first }) { folder ->
+                                            Card(
+                                                modifier = Modifier.fillMaxWidth().clickable { activeFolderId = folder.first },
+                                                shape = RoundedCornerShape(14.dp),
+                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                            ) {
+                                                Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Default.FolderOpen, null, tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(30.dp))
+                                                    Spacer(Modifier.width(12.dp))
+                                                    Column(Modifier.weight(1f)) {
+                                                        Text(folder.second, fontWeight = FontWeight.Bold)
+                                                        Text("${folder.third.size} ملف", color = Color(0xFF718079), fontSize = 12.sp)
+                                                    }
+                                                    Icon(Icons.Default.PlayCircle, null, tint = Color(0xFF176B5B))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                val folder = folderGroups.firstOrNull { it.first == activeFolderId }
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    TextButton(onClick = { activeFolderId = null }) { Text("رجوع للمجلدات") }
+                                    Spacer(Modifier.weight(1f))
+                                    Text(folder?.second ?: "المجلد", fontWeight = FontWeight.Bold)
+                                }
+                                val folderFiles = entries.filter {
+                                    it.bucketId == activeFolderId &&
+                                        it.name.contains(query.trim(), ignoreCase = true)
+                                }
+                                if (folderFiles.isEmpty()) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("هذا المجلد فارغ", color = Color(0xFF718079))
+                                    }
+                                } else {
+                                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(folderFiles, key = { it.uri.toString() }) { entry ->
+                                            MediaRow(
+                                                entry = entry,
+                                                selected = selected?.uri == entry.uri,
+                                                favorite = entry.uri.toString() in favoriteUris,
+                                                onFavoriteClick = { toggleFavorite(entry.uri) },
+                                                onAddPlaylist = { addToPlaylistUri = entry.uri },
+                                                onClick = {
+                                                    queueUris = folderFiles.map { it.uri }
+                                                    queueStartIndex = folderFiles.indexOf(entry)
+                                                    selected = entry
+                                                    markRecentlyPlayed(entry.uri)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     tab == LibraryTab.PLAYLISTS -> {
