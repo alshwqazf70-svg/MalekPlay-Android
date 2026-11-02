@@ -50,66 +50,145 @@ class LibraryViewModel @Inject constructor(
     val media: StateFlow<List<MediaWithDetails>> = _rawMedia.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
-    val isLoading = _isLoading.asStateFlow()
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
-    val error = _error.asStateFlow()
+    val error: StateFlow<String?> = _error.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
-    val searchQuery = _searchQuery.asStateFlow()
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     private val _sortMode = MutableStateFlow(SortMode.NAME_ASC)
-    val sortMode = _sortMode.asStateFlow()
+    val sortMode: StateFlow<SortMode> = _sortMode.asStateFlow()
 
     private val _selectedFolder = MutableStateFlow<FolderUiModel?>(null)
-    val selectedFolder = _selectedFolder.asStateFlow()
+    val selectedFolder: StateFlow<FolderUiModel?> = _selectedFolder.asStateFlow()
 
     private var observationJob: Job? = null
+
+    /**
+     * تجميع الوسائط في مجلدات، مع البحث والترتيب.
+     */
+    val folders: StateFlow<List<FolderUiModel>> =
+        combine(_rawMedia, _searchQuery, _sortMode) { mediaList, query, sort ->
+            if (mediaList.isEmpty()) {
+                return@combine emptyList<FolderUiModel>()
+            }
+
+            val grouped = mediaList.groupBy { it.media.bucketId }
+            val folderList = grouped.map { (bucketId, items) ->
+                val folderName = items.firstOrNull()?.media?.bucketName ?: "مجلدات أخرى"
+                val newCount = items.count(::isMediaConsideredNew)
+                val latestItemUri = runCatching {
+                    Uri.parse(items.firstOrNull()?.media?.uri.orEmpty())
+                }.getOrNull()
+
+                FolderUiModel(
+                    folderPath = bucketId,
+                    folderName = folderName,
+                    videoCount = items.size,
+                    newVideosCount = newCount,
+                    latestMediaUri = latestItemUri,
+                    mediaList = items
+                )
+            }
+
+            val filtered = if (query.isBlank()) {
+                folderList
+            } else {
+                folderList.filter { folder ->
+                    folder.folderName.contains(query, ignoreCase = true) ||
+                        folder.mediaList.any {
+                            it.media.title.contains(query, ignoreCase = true)
+                        }
+                }
+            }
+
+            when (sort) {
+                SortMode.NAME_ASC -> filtered.sortedBy { it.folderName.lowercase() }
+                SortMode.NAME_DESC -> filtered.sortedByDescending { it.folderName.lowercase() }
+                SortMode.COUNT_DESC -> filtered.sortedByDescending { it.videoCount }
+                SortMode.DATE_NEWEST -> filtered
+            }
+        }.flowOn(Dispatchers.Default)
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5000L),
+                emptyList()
+            )
 
     init {
         refresh()
     }
 
     /**
-     * تدفق معالجة وتجميع المجلدات تلقائياً في الخلفية (MX Player Logic)
+     * تحديث المكتبة ومراقبة أي تغييرات من المستودع.
      */
-    val folders: StateFlow<List<FolderUiModel>> = combine(_rawMedia, _searchQuery, _sortMode) { mediaList, query, sort ->
-        if (mediaList.isEmpty()) return@combine emptyList()
+    fun refresh() {
+        observationJob?.cancel()
+        observationJob = viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
 
-        // 1. تجميع الفيديوهات حسب معرف المجلد الحقيقي
-        val grouped = mediaList.groupBy { it.media.bucketId }
+            try {
+                repository.observeLibrary().collect { records ->
+                    _rawMedia.value = records
+                    _isLoading.value = false
 
-        // 2. تحويل المجموعات إلى FolderUiModel
-        val folderList = grouped.map { (bucketId, items) ->
-            val folderName = items.firstOrNull()?.media?.bucketName ?: "مجلدات أخرى"
-            val newCount = items.count { isMediaConsideredNew(it) }
-            val latestItemUri = runCatching { Uri.parse(items.firstOrNull()?.media?.uri.orEmpty()) }.getOrNull()
-
-            FolderUiModel(
-                folderPath = bucketId,
-                folderName = folderName,
-                videoCount = items.size,
-                newVideosCount = newCount,
-                latestMediaUri = latestItemUri,
-                mediaList = items
-            )
-        }
-
-        // 3. فلترة البحث
-        val filtered = if (query.isBlank()) {
-            folderList
-        } else {
-            folderList.filter { folder ->
-                folder.folderName.contains(query, ignoreCase = true) ||
-                folder.mediaList.any { it.media.title.contains(query, ignoreCase = true) }
+                    _selectedFolder.value?.let { current ->
+                        _selectedFolder.value =
+                            folders.value.find { it.folderPath == current.folderPath }
+                    }
+                }
+            } catch (security: SecurityException) {
+                _error.value =
+                    "تعذر الوصول إلى بعض ملفات الوسائط. تحقق من أذونات المكتبة."
+                _isLoading.value = false
+            } catch (error: Exception) {
+                val errorMessage = error.localizedMessage ?: "خطأ غير معروف"
+                _error.value = "تعذر تحديث المكتبة: $errorMessage"
+                _isLoading.value = false
             }
         }
+    }
 
-        // 4. تطبيق الترتيب
-        when (sort) {
-            SortMode.NAME_ASC -> filtered.sortedBy { it.folderName.lowercase() }
-            SortMode.NAME_DESC -> filtered.sortedByDescending { it.folderName.lowercase() }
-            SortMode.COUNT_DESC -> filtered.sortedByDescending { it.videoCount }
-            SortMode.DATE_NEWEST -> filtered
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun setSortMode(mode: SortMode) {
+        _sortMode.value = mode
+    }
+
+    fun selectFolder(folder: FolderUiModel) {
+        _selectedFolder.value = folder
+    }
+
+    fun navigateBackFromFolder(): Boolean {
+        if (_selectedFolder.value != null) {
+            _selectedFolder.value = null
+            return true
         }
-    }.flowOn(Dispatchers.D
+        return false
+    }
+
+    fun clearForPermissionDenied() {
+        observationJob?.cancel()
+        observationJob = null
+        _rawMedia.value = emptyList()
+        _isLoading.value = false
+        _error.value = null
+        _selectedFolder.value = null
+    }
+
+    private fun isMediaConsideredNew(item: MediaWithDetails): Boolean {
+        val position = item.playbackState?.position ?: 0L
+        val isFinished = item.playbackState?.isCompleted ?: false
+        return position == 0L && !isFinished
+    }
+
+    override fun onCleared() {
+        observationJob?.cancel()
+        super.onCleared()
+    }
+}
