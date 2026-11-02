@@ -22,6 +22,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -465,7 +467,7 @@ private fun MalekPlayApp() {
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     LibraryTab.values().forEach { choice ->
                         val label = when (choice) {
                             LibraryTab.ALL -> "الكل"
@@ -477,7 +479,7 @@ private fun MalekPlayApp() {
                             LibraryTab.PLAYLISTS -> "القوائم"
                         }
                         Surface(
-                            Modifier.weight(1f).clip(RoundedCornerShape(11.dp)).clickable { tab = choice },
+                            Modifier.width(82.dp).clip(RoundedCornerShape(11.dp)).clickable { tab = choice; if (choice == LibraryTab.FOLDERS) activeFolderId = null },
                             color = if (tab == choice) Color(0xFF176B5B) else Color.White,
                             shape = RoundedCornerShape(11.dp)
                         ) {
