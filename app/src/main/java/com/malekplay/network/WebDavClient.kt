@@ -39,9 +39,11 @@ class WebDavClient {
         // Treat the supplied path as decoded path text. HttpUrl encodes spaces,
         // Arabic letters, #, ?, and other reserved characters without corrupting URI syntax.
         val targetBuilder = base.newBuilder().encodedPath("/")
-        Uri.decode(path).trim('/').split('/')
+        // Decode each segment separately. Decoding the whole path first would turn an
+        // encoded slash (%2F) inside a filename into a directory separator.
+        path.trim('/').split('/')
             .filter { it.isNotEmpty() }
-            .forEach(targetBuilder::addPathSegment)
+            .forEach { segment -> targetBuilder.addPathSegment(Uri.decode(segment)) }
         val target = targetBuilder.build()
 
         val token = okhttp3.Credentials.basic(username, password, StandardCharsets.UTF_8)
@@ -79,11 +81,17 @@ class WebDavClient {
                     val resolved = target.resolve(href) ?: continue
                     // A hostile or misconfigured server must not make us disclose Basic
                     // credentials to another scheme, host, port, or user-info URL.
+                    val rootPath = target.encodedPath.trimEnd('/').ifBlank { "/" }
+                    val resolvedPath = resolved.encodedPath
+                    val staysInsideRoot = rootPath == "/" ||
+                        resolvedPath == rootPath ||
+                        resolvedPath.startsWith("$rootPath/")
                     if (!resolved.isHttps ||
                         resolved.host != base.host ||
                         resolved.port != base.port ||
                         resolved.username.isNotEmpty() ||
-                        resolved.password.isNotEmpty()
+                        resolved.password.isNotEmpty() ||
+                        !staysInsideRoot
                     ) continue
 
                     val name = item.getElementsByTagNameNS("*", "displayname")
