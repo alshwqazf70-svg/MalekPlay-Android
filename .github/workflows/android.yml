@@ -2,7 +2,7 @@ name: Build MalekPlay Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "feature/advanced-library-player" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
