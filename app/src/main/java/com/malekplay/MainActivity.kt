@@ -49,6 +49,8 @@ import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -102,6 +104,27 @@ private data class MediaEntry(
     val bucketName: String = "مجلدات أخرى"
 )
 
+private val mediaEntrySaver = Saver<MediaEntry?, List<String>>(
+    save = { entry ->
+        if (entry == null) emptyList() else listOf(
+            entry.uri.toString(), entry.name, entry.durationMs.toString(),
+            entry.sizeBytes.toString(), entry.dateAdded.toString(), entry.isVideo.toString(),
+            entry.bucketId, entry.bucketName
+        )
+    },
+    restore = { values ->
+        if (values.size != 8) null else runCatching {
+            MediaEntry(
+                uri = Uri.parse(values[0]), name = values[1],
+                durationMs = values[2].toLongOrNull() ?: 0L,
+                sizeBytes = values[3].toLongOrNull() ?: 0L,
+                dateAdded = values[4].toLongOrNull() ?: 0L,
+                isVideo = values[5] == "true", bucketId = values[6], bucketName = values[7]
+            )
+        }.getOrNull()
+    }
+)
+
 @UnstableApi
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -142,11 +165,43 @@ private fun mediaPermissions(): Array<String> = when {
     else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
 }
 
-// Audio-only, video-only, and Android 14 selected-media access are all useful grants.
-private fun hasMediaPermission(context: Context): Boolean =
-    mediaPermissions().any {
-        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+private fun hasAudioMediaPermission(context: Context): Boolean =
+    ContextCompat.checkSelfPermission(
+        context,
+        if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
+        else Manifest.permission.READ_EXTERNAL_STORAGE
+    ) == PackageManager.PERMISSION_GRANTED
+
+private fun hasVideoMediaPermission(context: Context): Boolean =
+    if (Build.VERSION.SDK_INT >= 34) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+    } else {
+        ContextCompat.checkSelfPermission(
+            context,
+            if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO
+            else Manifest.permission.READ_EXTERNAL_STORAGE
+        ) == PackageManager.PERMISSION_GRANTED
     }
+
+// Either media category keeps the library usable; the UI separately explains partial access.
+private fun hasMediaPermission(context: Context): Boolean =
+    hasAudioMediaPermission(context) || hasVideoMediaPermission(context)
+
+private fun missingMediaPermissions(context: Context): Array<String> = when {
+    Build.VERSION.SDK_INT >= 34 -> buildList {
+        if (!hasAudioMediaPermission(context)) add(Manifest.permission.READ_MEDIA_AUDIO)
+        val fullVideo = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+        val selectedVideo = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+        if (!fullVideo && !selectedVideo) add(Manifest.permission.READ_MEDIA_VIDEO)
+        if (!fullVideo && !selectedVideo) add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+    }.toTypedArray()
+    Build.VERSION.SDK_INT >= 33 -> buildList {
+        if (!hasAudioMediaPermission(context)) add(Manifest.permission.READ_MEDIA_AUDIO)
+        if (!hasVideoMediaPermission(context)) add(Manifest.permission.READ_MEDIA_VIDEO)
+    }.toTypedArray()
+    else -> if (hasMediaPermission(context)) emptyArray() else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+}
 
 @UnstableApi
 @Composable
@@ -163,7 +218,7 @@ private fun MalekPlayApp() {
     val libraryLoadError by libraryViewModel.error.collectAsState()
     var permitted by remember { mutableStateOf(hasMediaPermission(context)) }
     var entries by remember { mutableStateOf(emptyList<MediaEntry>()) }
-    var selected by remember { mutableStateOf<MediaEntry?>(null) }
+    var selected by rememberSaveable(stateSaver = mediaEntrySaver) { mutableStateOf<MediaEntry?>(null) }
     var tab by remember { mutableStateOf(LibraryTab.ALL) }
     var query by remember { mutableStateOf("") }
     val libraryPrefs = remember(context) {
@@ -217,7 +272,7 @@ private fun MalekPlayApp() {
         favoriteUris = updated
         libraryPrefs.edit().putStringSet("favorites", updated).apply()
     }
-    var isFullscreen by remember { mutableStateOf(false) }
+    var isFullscreen by rememberSaveable { mutableStateOf(false) }
     val setFullscreen: (Boolean) -> Unit = { enabled ->
         isFullscreen = enabled
         val activity = context as? ComponentActivity
@@ -231,11 +286,24 @@ private fun MalekPlayApp() {
     }
     BackHandler(enabled = isFullscreen) { setFullscreen(false) }
 
+    // Re-check access every time Android returns from Settings or another app.
+    DisposableEffect(context) {
+        val activity = context as? ComponentActivity
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                permitted = hasMediaPermission(context)
+                refresh++
+            }
+        }
+        activity?.lifecycle?.addObserver(observer)
+        onDispose { activity?.lifecycle?.removeObserver(observer) }
+    }
+
     val permissionRequest = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
         permitted = hasMediaPermission(context)
-        if (permitted) refresh++
+        refresh++
     }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -552,6 +620,30 @@ private fun MalekPlayApp() {
                 }
                 Spacer(Modifier.height(9.dp))
 
+                if (permitted && Build.VERSION.SDK_INT >= 33 &&
+                    (!hasAudioMediaPermission(context) || !hasVideoMediaPermission(context))) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                if (!hasAudioMediaPermission(context)) "الوصول إلى الصوت غير مسموح؛ مكتبة الصوت قد تكون ناقصة."
+                                else "الوصول إلى الفيديو محدود أو غير مكتمل.",
+                                modifier = Modifier.weight(1f), fontSize = 12.sp
+                            )
+                            TextButton(onClick = { permissionRequest.launch(missingMediaPermissions(context)) }) {
+                                Text("استكمال")
+                            }
+                        }
+                    }
+                }
+
                 when {
                     !permitted -> Column(
                         Modifier.fillMaxWidth().weight(1f),
@@ -565,7 +657,7 @@ private fun MalekPlayApp() {
                         Text("نحتاج الإذن لعرض ملفات الفيديو والصوت على جهازك.",
                             color = Color(0xFF718079), fontSize = 13.sp)
                         Spacer(Modifier.height(8.dp))
-                        Button(onClick = { permissionRequest.launch(mediaPermissions()) }) {
+                        Button(onClick = { permissionRequest.launch(missingMediaPermissions(context).ifEmpty { mediaPermissions() }) }) {
                             Text("منح الإذن")
                         }
                     }
