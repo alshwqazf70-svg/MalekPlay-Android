@@ -16,11 +16,13 @@ import androidx.media3.session.SessionToken
 import com.malekplay.data.repository.MediaRepository
 import com.malekplay.player.PlaybackService
 import com.malekplay.player.PlayerCommands
+import com.malekplay.player.PlaybackBus
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -39,6 +41,14 @@ class PlayerViewModel @Inject constructor(
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private val _sleepTimerActive = MutableStateFlow(false)
     val sleepTimerActive = _sleepTimerActive.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            PlaybackBus.sleepTimerRemaining.collect { remaining ->
+                _sleepTimerActive.value = remaining > 0L
+            }
+        }
+    }
 
     /** Safe to call repeatedly; a failed connection can be retried by the UI. */
     fun connect() {
@@ -89,7 +99,9 @@ class PlayerViewModel @Inject constructor(
         future.addListener(
             {
                 val result = runCatching { future.get() }.getOrNull()
-                _sleepTimerActive.value = result?.resultCode == SessionResult.RESULT_SUCCESS
+                if (result?.resultCode != SessionResult.RESULT_SUCCESS) {
+                    _sleepTimerActive.value = false
+                }
             },
             ContextCompat.getMainExecutor(app)
         )
