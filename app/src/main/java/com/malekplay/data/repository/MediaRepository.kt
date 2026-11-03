@@ -123,11 +123,16 @@ class MediaRepository @Inject constructor(
      */
     suspend fun refresh() = withContext(Dispatchers.IO) {
         val scanned = scanner.scan()
+        // An empty scan can also mean permission denial or a transient MediaStore
+        // failure. Never interpret it as proof that the user library vanished.
         if (scanned.isEmpty()) return@withContext
+
         mediaDao.upsertMedia(scanned)
-        val keepIds = scanned.map { it.mediaId }
-        // Chunked because SQLite caps the number of bound variables per statement.
-        keepIds.chunked(900).forEach { chunk -> mediaDao.deleteMissing(chunk) }
+        val keepIds = scanned.asSequence().map { it.mediaId }.toHashSet()
+        val staleIds = mediaDao.getAllMediaIds().filterNot { it in keepIds }
+        // Delete stale ids (not keep ids) in bounded batches. Repeating DELETE NOT IN
+        // once per keep-id batch would erase rows retained by earlier batches.
+        staleIds.chunked(900).forEach { staleBatch -> mediaDao.deleteByIds(staleBatch) }
     }
 
     suspend fun clearLibrary() = withContext(Dispatchers.IO) { mediaDao.clearAll() }
