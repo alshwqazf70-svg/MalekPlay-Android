@@ -74,17 +74,19 @@ class MediaStoreScanner(context: Context) {
 
     private fun scanVideos(): List<MediaItemEntity> {
         val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-        val projection = arrayOf(
-            MediaStore.MediaColumns._ID,
-            MediaStore.MediaColumns.DISPLAY_NAME,
-            MediaStore.MediaColumns.DURATION,
-            MediaStore.MediaColumns.SIZE,
-            MediaStore.MediaColumns.DATE_ADDED,
-            MediaStore.MediaColumns.MIME_TYPE,
-            MediaStore.MediaColumns.RELATIVE_PATH,
-            MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
-            MediaStore.Video.Media.RESOLUTION
-        )
+        val projection = buildList {
+            add(MediaStore.MediaColumns._ID)
+            add(MediaStore.MediaColumns.DISPLAY_NAME)
+            add(MediaStore.MediaColumns.DURATION)
+            add(MediaStore.MediaColumns.SIZE)
+            add(MediaStore.MediaColumns.DATE_ADDED)
+            add(MediaStore.MediaColumns.MIME_TYPE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add(MediaStore.MediaColumns.RELATIVE_PATH)
+            }
+            add(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
+            add(MediaStore.Video.Media.RESOLUTION)
+        }.toTypedArray()
         return query(collection, projection, isVideo = true) { cursor, columns ->
             val rawResolution = columns.text(MediaStore.Video.Media.RESOLUTION)
             val (width, height) = parseResolution(rawResolution)
@@ -120,21 +122,23 @@ class MediaStoreScanner(context: Context) {
 
     private fun scanAudio(genres: Map<Long, String>): List<MediaItemEntity> {
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        val projection = arrayOf(
-            MediaStore.MediaColumns._ID,
-            MediaStore.MediaColumns.DISPLAY_NAME,
-            MediaStore.MediaColumns.DURATION,
-            MediaStore.MediaColumns.SIZE,
-            MediaStore.MediaColumns.DATE_ADDED,
-            MediaStore.MediaColumns.MIME_TYPE,
-            MediaStore.MediaColumns.RELATIVE_PATH,
-            MediaStore.Audio.Media.BUCKET_DISPLAY_NAME,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.ALBUM,
-            MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM_ID,
-            MediaStore.Audio.Media.ARTIST_ID
-        )
+        val projection = buildList {
+            add(MediaStore.MediaColumns._ID)
+            add(MediaStore.MediaColumns.DISPLAY_NAME)
+            add(MediaStore.MediaColumns.DURATION)
+            add(MediaStore.MediaColumns.SIZE)
+            add(MediaStore.MediaColumns.DATE_ADDED)
+            add(MediaStore.MediaColumns.MIME_TYPE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add(MediaStore.MediaColumns.RELATIVE_PATH)
+            }
+            add(MediaStore.Audio.Media.BUCKET_DISPLAY_NAME)
+            add(MediaStore.Audio.Media.TITLE)
+            add(MediaStore.Audio.Media.ALBUM)
+            add(MediaStore.Audio.Media.ARTIST)
+            add(MediaStore.Audio.Media.ALBUM_ID)
+            add(MediaStore.Audio.Media.ARTIST_ID)
+        }.toTypedArray()
         return query(collection, projection, isVideo = false) { cursor, columns ->
             val id = cursor.getLong(columns[MediaStore.MediaColumns._ID])
             val display = columns.text(MediaStore.MediaColumns.DISPLAY_NAME).ifBlank { "Untitled" }
