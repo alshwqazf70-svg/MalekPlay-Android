@@ -149,7 +149,9 @@ class MediaRepository @Inject constructor(
         }
     }
 
-    suspend fun clearLibrary() = withContext(Dispatchers.IO) { mediaDao.clearAll() }
+    suspend fun clearLibrary() = withContext(Dispatchers.IO) {
+        refreshMutex.withLock { mediaDao.clearAll() }
+    }
 
     // -------------------------------------------------------------- progress
 
