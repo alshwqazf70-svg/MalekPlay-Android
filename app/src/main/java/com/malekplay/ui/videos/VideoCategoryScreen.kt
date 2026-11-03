@@ -14,6 +14,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -34,6 +35,7 @@ import com.malekplay.ui.components.MediaListRow
 import com.malekplay.ui.components.PlaylistPickerDialog
 import com.malekplay.ui.library.LibraryViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoCategoryScreen(series: Boolean, onBack: () -> Unit, onOpenMedia: (MediaItem) -> Unit, viewModel: LibraryViewModel = hiltViewModel()) {
     val videos by viewModel.videos.collectAsStateWithLifecycle()
