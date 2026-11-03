@@ -2,13 +2,11 @@
 <data-extraction-rules>
     <cloud-backup>
         <include domain="sharedpref" path="malekplay_family.xml" />
-        <include domain="sharedpref" path="malekplay_network_profiles.xml" />
-        <exclude domain="database" path="malekplay.db" />
+            <exclude domain="database" path="malekplay.db" />
         <exclude domain="file" path="datastore" />
     </cloud-backup>
     <device-transfer>
         <include domain="sharedpref" path="malekplay_family.xml" />
-        <include domain="sharedpref" path="malekplay_network_profiles.xml" />
         <exclude domain="database" path="malekplay.db" />
         <exclude domain="file" path="datastore" />
     </device-transfer>
