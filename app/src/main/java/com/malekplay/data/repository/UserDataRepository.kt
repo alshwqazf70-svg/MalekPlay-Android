@@ -19,15 +19,7 @@ class UserDataRepository @Inject constructor(
         userDataDao.observeFavouriteIds().map { it.toSet() }
 
     suspend fun toggleFavourite(mediaId: String): Boolean = withContext(Dispatchers.IO) {
-        if (userDataDao.favouriteCount(mediaId) > 0) {
-            userDataDao.removeFavourite(mediaId)
-            false
-        } else {
-            userDataDao.addFavourite(
-                FavouriteEntity(mediaId = mediaId, addedAtMs = System.currentTimeMillis())
-            )
-            true
-        }
+        userDataDao.toggleFavourite(mediaId, System.currentTimeMillis())
     }
 
     suspend fun setFavourite(mediaId: String, favourite: Boolean) = withContext(Dispatchers.IO) {
