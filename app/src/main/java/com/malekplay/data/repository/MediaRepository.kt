@@ -123,17 +123,23 @@ class MediaRepository @Inject constructor(
      * rows that were temporarily hidden by a provider/permission error.
      */
     suspend fun refresh() = withContext(Dispatchers.IO) {
-        val scanned = scanner.scan()
-        if (scanned.isEmpty()) {
-            // An empty result is authoritative because scan() now fails fast
-            // whenever either required MediaStore query is incomplete.
-            mediaDao.clearAll()
-            return@withContext
+        val scan = scanner.scan()
+
+        // Selected-only access can add/update visible rows, but must never be
+        // interpreted as a complete snapshot for deletion.
+        if (scan.items.isNotEmpty()) mediaDao.upsertMedia(scan.items)
+
+        if (scan.videosComplete) {
+            val videoIds = scan.videoItems.map { it.mediaId }
+            if (videoIds.isEmpty()) mediaDao.clearVideos()
+            else mediaDao.deleteMissingVideos(videoIds)
         }
-        mediaDao.upsertMedia(scanned)
-        val keepIds = scanned.map { it.mediaId }
-        // Chunked because SQLite caps the number of bound variables per statement.
-        keepIds.chunked(900).forEach { chunk -> mediaDao.deleteMissing(chunk) }
+
+        if (scan.audioComplete) {
+            val audioIds = scan.audioItems.map { it.mediaId }
+            if (audioIds.isEmpty()) mediaDao.clearAudio()
+            else mediaDao.deleteMissingAudio(audioIds)
+        }
     }
 
     suspend fun clearLibrary() = withContext(Dispatchers.IO) { mediaDao.clearAll() }
