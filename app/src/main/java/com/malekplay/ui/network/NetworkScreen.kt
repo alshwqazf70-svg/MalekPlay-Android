@@ -212,6 +212,7 @@ class NetworkViewModel @Inject constructor(
                         val remotePath = segments.drop(1).joinToString("/")
                         smbClient.list(
                             host = profile.host,
+                            port = profile.port,
                             shareName = shareName,
                             path = remotePath,
                             username = username,
