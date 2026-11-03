@@ -105,6 +105,12 @@ dependencies {
     // ML Kit on-device translation
     implementation(libs.mlkit.translate)
 
+    // Unit tests and SQLite migration coverage
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.room:room-testing:2.8.5")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+
     // Network protocols
     implementation(libs.smbj)
     implementation(libs.sshj)
