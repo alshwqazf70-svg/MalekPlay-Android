@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
@@ -43,6 +44,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -218,67 +221,103 @@ fun MediaGridCard(
     onFavourite: () -> Unit,
     onAddToPlaylist: () -> Unit
 ) {
-    Card(
-        modifier = modifier.clickable(onClick = onPlay),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        modifier = modifier
+            .shadow(12.dp, shape, ambientColor = Color(0x55A855F7), spotColor = Color(0x22A855F7))
+            .clip(shape)
+            .background(Brush.verticalGradient(listOf(Color(0xFF21192C), Color(0xFF15121C), Color(0xFF100E16))))
+            .border(1.dp, Brush.linearGradient(listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))), shape)
     ) {
-        Column {
-            Box(contentAlignment = Alignment.Center) {
-                MediaThumbnail(
-                    media = item.media,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 10f),
-                    cornerRadius = 0.dp
-                )
-                Surface(
-                    color = Color.Black.copy(alpha = 0.55f),
-                    shape = RoundedCornerShape(50),
-                    modifier = Modifier.align(Alignment.Center)
+        Box(
+            modifier = Modifier.fillMaxWidth().aspectRatio(0.92f).clickable(onClick = onPlay)
+        ) {
+            MediaThumbnail(
+                media = item.media,
+                modifier = Modifier.fillMaxSize(),
+                cornerRadius = 0.dp,
+                contentScale = ContentScale.Crop
+            )
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                listOf(Color(0x18000000), Color.Transparent, Color(0xAA08060D))
+            )))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier.size(32.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.62f))
+                        .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape).clickable(onClick = onAddToPlaylist),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Filled.PlayArrow,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.padding(8.dp).size(22.dp)
-                    )
+                    Icon(Icons.Filled.PlaylistAdd, contentDescription = "إضافة إلى قائمة التشغيل",
+                        tint = Color.White, modifier = Modifier.size(18.dp))
                 }
-                IconButton(
-                    onClick = onFavourite,
-                    modifier = Modifier.align(Alignment.TopEnd).size(34.dp)
+                Box(
+                    Modifier.size(32.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.62f))
+                        .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape).clickable(onClick = onFavourite),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = if (item.isFavourite) Icons.Filled.Star else Icons.Filled.StarBorder,
-                        contentDescription = null,
-                        tint = if (item.isFavourite) MaterialTheme.colorScheme.tertiary else Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                if (item.isInProgress) {
-                    LinearProgressIndicator(
-                        progress = { item.fraction },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp)
-                            .align(Alignment.BottomCenter),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = Color.White.copy(alpha = 0.25f)
+                        contentDescription = if (item.isFavourite) "إزالة من المفضلة" else "إضافة إلى المفضلة",
+                        tint = if (item.isFavourite) Color(0xFFFFD166) else Color.White,
+                        modifier = Modifier.size(17.dp)
                     )
                 }
             }
-            Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                Text(
-                    text = item.media.displayTitle,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+            Box(
+                modifier = Modifier.align(Alignment.Center).size(48.dp)
+                    .shadow(12.dp, CircleShape, ambientColor = Color(0x99A855F7), spotColor = Color(0x66A855F7))
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(Color(0xFF7E22CE), Color(0xFFA855F7))))
+                    .border(1.dp, Color.White.copy(alpha = 0.42f), CircleShape)
+                    .clickable(onClick = onPlay),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = "تشغيل", tint = Color.White, modifier = Modifier.size(28.dp))
+            }
+            if (item.isInProgress) {
+                LinearProgressIndicator(
+                    progress = { item.fraction },
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp),
+                    color = Color(0xFFA855F7),
+                    trackColor = Color.White.copy(alpha = 0.22f)
                 )
-                Text(
-                    text = formatDuration(item.media.durationMs),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            }
+            if (item.isCompleted) {
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+                    shape = CircleShape,
+                    color = Color(0xE6000000)
+                ) {
+                    Icon(Icons.Filled.CheckCircle, contentDescription = "تمت المشاهدة",
+                        tint = Color(0xFF34D399), modifier = Modifier.padding(5.dp).size(17.dp))
+                }
+            }
+        }
+        Column(
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(horizontal = 11.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(
+                text = item.media.displayTitle,
+                style = MaterialTheme.typography.titleSmall,
+                color = Color(0xFFF8F5FF),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(formatDuration(item.media.durationMs), style = MaterialTheme.typography.labelSmall, color = Color(0xFFB9B1C8))
+                if (item.isInProgress) {
+                    Spacer(Modifier.width(7.dp))
+                    Text((item.fraction * 100).toInt().toString() + "%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFFC084FC),
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                }
             }
         }
     }
