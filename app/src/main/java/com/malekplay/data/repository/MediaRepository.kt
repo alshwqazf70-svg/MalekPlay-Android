@@ -152,7 +152,7 @@ class MediaRepository @Inject constructor(
             PlaybackProgressEntity(
                 mediaId = mediaId,
                 positionMs = if (completed) 0L else positionMs.coerceAtLeast(0L),
-                durationMs = durationMs.coerceAtLeast(0L),
+                durationMs = durationMs.takeIf { it > 0L } ?: (existing?.durationMs ?: 0L),
                 playbackSpeed = speed.coerceIn(0.25f, 4f),
                 isCompleted = completed,
                 lastPlayedAtMs = if (markPlayed) System.currentTimeMillis() else (existing?.lastPlayedAtMs ?: System.currentTimeMillis()),
