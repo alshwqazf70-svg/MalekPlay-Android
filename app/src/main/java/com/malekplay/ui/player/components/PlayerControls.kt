@@ -61,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -77,7 +78,8 @@ fun PlayerRoundButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     active: Boolean = false,
-    label: String? = null
+    label: String? = null,
+    enabled: Boolean = true
 ) {
     Box(
         modifier = modifier.size(42.dp)
@@ -88,7 +90,7 @@ fun PlayerRoundButton(
                 listOf(Color(0xFF7E22CE), PlayerChrome.ProgressActive, Color(0xFFC084FC))
             ) else Brush.verticalGradient(listOf(Color(0xE82A2038), PlayerChrome.Surface)))
             .border(1.dp, if (active) Color.White.copy(.42f) else PlayerChrome.ProgressGlow.copy(.65f), CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         if (label != null) Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -322,13 +324,13 @@ fun PlayerMainControls(
     ) {
         PlayerRoundButton(Icons.Filled.Lock, stringResource(R.string.player_lock), onLock)
         Spacer(Modifier.weight(1f))
-        PlayerRoundButton(Icons.Filled.SkipPrevious, stringResource(R.string.player_previous), onPrevious)
+        PlayerRoundButton(Icons.Filled.SkipPrevious, stringResource(R.string.player_previous), onPrevious, enabled = hasPrevious)
         PlayerRoundButton(
             icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
             contentDescription = if (isPlaying) stringResource(R.string.player_pause) else stringResource(R.string.player_play),
             onClick = onPlayPause, modifier = Modifier.size(66.dp), active = true
         )
-        PlayerRoundButton(Icons.Filled.SkipNext, stringResource(R.string.player_next), onNext)
+        PlayerRoundButton(Icons.Filled.SkipNext, stringResource(R.string.player_next), onNext, enabled = hasNext)
         Spacer(Modifier.weight(1f))
         PlayerRoundButton(Icons.Filled.QueueMusic, stringResource(R.string.lib_playlists), onQueue)
         PlayerRoundButton(Icons.Filled.PictureInPicture, stringResource(R.string.player_pip), onPip)

@@ -167,7 +167,8 @@ fun TrackPickerSheet(
     disabled: Boolean,
     onSelect: (TrackDescriptor) -> Unit,
     onSetDisabled: (Boolean) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    showDisableOption: Boolean = true
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState()) {
         Column(Modifier.padding(bottom = 24.dp)) {
@@ -199,11 +200,13 @@ fun TrackPickerSheet(
                     }
                 }
             }
-            TextButton(
-                onClick = { onSetDisabled(true); onDismiss() },
-                modifier = Modifier.padding(horizontal = 20.dp)
-            ) {
-                Text(stringResource(R.string.player_subtitle_off))
+            if (showDisableOption) {
+                TextButton(
+                    onClick = { onSetDisabled(true); onDismiss() },
+                    modifier = Modifier.padding(horizontal = 20.dp)
+                ) {
+                    Text(stringResource(R.string.player_subtitle_off))
+                }
             }
         }
     }

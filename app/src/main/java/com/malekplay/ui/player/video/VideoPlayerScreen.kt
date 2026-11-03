@@ -164,6 +164,7 @@ fun VideoPlayerScreen(
     val currentIndex by viewModel.currentIndex.collectAsStateWithLifecycle()
     val audioTracks by viewModel.audioTracks.collectAsStateWithLifecycle()
     val textTracks by viewModel.textTracks.collectAsStateWithLifecycle()
+    val textTrackDisabled by viewModel.textTrackDisabled.collectAsStateWithLifecycle()
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val playerError by viewModel.playerError.collectAsStateWithLifecycle()
     val sleepEndsAt by viewModel.sleepTimerEndsAtMs.collectAsStateWithLifecycle()
@@ -624,8 +625,9 @@ fun VideoPlayerScreen(
                 tracks = audioTracks,
                 disabled = false,
                 onSelect = viewModel::selectAudioTrack,
-                onSetDisabled = { viewModel.setSubtitlesEnabled(false) },
-                onDismiss = { showAudioTracks = false }
+                onSetDisabled = {},
+                onDismiss = { showAudioTracks = false },
+                showDisableOption = false
             )
         }
 
@@ -633,9 +635,9 @@ fun VideoPlayerScreen(
             TrackPickerSheet(
                 title = stringResource(R.string.player_subtitle_track),
                 tracks = textTracks,
-                disabled = textTracks.none { it.selected },
+                disabled = textTrackDisabled,
                 onSelect = viewModel::selectTextTrack,
-                onSetDisabled = { viewModel.setSubtitlesEnabled(false) },
+                onSetDisabled = { disabled -> viewModel.setSubtitlesEnabled(!disabled) },
                 onDismiss = { showTextTracks = false }
             )
         }
