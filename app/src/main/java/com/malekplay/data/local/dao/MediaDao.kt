@@ -23,9 +23,13 @@ interface MediaDao {
     @Upsert
     suspend fun upsertMedia(items: List<MediaItemEntity>)
 
-    /** Removes rows that MediaStore no longer reports (file deleted or moved). */
-    @Query("DELETE FROM media_items WHERE mediaId NOT IN (:keepIds)")
-    suspend fun deleteMissing(keepIds: List<String>): Int
+    /** Returns cached ids so reconciliation can delete stale rows in safe batches. */
+    @Query("SELECT mediaId FROM media_items")
+    suspend fun getAllMediaIds(): List<String>
+
+    /** Deletes only the stale ids supplied by the repository. */
+    @Query("DELETE FROM media_items WHERE mediaId IN (:mediaIds)")
+    suspend fun deleteByIds(mediaIds: List<String>): Int
 
     @Upsert
     suspend fun upsertProgress(progress: PlaybackProgressEntity)
