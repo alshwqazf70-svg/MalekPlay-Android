@@ -1,5 +1,3 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
-
 package com.malekplay.ui.player
 
 import android.content.ComponentName
@@ -65,7 +63,7 @@ data class PlaybackStats(
     val containerBitrate: Long = 0L
 )
 
-@OptIn(UnstableApi::class)
+@UnstableApi
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     @ApplicationContext private val app: Context,
