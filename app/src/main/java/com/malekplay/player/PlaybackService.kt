@@ -56,6 +56,9 @@ class PlaybackService : MediaSessionService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var progressJob: Job? = null
     private var lastCountedMediaId: String? = null
+    private var lastKnownMediaId: String? = null
+    private var lastKnownDurationMs: Long = 0L
+    private var lastKnownSpeed: Float = 1f
     private val progressSaveMutex = Mutex()
 
     override fun onCreate() {
@@ -118,6 +121,10 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // The discontinuity callback for the old item runs before this one;
+            // refresh the cached metadata only after its final snapshot was saved.
+            mediaSession?.player?.let(::rememberCurrentPlaybackMetadata)
+
             // A repeated queue entry can have the same mediaId but is still a
             // distinct play session. Ignore only transitions that are not starts.
             val isNewQueuePlay = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
@@ -136,11 +143,13 @@ class PlaybackService : MediaSessionService() {
             val oldId = oldPosition.mediaItem?.mediaId
             val newId = newPosition.mediaItem?.mediaId
             if (!oldId.isNullOrBlank() && oldId != newId) {
+                val oldDuration = if (lastKnownMediaId == oldId) lastKnownDurationMs else 0L
+                val oldSpeed = if (lastKnownMediaId == oldId) lastKnownSpeed else 1f
                 saveProgressSnapshot(
                     oldId,
                     oldPosition.positionMs,
-                    mediaSession?.player?.duration?.coerceAtLeast(0L) ?: 0L,
-                    mediaSession?.player?.playbackParameters?.speed ?: 1f
+                    oldDuration,
+                    oldSpeed
                 )
             }
         }
@@ -164,14 +173,21 @@ class PlaybackService : MediaSessionService() {
         saveCurrentProgress(markPlayed = true)
     }
 
+    private fun rememberCurrentPlaybackMetadata(player: Player) {
+        lastKnownMediaId = player.currentMediaItem?.mediaId
+        lastKnownDurationMs = player.duration.coerceAtLeast(0L)
+        lastKnownSpeed = player.playbackParameters.speed
+    }
+
     private fun saveCurrentProgress(markPlayed: Boolean = false): Job? {
         val player = mediaSession?.player ?: return null
         val mediaId = player.currentMediaItem?.mediaId ?: return null
+        rememberCurrentPlaybackMetadata(player)
         return saveProgressSnapshot(
             mediaId,
             player.currentPosition,
-            player.duration.coerceAtLeast(0L),
-            player.playbackParameters.speed,
+            lastKnownDurationMs,
+            lastKnownSpeed,
             markPlayed
         )
     }
