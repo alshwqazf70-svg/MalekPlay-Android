@@ -1,6 +1,7 @@
 package com.malekplay.data.repository
 
 import android.net.Uri
+import com.malekplay.data.local.ExternalPlaybackProgressStore
 import com.malekplay.data.local.dao.MediaDao
 import com.malekplay.data.local.dao.UserDataDao
 import com.malekplay.data.local.entity.BookmarkEntity
@@ -29,7 +30,8 @@ import javax.inject.Singleton
 class MediaRepository @Inject constructor(
     private val mediaDao: MediaDao,
     private val userDataDao: UserDataDao,
-    private val scanner: MediaStoreScanner
+    private val scanner: MediaStoreScanner,
+    private val externalProgressStore: ExternalPlaybackProgressStore
 ) {
 
     /** Media rows joined with the favourite set, so lists can render star state. */
@@ -151,9 +153,13 @@ class MediaRepository @Inject constructor(
         speed: Float,
         markPlayed: Boolean
     ) = withContext(Dispatchers.IO) {
-        // Progress tables reference media_items. External document/network Uris
-        // have no MediaStore row, so skip persistence rather than violating the FK.
-        if (mediaDao.getMedia(mediaId) == null) return@withContext
+        // MediaStore rows use Room. External document/network Uris are stored
+        // separately because Room satellite tables intentionally reference media_items.
+        if (mediaDao.getMedia(mediaId) == null) {
+            externalProgressStore.save(mediaId, positionMs, durationMs, speed, markPlayed)
+            if (markPlayed) recordHistory(mediaId)
+            return@withContext
+        }
         val completed = durationMs > 0L && positionMs >= durationMs - 2_000L
         mediaDao.saveProgressAtomic(
             PlaybackProgressEntity(
@@ -170,8 +176,9 @@ class MediaRepository @Inject constructor(
         if (markPlayed) recordHistory(mediaId)
     }
 
-    suspend fun getProgress(mediaId: String) =
-        withContext(Dispatchers.IO) { mediaDao.getProgress(mediaId) }
+    suspend fun getProgress(mediaId: String) = withContext(Dispatchers.IO) {
+        mediaDao.getProgress(mediaId) ?: externalProgressStore.get(mediaId)
+    }
 
     suspend fun getTrackPreference(mediaId: String) =
         withContext(Dispatchers.IO) { mediaDao.getTrackPreference(mediaId) }
