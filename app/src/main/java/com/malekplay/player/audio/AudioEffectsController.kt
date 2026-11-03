@@ -52,16 +52,17 @@ class AudioEffectsController {
         ) {
             val data = waveform ?: return
             val bars = FloatArray(32)
-            val step = (data.size / bars.size).coerceAtLeast(1)
             for (i in bars.indices) {
                 var peak = 0
-                val start = i * step
-                for (j in start until (start + step).coerceAtMost(data.size)) {
-                    // Byte is signed; convert to 0..1 magnitude.
-                    val magnitude = kotlin.math.abs(data[j].toInt() + 128)
+                val start = i * data.size / bars.size
+                val end = (i + 1) * data.size / bars.size
+                for (j in start until end) {
+                    // PCM waveform samples are unsigned bytes centred around 128.
+                    val sample = data[j].toInt() and 0xFF
+                    val magnitude = kotlin.math.abs(sample - 128)
                     if (magnitude > peak) peak = magnitude
                 }
-                bars[i] = (peak / 255f).coerceIn(0f, 1f)
+                bars[i] = (peak / 128f).coerceIn(0f, 1f)
             }
             _waveform.value = bars
         }
