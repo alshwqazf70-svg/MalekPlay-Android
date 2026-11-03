@@ -8,6 +8,9 @@
     <string name="nav_music">Music</string>
     <string name="nav_network">Transfer</string>
     <string name="nav_profile">Me</string>
+    <string name="nav_favourites">Favourites</string>
+    <string name="nav_playlists">Playlists</string>
+    <string name="favourites_empty">You have not added any media to favourites yet.</string>
 
     <!-- Library -->
     <string name="lib_title_folders">Folders</string>

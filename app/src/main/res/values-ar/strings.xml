@@ -8,6 +8,9 @@
     <string name="nav_music">موسيقى</string>
     <string name="nav_network">Transfer</string>
     <string name="nav_profile">أنا</string>
+    <string name="nav_favourites">المفضلة</string>
+    <string name="nav_playlists">قوائم التشغيل</string>
+    <string name="favourites_empty">لم تضف أي وسائط إلى المفضلة بعد.</string>
 
     <!-- Library -->
     <string name="lib_title_folders">المجلدات</string>

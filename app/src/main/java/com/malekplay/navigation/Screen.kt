@@ -9,7 +9,7 @@ sealed class Screen(val route: String) {
     data object Music : Screen("music")
     data object Network : Screen("network")
     data object Profile : Screen("profile")
-    data object Settings : Screen("settings")
+    data object Settings : Screen("settings")\n    data object Favourites : Screen("favourites")\n    data object Playlists : Screen("playlists")
 
     data object VideoPlayer : Screen("video/{mediaId}") {
         fun create(mediaId: String) = "video/${Uri.encode(mediaId)}"

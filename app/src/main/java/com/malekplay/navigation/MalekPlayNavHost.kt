@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -51,6 +53,8 @@ import com.malekplay.ui.playlists.PlaylistScreen
 import com.malekplay.ui.profile.ProfileScreen
 import com.malekplay.ui.settings.SettingsScreen
 import com.malekplay.ui.library.LocalFolderScreen
+import com.malekplay.ui.favorites.FavouritesScreen
+import com.malekplay.ui.playlists.PlaylistLibraryScreen
 
 private const val ANIM_MS = 260
 
