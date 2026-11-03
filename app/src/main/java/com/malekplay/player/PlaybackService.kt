@@ -118,9 +118,11 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            // A transition and isPlaying callback can arrive in either order.
-            // Keep the same id marked if the playing callback already counted it.
-            if (mediaItem?.mediaId != lastCountedMediaId) {
+            // A repeated queue entry can have the same mediaId but is still a
+            // distinct play session. Ignore only transitions that are not starts.
+            val isNewQueuePlay = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+            if (mediaItem?.mediaId != lastCountedMediaId || isNewQueuePlay) {
                 lastCountedMediaId = null
                 if (mediaSession?.player?.isPlaying == true) markCurrentItemStarted()
             }
