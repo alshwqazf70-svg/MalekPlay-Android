@@ -44,8 +44,7 @@ class PlaylistRepository @Inject constructor(
     }
 
     suspend fun delete(playlistId: String) = withContext(Dispatchers.IO) {
-        playlistDao.clearItems(playlistId)
-        playlistDao.deletePlaylist(playlistId)
+        playlistDao.deletePlaylistCompletely(playlistId)
     }
 
     /** Appends media atomically and skips duplicate ids. */
