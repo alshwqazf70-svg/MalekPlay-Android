@@ -1,5 +1,3 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
-
 package com.malekplay.player
 
 import android.app.PendingIntent
@@ -44,7 +42,7 @@ import java.util.concurrent.TimeUnit
  * Keeping playback in a service means audio survives Activity rotation, the
  * Recents swipe and leaving the app entirely — the same model MX Player uses.
  */
-@OptIn(UnstableApi::class)
+@UnstableApi
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
 
