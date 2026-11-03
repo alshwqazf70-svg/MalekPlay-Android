@@ -48,19 +48,36 @@ interface MediaDao {
     @Upsert
     suspend fun upsertProgress(progress: PlaybackProgressEntity)
 
-    /** Keeps the progress row and its play counter consistent under concurrent saves. */
+    /** Saves progress and its play counter atomically only while the parent media row exists. */
     @Transaction
-    suspend fun saveProgressAtomic(progress: PlaybackProgressEntity, markPlayed: Boolean) {
+    suspend fun saveProgressIfMediaExists(
+        progress: PlaybackProgressEntity,
+        markPlayed: Boolean
+    ): Boolean {
+        if (getMedia(progress.mediaId) == null) return false
         val existing = getProgress(progress.mediaId)
         val count = (existing?.playCount ?: 0) + if (markPlayed) 1 else 0
         upsertProgress(progress.copy(playCount = count))
+        return true
     }
 
     @Upsert
     suspend fun upsertTrackPreference(preference: TrackPreferenceEntity)
 
+    @Transaction
+    suspend fun saveTrackPreferenceIfMediaExists(preference: TrackPreferenceEntity) {
+        if (getMedia(preference.mediaId) != null) upsertTrackPreference(preference)
+    }
+
     @Upsert
     suspend fun upsertBookmark(bookmark: BookmarkEntity): Long
+
+    @Transaction
+    suspend fun addBookmarkIfMediaExists(bookmark: BookmarkEntity): Boolean {
+        if (getMedia(bookmark.mediaId) == null) return false
+        upsertBookmark(bookmark)
+        return true
+    }
 
     @Query("DELETE FROM bookmarks WHERE bookmarkId = :bookmarkId")
     suspend fun deleteBookmark(bookmarkId: Long)
