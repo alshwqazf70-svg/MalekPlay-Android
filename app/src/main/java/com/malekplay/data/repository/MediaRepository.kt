@@ -2,6 +2,7 @@ package com.malekplay.data.repository
 
 import android.net.Uri
 import com.malekplay.data.local.ExternalPlaybackProgressStore
+import com.malekplay.data.local.isPlaybackCompleted
 import com.malekplay.data.local.dao.MediaDao
 import com.malekplay.data.local.dao.UserDataDao
 import com.malekplay.data.local.entity.BookmarkEntity
@@ -162,7 +163,7 @@ class MediaRepository @Inject constructor(
         speed: Float,
         markPlayed: Boolean
     ) = withContext(Dispatchers.IO) {
-        val completed = durationMs > 0L && positionMs >= durationMs - 2_000L
+        val completed = isPlaybackCompleted(positionMs, durationMs)
         val progress = PlaybackProgressEntity(
             mediaId = mediaId,
             positionMs = if (completed) 0L else positionMs.coerceAtLeast(0L),
