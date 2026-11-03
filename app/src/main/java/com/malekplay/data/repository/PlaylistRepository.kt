@@ -48,25 +48,10 @@ class PlaylistRepository @Inject constructor(
         playlistDao.deletePlaylist(playlistId)
     }
 
-    /** Appends media to the end of a playlist, skipping duplicates. */
+    /** Appends media atomically and skips duplicate ids. */
     suspend fun addMedia(playlistId: String, mediaIds: List<String>) =
         withContext(Dispatchers.IO) {
-            if (mediaIds.isEmpty()) return@withContext
-            val existing = playlistDao.getPlaylistMediaIds(playlistId).toHashSet()
-            var position = playlistDao.nextPosition(playlistId)
-            val fresh = mediaIds.distinct().filter { it !in existing }
-            if (fresh.isEmpty()) return@withContext
-            val now = System.currentTimeMillis()
-            playlistDao.upsertItems(
-                fresh.map { mediaId ->
-                    PlaylistItemEntity(
-                        playlistId = playlistId,
-                        mediaId = mediaId,
-                        position = position++,
-                        addedAtMs = now
-                    )
-                }
-            )
+            playlistDao.appendMedia(playlistId, mediaIds, System.currentTimeMillis())
         }
 
     suspend fun removeMedia(playlistId: String, mediaId: String) =
