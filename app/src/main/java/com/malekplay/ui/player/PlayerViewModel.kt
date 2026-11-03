@@ -544,15 +544,14 @@ class PlayerViewModel @Inject constructor(
 
     // -------------------------------------------------------------- progress
 
-    fun saveProgressNow(markPlayed: Boolean = false) {
+    fun saveProgressNow() {
         val player = _controller.value ?: return
         val mediaId = currentMediaId ?: player.currentMediaItem?.mediaId ?: return
         persistProgressSnapshot(
             mediaId = mediaId,
             positionMs = player.currentPosition,
             durationMs = player.duration.coerceAtLeast(0L),
-            speed = player.playbackParameters.speed,
-            markPlayed = markPlayed
+            speed = player.playbackParameters.speed
         )
     }
 
@@ -560,8 +559,7 @@ class PlayerViewModel @Inject constructor(
         mediaId: String,
         positionMs: Long,
         durationMs: Long,
-        speed: Float,
-        markPlayed: Boolean = false
+        speed: Float
     ) {
         viewModelScope.launch {
             runCatching {
@@ -570,7 +568,7 @@ class PlayerViewModel @Inject constructor(
                     positionMs = positionMs,
                     durationMs = durationMs,
                     speed = speed,
-                    markPlayed = markPlayed
+                    markPlayed = false
                 )
             }
         }
