@@ -54,7 +54,9 @@ class PlaybackService : MediaSessionService() {
     @Inject
     lateinit var mediaRepository: MediaRepository
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // ExoPlayer is application-looper confined; read its state on Main and let
+    // MediaRepository switch to IO for database/preferences work.
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var progressJob: Job? = null
     private var lastCountedMediaId: String? = null
     private val playbackMetadataById = ConcurrentHashMap<String, PlaybackMetadata>()
