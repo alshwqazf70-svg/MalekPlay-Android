@@ -82,7 +82,7 @@ fun SettingsDialog(
                 }
                 Text("سرعة التشغيل الافتراضية: ${"%.2f".format(settings.defaultSpeed)}×")
                 Slider(
-                    value = settings.defaultPlaybackSpeed,
+                    value = settings.defaultSpeed,
                     onValueChange = { value -> onSettingsChange { it.copy(defaultSpeed = value) } },
                     valueRange = 0.5f..2f
                 )
