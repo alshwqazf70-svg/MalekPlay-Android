@@ -144,6 +144,7 @@ fun PlaylistScreen(
 
     var showMenu by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -187,7 +188,7 @@ fun PlaylistScreen(
                                 text = { Text(text = stringResource(R.string.lib_delete)) },
                                 onClick = {
                                     showMenu = false
-                                    viewModel.delete(onDeleted = onBack)
+                                    showDeleteConfirmation = true
                                 }
                             )
                         }
@@ -316,6 +317,25 @@ fun PlaylistScreen(
                 }
             }
         }
+    }
+
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = { Text(text = stringResource(R.string.lib_delete)) },
+            text = { Text(text = "هل تريد حذف قائمة التشغيل هذه؟ لا يمكن التراجع عن هذا الإجراء.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirmation = false
+                    viewModel.delete(onDeleted = onBack)
+                }) { Text(text = stringResource(R.string.lib_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) {
+                    Text(text = stringResource(R.string.lib_cancel))
+                }
+            }
+        )
     }
 
     if (showRename) {
