@@ -39,8 +39,7 @@ fun LibraryScreen(
 ) {
     val folders by viewModel.folders.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
-    val searchResultsQuery by remember { mutableStateOf("") }
-    var searchQuery by remember { mutableStateOf(searchResultsQuery) }
+    var searchQuery by remember { mutableStateOf("") }
     var searchActive by remember { mutableStateOf(false) }
     var selectedFolder by remember { mutableStateOf<MediaFolder?>(null) }
     var showSortMenu by remember { mutableStateOf(false) }
@@ -220,7 +219,7 @@ fun VideoItemRow(item: LibraryItem, onClick: () -> Unit) {
             Text(formatFileSize(item.media.sizeBytes), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (item.isInProgress) {
-                LinearProgressIndicator(progress = { item.fraction }, Modifier.fillMaxWidth().padding(top = 5.dp))
+                LinearProgressIndicator(progress = item.fraction, modifier = Modifier.fillMaxWidth().padding(top = 5.dp))
             }
         }
     }
