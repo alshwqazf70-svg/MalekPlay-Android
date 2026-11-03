@@ -61,6 +61,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
@@ -104,6 +107,23 @@ fun LocalScreen(
         .collectAsStateWithLifecycle(initialValue = emptyList())
 
     var hasPermission by remember { mutableStateOf(MediaPermissions.isGranted(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Permissions can be revoked or granted from Android Settings while the
+    // app is backgrounded; refresh the UI and cache when the screen resumes.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val granted = MediaPermissions.isGranted(context)
+                if (granted != hasPermission) {
+                    hasPermission = granted
+                    if (granted) viewModel.refresh()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
