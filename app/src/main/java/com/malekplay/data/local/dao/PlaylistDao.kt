@@ -18,6 +18,9 @@ interface PlaylistDao {
     @Upsert
     suspend fun upsertItems(items: List<PlaylistItemEntity>)
 
+    @Query("SELECT * FROM playlists WHERE playlistId = :playlistId LIMIT 1")
+    suspend fun getPlaylist(playlistId: String): PlaylistEntity?
+
     @Query("DELETE FROM playlists WHERE playlistId = :playlistId")
     suspend fun deletePlaylist(playlistId: String)
 
