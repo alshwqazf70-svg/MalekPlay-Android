@@ -123,7 +123,11 @@ fun MusicScreen(
     )
 
     Column(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
-        TabRow(selectedTabIndex = tabIndex) {
+        TabRow(
+            selectedTabIndex = tabIndex,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.primary
+        ) {
             tabLabels.forEachIndexed { index, labelRes ->
                 Tab(
                     selected = tabIndex == index,
