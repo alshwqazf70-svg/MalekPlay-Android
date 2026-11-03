@@ -1,11 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- Back up lightweight preferences only. The Room database and media
-         cache are re-derived from MediaStore and must not be archived. -->
+    <!-- Back up non-secret preferences and external playback resume points only. -->
     <include domain="sharedpref" path="malekplay_family.xml" />
     <include domain="sharedpref" path="malekplay_network_profiles.xml" />
-    <exclude domain="database" path="malekplay.db" />
-    <exclude domain="database" path="malekplay.db-wal" />
-    <exclude domain="database" path="malekplay.db-shm" />
-    <exclude domain="file" path="datastore" />
+    <include domain="sharedpref" path="malekplay_external_progress.xml" />
 </full-backup-content>
