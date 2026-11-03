@@ -131,14 +131,12 @@ class MediaRepository @Inject constructor(
 
         if (scan.videosComplete) {
             val videoIds = scan.videoItems.map { it.mediaId }
-            if (videoIds.isEmpty()) mediaDao.clearVideos()
-            else mediaDao.deleteMissingVideos(videoIds)
+            mediaDao.reconcileVideos(videoIds)
         }
 
         if (scan.audioComplete) {
             val audioIds = scan.audioItems.map { it.mediaId }
-            if (audioIds.isEmpty()) mediaDao.clearAudio()
-            else mediaDao.deleteMissingAudio(audioIds)
+            mediaDao.reconcileAudio(audioIds)
         }
     }
 
