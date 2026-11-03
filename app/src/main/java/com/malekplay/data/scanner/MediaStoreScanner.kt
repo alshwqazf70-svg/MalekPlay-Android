@@ -130,6 +130,7 @@ class MediaStoreScanner(context: Context) {
             add(MediaStore.MediaColumns.SIZE)
             add(MediaStore.MediaColumns.DATE_ADDED)
             add(MediaStore.MediaColumns.MIME_TYPE)
+            add(MediaStore.MediaColumns.BUCKET_ID)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 add(MediaStore.MediaColumns.RELATIVE_PATH)
             }
