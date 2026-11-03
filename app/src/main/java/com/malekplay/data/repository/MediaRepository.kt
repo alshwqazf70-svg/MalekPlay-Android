@@ -182,24 +182,9 @@ class MediaRepository @Inject constructor(
 
     // ---------------------------------------------------------------- history
 
-    /**
-     * Records a play in SQL rather than read-modify-write so overlapping
-     * play events cannot lose an increment.
-     */
+    /** Records a play with a single atomic SQL upsert. */
     private suspend fun recordHistory(mediaId: String) {
-        val now = System.currentTimeMillis()
-        val existing = userDataDao.getHistory(mediaId)
-        if (existing == null) {
-            userDataDao.insertHistory(
-                com.malekplay.data.local.entity.HistoryEntity(
-                    mediaId = mediaId,
-                    lastPlayedAtMs = now,
-                    playCount = 1
-                )
-            )
-        } else {
-            userDataDao.updateHistory(mediaId, now, existing.playCount + 1)
-        }
+        userDataDao.recordHistoryPlay(mediaId, System.currentTimeMillis())
         userDataDao.trimHistory()
     }
 
