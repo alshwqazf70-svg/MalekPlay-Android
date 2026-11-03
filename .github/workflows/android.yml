@@ -9,7 +9,7 @@ on:
 
 concurrency:
   group: malekplay-android-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -18,6 +18,7 @@ jobs:
   build:
     name: Build debug APK
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -85,6 +86,7 @@ jobs:
           if-no-files-found: error
 
       - name: Run Android UI smoke tests on emulator
+        timeout-minutes: 25
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
           api-level: 35

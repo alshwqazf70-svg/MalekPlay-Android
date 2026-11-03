@@ -31,6 +31,8 @@ import com.malekplay.R
 import com.malekplay.data.repository.PlaylistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 
 @HiltViewModel
@@ -39,18 +41,27 @@ class PlaylistPickerViewModel @Inject constructor(
 ) : ViewModel() {
 
     val playlists = repository.observePlaylists()
+    private val _operationError = MutableStateFlow<String?>(null)
+    val operationError = _operationError.asStateFlow()
 
     fun toggle(playlistId: String, mediaId: String, present: Boolean) {
         viewModelScope.launch {
-            if (present) repository.removeMedia(playlistId, mediaId)
-            else repository.addMedia(playlistId, listOf(mediaId))
+            runCatching {
+                if (present) repository.removeMedia(playlistId, mediaId)
+                else repository.addMedia(playlistId, listOf(mediaId))
+            }.onSuccess { _operationError.value = null }
+                .onFailure { _operationError.value = it.localizedMessage }
         }
     }
 
     fun create(name: String, mediaId: String) {
         viewModelScope.launch {
-            val id = runCatching { repository.create(name) }.getOrNull() ?: return@launch
-            repository.addMedia(id, listOf(mediaId))
+            runCatching {
+                require(name.isNotBlank())
+                val id = repository.create(name.trim())
+                repository.addMedia(id, listOf(mediaId))
+            }.onSuccess { _operationError.value = null }
+                .onFailure { _operationError.value = it.localizedMessage }
         }
     }
 }
@@ -63,6 +74,7 @@ fun PlaylistPickerDialog(
     viewModel: PlaylistPickerViewModel = hiltViewModel()
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle(initialValue = emptyList())
+    val operationError by viewModel.operationError.collectAsStateWithLifecycle()
     var newName by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
 
@@ -71,6 +83,14 @@ fun PlaylistPickerDialog(
         title = { Text(stringResource(R.string.lib_add_to_playlist)) },
         text = {
             Column {
+                if (operationError != null) {
+                    Text(
+                        text = operationError ?: stringResource(R.string.playlist_operation_failed),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 if (playlists.isEmpty() && !showCreate) {
                     Text(
                         stringResource(R.string.lib_no_playlists),
