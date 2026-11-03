@@ -65,6 +65,7 @@ import com.malekplay.network.NetworkEntry
 import com.malekplay.network.NetworkProfile
 import com.malekplay.network.NetworkProfileStore
 import com.malekplay.network.NetworkProtocol
+import com.malekplay.network.SmbClient
 import com.malekplay.network.WebDavClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -89,7 +90,8 @@ data class BrowseUiState(
 class NetworkViewModel @Inject constructor(
     private val profileStore: NetworkProfileStore,
     private val credentialVault: NetworkCredentialVault,
-    private val webDavClient: WebDavClient
+    private val webDavClient: WebDavClient,
+    private val smbClient: SmbClient
 ) : ViewModel() {
 
     private val _profiles = MutableStateFlow<List<NetworkProfile>>(emptyList())
@@ -125,12 +127,15 @@ class NetworkViewModel @Inject constructor(
                 runCatching {
                     val cleanHost = host.trim()
                     val id = UUID.randomUUID().toString()
-                    val root = when {
-                        protocol == NetworkProtocol.SMB && share.isNotBlank() ->
-                            "/" + share.trim().trim('/')
-
-                        path.isBlank() -> "/"
-                        else -> if (path.trim().startsWith("/")) path.trim() else "/" + path.trim()
+                    val cleanPath = path.trim().trim('/')
+                    val root = when (protocol) {
+                        NetworkProtocol.SMB -> {
+                            require(share.isNotBlank()) { "يجب إدخال اسم مشاركة SMB" }
+                            listOf(share.trim().trim('/'), cleanPath)
+                                .filter { it.isNotBlank() }
+                                .joinToString(separator = "/", prefix = "/")
+                        }
+                        else -> if (cleanPath.isBlank()) "/" else "/$cleanPath"
                     }
                     val profile = NetworkProfile(
                         id = id,
@@ -164,22 +169,32 @@ class NetworkViewModel @Inject constructor(
         val target = path.ifBlank { "/" }
         viewModelScope.launch {
             _browse.value = BrowseUiState(profileId = profile.id, path = target, loading = true)
-            if (profile.protocol != NetworkProtocol.WEBDAV) {
-                _browse.value = BrowseUiState(
-                    profileId = profile.id,
-                    path = target,
-                    error = PROTOCOL_UNSUPPORTED
-                )
-                return@launch
-            }
             val credentials = withContext(Dispatchers.IO) {
                 runCatching { credentialVault.load(profile.id) }.getOrNull()
             }
             val username = credentials?.first?.takeIf { it.isNotBlank() } ?: profile.username
             val password = credentials?.second.orEmpty()
-            val endpoint = endpointFor(profile)
             val result = runCatching {
-                webDavClient.list(endpoint, target, username, password)
+                when (profile.protocol) {
+                    NetworkProtocol.WEBDAV -> webDavClient.list(
+                        endpointFor(profile), target, username, password
+                    )
+                    NetworkProtocol.SMB -> {
+                        val segments = target.trim('/').split('/').filter { it.isNotBlank() }
+                        val shareName = segments.firstOrNull() ?: error("مسار مشاركة SMB غير صالح")
+                        val remotePath = segments.drop(1).joinToString("/")
+                        smbClient.list(
+                            host = profile.host,
+                            shareName = shareName,
+                            path = remotePath,
+                            username = username,
+                            password = password
+                        )
+                    }
+                    NetworkProtocol.SFTP -> error(
+                        "يتطلب SFTP استيراد ملف known_hosts موثوقاً قبل الاتصال"
+                    )
+                }
             }
             _browse.value = result.fold(
                 onSuccess = { entries ->
@@ -433,11 +448,7 @@ private fun BrowsePanel(
 
             state.error != null -> {
                 val rawError = state.error ?: ""
-                val message = if (rawError == NetworkViewModel.PROTOCOL_UNSUPPORTED) {
-                    stringResource(R.string.net_browse_webdav_only)
-                } else {
-                    stringResource(R.string.net_error, rawError)
-                }
+                val message = stringResource(R.string.net_error, rawError)
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
