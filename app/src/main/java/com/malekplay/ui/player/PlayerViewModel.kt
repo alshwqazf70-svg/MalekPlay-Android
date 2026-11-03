@@ -146,6 +146,7 @@ class PlayerViewModel @Inject constructor(
     private var progressSaveJob: Job? = null
     private var lastGroups: List<Tracks.Group> = emptyList()
     private var currentMediaId: String? = null
+    private var playRecordedForCurrentItem = false
 
     // ---------------------------------------------------------- lifecycle
 
@@ -186,6 +187,10 @@ class PlayerViewModel @Inject constructor(
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _isPlaying.value = isPlaying
+            if (isPlaying && !playRecordedForCurrentItem) {
+                playRecordedForCurrentItem = true
+                saveProgressNow(markPlayed = true)
+            }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -217,6 +222,11 @@ class PlayerViewModel @Inject constructor(
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             saveProgressNow()
             currentMediaId = mediaItem?.mediaId
+            playRecordedForCurrentItem = false
+            if (_controller.value?.isPlaying == true) {
+                playRecordedForCurrentItem = true
+                saveProgressNow(markPlayed = true)
+            }
             _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
             _queueSize.value = _controller.value?.mediaItemCount ?: 0
             viewModelScope.launch {
@@ -259,6 +269,7 @@ class PlayerViewModel @Inject constructor(
                 _bufferedMs.value = player.bufferedPosition
                 _currentIndex.value = player.currentMediaItemIndex
                 _queueSize.value = player.mediaItemCount
+                applyAbBounds(player.currentPosition)
                 delay(TICK_INTERVAL_MS)
             }
         }
@@ -559,7 +570,7 @@ class PlayerViewModel @Inject constructor(
 
     // -------------------------------------------------------------- progress
 
-    fun saveProgressNow() {
+    fun saveProgressNow(markPlayed: Boolean = false) {
         val player = _controller.value ?: return
         val mediaId = currentMediaId ?: player.currentMediaItem?.mediaId ?: return
         viewModelScope.launch {
@@ -569,7 +580,7 @@ class PlayerViewModel @Inject constructor(
                     positionMs = player.currentPosition,
                     durationMs = player.duration.coerceAtLeast(0L),
                     speed = player.playbackParameters.speed,
-                    markPlayed = true
+                    markPlayed = markPlayed
                 )
             }
         }
