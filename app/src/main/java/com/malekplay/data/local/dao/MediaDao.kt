@@ -30,6 +30,14 @@ interface MediaDao {
     @Upsert
     suspend fun upsertProgress(progress: PlaybackProgressEntity)
 
+    /** Keeps the progress row and its play counter consistent under concurrent saves. */
+    @Transaction
+    suspend fun saveProgressAtomic(progress: PlaybackProgressEntity, markPlayed: Boolean) {
+        val existing = getProgress(progress.mediaId)
+        val count = (existing?.playCount ?: 0) + if (markPlayed) 1 else 0
+        upsertProgress(progress.copy(playCount = count))
+    }
+
     @Upsert
     suspend fun upsertTrackPreference(preference: TrackPreferenceEntity)
 
