@@ -36,7 +36,7 @@ class ExternalPlaybackProgressStore @Inject constructor(
         val previous = preferences.getString(key, null)
             ?.let { runCatching { JSONObject(it) }.getOrNull() }
         val safeDuration = durationMs.coerceAtLeast(0L)
-        val completed = safeDuration > 0L && positionMs >= safeDuration - 2_000L
+        val completed = isPlaybackCompleted(positionMs, safeDuration)
         val playCount = (previous?.optInt("playCount", 0) ?: 0) + if (markPlayed) 1 else 0
         val json = JSONObject()
             .put("positionMs", if (completed) 0L else positionMs.coerceAtLeast(0L))
