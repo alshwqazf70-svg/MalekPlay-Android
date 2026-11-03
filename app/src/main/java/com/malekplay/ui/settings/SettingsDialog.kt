@@ -30,7 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.malekplay.data.preferences.PlayerSettings
+import com.malekplay.domain.model.PlayerSettings
 import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.backup.BackupViewModel
 
@@ -80,22 +80,12 @@ fun SettingsDialog(
                     )
                     Text("تفعيل إيماءة السطوع")
                 }
-                Text("سرعة التشغيل الافتراضية: ${"%.2f".format(settings.defaultPlaybackSpeed)}×")
+                Text("سرعة التشغيل الافتراضية: ${"%.2f".format(settings.defaultSpeed)}×")
                 Slider(
                     value = settings.defaultPlaybackSpeed,
-                    onValueChange = { value -> onSettingsChange { it.copy(defaultPlaybackSpeed = value) } },
+                    onValueChange = { value -> onSettingsChange { it.copy(defaultSpeed = value) } },
                     valueRange = 0.5f..2f
                 )
-                Text("مظهر التطبيق", style = MaterialTheme.typography.titleSmall)
-                listOf("light" to "فاتح", "dark" to "داكن", "system" to "حسب إعدادات الجهاز").forEach { (value, label) ->
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(
-                            selected = settings.theme == value,
-                            onClick = { onSettingsChange { it.copy(theme = value) } }
-                        )
-                        Text(label)
-                    }
-                }
                 Text("حجم الترجمة: ${settings.subtitleSizeSp} نقطة")
                 Slider(
                     value = settings.subtitleSizeSp.toFloat(),
