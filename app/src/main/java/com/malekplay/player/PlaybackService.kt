@@ -106,11 +106,18 @@ class PlaybackService : MediaSessionService() {
     /** Progress belongs to the playback service, so it continues after player UI closes. */
     private val progressListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY) {
+                mediaSession?.player?.let(::rememberCurrentPlaybackMetadata)
+            }
             // Replaying the same item after it reached the end is a new play.
             if (playbackState == Player.STATE_ENDED) {
                 saveCurrentProgress()
                 lastCountedMediaId = null
             }
+        }
+
+        override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
+            mediaSession?.player?.let(::rememberCurrentPlaybackMetadata)
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
