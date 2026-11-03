@@ -215,10 +215,21 @@ class MediaStoreScanner(context: Context) {
         row: (android.database.Cursor, ColumnIndex) -> T
     ): List<T> {
         val out = mutableListOf<T>()
+        // Match MediaStore's visible-library semantics: ignore zero-byte,
+        // pending writes and trashed rows so incomplete files never enter the cache.
+        val selection = buildList {
+            add("${MediaStore.MediaColumns.SIZE} > 0")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add("${MediaStore.MediaColumns.IS_PENDING} = 0")
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                add("${MediaStore.MediaColumns.IS_TRASHED} = 0")
+            }
+        }.joinToString(" AND ")
         val cursor = resolver.query(
             collection,
             projection,
-            null,
+            selection,
             null,
             "${MediaStore.MediaColumns.DATE_ADDED} DESC"
         ) ?: throw IllegalStateException(
