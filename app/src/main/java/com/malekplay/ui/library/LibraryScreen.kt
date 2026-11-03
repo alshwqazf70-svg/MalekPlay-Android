@@ -283,7 +283,7 @@ private fun HeaderAction(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         Modifier.clip(CircleShape)
-            .background(if (selected) Neon.copy(.20f) else Glass)
+            .then(if (selected) Modifier.background(Neon.copy(.20f)) else Modifier.background(Glass))
             .border(1.dp, if (selected) Neon.copy(.75f) else GlassStroke, CircleShape)
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
