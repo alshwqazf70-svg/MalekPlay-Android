@@ -23,18 +23,27 @@ interface MediaDao {
     @Upsert
     suspend fun upsertMedia(items: List<MediaItemEntity>)
 
-    /** Removes stale rows only for a media type whose scan was complete. */
-    @Query("DELETE FROM media_items WHERE isVideo = 1 AND mediaId NOT IN (:keepIds)")
-    suspend fun deleteMissingVideos(keepIds: List<String>): Int
+    /** Media ids are read and reconciled in one transaction without SQLite bind limits. */
+    @Query("SELECT mediaId FROM media_items WHERE isVideo = 1")
+    suspend fun getVideoMediaIds(): List<String>
 
-    @Query("DELETE FROM media_items WHERE isVideo = 0 AND mediaId NOT IN (:keepIds)")
-    suspend fun deleteMissingAudio(keepIds: List<String>): Int
+    @Query("SELECT mediaId FROM media_items WHERE isVideo = 0")
+    suspend fun getAudioMediaIds(): List<String>
 
-    @Query("DELETE FROM media_items WHERE isVideo = 1")
-    suspend fun clearVideos(): Int
+    @Query("DELETE FROM media_items WHERE mediaId = :mediaId")
+    suspend fun deleteMediaById(mediaId: String): Int
 
-    @Query("DELETE FROM media_items WHERE isVideo = 0")
-    suspend fun clearAudio(): Int
+    @Transaction
+    suspend fun reconcileVideos(keepIds: List<String>) {
+        val keep = keepIds.toHashSet()
+        getVideoMediaIds().filterNot { it in keep }.forEach { deleteMediaById(it) }
+    }
+
+    @Transaction
+    suspend fun reconcileAudio(keepIds: List<String>) {
+        val keep = keepIds.toHashSet()
+        getAudioMediaIds().filterNot { it in keep }.forEach { deleteMediaById(it) }
+    }
 
     @Upsert
     suspend fun upsertProgress(progress: PlaybackProgressEntity)
