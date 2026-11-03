@@ -92,7 +92,7 @@ class ExternalPlaybackProgressStore @Inject constructor(
     private fun keyFor(mediaId: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(mediaId.toByteArray(Charsets.UTF_8))
-        return PREFIX + digest.joinToString("") { "%02x".format(it) }
+        return PREFIX + digest.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 
     private companion object {
