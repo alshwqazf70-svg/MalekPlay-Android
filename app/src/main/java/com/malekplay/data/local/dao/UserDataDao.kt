@@ -17,6 +17,18 @@ interface UserDataDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun addFavourite(entity: FavouriteEntity)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun addFavourites(entities: List<FavouriteEntity>)
+
+    /** Replaces a restored favourite set as one database transaction. */
+    @Transaction
+    suspend fun replaceFavourites(ids: Set<String>, addedAtMs: Long) {
+        clearFavourites()
+        if (ids.isNotEmpty()) {
+            addFavourites(ids.map { FavouriteEntity(mediaId = it, addedAtMs = addedAtMs) })
+        }
+    }
+
     @Query("DELETE FROM favourites WHERE mediaId = :mediaId")
     suspend fun removeFavourite(mediaId: String)
 
