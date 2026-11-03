@@ -2,6 +2,7 @@ package com.malekplay.di
 
 import android.content.Context
 import androidx.room.Room
+import com.malekplay.data.local.ExternalPlaybackProgressStore
 import com.malekplay.data.local.MalekPlayDatabase
 import com.malekplay.data.local.dao.MediaDao
 import com.malekplay.data.local.dao.PlaylistDao
@@ -53,8 +54,9 @@ object AppModule {
     fun provideMediaRepository(
         mediaDao: MediaDao,
         userDataDao: UserDataDao,
-        scanner: MediaStoreScanner
-    ): MediaRepository = MediaRepository(mediaDao, userDataDao, scanner)
+        scanner: MediaStoreScanner,
+        externalProgressStore: ExternalPlaybackProgressStore
+    ): MediaRepository = MediaRepository(mediaDao, userDataDao, scanner, externalProgressStore)
 
     @Provides
     @Singleton
