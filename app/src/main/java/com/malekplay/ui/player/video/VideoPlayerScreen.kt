@@ -1,5 +1,3 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
-
 package com.malekplay.ui.player.video
 
 import android.content.ContentValues
@@ -135,7 +133,7 @@ private const val FULL_SWIPE_SEEK_MS = 120_000L
 private const val DOUBLE_TAP_SEEK_MS = 10_000L
 private const val SPEED_BOOST = 2.5f
 
-@OptIn(UnstableApi::class)
+@UnstableApi
 @Composable
 fun VideoPlayerScreen(
     mediaId: String,
@@ -730,7 +728,7 @@ fun VideoPlayerScreen(
 }
 
 /** Pushes the saved subtitle look onto the platform SubtitleView. */
-@OptIn(UnstableApi::class)
+@UnstableApi
 private fun applySubtitleStyle(view: PlayerView, settings: com.malekplay.domain.model.PlayerSettings) {
     val subtitles = view.subtitleView ?: return
     subtitles.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, settings.subtitleSizeSp.toFloat())
