@@ -1,10 +1,13 @@
 package com.malekplay.data.scanner
 
+import android.Manifest
 import android.content.ContentResolver
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.malekplay.data.local.entity.MediaItemEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -14,6 +17,16 @@ private const val TAG = "MediaStoreScanner"
 /** Literal column name; MediaColumns does not expose this constant on all API levels. */
 private const val BUCKET_DISPLAY_NAME = "bucket_display_name"
 
+/** A scan explicitly records which media types were fully visible to the app. */
+data class MediaScanResult(
+    val items: List<MediaItemEntity>,
+    val videosComplete: Boolean,
+    val audioComplete: Boolean
+) {
+    val videoItems: List<MediaItemEntity> get() = items.filter { it.isVideo }
+    val audioItems: List<MediaItemEntity> get() = items.filterNot { it.isVideo }
+}
+
 /**
  * Reads the device media library through MediaStore.
  *
@@ -22,14 +35,39 @@ private const val BUCKET_DISPLAY_NAME = "bucket_display_name"
  */
 class MediaStoreScanner(context: Context) {
 
-    private val resolver: ContentResolver = context.applicationContext.contentResolver
+    private val appContext = context.applicationContext
+    private val resolver: ContentResolver = appContext.contentResolver
 
-    suspend fun scan(): List<MediaItemEntity> = withContext(Dispatchers.IO) {
-        val genres = readGenreIndex()
-        buildList {
-            addAll(scanVideos())
-            addAll(scanAudio(genres))
+    suspend fun scan(): MediaScanResult = withContext(Dispatchers.IO) {
+        val videoPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_VIDEO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
         }
+        val audioPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_AUDIO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+        val videosComplete = ContextCompat.checkSelfPermission(appContext, videoPermission) ==
+            PackageManager.PERMISSION_GRANTED
+        val audioComplete = ContextCompat.checkSelfPermission(appContext, audioPermission) ==
+            PackageManager.PERMISSION_GRANTED
+        val videosPartial = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+            ContextCompat.checkSelfPermission(
+                appContext, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+            ) == PackageManager.PERMISSION_GRANTED
+
+        // A partial visual grant permits reading selected videos, but never
+        // authorizes deleting rows that are simply outside the selected set.
+        val videos = if (videosComplete || videosPartial) scanVideos() else emptyList()
+        val audio = if (audioComplete) scanAudio(readGenreIndex()) else emptyList()
+
+        MediaScanResult(
+            items = videos + audio,
+            videosComplete = videosComplete,
+            audioComplete = audioComplete
+        )
     }
 
     // ------------------------------------------------------------------ video
