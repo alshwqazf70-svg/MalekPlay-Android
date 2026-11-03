@@ -30,6 +30,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import com.malekplay.network.NetworkProtocol
 import okhttp3.Credentials
@@ -56,6 +58,7 @@ class PlaybackService : MediaSessionService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var progressJob: Job? = null
     private var lastCountedMediaId: String? = null
+    private val progressSaveMutex = Mutex()
 
     override fun onCreate() {
         super.onCreate()
@@ -181,14 +184,16 @@ class PlaybackService : MediaSessionService() {
         markPlayed: Boolean = false
     ): Job {
         return serviceScope.launch {
-            runCatching {
-                mediaRepository.saveProgress(
-                    mediaId = mediaId,
-                    positionMs = positionMs,
-                    durationMs = durationMs,
-                    speed = speed,
-                    markPlayed = markPlayed
-                )
+            progressSaveMutex.withLock {
+                runCatching {
+                    mediaRepository.saveProgress(
+                        mediaId = mediaId,
+                        positionMs = positionMs,
+                        durationMs = durationMs,
+                        speed = speed,
+                        markPlayed = markPlayed
+                    )
+                }
             }
         }
     }
