@@ -83,6 +83,29 @@ import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 
+
+/** Builds credential-free media Uris resolved against the saved profile in PlaybackService. */
+private fun networkMediaUri(profile: NetworkProfile, remotePath: String): Uri {
+    val segments = remotePath.split('/').filter { it.isNotBlank() }
+    return when (profile.protocol) {
+        NetworkProtocol.WEBDAV -> {
+            val host = profile.host.trim()
+                .removePrefix("https://")
+                .removePrefix("http://")
+                .trimEnd('/')
+            Uri.parse("https://$host:${profile.port}").buildUpon().apply {
+                segments.forEach(::appendPath)
+            }.build()
+        }
+        NetworkProtocol.SMB -> Uri.Builder().scheme("maleksmb").authority(profile.id).apply {
+            segments.forEach(::appendPath)
+        }.build()
+        NetworkProtocol.SFTP -> Uri.Builder().scheme("maleksftp").authority(profile.id).apply {
+            segments.forEach(::appendPath)
+        }.build()
+    }
+}
+
 /** Snapshot of the directory currently being browsed. */
 data class BrowseUiState(
     val profileId: String? = null,
@@ -530,7 +553,7 @@ private fun BrowsePanel(
                                 if (entry.isDirectory) {
                                     onNavigate(relativePath(entry.path))
                                 } else {
-                                    onOpenMedia(entry.path)
+                                    onOpenMedia(networkMediaUri(profile, entry.path).toString())
                                 }
                             }
                         )

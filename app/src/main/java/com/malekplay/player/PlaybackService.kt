@@ -9,6 +9,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -253,7 +254,7 @@ class PlaybackService : MediaSessionService() {
      * Credentials are added per-request instead of being embedded in the Uri so
      * they never appear in logs, in the MediaItem or in a redirect target.
      */
-    private fun buildDataSourceFactory(): ResolvingDataSource.Factory {
+    private fun buildDataSourceFactory(): DataSource.Factory {
         val httpClient = OkHttpClient.Builder()
             // Refuse redirects so Authorization is never forwarded to another origin.
             .followRedirects(false)
@@ -263,7 +264,13 @@ class PlaybackService : MediaSessionService() {
             .build()
         val upstream = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(httpClient))
         val resolver = ResolvingDataSource.Resolver { dataSpec -> resolve(dataSpec) }
-        return ResolvingDataSource.Factory(upstream, resolver)
+        val httpFactory = ResolvingDataSource.Factory(upstream, resolver)
+        return DataSource.Factory { dataSpec ->
+            when (dataSpec.uri.scheme?.lowercase()) {
+                "maleksmb", "maleksftp" -> NetworkMediaDataSource(profileStore, credentialVault)
+                else -> httpFactory.createDataSource()
+            }
+        }
     }
 
     private fun resolve(dataSpec: DataSpec): DataSpec {
