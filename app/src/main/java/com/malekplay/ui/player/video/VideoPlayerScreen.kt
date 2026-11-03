@@ -967,6 +967,7 @@ private suspend fun PointerInputScope.detectPlayerGestures(
  * SurfaceView content is not part of the view hierarchy, so PixelCopy is used
  * on API 26+; a plain draw is the fallback and works for TextureView surfaces.
  */
+@UnstableApi
 private suspend fun captureAndSave(
     context: Context,
     playerView: PlayerView,
