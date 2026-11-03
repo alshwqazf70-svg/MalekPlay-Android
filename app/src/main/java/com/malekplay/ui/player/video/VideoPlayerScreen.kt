@@ -722,7 +722,6 @@ fun VideoPlayerScreen(
     DisposableEffect(Unit) {
         onDispose {
             if (boostActive) viewModel.setSpeed(settings.defaultSpeed)
-            viewModel.saveProgressNow()
         }
     }
 }
