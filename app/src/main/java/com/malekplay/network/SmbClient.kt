@@ -5,11 +5,10 @@ import com.hierynomus.smbj.SMBClient
 import com.hierynomus.smbj.auth.AuthenticationContext
 import com.hierynomus.smbj.share.DiskShare
 import kotlinx.coroutines.Dispatchers
-import javax.inject.Inject
 import kotlinx.coroutines.withContext
 
 /** SMB2/3 share listing. Credentials are passed separately from the server/share path. */
-class SmbClient @Inject constructor() {
+class SmbClient {
     suspend fun list(
         host: String,
         shareName: String,
