@@ -1,0 +1,13 @@
+package com.malekplay.data.local
+
+/**
+ * Avoids treating short clips as completed at position zero merely because
+ * the normal end tolerance (two seconds) is longer than the media itself.
+ */
+internal fun isPlaybackCompleted(positionMs: Long, durationMs: Long): Boolean {
+    val duration = durationMs.coerceAtLeast(0L)
+    if (duration == 0L) return false
+    val endToleranceMs = minOf(2_000L, duration / 10L)
+    val completionThreshold = duration - endToleranceMs
+    return positionMs.coerceAtLeast(0L) >= completionThreshold
+}
