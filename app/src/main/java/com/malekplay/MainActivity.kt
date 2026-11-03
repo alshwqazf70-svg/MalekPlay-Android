@@ -69,8 +69,8 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Notifications are requested on Android 13+ for the media-session
-     * notification. Microphone access is optional and only used by the
-     * visualizer; playback must remain usable when it is denied.
+     * notification. Optional audio capture is requested only when the user
+     * enables the visualizer, never during application startup.
      */
     private fun requestRuntimePermissions() {
         val needed = buildList {
@@ -79,9 +79,6 @@ class MainActivity : ComponentActivity() {
                 != PackageManager.PERMISSION_GRANTED
             ) add(Manifest.permission.POST_NOTIFICATIONS)
 
-            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED
-            ) add(Manifest.permission.RECORD_AUDIO)
         }
         if (needed.isEmpty()) return
         permissionLauncher.launch(needed.toTypedArray())
