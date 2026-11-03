@@ -74,6 +74,16 @@ jobs:
             app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
           if-no-files-found: warn
 
+      - name: Build APK
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlay-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
       - name: Run Android UI smoke tests on emulator
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
@@ -96,13 +106,3 @@ jobs:
           name: MalekPlay-emulator-home
           path: artifacts/malekplay-home.png
           if-no-files-found: warn
-
-      - name: Build APK
-        run: gradle --no-daemon :app:assembleDebug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: MalekPlay-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
