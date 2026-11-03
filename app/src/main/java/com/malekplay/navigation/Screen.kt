@@ -5,6 +5,9 @@ import android.net.Uri
 /** Route definitions. Args are URL-encoded so Uri values survive the back stack. */
 sealed class Screen(val route: String) {
 
+    data object Home : Screen("home")
+    data object Movies : Screen("movies")
+    data object Series : Screen("series")
     data object Local : Screen("local")
     data object Music : Screen("music")
     data object Network : Screen("network")
@@ -39,10 +42,11 @@ enum class TopLevelDestination(
     val screen: Screen,
     val labelRes: String
 ) {
-    LOCAL(Screen.Local, "nav_local"),
+    HOME(Screen.Home, "nav_home"),
+    MOVIES(Screen.Movies, "nav_movies"),
+    SERIES(Screen.Series, "nav_series"),
     MUSIC(Screen.Music, "nav_music"),
-    NETWORK(Screen.Network, "nav_network"),
-    PROFILE(Screen.Profile, "nav_profile"),
+    LOCAL(Screen.Local, "nav_local"),
     FAVOURITES(Screen.Favourites, "nav_favourites"),
     PLAYLISTS(Screen.Playlists, "nav_playlists")
 }

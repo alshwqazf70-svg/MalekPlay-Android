@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Person
@@ -44,6 +47,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.malekplay.core.ui.util.stringResourceByName
 import com.malekplay.domain.model.MediaItem
+import com.malekplay.ui.home.HomeScreen
+import com.malekplay.ui.videos.VideoCategoryScreen
 import com.malekplay.ui.local.LocalScreen
 import com.malekplay.ui.music.MusicScreen
 import com.malekplay.ui.network.NetworkScreen
@@ -81,11 +86,23 @@ fun MalekPlayNavHost(
         NavHost(
             navController = navController,
             startDestination = externalUri?.let { Screen.VideoPlayer.create(it.toString()) }
-                ?: Screen.Local.route,
+                ?: Screen.Home.route,
             modifier = Modifier.fillMaxSize(),
             enterTransition = { fadeIn(tween(ANIM_MS)) },
             exitTransition = { fadeOut(tween(ANIM_MS)) }
         ) {
+            composable(Screen.Home.route) {
+                HomeScreen(onOpenMedia = { navController.openMedia(it) }, onOpenSettings = { navController.navigate(Screen.Settings.route) }, onOpenLibrary = { navController.navigate(Screen.Local.route) }, contentPadding = padding)
+            }
+
+            composable(Screen.Movies.route) {
+                VideoCategoryScreen(series = false, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) })
+            }
+
+            composable(Screen.Series.route) {
+                VideoCategoryScreen(series = true, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) })
+            }
+
             composable(Screen.Local.route) {
                 LocalScreen(
                     onOpenMedia = { item -> navController.openMedia(item) },
@@ -280,10 +297,11 @@ private fun MalekPlayBottomBar(
 
 @Composable
 private fun TopLevelDestination.icon() = when (this) {
-    TopLevelDestination.LOCAL -> Icons.Filled.Folder
+    TopLevelDestination.HOME -> Icons.Filled.Home
+    TopLevelDestination.MOVIES -> Icons.Filled.Movie
+    TopLevelDestination.SERIES -> Icons.Filled.Tv
     TopLevelDestination.MUSIC -> Icons.Filled.LibraryMusic
-    TopLevelDestination.NETWORK -> Icons.Filled.SwapHoriz
-    TopLevelDestination.PROFILE -> Icons.Filled.Person
+    TopLevelDestination.LOCAL -> Icons.Filled.Folder
     TopLevelDestination.FAVOURITES -> Icons.Filled.Favorite
     TopLevelDestination.PLAYLISTS -> Icons.Filled.QueueMusic
 }

@@ -105,6 +105,9 @@ class PlaylistViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val _operationError = MutableStateFlow<String?>(null)
+    val operationError: StateFlow<String?> = _operationError
+
     fun bind(id: String) {
         playlistId.value = id
     }
@@ -112,19 +115,24 @@ class PlaylistViewModel @Inject constructor(
     fun removeTrack(mediaId: String) {
         viewModelScope.launch {
             runCatching { playlistRepository.removeMedia(playlistId.value, mediaId) }
+                .onSuccess { _operationError.value = null }
+                .onFailure { _operationError.value = it.localizedMessage }
         }
     }
 
     fun rename(name: String) {
         viewModelScope.launch {
             runCatching { playlistRepository.rename(playlistId.value, name) }
+                .onSuccess { _operationError.value = null }
+                .onFailure { _operationError.value = it.localizedMessage }
         }
     }
 
     fun delete(onDeleted: () -> Unit) {
         viewModelScope.launch {
             runCatching { playlistRepository.delete(playlistId.value) }
-                .onSuccess { onDeleted() }
+                .onSuccess { _operationError.value = null; onDeleted() }
+                .onFailure { _operationError.value = it.localizedMessage }
         }
     }
 }
@@ -141,6 +149,7 @@ fun PlaylistScreen(
 
     val playlist by viewModel.playlist.collectAsStateWithLifecycle()
     val tracks by viewModel.tracks.collectAsStateWithLifecycle()
+    val operationError by viewModel.operationError.collectAsStateWithLifecycle()
 
     var showMenu by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
@@ -203,6 +212,9 @@ fun PlaylistScreen(
                 .padding(padding)
                 .padding(contentPadding)
         ) {
+            if (operationError != null) {
+                Text(stringResource(R.string.playlist_operation_failed), color = MaterialTheme.colorScheme.error, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp))
+            }
             if (tracks.isEmpty()) {
                 Column(
                     modifier = Modifier

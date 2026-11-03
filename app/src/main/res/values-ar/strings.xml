@@ -4,13 +4,25 @@
     <string name="app_tagline">مشغّل الوسائط الشامل</string>
 
     <!-- Bottom navigation -->
-    <string name="nav_local">محلي</string>
+    <string name="nav_home">الرئيسية</string>
+    <string name="nav_movies">الأفلام</string>
+    <string name="nav_series">المسلسلات</string>
+    <string name="nav_local">مكتبتي</string>
     <string name="nav_music">موسيقى</string>
     <string name="nav_network">Transfer</string>
     <string name="nav_profile">أنا</string>
     <string name="nav_favourites">المفضلة</string>
     <string name="nav_playlists">قوائم التشغيل</string>
     <string name="favourites_empty">لم تضف أي وسائط إلى المفضلة بعد.</string>
+
+    <string name="home_continue_watching">متابعة المشاهدة</string>
+    <string name="home_recent_videos">أضيفت حديثاً</string>
+    <string name="home_open_library">استكشف مكتبتي</string>
+    <string name="home_stat_videos">%1$d فيديو</string>
+    <string name="home_stat_audio">%1$d ملف صوتي</string>
+    <string name="video_category_empty_title">لا توجد عناصر في %1$s</string>
+    <string name="video_category_empty_body">أضف ملفات وسائط أو تحقق من أسماء المجلدات والملفات لتصنيفها تلقائياً.</string>
+    <string name="playlist_operation_failed">تعذرت العملية. حاول مرة أخرى.</string>
 
     <!-- Library -->
     <string name="lib_title_folders">المجلدات</string>

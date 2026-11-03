@@ -4,13 +4,25 @@
     <string name="app_tagline">Universal media player</string>
 
     <!-- Bottom navigation -->
-    <string name="nav_local">Local</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_movies">Movies</string>
+    <string name="nav_series">Series</string>
+    <string name="nav_local">Library</string>
     <string name="nav_music">Music</string>
     <string name="nav_network">Transfer</string>
     <string name="nav_profile">Me</string>
     <string name="nav_favourites">Favourites</string>
     <string name="nav_playlists">Playlists</string>
     <string name="favourites_empty">You have not added any media to favourites yet.</string>
+
+    <string name="home_continue_watching">Continue watching</string>
+    <string name="home_recent_videos">Recently added</string>
+    <string name="home_open_library">Explore library</string>
+    <string name="home_stat_videos">%1$d videos</string>
+    <string name="home_stat_audio">%1$d audio files</string>
+    <string name="video_category_empty_title">No items in %1$s</string>
+    <string name="video_category_empty_body">Add media files or check folder and file names for automatic classification.</string>
+    <string name="playlist_operation_failed">The operation failed. Please try again.</string>
 
     <!-- Library -->
     <string name="lib_title_folders">Folders</string>
