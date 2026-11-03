@@ -1,5 +1,7 @@
 package com.malekplay.navigation
 
+import androidx.media3.common.util.UnstableApi
+
 import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
@@ -49,6 +51,7 @@ import com.malekplay.ui.library.LocalFolderScreen
 
 private const val ANIM_MS = 260
 
+@UnstableApi
 @Composable
 fun MalekPlayNavHost(
     externalUri: Uri? = null,
