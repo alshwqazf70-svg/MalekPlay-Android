@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -126,6 +127,9 @@ class PlayerViewModel @Inject constructor(
 
     private val _sleepTimerEndsAtMs = MutableStateFlow(0L)
     val sleepTimerEndsAtMs: StateFlow<Long> = _sleepTimerEndsAtMs.asStateFlow()
+    val sleepTimerActive: StateFlow<Boolean> = _sleepTimerEndsAtMs
+        .let { state -> state.map { it > 0L } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _abStartMs = MutableStateFlow<Long?>(null)
     val abStartMs: StateFlow<Long?> = _abStartMs.asStateFlow()
@@ -314,6 +318,43 @@ class PlayerViewModel @Inject constructor(
         player.playWhenReady = true
         refreshStats()
     }
+
+    /** Opens a URI queue directly, including files not indexed in the local library. */
+    fun playUriQueue(
+        uris: List<Uri>,
+        startIndex: Int = 0,
+        startPositionMs: Long = 0L,
+        speed: Float = 1f,
+        title: String = ""
+    ) {
+        val player = _controller.value ?: return
+        if (uris.isEmpty()) return
+        val safeIndex = startIndex.coerceIn(0, uris.lastIndex)
+        val items = uris.mapIndexed { index, uri ->
+            MediaItem.Builder()
+                .setMediaId(uri.toString())
+                .setUri(uri)
+                .setMediaMetadata(
+                    androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle(if (index == safeIndex && title.isNotBlank()) title else uri.lastPathSegment)
+                        .build()
+                )
+                .build()
+        }
+        _queue.value = emptyList()
+        currentMediaId = items[safeIndex].mediaId
+        playRecordedForCurrentItem = false
+        _playerError.value = null
+        player.setMediaItems(items, safeIndex, startPositionMs.coerceAtLeast(0L))
+        player.shuffleModeEnabled = false
+        player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
+        player.prepare()
+        player.playWhenReady = true
+        refreshStats()
+    }
+
+    suspend fun getPlaybackProgress(mediaId: String) =
+        runCatching { mediaRepository.getProgress(mediaId) }.getOrNull()
 
     /** Convenience wrapper for the common "open this one file" case. */
     fun playSingle(item: DomainMedia, startPositionMs: Long = 0L, speed: Float = 1f) =
