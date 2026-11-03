@@ -13,7 +13,9 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import io.github.peerless2012.ass.media.AssHandlerConfig
+import io.github.peerless2012.ass.media.kt.buildWithAssSupport
+import io.github.peerless2012.ass.media.type.AssRenderType
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.malekplay.network.NetworkCredentialVault
@@ -68,7 +70,6 @@ class PlaybackService : MediaSessionService() {
         credentialVault = NetworkCredentialVault(this)
 
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(buildDataSourceFactory()))
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -77,7 +78,12 @@ class PlaybackService : MediaSessionService() {
                 true
             )
             .setHandleAudioBecomingNoisy(true)
-            .build()
+            .buildWithAssSupport(
+                context = this,
+                renderType = AssRenderType.EFFECTS_OPEN_GL,
+                config = AssHandlerConfig(),
+                dataSourceFactory = buildDataSourceFactory()
+            )
 
         player.addListener(progressListener)
         mediaSession = MediaSession.Builder(this, player)
