@@ -544,36 +544,6 @@ class PlayerViewModel @Inject constructor(
 
     // -------------------------------------------------------------- progress
 
-    fun saveProgressNow() {
-        val player = _controller.value ?: return
-        val mediaId = currentMediaId ?: player.currentMediaItem?.mediaId ?: return
-        persistProgressSnapshot(
-            mediaId = mediaId,
-            positionMs = player.currentPosition,
-            durationMs = player.duration.coerceAtLeast(0L),
-            speed = player.playbackParameters.speed
-        )
-    }
-
-    private fun persistProgressSnapshot(
-        mediaId: String,
-        positionMs: Long,
-        durationMs: Long,
-        speed: Float
-    ) {
-        viewModelScope.launch {
-            runCatching {
-                mediaRepository.saveProgress(
-                    mediaId = mediaId,
-                    positionMs = positionMs,
-                    durationMs = durationMs,
-                    speed = speed,
-                    markPlayed = false
-                )
-            }
-        }
-    }
-
     /** Reads the saved resume point so the UI can offer "Resume from 12:34". */
     suspend fun savedPositionFor(mediaId: String): Long {
         val progress = runCatching { mediaRepository.getProgress(mediaId) }.getOrNull()
