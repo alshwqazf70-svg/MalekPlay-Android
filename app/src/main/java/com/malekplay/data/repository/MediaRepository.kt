@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -33,6 +35,8 @@ class MediaRepository @Inject constructor(
     private val scanner: MediaStoreScanner,
     private val externalProgressStore: ExternalPlaybackProgressStore
 ) {
+
+    private val refreshMutex = Mutex()
 
     /** Media rows joined with the favourite set, so lists can render star state. */
     private fun Flow<List<MediaWithState>>.asLibraryItems(): Flow<List<LibraryItem>> =
@@ -125,20 +129,23 @@ class MediaRepository @Inject constructor(
      * rows that were temporarily hidden by a provider/permission error.
      */
     suspend fun refresh() = withContext(Dispatchers.IO) {
-        val scan = scanner.scan()
-
-        // Selected-only access can add/update visible rows, but must never be
-        // interpreted as a complete snapshot for deletion.
-        if (scan.items.isNotEmpty()) mediaDao.upsertMedia(scan.items)
-
-        if (scan.videosComplete) {
-            val videoIds = scan.videoItems.map { it.mediaId }
-            mediaDao.reconcileVideos(videoIds)
-        }
-
-        if (scan.audioComplete) {
-            val audioIds = scan.audioItems.map { it.mediaId }
-            mediaDao.reconcileAudio(audioIds)
+        refreshMutex.withLock {
+    
+            val scan = scanner.scan()
+    
+            // Selected-only access can add/update visible rows, but must never be
+            // interpreted as a complete snapshot for deletion.
+            if (scan.items.isNotEmpty()) mediaDao.upsertMedia(scan.items)
+    
+            if (scan.videosComplete) {
+                val videoIds = scan.videoItems.map { it.mediaId }
+                mediaDao.reconcileVideos(videoIds)
+            }
+    
+            if (scan.audioComplete) {
+                val audioIds = scan.audioItems.map { it.mediaId }
+                mediaDao.reconcileAudio(audioIds)
+            }
         }
     }
 
