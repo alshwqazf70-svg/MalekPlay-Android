@@ -146,6 +146,7 @@ class PlayerViewModel @Inject constructor(
     private var progressSaveJob: Job? = null
     private var lastGroups: List<Tracks.Group> = emptyList()
     private var currentMediaId: String? = null
+    private var lastCountedMediaId: String? = null
 
     // ---------------------------------------------------------- lifecycle
 
@@ -170,7 +171,9 @@ class PlayerViewModel @Inject constructor(
                 if (connected != null) {
                     connected.addListener(playerListener)
                     _controller.value = connected
+                    currentMediaId = connected.currentMediaItem?.mediaId
                     _connectionError.value = false
+                    if (connected.isPlaying) markCurrentMediaPlayed()
                     startTicker()
                     startProgressSaver()
                 } else {
@@ -186,6 +189,7 @@ class PlayerViewModel @Inject constructor(
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _isPlaying.value = isPlaying
+            if (isPlaying) markCurrentMediaPlayed()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -215,8 +219,11 @@ class PlayerViewModel @Inject constructor(
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            saveProgressNow()
+            // The player already points at the new item here. Do not save its
+            // position under the previous item's id.
             currentMediaId = mediaItem?.mediaId
+            lastCountedMediaId = null
+            if (_controller.value?.isPlaying == true) markCurrentMediaPlayed()
             _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
             _queueSize.value = _controller.value?.mediaItemCount ?: 0
             viewModelScope.launch {
@@ -559,7 +566,14 @@ class PlayerViewModel @Inject constructor(
 
     // -------------------------------------------------------------- progress
 
-    fun saveProgressNow() {
+    private fun markCurrentMediaPlayed() {
+        val mediaId = currentMediaId ?: _controller.value?.currentMediaItem?.mediaId ?: return
+        if (lastCountedMediaId == mediaId) return
+        lastCountedMediaId = mediaId
+        saveProgressNow(markPlayed = true)
+    }
+
+    fun saveProgressNow(markPlayed: Boolean = false) {
         val player = _controller.value ?: return
         val mediaId = currentMediaId ?: player.currentMediaItem?.mediaId ?: return
         viewModelScope.launch {
@@ -569,7 +583,7 @@ class PlayerViewModel @Inject constructor(
                     positionMs = player.currentPosition,
                     durationMs = player.duration.coerceAtLeast(0L),
                     speed = player.playbackParameters.speed,
-                    markPlayed = true
+                    markPlayed = markPlayed
                 )
             }
         }
