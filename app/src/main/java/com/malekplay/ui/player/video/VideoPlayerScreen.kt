@@ -117,6 +117,7 @@ import kotlin.coroutines.resume
 import kotlin.math.abs
 
 /** Video fit modes cycled by the control rail. */
+@UnstableApi
 private enum class AspectMode(val resizeMode: Int) {
     FIT(AspectRatioFrameLayout.RESIZE_MODE_FIT),
     FILL(AspectRatioFrameLayout.RESIZE_MODE_FILL),
