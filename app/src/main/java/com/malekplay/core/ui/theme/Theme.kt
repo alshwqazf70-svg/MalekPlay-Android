@@ -81,7 +81,7 @@ private fun amoledScheme(seed: Color): ColorScheme = darkScheme(seed).copy(
 
 @Composable
 fun MalekPlayTheme(
-    mode: AppThemeMode = AppThemeMode.AMOLED,
+    mode: AppThemeMode = AppThemeMode.DARK,
     accent: String = "amethyst",
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit

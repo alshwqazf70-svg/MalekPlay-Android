@@ -40,7 +40,7 @@ val EQUALIZER_PRESETS: List<EqualizerPreset> = EqualizerPreset.entries.toList()
 /** Everything the user can tune. Persisted in DataStore as individual keys. */
 data class PlayerSettings(
     // Appearance
-    val themeMode: AppThemeMode = AppThemeMode.AMOLED,
+    val themeMode: AppThemeMode = AppThemeMode.DARK,
     val accent: String = "amethyst",
     val dynamicColor: Boolean = false,
 

@@ -73,7 +73,7 @@ class SettingsRepository(private val context: Context) {
     // ------------------------------------------------------------ conversions
 
     private fun Preferences.toSettings(): PlayerSettings = PlayerSettings(
-        themeMode = runCatching { AppThemeMode.valueOf(this[Keys.THEME_MODE] ?: "AMOLED") }
+        themeMode = runCatching { AppThemeMode.valueOf(this[Keys.THEME_MODE] ?: "DARK") }
             .getOrDefault(AppThemeMode.SYSTEM),
         accent = this[Keys.ACCENT]?.takeIf { it.isNotBlank() } ?: "amethyst",
         dynamicColor = this[Keys.DYNAMIC_COLOR] ?: false,
