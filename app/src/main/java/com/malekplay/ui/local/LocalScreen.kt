@@ -487,9 +487,7 @@ private fun LibraryMetric(
 
 /** Small helper so the tab surfaces read cleanly. */
 private fun Modifier.clickableLocal(onClick: () -> Unit): Modifier =
-    this.then(
-        clickable(onClick = onClick)
-    )
+    this.clickable(onClick = onClick)
 
 @Composable
 private fun MediaList(
