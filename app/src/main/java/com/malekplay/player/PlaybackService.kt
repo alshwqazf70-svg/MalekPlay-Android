@@ -2,6 +2,8 @@ package com.malekplay.player
 
 import android.app.PendingIntent
 import android.content.Intent
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import com.malekplay.MainActivity
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -16,6 +18,17 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.malekplay.network.NetworkCredentialVault
 import com.malekplay.network.NetworkProfileStore
+import com.malekplay.data.repository.MediaRepository
+import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 import com.malekplay.network.NetworkProtocol
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
@@ -28,11 +41,19 @@ import java.util.concurrent.TimeUnit
  * Recents swipe and leaving the app entirely — the same model MX Player uses.
  */
 @OptIn(UnstableApi::class)
+@AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private lateinit var profileStore: NetworkProfileStore
     private lateinit var credentialVault: NetworkCredentialVault
+
+    @Inject
+    lateinit var mediaRepository: MediaRepository
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var progressJob: Job? = null
+    private var lastCountedMediaId: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -51,21 +72,109 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
+        player.addListener(progressListener)
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(buildSessionActivityIntent())
             .build()
+        startProgressPersistence()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
         mediaSession
 
     override fun onDestroy() {
+        progressJob?.cancel()
         mediaSession?.run {
+            player.removeListener(progressListener)
             player.release()
             release()
         }
         mediaSession = null
+        serviceScope.cancel()
         super.onDestroy()
+    }
+
+    /** Progress belongs to the playback service, so it continues after player UI closes. */
+    private val progressListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) markCurrentItemStarted() else saveCurrentProgress()
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (!playWhenReady) saveCurrentProgress()
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            lastCountedMediaId = null
+            if (mediaSession?.player?.isPlaying == true) markCurrentItemStarted()
+        }
+
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int
+        ) {
+            val oldId = oldPosition.mediaItem?.mediaId
+            val newId = newPosition.mediaItem?.mediaId
+            if (!oldId.isNullOrBlank() && oldId != newId) {
+                saveProgressSnapshot(
+                    oldId,
+                    oldPosition.positionMs,
+                    mediaSession?.player?.duration?.coerceAtLeast(0L) ?: 0L,
+                    mediaSession?.player?.playbackParameters?.speed ?: 1f
+                )
+            }
+        }
+    }
+
+    private fun startProgressPersistence() {
+        progressJob?.cancel()
+        progressJob = serviceScope.launch {
+            while (isActive) {
+                delay(PROGRESS_SAVE_INTERVAL_MS)
+                val player = mediaSession?.player ?: break
+                if (player.isPlaying) saveCurrentProgress()
+            }
+        }
+    }
+
+    private fun markCurrentItemStarted() {
+        val mediaId = mediaSession?.player?.currentMediaItem?.mediaId ?: return
+        if (mediaId == lastCountedMediaId) return
+        lastCountedMediaId = mediaId
+        saveCurrentProgress(markPlayed = true)
+    }
+
+    private fun saveCurrentProgress(markPlayed: Boolean = false) {
+        val player = mediaSession?.player ?: return
+        val mediaId = player.currentMediaItem?.mediaId ?: return
+        saveProgressSnapshot(
+            mediaId,
+            player.currentPosition,
+            player.duration.coerceAtLeast(0L),
+            player.playbackParameters.speed,
+            markPlayed
+        )
+    }
+
+    private fun saveProgressSnapshot(
+        mediaId: String,
+        positionMs: Long,
+        durationMs: Long,
+        speed: Float,
+        markPlayed: Boolean = false
+    ) {
+        serviceScope.launch {
+            runCatching {
+                mediaRepository.saveProgress(
+                    mediaId = mediaId,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    speed = speed,
+                    markPlayed = markPlayed
+                )
+            }
+        }
     }
 
     /** Tapping the notification reopens the app in its existing task. */
@@ -123,5 +232,6 @@ class PlaybackService : MediaSessionService() {
 
     private companion object {
         const val SESSION_REQUEST_CODE = 1001
+        const val PROGRESS_SAVE_INTERVAL_MS = 5_000L
     }
 }
