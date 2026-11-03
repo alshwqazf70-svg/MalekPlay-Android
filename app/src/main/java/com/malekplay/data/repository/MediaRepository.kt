@@ -160,27 +160,22 @@ class MediaRepository @Inject constructor(
         speed: Float,
         markPlayed: Boolean
     ) = withContext(Dispatchers.IO) {
-        // MediaStore rows use Room. External document/network Uris are stored
-        // separately because Room satellite tables intentionally reference media_items.
-        if (mediaDao.getMedia(mediaId) == null) {
-            externalProgressStore.save(mediaId, positionMs, durationMs, speed, markPlayed)
-            if (markPlayed) recordHistory(mediaId)
-            return@withContext
-        }
         val completed = durationMs > 0L && positionMs >= durationMs - 2_000L
-        mediaDao.saveProgressAtomic(
-            PlaybackProgressEntity(
-                mediaId = mediaId,
-                positionMs = if (completed) 0L else positionMs.coerceAtLeast(0L),
-                durationMs = durationMs.coerceAtLeast(0L),
-                playbackSpeed = speed.coerceIn(0.25f, 4f),
-                isCompleted = completed,
-                lastPlayedAtMs = System.currentTimeMillis(),
-                playCount = 0 // Assigned atomically by MediaDao.saveProgressAtomic.
-            ),
-            markPlayed = markPlayed
+        val progress = PlaybackProgressEntity(
+            mediaId = mediaId,
+            positionMs = if (completed) 0L else positionMs.coerceAtLeast(0L),
+            durationMs = durationMs.coerceAtLeast(0L),
+            playbackSpeed = speed.coerceIn(0.25f, 4f),
+            isCompleted = completed,
+            lastPlayedAtMs = System.currentTimeMillis(),
+            playCount = 0 // Assigned atomically by the DAO or external store.
         )
+        val savedInLibrary = mediaDao.saveProgressIfMediaExists(progress, markPlayed)
+        if (!savedInLibrary) {
+            externalProgressStore.save(mediaId, positionMs, durationMs, speed, markPlayed)
+        }
         if (markPlayed) recordHistory(mediaId)
+
     }
 
     suspend fun getProgress(mediaId: String) = withContext(Dispatchers.IO) {
@@ -192,9 +187,7 @@ class MediaRepository @Inject constructor(
 
     suspend fun saveTrackPreference(preference: TrackPreferenceEntity) =
         withContext(Dispatchers.IO) {
-            if (mediaDao.getMedia(preference.mediaId) != null) {
-                mediaDao.upsertTrackPreference(preference)
-            }
+            mediaDao.saveTrackPreferenceIfMediaExists(preference)
         }
 
     // -------------------------------------------------------------- bookmarks
@@ -203,8 +196,7 @@ class MediaRepository @Inject constructor(
 
     suspend fun addBookmark(mediaId: String, positionMs: Long, label: String) =
         withContext(Dispatchers.IO) {
-            if (mediaDao.getMedia(mediaId) == null) return@withContext
-            mediaDao.upsertBookmark(
+            mediaDao.addBookmarkIfMediaExists(
                 BookmarkEntity(mediaId = mediaId, positionMs = positionMs, label = label)
             )
         }
