@@ -9,7 +9,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -217,8 +219,12 @@ private fun MalekPlayBottomBar(
     currentRoute: String?
 ) {
     NavigationBar(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background),
         containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = 3.dp
+        tonalElevation = 0.dp,
+        windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)
     ) {
         TopLevelDestination.entries.forEach { destination ->
             val selected = currentRoute == destination.screen.route
@@ -238,14 +244,17 @@ private fun MalekPlayBottomBar(
                 icon = {
                     Icon(
                         imageVector = destination.icon(),
-                        contentDescription = label
+                        contentDescription = label,
+                        modifier = Modifier.size(23.dp)
                     )
                 },
                 label = { Text(label, style = MaterialTheme.typography.labelMedium) },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    selectedTextColor = MaterialTheme.colorScheme.onSurface,
-                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
                 )
             )
         }
