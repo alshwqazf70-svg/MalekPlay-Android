@@ -57,6 +57,13 @@ jobs:
       - name: Run Android lint
         run: gradle --no-daemon :app:lintDebug
 
+      - name: Print Android lint diagnostics
+        if: always()
+        run: |
+          if [ -f app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt ]; then
+            cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+          fi
+
       - name: Upload Android lint report
         if: always()
         uses: actions/upload-artifact@v4
