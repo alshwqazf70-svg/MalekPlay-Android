@@ -15,8 +15,10 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 class NetworkProfileStore @Inject constructor(
     @ApplicationContext context: Context
 ) {
-    private val prefs = context.applicationContext
+    private val appContext = context.applicationContext
+    private val prefs = appContext
         .getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
+    private val credentialVault = NetworkCredentialVault(appContext)
 
     fun load(): List<NetworkProfile> {
         val raw = prefs.getString("profiles", "[]") ?: "[]"
@@ -51,6 +53,7 @@ class NetworkProfileStore @Inject constructor(
 
     fun remove(id: String) {
         persist(load().filterNot { it.id == id })
+        credentialVault.remove(id)
     }
 
     private fun persist(profiles: List<NetworkProfile>) {
