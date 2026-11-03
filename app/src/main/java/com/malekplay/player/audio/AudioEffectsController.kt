@@ -140,7 +140,8 @@ class AudioEffectsController {
         if (count <= 0) return
         repeat(count) { index ->
             runCatching {
-                val level = values.getOrElse(index) { 0 }.coerceIn(-1500, 1500)
+                val (minimum, maximum) = _levelRange.value
+                val level = values.getOrElse(index) { 0 }.coerceIn(minimum, maximum)
                 eq.setBandLevel(index.toShort(), level.toShort())
             }.onFailure { Log.w(TAG, "Band $index rejected", it) }
         }
