@@ -40,6 +40,19 @@ class ExternalPlaybackProgressStoreTest {
     }
 
     @Test
+    fun shortMediaIsNotMarkedCompleteAtTheBeginning() {
+        val mediaId = "content://provider/document/short-clip"
+
+        store.save(mediaId, 0L, 1_500L, 1f, markPlayed = true)
+
+        val saved = store.get(mediaId)
+        assertNotNull(saved)
+        assertEquals(0L, saved!!.positionMs)
+        assertEquals(false, saved.isCompleted)
+        assertEquals(1, saved.playCount)
+    }
+
+    @Test
     fun completedMediaResetsResumePositionWithoutLosingPlayCount() {
         val mediaId = "https://example.invalid/video.mp4"
 
