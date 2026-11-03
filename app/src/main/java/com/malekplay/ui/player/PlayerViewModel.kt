@@ -143,7 +143,6 @@ class PlayerViewModel @Inject constructor(
     private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
     private var tickerJob: Job? = null
     private var sleepTimerJob: Job? = null
-    private var progressSaveJob: Job? = null
     private var lastGroups: List<Tracks.Group> = emptyList()
     private var currentMediaId: String? = null
 
@@ -172,9 +171,7 @@ class PlayerViewModel @Inject constructor(
                     _controller.value = connected
                     currentMediaId = connected.currentMediaItem?.mediaId
                     _connectionError.value = false
-                    if (connected.isPlaying) saveProgressNow()
                     startTicker()
-                    startProgressSaver()
                 } else {
                     // Clear so a later connect() can retry instead of returning early.
                     controllerFuture = null
@@ -188,7 +185,6 @@ class PlayerViewModel @Inject constructor(
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _isPlaying.value = isPlaying
-            if (isPlaying) saveProgressNow()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -197,10 +193,6 @@ class PlayerViewModel @Inject constructor(
                 refreshTracks()
                 refreshStats()
             }
-        }
-
-        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            if (!playWhenReady) saveProgressNow()
         }
 
         override fun onPositionDiscontinuity(
@@ -213,16 +205,6 @@ class PlayerViewModel @Inject constructor(
                 _controller.value?.pause()
                 cancelSleepTimer()
             }
-            val oldMediaId = oldPosition.mediaItem?.mediaId
-            val newMediaId = newPosition.mediaItem?.mediaId
-            if (!oldMediaId.isNullOrBlank() && oldMediaId != newMediaId) {
-                persistProgressSnapshot(
-                    mediaId = oldMediaId,
-                    positionMs = oldPosition.positionMs,
-                    durationMs = _durationMs.value,
-                    speed = _speed.value
-                )
-            }
             _positionMs.value = newPosition.positionMs
             applyAbBounds(newPosition.positionMs)
         }
@@ -231,7 +213,6 @@ class PlayerViewModel @Inject constructor(
             // The player already points at the new item here. Do not save its
             // position under the previous item's id.
             currentMediaId = mediaItem?.mediaId
-            if (_controller.value?.isPlaying == true) saveProgressNow()
             _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
             _queueSize.value = _controller.value?.mediaItemCount ?: 0
             viewModelScope.launch {
@@ -275,17 +256,6 @@ class PlayerViewModel @Inject constructor(
                 _currentIndex.value = player.currentMediaItemIndex
                 _queueSize.value = player.mediaItemCount
                 delay(TICK_INTERVAL_MS)
-            }
-        }
-    }
-
-    /** Persists the resume point periodically so a crash does not lose it. */
-    private fun startProgressSaver() {
-        progressSaveJob?.cancel()
-        progressSaveJob = viewModelScope.launch {
-            while (isActive) {
-                delay(PROGRESS_SAVE_INTERVAL_MS)
-                saveProgressNow()
             }
         }
     }
@@ -626,10 +596,8 @@ class PlayerViewModel @Inject constructor(
     fun currentMediaItem(): MediaItem? = _controller.value?.currentMediaItem
 
     override fun onCleared() {
-        saveProgressNow()
         tickerJob?.cancel()
         sleepTimerJob?.cancel()
-        progressSaveJob?.cancel()
         _controller.value?.removeListener(playerListener)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
@@ -639,6 +607,5 @@ class PlayerViewModel @Inject constructor(
 
     private companion object {
         const val TICK_INTERVAL_MS = 250L
-        const val PROGRESS_SAVE_INTERVAL_MS = 5_000L
     }
 }
