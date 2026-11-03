@@ -11,7 +11,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
@@ -25,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.malekplay.ui.components.MediaThumbnail
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaFolder
 import com.malekplay.domain.model.SortMode
@@ -221,15 +221,22 @@ fun VideoItemRow(item: LibraryItem, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(104.dp, 66.dp).clip(RoundedCornerShape(12.dp))
-                .background(Color.Black.copy(alpha = 0.8f)),
+            Modifier.size(104.dp, 66.dp).clip(RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null,
-                tint = Color.White, modifier = Modifier.size(28.dp))
-            Text(formatDuration(item.media.durationMs), color = Color.White,
-                fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd)
-                    .background(Color.Black.copy(alpha = 0.65f)).padding(horizontal = 4.dp))
+            MediaThumbnail(
+                media = item.media,
+                modifier = Modifier.fillMaxSize(),
+                cornerRadius = 12.dp
+            )
+            Text(
+                formatDuration(item.media.durationMs),
+                color = Color.White,
+                fontSize = 10.sp,
+                modifier = Modifier.align(Alignment.BottomEnd)
+                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(topStart = 6.dp))
+                    .padding(horizontal = 5.dp, vertical = 2.dp)
+            )
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
