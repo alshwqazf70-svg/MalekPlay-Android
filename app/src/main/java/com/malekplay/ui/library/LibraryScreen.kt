@@ -284,7 +284,7 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         Modifier.clip(CircleShape)
             .then(if (selected) Modifier.background(Neon.copy(.20f)) else Modifier.background(Glass))
-            .border(1.dp, if (selected) Neon.copy(.75f) else GlassStroke, CircleShape)
+            .border(1.dp, if (selected) Neon.copy(.75f) else Color.White.copy(alpha = 0.12f), CircleShape)
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
