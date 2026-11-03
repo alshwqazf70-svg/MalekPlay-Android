@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -157,7 +158,6 @@ fun PlayerControlRail(
     onEqualizer: () -> Unit,
     onSpeed: () -> Unit,
     onScreenshot: () -> Unit,
-    onAudioDevice: () -> Unit,
     onRotate: () -> Unit,
     onAspect: () -> Unit,
     onSleep: () -> Unit,
@@ -178,7 +178,7 @@ fun PlayerControlRail(
                 Icons.Filled.PlayArrow, stringResource(R.string.player_speed), onSpeed, label = speedLabel
             )
             PlayerRoundButton(Icons.Filled.PhotoCamera, stringResource(R.string.player_screenshot), onScreenshot)
-            PlayerRoundButton(Icons.Filled.Headphones, stringResource(R.string.player_audio_device), onAudioDevice)
+            PlayerRoundButton(Icons.Filled.AspectRatio, stringResource(R.string.player_aspect), onAspect)
             PlayerRoundButton(Icons.Filled.ScreenRotation, stringResource(R.string.player_rotate), onRotate)
             PlayerRoundButton(
                 icon = if (expanded) Icons.Filled.ChevronLeft else Icons.Filled.ChevronRight,

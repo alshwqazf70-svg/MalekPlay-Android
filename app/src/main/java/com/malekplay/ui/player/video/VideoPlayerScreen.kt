@@ -435,8 +435,13 @@ fun VideoPlayerScreen(
         AnimatedVisibility(visible = seekDeltaMs != 0L) {
             SeekPulse(
                 label = buildString {
-                    append(if (seekDeltaMs >= 0) "+" else "-")
-                    append(formatDuration(abs(seekDeltaMs)))
+                    val target = (positionMs + seekDeltaMs).coerceIn(
+                        0L,
+                        durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE
+                    )
+                    append(formatDuration(target))
+                    append(" / ")
+                    append(formatDuration(durationMs))
                 },
                 isForward = seekDeltaMs >= 0,
                 modifier = Modifier.align(Alignment.Center)
@@ -511,7 +516,6 @@ fun VideoPlayerScreen(
                         onEqualizer = { showEqualizer = true },
                         onSpeed = { showSpeed = true },
                         onScreenshot = ::takeScreenshot,
-                        onAudioDevice = { showEqualizer = true },
                         onRotate = {
                             landscape = !landscape
                             mainActivity?.setOrientation(landscape)
