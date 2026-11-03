@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.DropdownMenu
@@ -327,7 +328,7 @@ private fun PremiumVideoRow(item: LibraryItem, onClick: () -> Unit) {
             Box(Modifier.align(Alignment.Center).size(34.dp).clip(CircleShape)
                 .background(Color.Black.copy(.58f)).border(1.dp, Color.White.copy(.2f), CircleShape),
                 contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Favorite, null, tint = Color.White.copy(.9f), modifier = Modifier.size(15.dp))
+                Icon(Icons.Filled.PlayArrow, null, tint = Color.White.copy(.9f), modifier = Modifier.size(18.dp))
             }
             if (item.isInProgress) LinearProgressIndicator(
                 progress = { item.fraction },

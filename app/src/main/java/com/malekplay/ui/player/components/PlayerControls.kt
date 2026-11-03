@@ -115,55 +115,29 @@ fun PlayerTopBar(
     onMore: () -> Unit
 ) {
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(
-                androidx.compose.ui.graphics.Brush.verticalGradient(
-                    listOf(Color(0xCC000000), Color.Transparent)
-                )
-            )
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        modifier = modifier.fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color(0xD9000000), Color.Transparent)))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        IconButton(onClick = onBack) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = stringResource(R.string.cd_back),
-                tint = Color.White
-            )
-        }
-        IconButton(onClick = onAudioTrack) {
-            Icon(Icons.Filled.Audiotrack, contentDescription = stringResource(R.string.player_audio_track), tint = Color.White)
-        }
-        IconButton(onClick = onSubtitles) {
-            Icon(Icons.Filled.Subtitles, contentDescription = stringResource(R.string.player_subtitle_track), tint = Color.White)
-        }
-        IconButton(onClick = onMore) {
-            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.player_more), tint = Color.White)
-        }
-        decoderBadge?.let { badge ->
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = PlayerChrome.ProgressActive
-            ) {
+        PlayerRoundButton(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_back), onBack)
+        PlayerRoundButton(Icons.Filled.Audiotrack, stringResource(R.string.player_audio_track), onAudioTrack)
+        PlayerRoundButton(Icons.Filled.Subtitles, stringResource(R.string.player_subtitle_track), onSubtitles)
+        PlayerRoundButton(Icons.Filled.MoreVert, stringResource(R.string.player_more), onMore)
+        Spacer(Modifier.weight(1f))
+        Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(1.8f, fill = false)) {
+            Text(title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
+            decoderBadge?.let { badge ->
                 Text(
                     badge,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    color = Color.Black,
-                    fontSize = 11.sp,
+                    color = PlayerChrome.ProgressActive,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 1.sp
                 )
             }
         }
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = title,
-            color = Color.White,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(3f, fill = false),
-            fontSize = 14.sp
-        )
     }
 }
 
@@ -361,7 +335,8 @@ fun PlayerCenterControls(
             contentDescription = if (isPlaying) stringResource(R.string.player_pause)
             else stringResource(R.string.player_play),
             onClick = onPlayPause,
-            modifier = Modifier.size(58.dp)
+            modifier = Modifier.size(58.dp),
+            active = true
         )
         PlayerRoundButton(Icons.Filled.Replay, stringResource(R.string.player_next), onForward)
     }
@@ -375,9 +350,11 @@ fun GestureIndicator(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier,
+        modifier = modifier.shadow(18.dp, RoundedCornerShape(18.dp),
+            ambientColor = PlayerChrome.ProgressGlow, spotColor = PlayerChrome.ProgressGlow),
         shape = RoundedCornerShape(18.dp),
-        color = PlayerChrome.SurfaceStrong
+        color = PlayerChrome.SurfaceStrong,
+        border = androidx.compose.foundation.BorderStroke(1.dp, PlayerChrome.ProgressGlow)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
