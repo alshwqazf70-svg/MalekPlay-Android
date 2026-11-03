@@ -30,20 +30,22 @@ class NetworkCredentialVault(context: Context) {
         check(preferences.edit().putString(profileId, Base64.encodeToString(packed, Base64.NO_WRAP)).commit())
     }
 
-    fun load(profileId: String): Pair<String, String>? {
-        val packed = preferences.getString(profileId, null)?.let {
-            runCatching { Base64.decode(it, Base64.NO_WRAP) }.getOrNull()
-        } ?: return null
-        if (packed.size <= IV_LENGTH + 16) return null
+    fun load(profileId: String): Pair<String, String>? = runCatching {
+        if (!profileId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) return@runCatching null
+        val packed = preferences.getString(profileId, null)
+            ?.let { Base64.decode(it, Base64.NO_WRAP) }
+            ?: return@runCatching null
+        if (packed.size <= IV_LENGTH + 16) return@runCatching null
+
         val iv = packed.copyOfRange(0, IV_LENGTH)
         val ciphertext = packed.copyOfRange(IV_LENGTH, packed.size)
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
         val decoded = String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
-        val separator = decoded.indexOf('\u0000')
-        if (separator < 0) return null
-        return decoded.substring(0, separator) to decoded.substring(separator + 1)
-    }
+        val separator = decoded.indexOf('\\u0000')
+        if (separator < 0) return@runCatching null
+        decoded.substring(0, separator) to decoded.substring(separator + 1)
+    }.getOrNull()
 
     fun remove(profileId: String) {
         preferences.edit().remove(profileId).apply()
