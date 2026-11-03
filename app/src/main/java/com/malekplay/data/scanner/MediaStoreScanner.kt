@@ -81,6 +81,7 @@ class MediaStoreScanner(context: Context) {
             add(MediaStore.MediaColumns.SIZE)
             add(MediaStore.MediaColumns.DATE_ADDED)
             add(MediaStore.MediaColumns.MIME_TYPE)
+            add(MediaStore.MediaColumns.BUCKET_ID)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 add(MediaStore.MediaColumns.RELATIVE_PATH)
             }
@@ -283,13 +284,20 @@ class MediaStoreScanner(context: Context) {
         fun folderPath(): String {
             val relative = text(MediaStore.MediaColumns.RELATIVE_PATH).trim()
             if (relative.isNotEmpty()) return relative.trimEnd('/')
+            // Before Android 10, bucket names are not unique. Use the stable
+            // bucket id for grouping while keeping the display name separate.
+            val bucketId = text(MediaStore.MediaColumns.BUCKET_ID).trim()
+            if (bucketId.isNotEmpty()) return "bucket:$bucketId"
             return text(BUCKET_DISPLAY_NAME).trim().ifEmpty { "/" }
         }
 
         fun folderName(): String {
-            val path = folderPath()
-            val name = path.substringAfterLast('/')
-            return name.ifEmpty { path.ifEmpty { "/" } }
+            val relative = text(MediaStore.MediaColumns.RELATIVE_PATH).trim()
+            if (relative.isNotEmpty()) {
+                val name = relative.trimEnd('/').substringAfterLast('/')
+                if (name.isNotEmpty()) return name
+            }
+            return text(BUCKET_DISPLAY_NAME).trim().ifEmpty { "/" }
         }
     }
 
