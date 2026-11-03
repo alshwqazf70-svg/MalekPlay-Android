@@ -3,7 +3,7 @@ package com.malekplay.core.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * Brand palette. Emerald is the signature MalekPlay colour; the remaining
+ * Brand palette. Amethyst is the default MalekPlay accent; the remaining
  * seeds let the user recolour the whole app from Settings.
  */
 object MalekPlayColors {
@@ -44,8 +44,8 @@ object AmoledColors {
 /** Player overlay chrome — always dark regardless of the app theme. */
 object PlayerChrome {
     val Scrim = Color(0xB3000000)
-    val Surface = Color(0xCC1A1A1A)
-    val SurfaceStrong = Color(0xE61A1A1A)
+    val Surface = Color(0xCC160F20)
+    val SurfaceStrong = Color(0xE61B1228)
     val OnSurface = Color.White
     val ProgressActive = Color(0xFF9B5CFF)
     val ProgressInactive = Color(0x59FFFFFF)
