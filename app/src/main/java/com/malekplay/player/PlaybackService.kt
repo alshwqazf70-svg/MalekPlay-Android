@@ -120,8 +120,8 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            // The discontinuity callback for the old item runs before this one;
-            // refresh the cached metadata only after its final snapshot was saved.
+            // Retain metadata by media id so the outgoing item's final snapshot
+            // remains correct regardless of callback ordering.
             mediaSession?.player?.let(::rememberCurrentPlaybackMetadata)
 
             // A repeated queue entry can have the same mediaId but is still a
