@@ -39,6 +39,7 @@ fun LibraryScreen(
 ) {
     val folders by viewModel.folders.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val error by viewModel.error.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var searchActive by remember { mutableStateOf(false) }
     var selectedFolder by remember { mutableStateOf<MediaFolder?>(null) }
@@ -115,6 +116,9 @@ fun LibraryScreen(
                             DropdownMenuItem(text = { Text("الأحدث") }, onClick = {
                                 viewModel.setSortMode(SortMode.NEWEST); showSortMenu = false
                             })
+                            DropdownMenuItem(text = { Text("الأقدم") }, onClick = {
+                                viewModel.setSortMode(SortMode.OLDEST); showSortMenu = false
+                            })
                             DropdownMenuItem(text = { Text("الاسم") }, onClick = {
                                 viewModel.setSortMode(SortMode.NAME); showSortMenu = false
                             })
@@ -132,7 +136,16 @@ fun LibraryScreen(
     ) { padding ->
         Column(modifier.fillMaxSize().padding(padding)) {
             if (isRefreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (selectedFolder == null && !searchActive) {
+            if (error != null && folders.isEmpty() && !isRefreshing) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(error ?: "تعذر تحميل المكتبة", color = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { viewModel.refresh() }) { Text("إعادة المحاولة") }
+                    }
+                }
+            } else if (selectedFolder == null && !searchActive) {
+                val sortedFolders = viewModel.applyFolderSort(folders, settings.sortMode)
                 LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
                     item {
                         Text(
@@ -141,7 +154,7 @@ fun LibraryScreen(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
                     }
-                    items(folders, key = { it.path }) { folder ->
+                    items(sortedFolders, key = { it.path }) { folder ->
                         FolderItemRow(folder = folder, onClick = { selectedFolder = folder })
                     }
                 }
