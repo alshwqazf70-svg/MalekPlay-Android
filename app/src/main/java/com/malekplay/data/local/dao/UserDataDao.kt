@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.malekplay.data.local.entity.FavouriteEntity
 import com.malekplay.data.local.entity.HistoryEntity
 import kotlinx.coroutines.flow.Flow
@@ -22,9 +23,20 @@ interface UserDataDao {
     @Query("SELECT mediaId FROM favourites")
     fun observeFavouriteIds(): Flow<List<String>>
 
-    /** COUNT(*) maps to Int; Boolean is not an automatic Room mapping. */
     @Query("SELECT COUNT(*) FROM favourites WHERE mediaId = :mediaId")
     suspend fun favouriteCount(mediaId: String): Int
+
+    /** Toggle is one transaction, preventing two simultaneous taps from racing. */
+    @Transaction
+    suspend fun toggleFavourite(mediaId: String, addedAtMs: Long): Boolean {
+        return if (favouriteCount(mediaId) > 0) {
+            removeFavourite(mediaId)
+            false
+        } else {
+            addFavourite(FavouriteEntity(mediaId = mediaId, addedAtMs = addedAtMs))
+            true
+        }
+    }
 
     // --------------------------------------------------------------- history
 
@@ -34,13 +46,22 @@ interface UserDataDao {
     @Query("SELECT * FROM history WHERE mediaId = :mediaId LIMIT 1")
     suspend fun getHistory(mediaId: String): HistoryEntity?
 
+    /** Atomic upsert: concurrent play events cannot overwrite each other's count. */
+    @Query(
+        """INSERT INTO history(mediaId, lastPlayedAtMs, playCount)
+           VALUES(:mediaId, :playedAtMs, 1)
+           ON CONFLICT(mediaId) DO UPDATE SET
+               lastPlayedAtMs = excluded.lastPlayedAtMs,
+               playCount = history.playCount + 1"""
+    )
+    suspend fun recordHistoryPlay(mediaId: String, playedAtMs: Long)
+
     @Query("UPDATE history SET lastPlayedAtMs = :playedAtMs, playCount = :playCount WHERE mediaId = :mediaId")
     suspend fun updateHistory(mediaId: String, playedAtMs: Long, playCount: Int)
 
     @Query("SELECT mediaId FROM history ORDER BY lastPlayedAtMs DESC LIMIT :limit")
     suspend fun recentHistoryIds(limit: Int): List<String>
 
-    /** Keeps the table bounded so it cannot grow without limit. */
     @Query(
         """DELETE FROM history WHERE mediaId NOT IN
            (SELECT mediaId FROM history ORDER BY lastPlayedAtMs DESC LIMIT 200)"""
