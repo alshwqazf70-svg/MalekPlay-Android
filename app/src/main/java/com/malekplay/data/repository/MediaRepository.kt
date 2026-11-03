@@ -153,6 +153,9 @@ class MediaRepository @Inject constructor(
         speed: Float,
         markPlayed: Boolean
     ) = withContext(Dispatchers.IO) {
+        // Progress tables reference media_items. External document/network Uris
+        // have no MediaStore row, so skip persistence rather than violating the FK.
+        if (mediaDao.getMedia(mediaId) == null) return@withContext
         val completed = durationMs > 0L && positionMs >= durationMs - 2_000L
         mediaDao.saveProgressAtomic(
             PlaybackProgressEntity(
@@ -176,7 +179,11 @@ class MediaRepository @Inject constructor(
         withContext(Dispatchers.IO) { mediaDao.getTrackPreference(mediaId) }
 
     suspend fun saveTrackPreference(preference: TrackPreferenceEntity) =
-        withContext(Dispatchers.IO) { mediaDao.upsertTrackPreference(preference) }
+        withContext(Dispatchers.IO) {
+            if (mediaDao.getMedia(preference.mediaId) != null) {
+                mediaDao.upsertTrackPreference(preference)
+            }
+        }
 
     // -------------------------------------------------------------- bookmarks
 
@@ -184,6 +191,7 @@ class MediaRepository @Inject constructor(
 
     suspend fun addBookmark(mediaId: String, positionMs: Long, label: String) =
         withContext(Dispatchers.IO) {
+            if (mediaDao.getMedia(mediaId) == null) return@withContext
             mediaDao.upsertBookmark(
                 BookmarkEntity(mediaId = mediaId, positionMs = positionMs, label = label)
             )
