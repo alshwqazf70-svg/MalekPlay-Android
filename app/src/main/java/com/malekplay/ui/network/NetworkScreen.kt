@@ -94,8 +94,11 @@ private fun networkMediaUri(profile: NetworkProfile, remotePath: String): Uri {
                 .removePrefix("http://")
                 .trimEnd('/')
             val candidate = Uri.parse(remotePath)
+            val configuredEndpoint = Uri.parse("https://$host:${profile.port}")
+            val candidatePort = if (candidate.port == -1) 443 else candidate.port
             if (candidate.scheme.equals("https", ignoreCase = true) &&
-                candidate.host.equals(host.substringBefore('/').substringBefore(':'), ignoreCase = true) &&
+                candidate.host.equals(configuredEndpoint.host, ignoreCase = true) &&
+                candidatePort == configuredEndpoint.port &&
                 candidate.userInfo == null
             ) {
                 candidate

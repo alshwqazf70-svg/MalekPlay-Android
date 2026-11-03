@@ -6,6 +6,7 @@ import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DataSource
 import com.hierynomus.msdtyp.AccessMask
 import com.hierynomus.msfscc.FileAttributes
 import com.hierynomus.msfscc.fileinformation.FileStandardInformation
@@ -200,5 +201,64 @@ class NetworkMediaDataSource(
 
     private companion object {
         const val MAX_READ_BYTES = 256 * 1024
+    }
+}
+
+/**
+ * Chooses the remote protocol from the MediaItem Uri at open time. The wrapper
+ * owns Media3 transfer callbacks while each delegate owns its protocol handles.
+ */
+@UnstableApi
+class NetworkRoutingDataSource(
+    private val context: Context,
+    private val profileStore: NetworkProfileStore,
+    private val credentialVault: NetworkCredentialVault,
+    private val httpFactory: DataSource.Factory
+) : BaseDataSource(true) {
+    private var delegate: DataSource? = null
+    private var currentUri: Uri? = null
+    private var opened = false
+
+    override fun open(dataSpec: DataSpec): Long {
+        transferInitializing(dataSpec)
+        currentUri = dataSpec.uri
+        val source = when (dataSpec.uri.scheme?.lowercase()) {
+            "maleksmb", "maleksftp" -> NetworkMediaDataSource(context, profileStore, credentialVault)
+            else -> httpFactory.createDataSource()
+        }
+        delegate = source
+        return try {
+            val length = source.open(dataSpec)
+            opened = true
+            transferStarted(dataSpec)
+            length
+        } catch (error: Throwable) {
+            runCatching { source.close() }
+            delegate = null
+            throw error
+        }
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        val source = delegate ?: throw IOException("مصدر التشغيل غير مفتوح")
+        val count = source.read(buffer, offset, length)
+        if (count > 0) bytesTransferred(count)
+        return count
+    }
+
+    override fun getUri(): Uri? = delegate?.uri ?: currentUri
+
+    override fun close() {
+        val source = delegate
+        delegate = null
+        currentUri = null
+        try {
+            source?.close()
+        } finally {
+            if (opened) {
+                opened = false
+                transferEnded()
+            }
+        }
     }
 }
