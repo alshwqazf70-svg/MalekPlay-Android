@@ -105,8 +105,12 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            lastCountedMediaId = null
-            if (mediaSession?.player?.isPlaying == true) markCurrentItemStarted()
+            // A transition and isPlaying callback can arrive in either order.
+            // Keep the same id marked if the playing callback already counted it.
+            if (mediaItem?.mediaId != lastCountedMediaId) {
+                lastCountedMediaId = null
+                if (mediaSession?.player?.isPlaying == true) markCurrentItemStarted()
+            }
         }
 
         override fun onPositionDiscontinuity(
