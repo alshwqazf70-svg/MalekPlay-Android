@@ -1,18 +1,7 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <!-- Outer ring -->
-    <path
-        android:fillColor="#00C897"
-        android:pathData="M54,16 a38,38 0 1,0 0.1,0 z M54,25 a29,29 0 1,1 -0.1,0 z" />
-    <!-- Play triangle -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M46,38 L74,54 L46,70 Z" />
-    <!-- Accent bar -->
-    <path
-        android:fillColor="#FFB300"
-        android:pathData="M40,76 h28 v5 h-28 z" />
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FF8B35FF" android:pathData="M17,16 C17,8 26,4 34,8 L101,48 C109,53 109,63 101,68 L34,107 C26,111 17,107 17,99 Z"/>
+    <path android:fillColor="#FFCE8BFF" android:pathData="M33,27 L88,58 L33,91 Z"/>
+    <path android:fillColor="#FF170A35" android:pathData="M45,43 L76,59 L45,76 Z"/>
 </vector>

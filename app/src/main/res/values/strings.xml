@@ -20,6 +20,7 @@
     <string name="home_open_library">Explore library</string>
     <string name="home_stat_videos">%1$d videos</string>
     <string name="home_stat_audio">%1$d audio files</string>
+    <string name="video_category_unclassified_notice">%1$d videos could not be classified confidently. Review file and folder names for better categorization.</string>
     <string name="video_category_empty_title">No items in %1$s</string>
     <string name="video_category_empty_body">Add media files or check folder and file names for automatic classification.</string>
     <string name="playlist_operation_failed">The operation failed. Please try again.</string>
