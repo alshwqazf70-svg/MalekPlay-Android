@@ -8,13 +8,7 @@ import androidx.room.PrimaryKey
 /** Resume point, per-file speed and completion flag. */
 @Entity(
     tableName = "playback_progress",
-    foreignKeys = [ForeignKey(
-        entity = MediaItemEntity::class,
-        parentColumns = ["mediaId"],
-        childColumns = ["mediaId"],
-        onDelete = ForeignKey.CASCADE
-    )],
-    indices = [Index(value = ["mediaId"]), Index(value = ["lastPlayedAtMs"])]
+    indices = [Index(value = ["lastPlayedAtMs"])]
 )
 data class PlaybackProgressEntity(
     @PrimaryKey val mediaId: String,
