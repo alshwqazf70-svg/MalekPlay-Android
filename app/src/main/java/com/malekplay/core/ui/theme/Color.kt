@@ -9,7 +9,7 @@ import androidx.compose.ui.graphics.Color
 object MalekPlayColors {
     val Emerald = Color(0xFF00C897)
     val Sapphire = Color(0xFF3D7EFF)
-    val Amethyst = Color(0xFFA56BFF)
+    val Amethyst = Color(0xFF9B5CFF)
     val Ruby = Color(0xFFFF5470)
     val Amber = Color(0xFFFFB300)
     val Teal = Color(0xFF00BFA5)
@@ -33,12 +33,12 @@ object MalekPlayColors {
 
 /** Pure black surfaces used by the AMOLED theme to save power on OLED panels. */
 object AmoledColors {
-    val Background = Color(0xFF000000)
-    val Surface = Color(0xFF000000)
-    val SurfaceVariant = Color(0xFF0E0E0E)
-    val SurfaceContainer = Color(0xFF121212)
-    val SurfaceContainerHigh = Color(0xFF1A1A1A)
-    val Outline = Color(0xFF2C2C2C)
+    val Background = Color(0xFF05030A)
+    val Surface = Color(0xFF08060F)
+    val SurfaceVariant = Color(0xFF100B1A)
+    val SurfaceContainer = Color(0xFF100B19)
+    val SurfaceContainerHigh = Color(0xFF1A1028)
+    val Outline = Color(0xFF3A2855)
 }
 
 /** Player overlay chrome — always dark regardless of the app theme. */
@@ -47,7 +47,7 @@ object PlayerChrome {
     val Surface = Color(0xCC1A1A1A)
     val SurfaceStrong = Color(0xE61A1A1A)
     val OnSurface = Color.White
-    val ProgressActive = Color(0xFF00C897)
+    val ProgressActive = Color(0xFF9B5CFF)
     val ProgressInactive = Color(0x59FFFFFF)
     val Buffered = Color(0x80FFFFFF)
 }
