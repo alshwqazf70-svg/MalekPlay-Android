@@ -191,6 +191,19 @@ fun MalekPlayNavHost(
                 )
             }
 
+            composable(Screen.Favourites.route) {
+                FavouritesScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenMedia = { item -> navController.openMedia(item) }
+                )
+            }
+
+            composable(Screen.Playlists.route) {
+                PlaylistLibraryScreen(
+                    onOpenPlaylist = { id -> navController.navigate(Screen.Playlist.create(id)) }
+                )
+            }
+
             composable(
                 route = Screen.Settings.route,
                 enterTransition = { slideIntoSlideUp() },
@@ -271,4 +284,6 @@ private fun TopLevelDestination.icon() = when (this) {
     TopLevelDestination.MUSIC -> Icons.Filled.LibraryMusic
     TopLevelDestination.NETWORK -> Icons.Filled.SwapHoriz
     TopLevelDestination.PROFILE -> Icons.Filled.Person
+    TopLevelDestination.FAVOURITES -> Icons.Filled.Favorite
+    TopLevelDestination.PLAYLISTS -> Icons.Filled.QueueMusic
 }

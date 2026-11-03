@@ -9,7 +9,9 @@ sealed class Screen(val route: String) {
     data object Music : Screen("music")
     data object Network : Screen("network")
     data object Profile : Screen("profile")
-    data object Settings : Screen("settings")\n    data object Favourites : Screen("favourites")\n    data object Playlists : Screen("playlists")
+    data object Settings : Screen("settings")
+    data object Favourites : Screen("favourites")
+    data object Playlists : Screen("playlists")
 
     data object VideoPlayer : Screen("video/{mediaId}") {
         fun create(mediaId: String) = "video/${Uri.encode(mediaId)}"
@@ -40,5 +42,7 @@ enum class TopLevelDestination(
     LOCAL(Screen.Local, "nav_local"),
     MUSIC(Screen.Music, "nav_music"),
     NETWORK(Screen.Network, "nav_network"),
-    PROFILE(Screen.Profile, "nav_profile")
+    PROFILE(Screen.Profile, "nav_profile"),
+    FAVOURITES(Screen.Favourites, "nav_favourites"),
+    PLAYLISTS(Screen.Playlists, "nav_playlists")
 }
