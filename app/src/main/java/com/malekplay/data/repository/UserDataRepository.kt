@@ -40,12 +40,9 @@ class UserDataRepository @Inject constructor(
             .toSet()
     }
 
-    /** Replaces the whole favourite set during a restore. */
+    /** Replaces the whole favourite set during a restore atomically. */
     suspend fun replaceFavourites(ids: Set<String>) = withContext(Dispatchers.IO) {
-        userDataDao.clearFavourites()
-        if (ids.isEmpty()) return@withContext
-        val now = System.currentTimeMillis()
-        ids.forEach { userDataDao.addFavourite(FavouriteEntity(it, now)) }
+        userDataDao.replaceFavourites(ids, System.currentTimeMillis())
     }
 
     suspend fun recentHistoryIds(limit: Int): List<String> =
