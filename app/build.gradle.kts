@@ -18,7 +18,10 @@ android {
         versionCode = 2
         versionName = "2.0.0"
 
-        resourceConfigurations += setOf("ar", "en")
+    }
+
+    androidResources {
+        localeFilters += setOf("ar", "en")
     }
 
     buildFeatures {
