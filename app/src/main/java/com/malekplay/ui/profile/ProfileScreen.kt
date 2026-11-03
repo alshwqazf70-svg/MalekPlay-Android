@@ -123,8 +123,13 @@ fun ProfileScreen(
             }
         }
 
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.elevatedCardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
+            )
+        ) {
+            Column(modifier = Modifier.padding(18.dp)) {
                 Text(
                     text = stringResource(R.string.profile_library_stats),
                     style = MaterialTheme.typography.titleMedium
@@ -166,7 +171,12 @@ fun ProfileScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            ElevatedCard(modifier = Modifier.weight(1f)) {
+            ElevatedCard(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -194,7 +204,12 @@ fun ProfileScreen(
             }
 
             if (kidsMode) {
-                ElevatedCard(modifier = Modifier.weight(1f)) {
+                ElevatedCard(
+                    modifier = Modifier.weight(1f),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
