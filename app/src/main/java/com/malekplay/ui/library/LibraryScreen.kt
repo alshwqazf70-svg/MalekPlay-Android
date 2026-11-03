@@ -184,9 +184,9 @@ fun LibraryScreen(
 fun FolderItemRow(folder: MediaFolder, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 5.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Row(
             Modifier.fillMaxWidth().padding(14.dp),
