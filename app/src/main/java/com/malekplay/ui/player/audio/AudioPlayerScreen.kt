@@ -246,32 +246,45 @@ fun AudioPlayerScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            if (item != null) {
-                MediaThumbnail(
-                    media = item,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(22.dp)),
-                    targetSize = Size(720, 720),
-                    cornerRadius = 22.dp,
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.GraphicEq,
-                        contentDescription = null,
-                        tint = accent,
-                        modifier = Modifier.size(72.dp)
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f),
+                shape = RoundedCornerShape(26.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                tonalElevation = 4.dp
+            ) {
+                if (item != null) {
+                    MediaThumbnail(
+                        media = item,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(26.dp)),
+                        targetSize = Size(720, 720),
+                        cornerRadius = 26.dp,
+                        contentScale = ContentScale.Crop
                     )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.radialGradient(
+                                    listOf(
+                                        accent.copy(alpha = 0.24f),
+                                        MaterialTheme.colorScheme.surfaceContainerHighest
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.GraphicEq,
+                            contentDescription = null,
+                            tint = accent,
+                            modifier = Modifier.size(88.dp)
+                        )
+                    }
                 }
             }
 
