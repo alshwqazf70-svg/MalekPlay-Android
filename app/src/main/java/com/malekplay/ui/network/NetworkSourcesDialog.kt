@@ -84,7 +84,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                         NetworkProtocol.SMB -> {
                             val parts = profile.rootPath.trim('/').split('/', limit = 2)
                             require(parts.firstOrNull().orEmpty().isNotBlank()) { "أدخل اسم مشاركة SMB في المسار، مثل media/" }
-                            smb.list(profile.host, parts[0], path.ifBlank { parts.getOrNull(1).orEmpty() },
+                            smb.list(profile.host, profile.port, parts[0], path.ifBlank { parts.getOrNull(1).orEmpty() },
                                 credentials.first, credentials.second)
                         }
                         NetworkProtocol.SFTP -> sftp.list(profile.host, profile.port, credentials.first,
