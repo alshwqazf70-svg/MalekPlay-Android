@@ -44,6 +44,26 @@ interface PlaylistDao {
     @Query("SELECT mediaId FROM playlist_items WHERE playlistId = :playlistId ORDER BY position ASC")
     suspend fun getPlaylistMediaIds(playlistId: String): List<String>
 
+    /** Appends a batch atomically, assigning unique positions and skipping duplicates. */
+    @Transaction
+    suspend fun appendMedia(playlistId: String, mediaIds: List<String>, addedAtMs: Long) {
+        if (getPlaylist(playlistId) == null || mediaIds.isEmpty()) return
+        val existing = getPlaylistMediaIds(playlistId).toHashSet()
+        var position = nextPosition(playlistId)
+        val fresh = mediaIds.distinct().filter { it !in existing }
+        if (fresh.isEmpty()) return
+        upsertItems(
+            fresh.map { mediaId ->
+                PlaylistItemEntity(
+                    playlistId = playlistId,
+                    mediaId = mediaId,
+                    position = position++,
+                    addedAtMs = addedAtMs
+                )
+            }
+        )
+    }
+
     /** Playlists that already contain this file, for quick "add/remove" state. */
     @Query("SELECT playlistId FROM playlist_items WHERE mediaId = :mediaId")
     fun observePlaylistsContaining(mediaId: String): Flow<List<String>>
