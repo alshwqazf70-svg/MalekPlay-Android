@@ -177,22 +177,23 @@ class MediaStoreScanner(context: Context) {
         row: (android.database.Cursor, ColumnIndex) -> T
     ): List<T> {
         val out = mutableListOf<T>()
-        runCatching {
-            resolver.query(
-                collection,
-                projection,
-                null,
-                null,
-                "${MediaStore.MediaColumns.DATE_ADDED} DESC"
-            )?.use { cursor ->
-                val columns = ColumnIndex(cursor, projection)
-                while (cursor.moveToNext()) {
-                    runCatching { out += row(cursor, columns) }
-                        .onFailure { Log.w(TAG, "Skipping unreadable media row", it) }
-                }
+        val cursor = resolver.query(
+            collection,
+            projection,
+            null,
+            null,
+            "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+        ) ?: throw IllegalStateException(
+            "MediaStore returned a null cursor for ${if (isVideo) "video" else "audio"}"
+        )
+
+        cursor.use {
+            val columns = ColumnIndex(cursor, projection)
+            while (cursor.moveToNext()) {
+                // Do not silently skip malformed rows: refresh must never treat a
+                // partial scan as a complete library snapshot and delete valid rows.
+                out += row(cursor, columns)
             }
-        }.onFailure {
-            Log.w(TAG, "MediaStore query failed for ${if (isVideo) "video" else "audio"}", it)
         }
         return out
     }
