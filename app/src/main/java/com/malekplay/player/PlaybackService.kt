@@ -13,7 +13,6 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import io.github.peerless2012.ass.media.AssHandlerConfig
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.type.AssRenderType
 import androidx.media3.session.MediaSession
@@ -81,7 +80,6 @@ class PlaybackService : MediaSessionService() {
             .buildWithAssSupport(
                 context = this,
                 renderType = AssRenderType.EFFECTS_OPEN_GL,
-                config = AssHandlerConfig(),
                 dataSourceFactory = buildDataSourceFactory()
             )
 
