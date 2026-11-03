@@ -267,7 +267,7 @@ class PlaybackService : MediaSessionService() {
         val httpFactory = ResolvingDataSource.Factory(upstream, resolver)
         return DataSource.Factory { dataSpec ->
             when (dataSpec.uri.scheme?.lowercase()) {
-                "maleksmb", "maleksftp" -> NetworkMediaDataSource(profileStore, credentialVault)
+                "maleksmb", "maleksftp" -> NetworkMediaDataSource(this, profileStore, credentialVault)
                 else -> httpFactory.createDataSource()
             }
         }

@@ -1,5 +1,6 @@
 package com.malekplay.player
 
+import android.content.Context
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.datasource.BaseDataSource
@@ -34,6 +35,7 @@ import java.util.EnumSet
  * are never placed in the playback Uri or MediaItem metadata.
  */
 class NetworkMediaDataSource(
+    private val context: Context,
     private val profileStore: NetworkProfileStore,
     private val credentialVault: NetworkCredentialVault
 ) : BaseDataSource(false) {
@@ -124,12 +126,21 @@ class NetworkMediaDataSource(
         password: String,
         segments: List<String>
     ) {
-        val knownHosts = File("/data/data/${profileStore.javaClass.name}", "unused")
-        // Resolve the key file through the application-private path supplied by the profile id.
+        val knownHosts = File(context.filesDir, "network/known_hosts/${profile.id}")
+        require(knownHosts.isFile && knownHosts.length() > 0L) {
+            "ملف known_hosts الموثوق غير موجود لمصدر SFTP"
+        }
         val ssh = SSHClient()
         sshClient = ssh
-        val context = ssh.javaClass // Keep setup local; the key path is supplied by the service factory.
-        throw IOException("SFTP streaming requires the application's known_hosts location")
+        ssh.loadKnownHosts(knownHosts)
+        ssh.connect(profile.host, profile.port)
+        ssh.authPassword(username, password)
+        val sftp = ssh.newSFTPClient()
+        sftpClient = sftp
+        val remotePath = "/" + segments.joinToString("/")
+        val file = sftp.open(remotePath)
+        sftpFile = file
+        fileLength = file.length()
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
