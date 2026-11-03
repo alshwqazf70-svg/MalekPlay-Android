@@ -2,21 +2,37 @@ package com.malekplay.core.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-/**
- * Brand palette. Amethyst is the default MalekPlay accent; the remaining
- * seeds let the user recolour the whole app from Settings.
- */
+/** MalekPlay neon-amethyst cinematic palette. */
 object MalekPlayColors {
-    val Emerald = Color(0xFF00C897)
-    val Sapphire = Color(0xFF3D7EFF)
-    val Amethyst = Color(0xFF9B5CFF)
-    val Ruby = Color(0xFFFF5470)
-    val Amber = Color(0xFFFFB300)
-    val Teal = Color(0xFF00BFA5)
-    val Coral = Color(0xFFFF7A59)
-    val Lime = Color(0xFF8BC34A)
+    val NeonPurple = Color(0xFFA855F7)
+    val Amethyst = NeonPurple
+    val PurpleBright = Color(0xFFC084FC)
+    val PurpleDeep = Color(0xFF7E22CE)
+    val PurpleDark = Color(0xFF3B0764)
 
-    /** Accent choices offered in Settings, keyed by stable id. */
+    val Emerald = Color(0xFF00D6A0)
+    val Sapphire = Color(0xFF4F8CFF)
+    val Ruby = Color(0xFFFF4D78)
+    val Amber = Color(0xFFFFB84D)
+    val Teal = Color(0xFF20D5D2)
+    val Coral = Color(0xFFFF8066)
+    val Lime = Color(0xFFA3E635)
+
+    val Background = Color(0xFF0D0D12)
+    val BackgroundElevated = Color(0xFF111019)
+    val Surface = Color(0xFF15131D)
+    val SurfaceVariant = Color(0xFF1D1928)
+    val SurfaceElevated = Color(0xFF252033)
+
+    val TextPrimary = Color(0xFFF8F5FF)
+    val TextSecondary = Color(0xFFB9B1C8)
+    val TextMuted = Color(0xFF81788F)
+
+    val Border = Color(0xFF332642)
+    val BorderStrong = Color(0xFF604080)
+    val NeonGlow = Color(0x66A855F7)
+    val Glass = Color(0xB315111F)
+
     val Accents = listOf(
         "amethyst" to Amethyst,
         "emerald" to Emerald,
@@ -28,26 +44,30 @@ object MalekPlayColors {
         "lime" to Lime
     )
 
-    fun accentFor(id: String): Color = Accents.firstOrNull { it.first == id }?.second ?: Amethyst
+    fun accentFor(id: String): Color =
+        Accents.firstOrNull { it.first == id }?.second ?: NeonPurple
 }
 
-/** Pure black surfaces used by the AMOLED theme to save power on OLED panels. */
+/** OLED surfaces remain pure black while preserving the purple accent. */
 object AmoledColors {
-    val Background = Color(0xFF05030A)
-    val Surface = Color(0xFF08060F)
-    val SurfaceVariant = Color(0xFF100B1A)
-    val SurfaceContainer = Color(0xFF100B19)
-    val SurfaceContainerHigh = Color(0xFF1A1028)
-    val Outline = Color(0xFF3A2855)
+    val Background = Color(0xFF000000)
+    val Surface = Color(0xFF08070B)
+    val SurfaceVariant = Color(0xFF100D16)
+    val SurfaceContainer = Color(0xFF100D16)
+    val SurfaceContainerHigh = Color(0xFF1B1424)
+    val Outline = Color(0xFF49335F)
 }
 
-/** Player overlay chrome — always dark regardless of the app theme. */
+/** Video-player chrome is intentionally dark in every application theme. */
 object PlayerChrome {
-    val Scrim = Color(0xB3000000)
-    val Surface = Color(0xCC160F20)
-    val SurfaceStrong = Color(0xE61B1228)
+    val Scrim = Color(0xCC000000)
+    val Surface = Color(0xD916111F)
+    val SurfaceStrong = Color(0xF21B1426)
     val OnSurface = Color.White
-    val ProgressActive = Color(0xFF9B5CFF)
-    val ProgressInactive = Color(0x59FFFFFF)
+    val OnSurfaceMuted = Color(0xFFD5CDE0)
+    val ProgressActive = MalekPlayColors.NeonPurple
+    val ProgressGlow = Color(0x80A855F7)
+    val ProgressInactive = Color(0x55FFFFFF)
     val Buffered = Color(0x80FFFFFF)
+    val GestureOverlay = Color(0xD91A1225)
 }

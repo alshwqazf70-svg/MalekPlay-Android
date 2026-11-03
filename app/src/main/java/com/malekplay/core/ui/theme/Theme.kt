@@ -15,101 +15,98 @@ import androidx.compose.ui.platform.LocalContext
 
 enum class AppThemeMode { LIGHT, DARK, AMOLED, SYSTEM }
 
-/** Builds the scheme for one accent seed. */
 private fun lightScheme(seed: Color): ColorScheme = lightColorScheme(
     primary = seed,
     onPrimary = Color.White,
-    primaryContainer = seed.copy(alpha = 0.16f),
-    onPrimaryContainer = seed,
-    secondary = seed,
+    primaryContainer = seed.copy(alpha = 0.15f),
+    onPrimaryContainer = Color(0xFF351052),
+    secondary = MalekPlayColors.PurpleDeep,
     onSecondary = Color.White,
-    secondaryContainer = seed.copy(alpha = 0.12f),
-    onSecondaryContainer = seed,
-    tertiary = seed,
-    background = Color(0xFFF6FAF8),
-    onBackground = Color(0xFF101A17),
-    surface = Color.White,
-    onSurface = Color(0xFF101A17),
-    surfaceVariant = Color(0xFFE7EFEC),
-    onSurfaceVariant = Color(0xFF46554F),
-    surfaceContainer = Color(0xFFF0F5F3),
-    surfaceContainerHigh = Color(0xFFE9F0ED),
-    outline = Color(0xFFC2D0CA),
-    outlineVariant = Color(0xFFDCE6E2)
+    secondaryContainer = MalekPlayColors.PurpleDeep.copy(alpha = 0.12f),
+    onSecondaryContainer = Color(0xFF351052),
+    tertiary = MalekPlayColors.Sapphire,
+    onTertiary = Color.White,
+    background = Color(0xFFF7F4FA),
+    onBackground = Color(0xFF17121D),
+    surface = Color(0xFFFFFBFF),
+    onSurface = Color(0xFF17121D),
+    surfaceVariant = Color(0xFFECE5F2),
+    onSurfaceVariant = Color(0xFF51465D),
+    surfaceContainer = Color(0xFFF0EAF5),
+    surfaceContainerHigh = Color(0xFFE8E0EF),
+    outline = Color(0xFFBBAACB),
+    outlineVariant = Color(0xFFDDD2E7)
 )
 
 private fun darkScheme(seed: Color): ColorScheme = darkColorScheme(
     primary = seed,
-    onPrimary = Color(0xFF160A24),
-    primaryContainer = seed.copy(alpha = 0.20f),
-    onPrimaryContainer = seed,
-    secondary = seed,
-    onSecondary = Color(0xFF160A24),
-    secondaryContainer = seed.copy(alpha = 0.18f),
-    onSecondaryContainer = seed,
-    tertiary = seed,
-    background = Color(0xFF08060D),
-    onBackground = Color(0xFFF1EAFB),
-    surface = Color(0xFF0D0A14),
-    onSurface = Color(0xFFF1EAFB),
-    surfaceVariant = Color(0xFF1A1423),
-    onSurfaceVariant = Color(0xFFBDB0CF),
-    surfaceContainer = Color(0xFF120D1B),
-    surfaceContainerHigh = Color(0xFF1B1427),
-    outline = Color(0xFF4A365F),
-    outlineVariant = Color(0xFF30233F)
+    onPrimary = Color(0xFF210B35),
+    primaryContainer = seed.copy(alpha = 0.22f),
+    onPrimaryContainer = Color(0xFFE9D5FF),
+    secondary = MalekPlayColors.PurpleBright,
+    onSecondary = Color(0xFF210B35),
+    secondaryContainer = MalekPlayColors.PurpleDeep.copy(alpha = 0.28f),
+    onSecondaryContainer = Color(0xFFE9D5FF),
+    tertiary = MalekPlayColors.Sapphire,
+    onTertiary = Color.White,
+    background = MalekPlayColors.Background,
+    onBackground = MalekPlayColors.TextPrimary,
+    surface = MalekPlayColors.Surface,
+    onSurface = MalekPlayColors.TextPrimary,
+    surfaceVariant = MalekPlayColors.SurfaceVariant,
+    onSurfaceVariant = MalekPlayColors.TextSecondary,
+    surfaceContainer = MalekPlayColors.Surface,
+    surfaceContainerHigh = MalekPlayColors.SurfaceElevated,
+    outline = MalekPlayColors.BorderStrong,
+    outlineVariant = MalekPlayColors.Border
 )
 
-/** True black variant: same hues as dark but with OLED-friendly surfaces. */
-private fun amoledScheme(seed: Color): ColorScheme {
-    val base = darkScheme(seed)
-    return base.copy(
-        background = AmoledColors.Background,
-        onBackground = Color(0xFFF1EAFB),
-        surface = AmoledColors.Surface,
-        onSurface = Color(0xFFF1EAFB),
-        surfaceVariant = AmoledColors.SurfaceVariant,
-        onSurfaceVariant = Color(0xFFBDB0CF),
-        surfaceContainer = AmoledColors.SurfaceContainer,
-        surfaceContainerHigh = AmoledColors.SurfaceContainerHigh,
-        surfaceContainerLow = Color(0xFF05030A),
-        surfaceContainerLowest = Color(0xFF000000),
-        surfaceContainerHighest = Color(0xFF21172F),
-        surfaceBright = Color(0xFF241A32),
-        surfaceDim = Color(0xFF000000),
-        outline = AmoledColors.Outline,
-        outlineVariant = Color(0xFF241A32)
-    )
-}
+private fun amoledScheme(seed: Color): ColorScheme = darkScheme(seed).copy(
+    background = AmoledColors.Background,
+    onBackground = MalekPlayColors.TextPrimary,
+    surface = AmoledColors.Surface,
+    onSurface = MalekPlayColors.TextPrimary,
+    surfaceVariant = AmoledColors.SurfaceVariant,
+    onSurfaceVariant = MalekPlayColors.TextSecondary,
+    surfaceContainer = AmoledColors.SurfaceContainer,
+    surfaceContainerHigh = AmoledColors.SurfaceContainerHigh,
+    surfaceContainerLow = Color(0xFF050505),
+    surfaceContainerLowest = Color.Black,
+    surfaceContainerHighest = Color(0xFF24182F),
+    surfaceBright = Color(0xFF281D34),
+    surfaceDim = Color.Black,
+    outline = AmoledColors.Outline,
+    outlineVariant = Color(0xFF2D2039)
+)
 
 @Composable
 fun MalekPlayTheme(
-    mode: AppThemeMode = AppThemeMode.SYSTEM,
+    mode: AppThemeMode = AppThemeMode.AMOLED,
     accent: String = "amethyst",
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
     val systemDark = isSystemInDarkTheme()
-    val dark = when (mode) {
-        AppThemeMode.LIGHT -> false
-        AppThemeMode.DARK -> true
-        AppThemeMode.AMOLED -> true
-        AppThemeMode.SYSTEM -> systemDark
+    val effectiveMode = when (mode) {
+        AppThemeMode.SYSTEM -> if (systemDark) AppThemeMode.DARK else AppThemeMode.LIGHT
+        else -> mode
     }
     val seed = MalekPlayColors.accentFor(accent)
 
-    val colorScheme: ColorScheme = if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        when {
-            mode == AppThemeMode.AMOLED -> amoledScheme(seed)
-            dark -> dynamicDarkColorScheme(context)
-            else -> dynamicLightColorScheme(context)
+    val colorScheme = if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        when (effectiveMode) {
+            AppThemeMode.AMOLED -> amoledScheme(seed)
+            AppThemeMode.DARK -> dynamicDarkColorScheme(context)
+            AppThemeMode.LIGHT -> dynamicLightColorScheme(context)
+            AppThemeMode.SYSTEM -> darkScheme(seed)
         }
     } else {
-        when (mode) {
+        when (effectiveMode) {
             AppThemeMode.AMOLED -> amoledScheme(seed)
+            AppThemeMode.DARK -> darkScheme(seed)
             AppThemeMode.LIGHT -> lightScheme(seed)
-            else -> darkScheme(seed)
+            AppThemeMode.SYSTEM -> darkScheme(seed)
         }
     }
 
@@ -120,8 +117,8 @@ fun MalekPlayTheme(
     )
 }
 
-/** Convenience accessor for the player overlay, which always uses dark chrome. */
+/** True only for the pure-black OLED scheme. */
 val isAmoled: Boolean
     @Composable
     @ReadOnlyComposable
-    get() = MaterialTheme.colorScheme.background == Color.Black
+    get() = MaterialTheme.colorScheme.surfaceDim == Color.Black

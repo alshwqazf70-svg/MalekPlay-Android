@@ -92,7 +92,17 @@ fun MalekPlayNavHost(
             exitTransition = { fadeOut(tween(ANIM_MS)) }
         ) {
             composable(Screen.Home.route) {
-                HomeScreen(onOpenMedia = { navController.openMedia(it) }, onOpenSettings = { navController.navigate(Screen.Settings.route) }, onOpenLibrary = { navController.navigate(Screen.Local.route) }, contentPadding = padding)
+                HomeScreen(
+                    onOpenMedia = { navController.openMedia(it) },
+                    onOpenSettings = { navController.navigate(Screen.Settings.route) },
+                    onOpenLibrary = { navController.navigate(Screen.Local.route) },
+                    onOpenMovies = { navController.navigate(Screen.Movies.route) },
+                    onOpenSeries = { navController.navigate(Screen.Series.route) },
+                    onOpenMusic = { navController.navigate(Screen.Music.route) },
+                    onOpenFavourites = { navController.navigate(Screen.Favourites.route) },
+                    onOpenPlaylists = { navController.navigate(Screen.Playlists.route) },
+                    contentPadding = padding
+                )
             }
 
             composable(Screen.Movies.route) {
