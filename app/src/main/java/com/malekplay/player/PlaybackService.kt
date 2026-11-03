@@ -84,13 +84,15 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         progressJob?.cancel()
+        val finalSave = saveCurrentProgress()
         mediaSession?.run {
             player.removeListener(progressListener)
             player.release()
             release()
         }
         mediaSession = null
-        serviceScope.cancel()
+        if (finalSave == null) serviceScope.cancel()
+        else finalSave.invokeOnCompletion { serviceScope.cancel() }
         super.onDestroy()
     }
 
@@ -149,10 +151,10 @@ class PlaybackService : MediaSessionService() {
         saveCurrentProgress(markPlayed = true)
     }
 
-    private fun saveCurrentProgress(markPlayed: Boolean = false) {
-        val player = mediaSession?.player ?: return
-        val mediaId = player.currentMediaItem?.mediaId ?: return
-        saveProgressSnapshot(
+    private fun saveCurrentProgress(markPlayed: Boolean = false): Job? {
+        val player = mediaSession?.player ?: return null
+        val mediaId = player.currentMediaItem?.mediaId ?: return null
+        return saveProgressSnapshot(
             mediaId,
             player.currentPosition,
             player.duration.coerceAtLeast(0L),
@@ -167,8 +169,8 @@ class PlaybackService : MediaSessionService() {
         durationMs: Long,
         speed: Float,
         markPlayed: Boolean = false
-    ) {
-        serviceScope.launch {
+    ): Job {
+        return serviceScope.launch {
             runCatching {
                 mediaRepository.saveProgress(
                     mediaId = mediaId,
