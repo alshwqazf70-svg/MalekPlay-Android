@@ -322,7 +322,7 @@ fun VideoItemRow(
             if (mediaItem.isInProgress) {
                 Spacer(modifier = Modifier.height(5.dp))
                 LinearProgressIndicator(
-                    progress = { mediaItem.fraction },
+                    progress = mediaItem.fraction,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
