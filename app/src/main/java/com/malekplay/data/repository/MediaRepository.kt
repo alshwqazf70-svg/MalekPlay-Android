@@ -155,7 +155,7 @@ class MediaRepository @Inject constructor(
                 durationMs = durationMs.coerceAtLeast(0L),
                 playbackSpeed = speed.coerceIn(0.25f, 4f),
                 isCompleted = completed,
-                lastPlayedAtMs = System.currentTimeMillis(),
+                lastPlayedAtMs = if (markPlayed) System.currentTimeMillis() else (existing?.lastPlayedAtMs ?: System.currentTimeMillis()),
                 playCount = (existing?.playCount ?: 0) + if (markPlayed) 1 else 0
             )
         )
