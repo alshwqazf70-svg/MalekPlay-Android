@@ -7,7 +7,7 @@ core = "1.15.0"
 activityCompose = "1.10.0"
 lifecycle = "2.8.7"
 navigation = "2.8.7"
-media3 = "1.5.1"
+media3 = "1.8.0"
 room = "2.8.5"
 datastore = "1.1.2"
 hilt = "2.57.1"
@@ -17,6 +17,7 @@ mlkitTranslate = "17.0.3"
 smbj = "0.14.0"
 sshj = "0.40.0"
 okhttp = "4.12.0"
+assMedia = "0.4.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core" }
@@ -47,6 +48,7 @@ mlkit-translate = { group = "com.google.mlkit", name = "translate", version.ref 
 smbj = { group = "com.hierynomus", name = "smbj", version.ref = "smbj" }
 sshj = { group = "com.hierynomus", name = "sshj", version.ref = "sshj" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+assMedia = { group = "io.github.peerless2012", name = "ass-media", version.ref = "assMedia" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
