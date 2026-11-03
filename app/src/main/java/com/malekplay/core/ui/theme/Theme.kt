@@ -85,8 +85,8 @@ private fun amoledScheme(seed: Color): ColorScheme {
 @Composable
 fun MalekPlayTheme(
     mode: AppThemeMode = AppThemeMode.SYSTEM,
-    accent: String = "emerald",
-    dynamicColor: Boolean = true,
+    accent: String = "amethyst",
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
