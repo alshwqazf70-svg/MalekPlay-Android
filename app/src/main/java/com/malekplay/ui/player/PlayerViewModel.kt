@@ -220,7 +220,9 @@ class PlayerViewModel @Inject constructor(
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            saveProgressNow()
+            // The live player position now belongs to the new item. Persist the
+            // last ticker snapshot under the previous media id before switching.
+            currentMediaId?.let { previousId -> saveProgressAt(previousId, _positionMs.value) }
             currentMediaId = mediaItem?.mediaId
             playRecordedForCurrentItem = false
             if (_controller.value?.isPlaying == true) {
@@ -573,13 +575,23 @@ class PlayerViewModel @Inject constructor(
     fun saveProgressNow(markPlayed: Boolean = false) {
         val player = _controller.value ?: return
         val mediaId = currentMediaId ?: player.currentMediaItem?.mediaId ?: return
+        saveProgressAt(mediaId, player.currentPosition, player.duration, player.playbackParameters.speed, markPlayed)
+    }
+
+    private fun saveProgressAt(
+        mediaId: String,
+        positionMs: Long,
+        durationMs: Long = 0L,
+        speed: Float = _speed.value,
+        markPlayed: Boolean = false
+    ) {
         viewModelScope.launch {
             runCatching {
                 mediaRepository.saveProgress(
                     mediaId = mediaId,
-                    positionMs = player.currentPosition,
-                    durationMs = player.duration.coerceAtLeast(0L),
-                    speed = player.playbackParameters.speed,
+                    positionMs = positionMs,
+                    durationMs = durationMs.coerceAtLeast(0L),
+                    speed = speed,
                     markPlayed = markPlayed
                 )
             }
