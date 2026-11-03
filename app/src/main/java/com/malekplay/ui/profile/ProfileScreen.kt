@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
@@ -58,6 +57,7 @@ import com.malekplay.data.repository.UserDataRepository
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.safety.ParentalControlManager
+import com.malekplay.ui.components.MediaThumbnail
 import com.malekplay.ui.library.LibraryViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -360,19 +360,13 @@ private fun ContinueCard(
         onClick = onClick
     ) {
         Column {
-            Box(
+            MediaThumbnail(
+                media = item.media,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+                    .aspectRatio(16f / 9f),
+                cornerRadius = 0.dp
+            )
             Column(modifier = Modifier.padding(10.dp)) {
                 Text(
                     text = item.media.displayTitle,
