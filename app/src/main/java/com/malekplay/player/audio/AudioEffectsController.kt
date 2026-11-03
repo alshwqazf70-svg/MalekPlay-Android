@@ -29,6 +29,7 @@ class AudioEffectsController {
 
     private var currentSessionId = 0
     private var bands: List<Int> = EqualizerPreset.FLAT.bands.toList()
+    private var pendingPreset: EqualizerPreset? = null
     private var bassStrength = 0
     private var virtualizerStrength = 0
     private var loudnessGain = 0
@@ -86,6 +87,7 @@ class AudioEffectsController {
             _bandCount.value = eq.numberOfBands.toInt().coerceAtMost(MAX_BANDS)
             val range = eq.bandLevelRange
             _levelRange.value = range[0].toInt() to range[1].toInt()
+            pendingPreset?.let { bands = mapPreset(it, _bandCount.value) }
             applyBands(bands)
         } else {
             _bandCount.value = 0
@@ -119,20 +121,30 @@ class AudioEffectsController {
 
     @Synchronized
     fun setBands(values: List<Int>) {
-        bands = values
-        applyBands(values)
+        pendingPreset = null
+        bands = values.toList()
+        applyBands(bands)
     }
 
     @Synchronized
     fun applyPreset(preset: EqualizerPreset) {
-        val count = _bandCount.value.coerceAtLeast(1)
-        // Map a 5-band preset onto however many bands the device exposes.
-        val mapped = List(count) { index ->
-            val source = (index * preset.bands.size / count).coerceIn(0, preset.bands.lastIndex)
+        pendingPreset = preset
+        val count = _bandCount.value
+        if (count <= 0) {
+            // Keep the full preset until the player exposes its actual band count.
+            bands = preset.bands.toList()
+            return
+        }
+        bands = mapPreset(preset, count)
+        applyBands(bands)
+    }
+
+    private fun mapPreset(preset: EqualizerPreset, count: Int): List<Int> =
+        List(count.coerceAtLeast(1)) { index ->
+            val source = (index * preset.bands.size / count.coerceAtLeast(1))
+                .coerceIn(0, preset.bands.lastIndex)
             preset.bands[source]
         }
-        setBands(mapped)
-    }
 
     private fun applyBands(values: List<Int>) {
         val eq = equalizer ?: return
