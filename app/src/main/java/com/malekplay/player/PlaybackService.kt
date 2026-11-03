@@ -35,6 +35,7 @@ import com.malekplay.network.NetworkProtocol
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Owns the single ExoPlayer instance and its MediaSession.
@@ -56,9 +57,7 @@ class PlaybackService : MediaSessionService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var progressJob: Job? = null
     private var lastCountedMediaId: String? = null
-    private var lastKnownMediaId: String? = null
-    private var lastKnownDurationMs: Long = 0L
-    private var lastKnownSpeed: Float = 1f
+    private val playbackMetadataById = ConcurrentHashMap<String, PlaybackMetadata>()
     private val progressSaveMutex = Mutex()
 
     override fun onCreate() {
@@ -143,8 +142,9 @@ class PlaybackService : MediaSessionService() {
             val oldId = oldPosition.mediaItem?.mediaId
             val newId = newPosition.mediaItem?.mediaId
             if (!oldId.isNullOrBlank() && oldId != newId) {
-                val oldDuration = if (lastKnownMediaId == oldId) lastKnownDurationMs else 0L
-                val oldSpeed = if (lastKnownMediaId == oldId) lastKnownSpeed else 1f
+                val oldMetadata = playbackMetadataById[oldId]
+                val oldDuration = oldMetadata?.durationMs ?: 0L
+                val oldSpeed = oldMetadata?.speed ?: 1f
                 saveProgressSnapshot(
                     oldId,
                     oldPosition.positionMs,
@@ -174,20 +174,26 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun rememberCurrentPlaybackMetadata(player: Player) {
-        lastKnownMediaId = player.currentMediaItem?.mediaId
-        lastKnownDurationMs = player.duration.coerceAtLeast(0L)
-        lastKnownSpeed = player.playbackParameters.speed
+        val mediaId = player.currentMediaItem?.mediaId ?: return
+        playbackMetadataById[mediaId] = PlaybackMetadata(
+            durationMs = player.duration.coerceAtLeast(0L),
+            speed = player.playbackParameters.speed
+        )
+        if (playbackMetadataById.size > MAX_CACHED_PLAYBACK_METADATA) {
+            playbackMetadataById.keys.firstOrNull { it != mediaId }?.let(playbackMetadataById::remove)
+        }
     }
 
     private fun saveCurrentProgress(markPlayed: Boolean = false): Job? {
         val player = mediaSession?.player ?: return null
         val mediaId = player.currentMediaItem?.mediaId ?: return null
         rememberCurrentPlaybackMetadata(player)
+        val metadata = playbackMetadataById[mediaId]
         return saveProgressSnapshot(
             mediaId,
             player.currentPosition,
-            lastKnownDurationMs,
-            lastKnownSpeed,
+            metadata?.durationMs ?: player.duration.coerceAtLeast(0L),
+            metadata?.speed ?: player.playbackParameters.speed,
             markPlayed
         )
     }
@@ -267,7 +273,10 @@ class PlaybackService : MediaSessionService() {
             .build()
     }
 
+    private data class PlaybackMetadata(val durationMs: Long, val speed: Float)
+
     private companion object {
+        const val MAX_CACHED_PLAYBACK_METADATA = 16
         const val SESSION_REQUEST_CODE = 1001
         const val PROGRESS_SAVE_INTERVAL_MS = 5_000L
     }
