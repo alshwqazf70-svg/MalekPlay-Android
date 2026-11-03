@@ -54,6 +54,22 @@ class PlaylistRepository @Inject constructor(
             playlistDao.appendMedia(playlistId, mediaIds, System.currentTimeMillis())
         }
 
+    /** Replaces all playlists during restore; each invocation is idempotent. */
+    suspend fun replaceAll(playlists: List<Pair<String, List<String>>>) = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val playlistEntities = playlists.mapIndexedNotNull { index, (name, _) ->
+            name.trim().takeIf { it.isNotEmpty() }?.let { trimmed ->
+                PlaylistEntity(UUID.randomUUID().toString(), trimmed, now + index, index)
+            }
+        }
+        val itemEntities = playlistEntities.zip(playlists.filter { it.first.isNotBlank() }).flatMap { (playlist, source) ->
+            source.second.distinct().mapIndexed { position, mediaId ->
+                PlaylistItemEntity(playlist.playlistId, mediaId, position, now)
+            }
+        }
+        playlistDao.replaceAll(playlistEntities, itemEntities)
+    }
+
     suspend fun removeMedia(playlistId: String, mediaId: String) =
         withContext(Dispatchers.IO) { playlistDao.removeItem(playlistId, mediaId) }
 
