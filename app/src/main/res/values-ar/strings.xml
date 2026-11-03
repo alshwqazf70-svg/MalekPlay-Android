@@ -20,6 +20,7 @@
     <string name="home_open_library">استكشف مكتبتي</string>
     <string name="home_stat_videos">%1$d فيديو</string>
     <string name="home_stat_audio">%1$d ملف صوتي</string>
+    <string name="video_category_count">%1$d عنصر</string>
     <string name="video_category_unclassified_notice">توجد %1$d ملفات لم يمكن تحديد نوعها بدقة؛ راجع أسماء الملفات والمجلدات لتصنيفها بشكل أفضل.</string>
     <string name="video_category_empty_title">لا توجد عناصر في %1$s</string>
     <string name="video_category_empty_body">أضف ملفات وسائط أو تحقق من أسماء المجلدات والملفات لتصنيفها تلقائياً.</string>
