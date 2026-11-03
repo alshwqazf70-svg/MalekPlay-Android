@@ -36,7 +36,7 @@ class SmbClient @Inject constructor() {
                                 val directory = (entry.fileAttributes and FileAttributes.FILE_ATTRIBUTE_DIRECTORY.value) != 0L
                                 NetworkEntry(
                                     name = name,
-                                    path = listOf(path.trim('/'), name).filter { it.isNotBlank() }.joinToString("/"),
+                                    path = listOf(shareName.trim('/'), path.trim('/'), name).filter { it.isNotBlank() }.joinToString("/"),
                                     isDirectory = directory,
                                     sizeBytes = entry.endOfFile.coerceAtLeast(0L)
                                 )
