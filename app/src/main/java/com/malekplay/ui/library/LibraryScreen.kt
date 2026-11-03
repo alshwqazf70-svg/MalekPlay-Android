@@ -208,13 +208,20 @@ fun FolderItemRow(folder: MediaFolder, onClick: () -> Unit) {
 
 @Composable
 fun VideoItemRow(item: LibraryItem, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 5.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer
+    ) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(88.dp, 58.dp).clip(RoundedCornerShape(8.dp))
+            Modifier.size(104.dp, 66.dp).clip(RoundedCornerShape(12.dp))
                 .background(Color.Black.copy(alpha = 0.8f)),
             contentAlignment = Alignment.Center
         ) {
@@ -235,6 +242,7 @@ fun VideoItemRow(item: LibraryItem, onClick: () -> Unit) {
                 LinearProgressIndicator(progress = item.fraction, modifier = Modifier.fillMaxWidth().padding(top = 5.dp))
             }
         }
+    }
     }
 }
 
