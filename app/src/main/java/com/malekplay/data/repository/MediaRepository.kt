@@ -118,12 +118,18 @@ class MediaRepository @Inject constructor(
     }.flowOn(Dispatchers.Default)
 
     /**
-     * Re-scans MediaStore and reconciles the cache.
-     * Rows that disappeared from MediaStore are deleted so deleted files vanish.
+     * Re-scans MediaStore and reconciles the cache only after a complete scan.
+     * Scanner failures are propagated, so an incomplete snapshot cannot erase
+     * rows that were temporarily hidden by a provider/permission error.
      */
     suspend fun refresh() = withContext(Dispatchers.IO) {
         val scanned = scanner.scan()
-        if (scanned.isEmpty()) return@withContext
+        if (scanned.isEmpty()) {
+            // An empty result is authoritative because scan() now fails fast
+            // whenever either required MediaStore query is incomplete.
+            mediaDao.clearAll()
+            return@withContext
+        }
         mediaDao.upsertMedia(scanned)
         val keepIds = scanned.map { it.mediaId }
         // Chunked because SQLite caps the number of bound variables per statement.
