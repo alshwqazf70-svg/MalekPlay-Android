@@ -192,7 +192,6 @@ fun AudioPlayerScreen(
     DisposableEffect(Unit) {
         onDispose {
             if (visualizerOn) viewModel.audioEffects.stopVisualizer()
-            viewModel.saveProgressNow()
         }
     }
 
