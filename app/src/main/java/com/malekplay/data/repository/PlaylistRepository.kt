@@ -39,9 +39,8 @@ class PlaylistRepository @Inject constructor(
     suspend fun rename(playlistId: String, name: String) = withContext(Dispatchers.IO) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return@withContext
-        playlistDao.upsertPlaylist(
-            PlaylistEntity(playlistId = playlistId, name = trimmed)
-        )
+        val existing = playlistDao.getPlaylist(playlistId) ?: return@withContext
+        playlistDao.upsertPlaylist(existing.copy(name = trimmed))
     }
 
     suspend fun delete(playlistId: String) = withContext(Dispatchers.IO) {
