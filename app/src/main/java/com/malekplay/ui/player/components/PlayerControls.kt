@@ -79,31 +79,20 @@ fun PlayerRoundButton(
     active: Boolean = false,
     label: String? = null
 ) {
-    Surface(
-        modifier = modifier
-            .size(42.dp)
+    Box(
+        modifier = modifier.size(42.dp)
+            .shadow(if (active) 15.dp else 7.dp, CircleShape,
+                ambientColor = PlayerChrome.ProgressGlow, spotColor = PlayerChrome.ProgressGlow)
+            .clip(CircleShape)
+            .background(if (active) Brush.linearGradient(
+                listOf(Color(0xFF7E22CE), PlayerChrome.ProgressActive, Color(0xFFC084FC))
+            ) else Brush.verticalGradient(listOf(Color(0xE82A2038), PlayerChrome.Surface)))
+            .border(1.dp, if (active) Color.White.copy(.42f) else PlayerChrome.ProgressGlow.copy(.65f), CircleShape)
             .clickable(onClick = onClick),
-        shape = CircleShape,
-        color = if (active) PlayerChrome.ProgressActive
-        else PlayerChrome.SurfaceStrong
+        contentAlignment = Alignment.Center
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            if (label != null) {
-                Text(
-                    text = label,
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    maxLines = 1
-                )
-            } else {
-                Icon(
-                    icon,
-                    contentDescription = contentDescription,
-                    tint = Color.White,
-                    modifier = Modifier.size(21.dp)
-                )
-            }
-        }
+        if (label != null) Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        else Icon(icon, contentDescription = contentDescription, tint = Color.White, modifier = Modifier.size(21.dp))
     }
 }
 
@@ -323,37 +312,26 @@ fun PlayerMainControls(
     onLock: () -> Unit
 ) {
     Row(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 9.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(Brush.verticalGradient(listOf(Color(0xD9231A31), Color(0xE8100D17))))
+            .border(1.dp, PlayerChrome.ProgressGlow.copy(.55f), RoundedCornerShape(28.dp))
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        IconButton(onClick = onLock) {
-            Icon(Icons.Filled.Lock, contentDescription = stringResource(R.string.player_lock), tint = Color.White)
-        }
+        PlayerRoundButton(Icons.Filled.Lock, stringResource(R.string.player_lock), onLock)
         Spacer(Modifier.weight(1f))
-        IconButton(onClick = onPrevious, enabled = hasPrevious) {
-            Icon(Icons.Filled.SkipPrevious, contentDescription = stringResource(R.string.player_previous),
-                tint = if (hasPrevious) Color.White else Color.Gray)
-        }
-        IconButton(onClick = onPlayPause, modifier = Modifier.size(64.dp)) {
-            Icon(
-                if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = if (isPlaying) stringResource(R.string.player_pause)
-                else stringResource(R.string.player_play),
-                tint = Color.White,
-                modifier = Modifier.size(38.dp)
-            )
-        }
-        IconButton(onClick = onNext, enabled = hasNext) {
-            Icon(Icons.Filled.SkipNext, contentDescription = stringResource(R.string.player_next),
-                tint = if (hasNext) Color.White else Color.Gray)
-        }
+        PlayerRoundButton(Icons.Filled.SkipPrevious, stringResource(R.string.player_previous), onPrevious)
+        PlayerRoundButton(
+            icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+            contentDescription = if (isPlaying) stringResource(R.string.player_pause) else stringResource(R.string.player_play),
+            onClick = onPlayPause, modifier = Modifier.size(66.dp), active = true
+        )
+        PlayerRoundButton(Icons.Filled.SkipNext, stringResource(R.string.player_next), onNext)
         Spacer(Modifier.weight(1f))
-        IconButton(onClick = onQueue) {
-            Icon(Icons.Filled.QueueMusic, contentDescription = stringResource(R.string.lib_playlists), tint = Color.White)
-        }
-        IconButton(onClick = onPip) {
-            Icon(Icons.Filled.PictureInPicture, contentDescription = stringResource(R.string.player_pip), tint = Color.White)
-        }
+        PlayerRoundButton(Icons.Filled.QueueMusic, stringResource(R.string.lib_playlists), onQueue)
+        PlayerRoundButton(Icons.Filled.PictureInPicture, stringResource(R.string.player_pip), onPip)
     }
 }
 
@@ -428,9 +406,11 @@ fun SeekPulse(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier
-            .background(PlayerChrome.Surface, RoundedCornerShape(50))
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = modifier.shadow(18.dp, CircleShape, ambientColor = PlayerChrome.ProgressGlow, spotColor = PlayerChrome.ProgressGlow)
+            .clip(CircleShape)
+            .background(Brush.horizontalGradient(listOf(Color(0xE82B1A3C), Color(0xE8121019))))
+            .border(1.dp, PlayerChrome.ProgressGlow, CircleShape)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (!isForward) {
