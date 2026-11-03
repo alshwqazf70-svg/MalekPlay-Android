@@ -2,6 +2,7 @@ package com.malekplay.network
 
 import net.schmizz.sshj.SSHClient
 import java.io.File
+import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -9,7 +10,7 @@ import kotlinx.coroutines.withContext
  * SFTP listing that refuses connections without an explicitly supplied known_hosts file.
  * No permissive host-key verifier is installed.
  */
-class SftpClient {
+class SftpClient @Inject constructor() {
     suspend fun list(
         host: String,
         port: Int,

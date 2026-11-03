@@ -3,6 +3,9 @@
 package com.malekplay.ui.network
 
 import android.net.Uri
+import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -66,14 +69,17 @@ import com.malekplay.network.NetworkProfile
 import com.malekplay.network.NetworkProfileStore
 import com.malekplay.network.NetworkProtocol
 import com.malekplay.network.SmbClient
+import com.malekplay.network.SftpClient
 import com.malekplay.network.WebDavClient
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 
@@ -91,7 +97,9 @@ class NetworkViewModel @Inject constructor(
     private val profileStore: NetworkProfileStore,
     private val credentialVault: NetworkCredentialVault,
     private val webDavClient: WebDavClient,
-    private val smbClient: SmbClient
+    private val smbClient: SmbClient,
+    private val sftpClient: SftpClient,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _profiles = MutableStateFlow<List<NetworkProfile>>(emptyList())
@@ -120,7 +128,8 @@ class NetworkViewModel @Inject constructor(
         password: String,
         share: String,
         path: String,
-        displayName: String
+        displayName: String,
+        knownHostsUri: Uri? = null
     ) {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
@@ -146,6 +155,23 @@ class NetworkViewModel @Inject constructor(
                         rootPath = root,
                         displayName = displayName.trim().ifBlank { cleanHost }
                     )
+                    if (protocol == NetworkProtocol.SFTP) {
+                        val sourceUri = requireNotNull(knownHostsUri) {
+                            "اختر ملف known_hosts موثوقاً قبل حفظ مصدر SFTP"
+                        }
+                        val directory = File(context.filesDir, "network/known_hosts")
+                        check(directory.exists() || directory.mkdirs()) { "تعذر إنشاء مجلد مفاتيح SFTP" }
+                        val destination = File(directory, id)
+                        val temporary = File(directory, "$id.tmp")
+                        val input = context.contentResolver.openInputStream(sourceUri)
+                            ?: error("تعذر قراءة ملف known_hosts")
+                        input.use { stream -> temporary.outputStream().use { output -> stream.copyTo(output) } }
+                        require(temporary.length() in 1..1_000_000L) { "ملف known_hosts فارغ أو أكبر من الحد المسموح" }
+                        if (!temporary.renameTo(destination)) {
+                            temporary.copyTo(destination, overwrite = true)
+                            temporary.delete()
+                        }
+                    }
                     credentialVault.save(id, username.trim(), password)
                     profileStore.save(profile)
                 }
@@ -159,6 +185,7 @@ class NetworkViewModel @Inject constructor(
             withContext(Dispatchers.IO) {
                 runCatching { credentialVault.remove(profile.id) }
                 runCatching { profileStore.remove(profile.id) }
+                runCatching { File(context.filesDir, "network/known_hosts/${profile.id}").delete() }
             }
             if (_browse.value.profileId == profile.id) _browse.value = BrowseUiState()
             reload()
@@ -191,8 +218,13 @@ class NetworkViewModel @Inject constructor(
                             password = password
                         )
                     }
-                    NetworkProtocol.SFTP -> error(
-                        "يتطلب SFTP استيراد ملف known_hosts موثوقاً قبل الاتصال"
+                    NetworkProtocol.SFTP -> sftpClient.list(
+                        host = profile.host,
+                        port = profile.port,
+                        username = username,
+                        password = password,
+                        remotePath = target,
+                        knownHostsFile = File(context.filesDir, "network/known_hosts/${profile.id}")
                     )
                 }
             }
@@ -289,9 +321,9 @@ fun NetworkScreen(
     if (showAddDialog) {
         AddSourceDialog(
             onDismiss = { showAddDialog = false },
-            onSave = { protocol, host, port, username, password, share, path, name ->
+            onSave = { protocol, host, port, username, password, share, path, name, knownHostsUri ->
                 showAddDialog = false
-                viewModel.saveSource(protocol, host, port, username, password, share, path, name)
+                viewModel.saveSource(protocol, host, port, username, password, share, path, name, knownHostsUri)
             }
         )
     }
@@ -561,7 +593,8 @@ private fun AddSourceDialog(
         password: String,
         share: String,
         path: String,
-        displayName: String
+        displayName: String,
+        knownHostsUri: Uri?
     ) -> Unit
 ) {
     val protocols = NetworkProtocol.entries.toList()
@@ -573,6 +606,11 @@ private fun AddSourceDialog(
     var share by remember { mutableStateOf("") }
     var path by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
+    var knownHostsUri by remember { mutableStateOf<Uri?>(null) }
+    val knownHostsPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { knownHostsUri = it }
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -647,6 +685,20 @@ private fun AddSourceDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (protocols[protocolIndex] == NetworkProtocol.SFTP) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { knownHostsPicker.launch(arrayOf("text/plain", "application/octet-stream", "*/*")) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(knownHostsUri?.lastPathSegment ?: "اختيار ملف known_hosts موثوق")
+                    }
+                    Text(
+                        text = "يتم نسخ المفتاح إلى مساحة التطبيق الخاصة، ولا يتم تعطيل التحقق من هوية الخادم.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 if (protocols[protocolIndex] == NetworkProtocol.SMB) {
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
@@ -683,7 +735,7 @@ private fun AddSourceDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = host.isNotBlank(),
+                enabled = host.isNotBlank() && (protocols[protocolIndex] != NetworkProtocol.SFTP || knownHostsUri != null),
                 onClick = {
                     onSave(
                         protocols[protocolIndex],
@@ -693,7 +745,8 @@ private fun AddSourceDialog(
                         password,
                         share,
                         path,
-                        displayName
+                        displayName,
+                        knownHostsUri
                     )
                 }
             ) {
