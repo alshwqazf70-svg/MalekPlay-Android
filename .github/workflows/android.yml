@@ -74,6 +74,21 @@ jobs:
             app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
           if-no-files-found: warn
 
+      - name: Run Android UI smoke tests on emulator
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          script: |
+            gradle --no-daemon :app:connectedDebugAndroidTest
+            adb shell monkey -p com.malekplay -c android.intent.category.LAUNCHER 1
+            sleep 5
+            mkdir -p artifacts
+            adb shell screencap -p /sdcard/malekplay-home.png
+            adb pull /sdcard/malekplay-home.png artifacts/malekplay-home.png
+
       - name: Upload emulator home screenshot
         if: always()
         uses: actions/upload-artifact@v4

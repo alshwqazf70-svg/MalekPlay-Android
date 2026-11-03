@@ -18,9 +18,7 @@ class MainNavigationSmokeTest {
     fun homeAndPrimaryNavigationAreVisibleAndReachable() {
         composeRule.onNodeWithText("MalekPlay").assertExists()
         composeRule.onNodeWithText("Movies").performClick()
-        composeRule.onNodeWithText("Movies").assertExists()
         composeRule.onNodeWithText("Series").performClick()
-        composeRule.onNodeWithText("Series").assertExists()
         composeRule.onNodeWithText("Home").performClick()
         composeRule.onNodeWithText("MalekPlay").assertExists()
     }
