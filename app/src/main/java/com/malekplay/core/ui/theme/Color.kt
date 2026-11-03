@@ -18,9 +18,9 @@ object MalekPlayColors {
 
     /** Accent choices offered in Settings, keyed by stable id. */
     val Accents = listOf(
+        "amethyst" to Amethyst,
         "emerald" to Emerald,
         "sapphire" to Sapphire,
-        "amethyst" to Amethyst,
         "ruby" to Ruby,
         "amber" to Amber,
         "teal" to Teal,
@@ -28,7 +28,7 @@ object MalekPlayColors {
         "lime" to Lime
     )
 
-    fun accentFor(id: String): Color = Accents.firstOrNull { it.first == id }?.second ?: Emerald
+    fun accentFor(id: String): Color = Accents.firstOrNull { it.first == id }?.second ?: Amethyst
 }
 
 /** Pure black surfaces used by the AMOLED theme to save power on OLED panels. */
