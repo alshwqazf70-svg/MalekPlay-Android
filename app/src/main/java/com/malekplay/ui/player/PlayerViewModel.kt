@@ -146,7 +146,6 @@ class PlayerViewModel @Inject constructor(
     private var progressSaveJob: Job? = null
     private var lastGroups: List<Tracks.Group> = emptyList()
     private var currentMediaId: String? = null
-    private var lastCountedMediaId: String? = null
 
     // ---------------------------------------------------------- lifecycle
 
@@ -189,7 +188,7 @@ class PlayerViewModel @Inject constructor(
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _isPlaying.value = isPlaying
-            if (isPlaying) markCurrentMediaPlayed()
+            if (isPlaying) saveProgressNow()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -232,8 +231,7 @@ class PlayerViewModel @Inject constructor(
             // The player already points at the new item here. Do not save its
             // position under the previous item's id.
             currentMediaId = mediaItem?.mediaId
-            lastCountedMediaId = null
-            if (_controller.value?.isPlaying == true) markCurrentMediaPlayed()
+            if (_controller.value?.isPlaying == true) saveProgressNow()
             _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
             _queueSize.value = _controller.value?.mediaItemCount ?: 0
             viewModelScope.launch {
@@ -310,7 +308,6 @@ class PlayerViewModel @Inject constructor(
         val safeIndex = startIndex.coerceIn(0, items.lastIndex)
         _queue.value = items
         currentMediaId = items[safeIndex].id
-        lastCountedMediaId = null
         _playerError.value = null
         player.setMediaItems(items.map { it.toMedia3Item() }, safeIndex, startPositionMs.coerceAtLeast(0L))
         player.shuffleModeEnabled = shuffle
@@ -577,13 +574,6 @@ class PlayerViewModel @Inject constructor(
     }
 
     // -------------------------------------------------------------- progress
-
-    private fun markCurrentMediaPlayed() {
-        val mediaId = currentMediaId ?: _controller.value?.currentMediaItem?.mediaId ?: return
-        if (lastCountedMediaId == mediaId) return
-        lastCountedMediaId = mediaId
-        saveProgressNow(markPlayed = true)
-    }
 
     fun saveProgressNow(markPlayed: Boolean = false) {
         val player = _controller.value ?: return
