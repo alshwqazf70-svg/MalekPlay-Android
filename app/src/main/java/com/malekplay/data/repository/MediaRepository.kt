@@ -218,8 +218,12 @@ class MediaRepository @Inject constructor(
         withContext(Dispatchers.IO) { mediaDao.getMedia(mediaId)?.media?.toDomain() }
 
     suspend fun getMediaList(ids: List<String>) = withContext(Dispatchers.IO) {
-        val rows = mediaDao.getMediaList(ids)
-        val order = ids.withIndex().associate { it.value to it.index }
-        rows.map { it.media.toDomain() }.sortedBy { order[it.id] ?: Int.MAX_VALUE }
+        if (ids.isEmpty()) return@withContext emptyList()
+        // Keep each query below SQLite's bind-variable limit, then rebuild the
+        // exact requested order (including intentionally repeated queue entries).
+        val rowsById = ids.distinct().chunked(900)
+            .flatMap { mediaDao.getMediaList(it) }
+            .associateBy { it.media.mediaId }
+        ids.mapNotNull { id -> rowsById[id]?.media?.toDomain() }
     }
 }
