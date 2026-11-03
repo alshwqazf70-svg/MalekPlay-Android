@@ -18,6 +18,24 @@ interface PlaylistDao {
     @Upsert
     suspend fun upsertItems(items: List<PlaylistItemEntity>)
 
+    @Upsert
+    suspend fun upsertPlaylists(playlists: List<PlaylistEntity>)
+
+    @Query("DELETE FROM playlist_items")
+    suspend fun clearAllItems()
+
+    @Query("DELETE FROM playlists")
+    suspend fun clearAllPlaylists()
+
+    /** Replaces playlist data atomically so repeated restores cannot duplicate lists. */
+    @Transaction
+    suspend fun replaceAll(playlists: List<PlaylistEntity>, items: List<PlaylistItemEntity>) {
+        clearAllItems()
+        clearAllPlaylists()
+        if (playlists.isNotEmpty()) upsertPlaylists(playlists)
+        if (items.isNotEmpty()) upsertItems(items)
+    }
+
     @Query("SELECT * FROM playlists WHERE playlistId = :playlistId LIMIT 1")
     suspend fun getPlaylist(playlistId: String): PlaylistEntity?
 
