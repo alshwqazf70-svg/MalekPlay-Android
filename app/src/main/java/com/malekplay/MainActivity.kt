@@ -59,7 +59,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // Re-deliver a file picked while the app was already running.
+        // Keep Activity.intent in sync: recreate()/onCreate must see the new URI.
+        setIntent(intent)
         if (intent.action == Intent.ACTION_VIEW) {
             externalUri = intent.data
             recreate()
@@ -67,10 +68,9 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Asks for the two dangerous permissions the player cannot work without:
-     * notifications (Android 13+) so the media session keeps a visible,
-     * controllable foreground notification, and microphone capture which the
-     * audio visualizer needs to read the waveform.
+     * Notifications are requested on Android 13+ for the media-session
+     * notification. Microphone access is optional and only used by the
+     * visualizer; playback must remain usable when it is denied.
      */
     private fun requestRuntimePermissions() {
         val needed = buildList {
@@ -89,7 +89,7 @@ class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { /* Denied states are handled lazily: the visualizer degrades to a flat wave. */ }
+    ) { /* Optional features degrade gracefully when permission is denied. */ }
 
     private fun requestPictureInPicture(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
