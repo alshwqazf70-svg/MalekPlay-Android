@@ -75,7 +75,7 @@ data class PlayerSettings(
 
     // Library
     val sortMode: SortMode = SortMode.NEWEST,
-    val viewMode: ViewMode = ViewMode.LIST
+    val viewMode: ViewMode = ViewMode.GRID
 ) {
     val subtitleColorInt: Int get() = (subtitleColor and 0xFFFFFFFFL).toInt()
 }

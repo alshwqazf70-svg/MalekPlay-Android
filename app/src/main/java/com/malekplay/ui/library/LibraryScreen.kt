@@ -121,7 +121,7 @@ fun LibraryScreen(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(folder?.name ?: "مكتبتي", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("\${videos.size} فيديو  •  \${folders.size} مجلد", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.bodySmall)
+                    Text("${videos.size} فيديو  •  ${folders.size} مجلد", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.bodySmall)
                 }
                 if (folder != null || searching) {
                     HeaderAction(Icons.AutoMirrored.Filled.ArrowBack, "رجوع") {
@@ -211,7 +211,7 @@ fun LibraryScreen(
                     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("تصفح المجلدات", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.weight(1f))
-                        Text("\${folders.size} مجلد", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                        Text("${folders.size} مجلد", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
                     }
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 9.dp),
@@ -310,7 +310,7 @@ private fun FolderTile(folder: MediaFolder, onClick: () -> Unit) {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(folder.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("\${folder.videoCount} فيديو • \${folder.audioCount} صوت", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+            Text("${folder.videoCount} فيديو • ${folder.audioCount} صوت", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
         }
     }
 }
@@ -340,9 +340,9 @@ private fun PremiumVideoRow(item: LibraryItem, onClick: () -> Unit) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(item.media.displayTitle, color = Color.White, style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("\${formatDuration(item.media.durationMs)}  •  \${formatFileSize(item.media.sizeBytes)}",
+            Text("${formatDuration(item.media.durationMs)}  •  ${formatFileSize(item.media.sizeBytes)}",
                 color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
-            if (item.isInProgress) Text("متابعة المشاهدة • \${(item.fraction * 100).toInt()}%",
+            if (item.isInProgress) Text("متابعة المشاهدة • ${(item.fraction * 100).toInt()}%",
                 color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             else if (item.isCompleted) Text("تمت المشاهدة", color = MalekPlayColors.Emerald, style = MaterialTheme.typography.labelSmall)
         }
