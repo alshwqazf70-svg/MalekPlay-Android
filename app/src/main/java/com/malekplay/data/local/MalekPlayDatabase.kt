@@ -51,10 +51,9 @@ abstract class MalekPlayDatabase : RoomDatabase() {
                 MalekPlayDatabase::class.java,
                 "malekplay.db"
             )
-                // Schema 1 only ever existed in development builds and stored no
-                // user data that cannot be re-derived from MediaStore.
-                .fallbackToDestructiveMigrationOnDowngrade(false)
-                .fallbackToDestructiveMigration()
+                // Only the pre-release schema 1 database is allowed to be rebuilt.
+                // Never silently erase a schema 2 user's playlists or watch history.
+                .fallbackToDestructiveMigrationFrom(1)
                 .build()
     }
 }
