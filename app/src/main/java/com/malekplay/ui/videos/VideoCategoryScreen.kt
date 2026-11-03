@@ -16,6 +16,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -25,11 +28,13 @@ import com.malekplay.R
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.components.EmptyState
 import com.malekplay.ui.components.MediaListRow
+import com.malekplay.ui.components.PlaylistPickerDialog
 import com.malekplay.ui.library.LibraryViewModel
 
 @Composable
 fun VideoCategoryScreen(series: Boolean, onBack: () -> Unit, onOpenMedia: (MediaItem) -> Unit, viewModel: LibraryViewModel = hiltViewModel()) {
     val videos by viewModel.videos.collectAsStateWithLifecycle()
+    var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
     val title = stringResource(if (series) R.string.nav_series else R.string.nav_movies)
     val filtered = videos.filter { item ->
         val text = listOf(item.media.displayTitle, item.media.folderName, item.media.album.orEmpty()).joinToString(" ").lowercase()
@@ -46,9 +51,12 @@ fun VideoCategoryScreen(series: Boolean, onBack: () -> Unit, onOpenMedia: (Media
         } else {
             LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(filtered, key = { it.media.id }) { item ->
-                    MediaListRow(item, onPlay = { onOpenMedia(item.media) }, onFavourite = { viewModel.toggleFavourite(item.media.id) }, onAddToPlaylist = {})
+                    MediaListRow(item, onPlay = { onOpenMedia(item.media) }, onFavourite = { viewModel.toggleFavourite(item.media.id) }, onAddToPlaylist = { playlistTarget = item.media })
                 }
             }
         }
+    }
+    playlistTarget?.let { media ->
+        PlaylistPickerDialog(mediaId = media.id, onDismiss = { playlistTarget = null })
     }
 }

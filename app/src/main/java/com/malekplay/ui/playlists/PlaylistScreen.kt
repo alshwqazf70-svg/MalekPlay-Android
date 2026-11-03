@@ -116,7 +116,7 @@ class PlaylistViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { playlistRepository.removeMedia(playlistId.value, mediaId) }
                 .onSuccess { _operationError.value = null }
-                .onFailure { _operationError.value = it.localizedMessage }
+                .onFailure { _operationError.value = it.localizedMessage ?: "Playlist operation failed" }
         }
     }
 
@@ -124,7 +124,7 @@ class PlaylistViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { playlistRepository.rename(playlistId.value, name) }
                 .onSuccess { _operationError.value = null }
-                .onFailure { _operationError.value = it.localizedMessage }
+                .onFailure { _operationError.value = it.localizedMessage ?: "Playlist operation failed" }
         }
     }
 
@@ -132,7 +132,7 @@ class PlaylistViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { playlistRepository.delete(playlistId.value) }
                 .onSuccess { _operationError.value = null; onDeleted() }
-                .onFailure { _operationError.value = it.localizedMessage }
+                .onFailure { _operationError.value = it.localizedMessage ?: "Playlist operation failed" }
         }
     }
 }
