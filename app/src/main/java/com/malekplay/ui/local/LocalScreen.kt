@@ -129,8 +129,11 @@ fun LocalScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        hasPermission = MediaPermissions.isGranted(context)
-        if (hasPermission) viewModel.refresh()
+        val granted = MediaPermissions.isGranted(context)
+        if (granted != hasPermission) {
+            hasPermission = granted
+            if (granted) viewModel.refresh()
+        }
     }
 
     val filePicker = rememberLauncherForActivityResult(
