@@ -108,13 +108,19 @@ fun HomeScreen(
     val featured = continueWatching.firstOrNull() ?: videos.firstOrNull()
     val featuredIsResume = continueWatching.isNotEmpty()
 
+    val moviesLabel = stringResource(R.string.nav_movies)
+    val seriesLabel = stringResource(R.string.nav_series)
+    val libraryLabel = stringResource(R.string.nav_local)
+    val musicLabel = stringResource(R.string.nav_music)
+    val favouritesLabel = stringResource(R.string.nav_favourites)
+    val playlistsLabel = stringResource(R.string.nav_playlists)
     val actions = buildList {
-        onOpenMovies?.let { add(HomeAction(stringResource(R.string.nav_movies), Icons.Filled.Movie, it)) }
-        onOpenSeries?.let { add(HomeAction(stringResource(R.string.nav_series), Icons.Filled.Tv, it)) }
-        add(HomeAction(stringResource(R.string.nav_local), Icons.Filled.Folder, onOpenLibrary))
-        onOpenMusic?.let { add(HomeAction(stringResource(R.string.nav_music), Icons.Filled.MusicNote, it)) }
-        onOpenFavourites?.let { add(HomeAction(stringResource(R.string.nav_favourites), Icons.Filled.Favorite, it)) }
-        onOpenPlaylists?.let { add(HomeAction(stringResource(R.string.nav_playlists), Icons.Filled.PlaylistPlay, it)) }
+        onOpenMovies?.let { add(HomeAction(moviesLabel, Icons.Filled.Movie, it)) }
+        onOpenSeries?.let { add(HomeAction(seriesLabel, Icons.Filled.Tv, it)) }
+        add(HomeAction(libraryLabel, Icons.Filled.Folder, onOpenLibrary))
+        onOpenMusic?.let { add(HomeAction(musicLabel, Icons.Filled.MusicNote, it)) }
+        onOpenFavourites?.let { add(HomeAction(favouritesLabel, Icons.Filled.Favorite, it)) }
+        onOpenPlaylists?.let { add(HomeAction(playlistsLabel, Icons.Filled.PlaylistPlay, it)) }
     }
 
     Box(
