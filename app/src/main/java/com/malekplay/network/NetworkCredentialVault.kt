@@ -42,7 +42,7 @@ class NetworkCredentialVault(context: Context) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
         val decoded = String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
-        val separator = decoded.indexOf('\\u0000')
+        val separator = decoded.indexOf('\u0000')
         if (separator < 0) return@runCatching null
         decoded.substring(0, separator) to decoded.substring(separator + 1)
     }.getOrNull()
