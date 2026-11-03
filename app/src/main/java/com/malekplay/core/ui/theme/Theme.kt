@@ -40,24 +40,24 @@ private fun lightScheme(seed: Color): ColorScheme = lightColorScheme(
 
 private fun darkScheme(seed: Color): ColorScheme = darkColorScheme(
     primary = seed,
-    onPrimary = Color(0xFF003327),
+    onPrimary = Color(0xFF160A24),
     primaryContainer = seed.copy(alpha = 0.20f),
     onPrimaryContainer = seed,
     secondary = seed,
-    onSecondary = Color(0xFF003327),
+    onSecondary = Color(0xFF160A24),
     secondaryContainer = seed.copy(alpha = 0.18f),
     onSecondaryContainer = seed,
     tertiary = seed,
-    background = Color(0xFF0E1513),
-    onBackground = Color(0xFFE3EDEC),
-    surface = Color(0xFF141C1A),
-    onSurface = Color(0xFFE3EDEC),
-    surfaceVariant = Color(0xFF1E2825),
-    onSurfaceVariant = Color(0xFFB6C6C0),
-    surfaceContainer = Color(0xFF18211F),
-    surfaceContainerHigh = Color(0xFF222C29),
-    outline = Color(0xFF37443F),
-    outlineVariant = Color(0xFF2A352F)
+    background = Color(0xFF08060D),
+    onBackground = Color(0xFFF1EAFB),
+    surface = Color(0xFF0D0A14),
+    onSurface = Color(0xFFF1EAFB),
+    surfaceVariant = Color(0xFF1A1423),
+    onSurfaceVariant = Color(0xFFBDB0CF),
+    surfaceContainer = Color(0xFF120D1B),
+    surfaceContainerHigh = Color(0xFF1B1427),
+    outline = Color(0xFF4A365F),
+    outlineVariant = Color(0xFF30233F)
 )
 
 /** True black variant: same hues as dark but with OLED-friendly surfaces. */
@@ -65,20 +65,20 @@ private fun amoledScheme(seed: Color): ColorScheme {
     val base = darkScheme(seed)
     return base.copy(
         background = AmoledColors.Background,
-        onBackground = Color(0xFFE3EDEC),
+        onBackground = Color(0xFFF1EAFB),
         surface = AmoledColors.Surface,
-        onSurface = Color(0xFFE6EFED),
+        onSurface = Color(0xFFF1EAFB),
         surfaceVariant = AmoledColors.SurfaceVariant,
-        onSurfaceVariant = Color(0xFFB0C0BA),
+        onSurfaceVariant = Color(0xFFBDB0CF),
         surfaceContainer = AmoledColors.SurfaceContainer,
         surfaceContainerHigh = AmoledColors.SurfaceContainerHigh,
-        surfaceContainerLow = Color(0xFF0A0A0A),
+        surfaceContainerLow = Color(0xFF05030A),
         surfaceContainerLowest = Color(0xFF000000),
-        surfaceContainerHighest = Color(0xFF1E1E1E),
-        surfaceBright = Color(0xFF1A1A1A),
+        surfaceContainerHighest = Color(0xFF21172F),
+        surfaceBright = Color(0xFF241A32),
         surfaceDim = Color(0xFF000000),
         outline = AmoledColors.Outline,
-        outlineVariant = Color(0xFF1E1E1E)
+        outlineVariant = Color(0xFF241A32)
     )
 }
 
