@@ -147,9 +147,8 @@ class MediaRepository @Inject constructor(
         speed: Float,
         markPlayed: Boolean
     ) = withContext(Dispatchers.IO) {
-        val existing = mediaDao.getProgress(mediaId)
         val completed = durationMs > 0L && positionMs >= durationMs - 2_000L
-        mediaDao.upsertProgress(
+        mediaDao.saveProgressAtomic(
             PlaybackProgressEntity(
                 mediaId = mediaId,
                 positionMs = if (completed) 0L else positionMs.coerceAtLeast(0L),
@@ -157,8 +156,9 @@ class MediaRepository @Inject constructor(
                 playbackSpeed = speed.coerceIn(0.25f, 4f),
                 isCompleted = completed,
                 lastPlayedAtMs = System.currentTimeMillis(),
-                playCount = (existing?.playCount ?: 0) + if (markPlayed) 1 else 0
-            )
+                playCount = 0 // Assigned atomically by MediaDao.saveProgressAtomic.
+            ),
+            markPlayed = markPlayed
         )
         if (markPlayed) recordHistory(mediaId)
     }
