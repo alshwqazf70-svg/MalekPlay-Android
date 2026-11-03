@@ -213,7 +213,7 @@ fun PlaylistScreen(
                 .padding(contentPadding)
         ) {
             if (operationError != null) {
-                Text(stringResource(R.string.playlist_operation_failed), color = MaterialTheme.colorScheme.error, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp))
+                Text(operationError ?: stringResource(R.string.playlist_operation_failed), color = MaterialTheme.colorScheme.error, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp))
             }
             if (tracks.isEmpty()) {
                 Column(

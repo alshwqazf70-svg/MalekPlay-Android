@@ -53,11 +53,11 @@ class PlaylistLibraryViewModel @Inject constructor(
     val playlists: StateFlow<List<PlaylistWithItems>> = repository.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun create(name: String, onCreated: (String) -> Unit, onError: () -> Unit) {
+    fun create(name: String, onCreated: (String) -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch {
             runCatching { repository.create(name) }
                 .onSuccess(onCreated)
-                .onFailure { onError() }
+                .onFailure { onError(it.localizedMessage ?: "تعذر إنشاء قائمة التشغيل") }
         }
     }
 }
@@ -69,11 +69,11 @@ fun PlaylistLibraryScreen(onOpenPlaylist: (String) -> Unit) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     var showCreate by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
-    var createError by remember { mutableStateOf(false) }
+    var createError by remember { mutableStateOf<String?>(null) }
     Scaffold(
         topBar = { TopAppBar(title = { Text("قوائم التشغيل") }) },
         floatingActionButton = {
-            Button(onClick = { name = ""; createError = false; showCreate = true }) {
+            Button(onClick = { name = ""; createError = null; showCreate = true }) {
                 Icon(Icons.Filled.Add, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("إنشاء قائمة جديدة")
@@ -107,12 +107,12 @@ fun PlaylistLibraryScreen(onOpenPlaylist: (String) -> Unit) {
             text = {
                 Column {
                     OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("اسم القائمة") }, singleLine = true)
-                    if (createError) Text("تعذر إنشاء القائمة. تحقق من الاسم وحاول مجدداً.", color = MaterialTheme.colorScheme.error)
+                    createError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.create(name, onCreated = { id -> showCreate = false; onOpenPlaylist(id) }, onError = { createError = true })
+                    viewModel.create(name, onCreated = { id -> showCreate = false; onOpenPlaylist(id) }, onError = { createError = it })
                 }, enabled = name.isNotBlank()) { Text("إنشاء") }
             },
             dismissButton = { TextButton(onClick = { showCreate = false }) { Text("إلغاء") } }
