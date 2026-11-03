@@ -1,5 +1,3 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
-
 package com.malekplay.ui.player.audio
 
 import android.Manifest
@@ -92,7 +90,7 @@ import com.malekplay.ui.player.components.SpeedPickerDialog
 import com.malekplay.ui.player.components.StatsSheet
 import com.malekplay.ui.settings.SettingsViewModel
 
-@OptIn(UnstableApi::class)
+@UnstableApi
 @Composable
 fun AudioPlayerScreen(
     mediaId: String,
