@@ -46,6 +46,7 @@ class NetworkMediaDataSource(
     private var currentUri: Uri? = null
     private var opened = false
     private var fileLength = C.LENGTH_UNSET.toLong()
+    private var bytesRemaining = C.LENGTH_UNSET.toLong()
     private var position = 0L
 
     private var smbClient: SMBClient? = null
@@ -79,6 +80,9 @@ class NetworkMediaDataSource(
                 "مسار الملف غير صالح"
             }
             require(dataSpec.position >= 0L) { "موضع القراءة غير صالح" }
+            require(dataSpec.length == C.LENGTH_UNSET.toLong() || dataSpec.length > 0L) {
+                "طول القراءة غير صالح"
+            }
 
             when (profile.protocol) {
                 NetworkProtocol.SMB -> openSmb(profile, credentials.first, credentials.second, segments)
@@ -88,9 +92,14 @@ class NetworkMediaDataSource(
 
             if (dataSpec.position > fileLength) throw EOFException("موضع القراءة يتجاوز حجم الملف")
             position = dataSpec.position
+            bytesRemaining = if (dataSpec.length == C.LENGTH_UNSET.toLong()) {
+                (fileLength - position).coerceAtLeast(0L)
+            } else {
+                minOf((fileLength - position).coerceAtLeast(0L), dataSpec.length)
+            }
             opened = true
             transferStarted(dataSpec)
-            return (fileLength - position).coerceAtLeast(0L)
+            return bytesRemaining
         } catch (error: Throwable) {
             close()
             if (error is IOException) throw error
@@ -155,9 +164,8 @@ class NetworkMediaDataSource(
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
         if (!opened) throw IOException("مصدر الشبكة غير مفتوح")
-        val remaining = fileLength - position
-        if (remaining <= 0L) return C.RESULT_END_OF_INPUT
-        val requested = minOf(length.toLong(), remaining, MAX_READ_BYTES.toLong()).toInt()
+        if (bytesRemaining <= 0L) return C.RESULT_END_OF_INPUT
+        val requested = minOf(length.toLong(), bytesRemaining, MAX_READ_BYTES.toLong()).toInt()
         val count = when {
             smbFile != null -> smbFile!!.read(buffer, position, offset, requested)
             sftpFile != null -> sftpFile!!.read(position, buffer, offset, requested)
@@ -166,6 +174,7 @@ class NetworkMediaDataSource(
         if (count < 0) return C.RESULT_END_OF_INPUT
         if (count == 0) return 0
         position += count
+        bytesRemaining -= count
         bytesTransferred(count)
         return count
     }
