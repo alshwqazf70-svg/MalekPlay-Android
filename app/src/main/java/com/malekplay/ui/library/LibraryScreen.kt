@@ -6,11 +6,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
@@ -28,6 +33,9 @@ import com.malekplay.ui.components.MediaThumbnail
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaFolder
 import com.malekplay.domain.model.SortMode
+import com.malekplay.domain.model.ViewMode
+import com.malekplay.ui.components.MediaGridCard
+import com.malekplay.ui.components.PlaylistPickerDialog
 import kotlinx.coroutines.flow.Flow
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,6 +52,7 @@ fun LibraryScreen(
     var searchActive by remember { mutableStateOf(false) }
     var selectedFolder by remember { mutableStateOf<MediaFolder?>(null) }
     var showSortMenu by remember { mutableStateOf(false) }
+    var playlistTarget by remember { mutableStateOf<com.malekplay.domain.model.MediaItem?>(null) }
     val settings by viewModel.settings.collectAsState()
 
     val displayedFlow: Flow<List<LibraryItem>> = remember(searchQuery, searchActive, selectedFolder) {
@@ -109,6 +118,14 @@ fun LibraryScreen(
                         IconButton(onClick = { showSortMenu = true }) {
                             Icon(Icons.Default.Sort, contentDescription = "ترتيب")
                         }
+                        IconButton(onClick = {
+                            viewModel.setViewMode(if (settings.viewMode == ViewMode.GRID) ViewMode.LIST else ViewMode.GRID)
+                        }) {
+                            Icon(
+                                if (settings.viewMode == ViewMode.GRID) Icons.Default.ViewList else Icons.Default.GridView,
+                                contentDescription = "تغيير طريقة العرض"
+                            )
+                        }
                         IconButton(onClick = { viewModel.refresh() }) {
                             Icon(Icons.Default.Refresh, contentDescription = "تحديث")
                         }
@@ -169,14 +186,35 @@ fun LibraryScreen(
                     }
                 } else {
                     val sortedItems = viewModel.applySort(displayedItems, settings.sortMode)
-                    LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
-                        items(sortedItems, key = { it.media.id }) { item ->
-                            VideoItemRow(item = item, onClick = { onVideoClick(item) })
+                    if (settings.viewMode == ViewMode.GRID) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 148.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            gridItems(sortedItems, key = { it.media.id }) { item ->
+                                MediaGridCard(
+                                    item = item,
+                                    onPlay = { onVideoClick(item) },
+                                    onFavourite = { viewModel.toggleFavourite(item.media.id) },
+                                    onAddToPlaylist = { playlistTarget = item.media }
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+                            items(sortedItems, key = { it.media.id }) { item ->
+                                VideoItemRow(item = item, onClick = { onVideoClick(item) })
+                            }
                         }
                     }
                 }
             }
         }
+    }
+    playlistTarget?.let { media ->
+        PlaylistPickerDialog(mediaId = media.id, onDismiss = { playlistTarget = null })
     }
 }
 
