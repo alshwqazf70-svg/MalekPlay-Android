@@ -100,25 +100,32 @@ class MalekPlayBackupManager @Inject constructor(
                 if (value.length in 1..MAX_URI_LENGTH) add(value)
             }
         }
-        userDataRepository.replaceFavourites(favourites)
 
-        for (i in 0 until playlistsArray.length()) {
-            val item = playlistsArray.optJSONObject(i) ?: continue
-            val name = item.optString("name").trim()
-            if (name.isBlank()) continue
-            val mediaArray = item.optJSONArray("mediaIds") ?: JSONArray()
-            val mediaIds = buildList {
-                for (j in 0 until mediaArray.length()) {
-                    val value = mediaArray.optString(j)
-                    if (value.length in 1..MAX_URI_LENGTH) add(value)
-                }
-            }.distinct().take(MAX_PLAYLIST_ITEMS)
-            val id = playlistRepository.create(name)
-            playlistRepository.addMedia(id, mediaIds)
+        // Parse and validate every section before changing any existing user data.
+        val restoredPlaylists = buildList {
+            var totalItems = 0
+            for (i in 0 until playlistsArray.length()) {
+                val item = playlistsArray.optJSONObject(i) ?: continue
+                val name = item.optString("name").trim()
+                if (name.isBlank()) continue
+                val mediaArray = item.optJSONArray("mediaIds") ?: JSONArray()
+                val mediaIds = buildList {
+                    for (j in 0 until mediaArray.length()) {
+                        val value = mediaArray.optString(j)
+                        if (value.length in 1..MAX_URI_LENGTH) add(value)
+                    }
+                }.distinct().take(MAX_PLAYLIST_ITEMS)
+                totalItems += mediaIds.size
+                require(totalItems <= MAX_TOTAL_PLAYLIST_ITEMS) { "Too many playlist entries" }
+                add(name to mediaIds)
+            }
         }
-
         val settingsJson = root.optJSONObject("settings")
-        if (settingsJson != null) settingsRepository.restore(settingsFromJson(settingsJson))
+        val restoredSettings = settingsJson?.let(::settingsFromJson)
+
+        userDataRepository.replaceFavourites(favourites)
+        playlistRepository.replaceAll(restoredPlaylists)
+        if (restoredSettings != null) settingsRepository.restore(restoredSettings)
     }
 
     // ------------------------------------------------------------- settings IO
@@ -203,6 +210,7 @@ class MalekPlayBackupManager @Inject constructor(
         const val MAX_FAVOURITES = 20_000
         const val MAX_PLAYLISTS = 500
         const val MAX_PLAYLIST_ITEMS = 5_000
+        const val MAX_TOTAL_PLAYLIST_ITEMS = 50_000
         const val MAX_URI_LENGTH = 4096
     }
 }
