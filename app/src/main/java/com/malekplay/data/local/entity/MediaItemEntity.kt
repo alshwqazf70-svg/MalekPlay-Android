@@ -1,65 +1,42 @@
 package com.malekplay.data.local.entity
 
 import androidx.room.Entity
-import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * جدول الوسائط الرئيسي مع دعم تصنيف وفهرسة المجلدات كـ MX Player
+ * One row per media file discovered through MediaStore.
+ *
+ * `mediaId` is the stable MediaStore content Uri string, which doubles as the
+ * primary key and as the key used by every satellite table.
  */
 @Entity(
     tableName = "media_items",
     indices = [
-        Index(value = ["bucketId"]),
-        Index(value = ["isVideo"])
+        Index(value = ["folderPath"]),
+        Index(value = ["isVideo"]),
+        Index(value = ["addedAtMs"]),
+        Index(value = ["isVideo", "album"]),
+        Index(value = ["isVideo", "artist"])
     ]
 )
 data class MediaItemEntity(
     @PrimaryKey val mediaId: String,
     val title: String,
-    val duration: Long,
     val uri: String,
     val mimeType: String,
     val sizeBytes: Long,
-    val dateAdded: Long,
+    val durationMs: Long,
+    val addedAtMs: Long,
     val isVideo: Boolean,
-    val bucketId: String = "0",
-    val bucketName: String = "مجلدات أخرى",
-    val thumbnailPath: String? = null
-)
-
-@Entity(
-    tableName = "playback_states",
-    foreignKeys = [ForeignKey(
-        entity = MediaItemEntity::class,
-        parentColumns = ["mediaId"],
-        childColumns = ["mediaId"],
-        onDelete = ForeignKey.CASCADE
-    )],
-    indices = [Index(value = ["mediaId"])]
-)
-data class PlaybackStateEntity(
-    @PrimaryKey val mediaId: String,
-    val position: Long = 0L,
-    val playbackSpeed: Float = 1.0f,
-    val isCompleted: Boolean = false
-)
-
-@Entity(
-    tableName = "track_preferences",
-    foreignKeys = [ForeignKey(
-        entity = MediaItemEntity::class,
-        parentColumns = ["mediaId"],
-        childColumns = ["mediaId"],
-        onDelete = ForeignKey.CASCADE
-    )],
-    indices = [Index(value = ["mediaId"])]
-)
-data class TrackPreferenceEntity(
-    @PrimaryKey val mediaId: String,
-    val audioTrackId: String? = null,
-    val subtitleTrackId: String? = null,
-    val subtitleDelayMs: Long = 0L,
-    val isSubtitleEnabled: Boolean = true
+    val folderPath: String,
+    val folderName: String,
+    val artist: String?,
+    val album: String?,
+    val albumId: Long?,
+    val artistId: Long?,
+    val genre: String?,
+    val width: Int,
+    val height: Int,
+    val bitrate: Long
 )

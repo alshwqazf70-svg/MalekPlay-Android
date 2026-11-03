@@ -1,321 +1,125 @@
 package com.malekplay
 
 import android.Manifest
-import android.app.Activity
-import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.Saver
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
-import com.malekplay.domain.model.MediaWithDetails
-import com.malekplay.safety.ParentalControlManager
-import com.malekplay.ui.library.LibraryScreen
-import com.malekplay.ui.library.LibraryViewModel
-import com.malekplay.ui.network.NetworkSourcesDialog
-import com.malekplay.ui.player.PlayerScreen
-import com.malekplay.ui.settings.SettingsDialog
+import com.malekplay.core.ui.theme.MalekPlayTheme
+import com.malekplay.navigation.MalekPlayNavHost
+import com.malekplay.player.PipController
 import com.malekplay.ui.settings.SettingsViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
-private data class MediaEntry(
-    val uri: Uri,
-    val name: String,
-    val durationMs: Long,
-    val sizeBytes: Long,
-    val dateAdded: Long,
-    val isVideo: Boolean,
-    val bucketId: String = "0",
-    val bucketName: String = "مجلدات أخرى"
-)
-
-private val mediaEntrySaver = Saver<MediaEntry?, List<String>>(
-    save = { entry ->
-        if (entry == null) emptyList() else listOf(
-            entry.uri.toString(), entry.name, entry.durationMs.toString(),
-            entry.sizeBytes.toString(), entry.dateAdded.toString(), entry.isVideo.toString(),
-            entry.bucketId, entry.bucketName
-        )
-    },
-    restore = { values ->
-        if (values.size != 8) null else runCatching {
-            MediaEntry(
-                uri = Uri.parse(values[0]), name = values[1],
-                durationMs = values[2].toLongOrNull() ?: 0L,
-                sizeBytes = values[3].toLongOrNull() ?: 0L,
-                dateAdded = values[4].toLongOrNull() ?: 0L,
-                isVideo = values[5] == "true", bucketId = values[6], bucketName = values[7]
-            )
-        }.getOrNull()
-    }
-)
-
-@OptIn(UnstableApi::class)
+@UnstableApi
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var pipController: PipController
+
+    /** Media handed over by another app, or null for a normal launch. */
+    private var externalUri: Uri? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MalekPlayApp() }
-    }
-}
+        enableEdgeToEdge()
+        externalUri = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data
 
-private val MalekPlayLightColors = lightColorScheme(
-    primary = Color(0xFF176B5B),
-    onPrimary = Color.White,
-    secondary = Color(0xFFDAA84A),
-    background = Color(0xFFF8FAF9),
-    surface = Color.White,
-    onSurface = Color(0xFF17211F)
-)
+        pipController.bind { requestPictureInPicture() }
+        requestRuntimePermissions()
 
-private val MalekPlayDarkColors = darkColorScheme(
-    primary = Color(0xFF78C7B2),
-    onPrimary = Color(0xFF073B32),
-    secondary = Color(0xFFE5BD70),
-    background = Color(0xFF101715),
-    surface = Color(0xFF19231F),
-    onSurface = Color(0xFFE5EEE9)
-)
+        setContent {
+            val settingsViewModel: SettingsViewModel = hiltViewModel()
+            val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
 
-private fun hasMediaPermission(context: Context): Boolean {
-    return if (Build.VERSION.SDK_INT >= 33) {
-        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED ||
-        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
-    } else {
-        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-    }
-}
-
-private fun mediaPermissions(): Array<String> = when {
-    Build.VERSION.SDK_INT >= 34 -> arrayOf(
-        Manifest.permission.READ_MEDIA_VIDEO,
-        Manifest.permission.READ_MEDIA_AUDIO,
-        Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
-    )
-    Build.VERSION.SDK_INT >= 33 -> arrayOf(
-        Manifest.permission.READ_MEDIA_VIDEO,
-        Manifest.permission.READ_MEDIA_AUDIO
-    )
-    else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-}
-
-@OptIn(UnstableApi::class)
-@Composable
-private fun MalekPlayApp() {
-    val context = LocalContext.current
-    val libraryViewModel: LibraryViewModel = hiltViewModel()
-    val settingsViewModel: SettingsViewModel = hiltViewModel()
-    val playerSettings by settingsViewModel.settings.collectAsState()
-
-    var showSettings by remember { mutableStateOf(false) }
-    var showNetworkSources by remember { mutableStateOf(false) }
-    var childModeEnabled by remember(context) { mutableStateOf(ParentalControlManager(context).isEnabled) }
-    var permitted by remember { mutableStateOf(hasMediaPermission(context)) }
-
-    var selected by rememberSaveable(stateSaver = mediaEntrySaver) { mutableStateOf<MediaEntry?>(null) }
-    var queueUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var queueStartIndex by remember { mutableIntStateOf(0) }
-
-    var isFullscreen by rememberSaveable { mutableStateOf(false) }
-
-    val setFullscreen: (Boolean) -> Unit = { enabled ->
-        isFullscreen = enabled
-        val activity = context as? ComponentActivity
-        activity?.requestedOrientation = if (enabled) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        activity?.window?.let { window ->
-            val controller = WindowInsetsControllerCompat(window, window.decorView)
-            if (enabled) controller.hide(WindowInsetsCompat.Type.systemBars())
-            else controller.show(WindowInsetsCompat.Type.systemBars())
-        }
-    }
-
-    BackHandler(enabled = selected != null) {
-        selected = null
-        setFullscreen(false)
-    }
-
-    val permissionRequest = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) {
-        permitted = hasMediaPermission(context)
-        if (permitted) libraryViewModel.refresh()
-    }
-
-    LaunchedEffect(permitted) {
-        if (permitted) libraryViewModel.refresh()
-        else libraryViewModel.clearForPermissionDenied()
-    }
-
-    val systemDark = isSystemInDarkTheme()
-    val useDarkTheme = when (playerSettings.theme) {
-        "dark" -> true
-        "system" -> systemDark
-        else -> false
-    }
-
-    MaterialTheme(colorScheme = if (useDarkTheme) MalekPlayDarkColors else MalekPlayLightColors) {
-        if (showSettings) {
-            SettingsDialog(
-                settings = playerSettings,
-                onSettingsChange = settingsViewModel::update,
-                onChildModeChanged = { childModeEnabled = it },
-                onDismiss = { showSettings = false }
-            )
-        }
-
-        if (showNetworkSources) {
-            NetworkSourcesDialog(
-                onDismiss = { showNetworkSources = false },
-                onPlayNetworkMedia = { uri, title ->
-                    val networkEntry = MediaEntry(
-                        uri = uri,
-                        name = title,
-                        durationMs = 0L,
-                        sizeBytes = 0L,
-                        dateAdded = System.currentTimeMillis() / 1000L,
-                        isVideo = true
-                    )
-                    queueUris = listOf(uri)
-                    queueStartIndex = 0
-                    selected = networkEntry
-                    setFullscreen(true)
-                    showNetworkSources = false
-                }
-            )
-        }
-
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            when {
-                selected != null -> {
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-                        PlayerScreen(
-                            uri = selected!!.uri,
-                            isVideo = selected!!.isVideo,
-                            title = selected!!.name,
-                            queueUris = queueUris,
-                            startIndex = queueStartIndex,
-                            isFullscreen = isFullscreen,
-                            onToggleFullscreen = setFullscreen,
-                            resumePlayback = playerSettings.resumePlayback,
-                            defaultPlaybackSpeed = playerSettings.defaultPlaybackSpeed,
-                            rememberBrightness = playerSettings.rememberBrightness,
-                            subtitleSizeSp = playerSettings.subtitleSizeSp
-                        )
-                    }
-                }
-
-                !permitted -> {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            Icons.Default.VideoLibrary,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(64.dp)
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text("مرحباً بك في MalekPlay", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "نحتاج إذن الوصول إلى الوسائط لعرض ملفات الفيديو والمجلدات على جهازك.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 14.sp,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Button(onClick = { permissionRequest.launch(mediaPermissions()) }) {
-                            Text("منح الإذن الآن")
-                        }
-                    }
-                }
-
-                else -> {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primary) {
-                                Text(
-                                    "M",
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                                    color = Color.White,
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (!childModeEnabled) {
-                                    IconButton(onClick = { showNetworkSources = true }) {
-                                        Icon(Icons.Default.FolderOpen, "مصادر الشبكة", tint = MaterialTheme.colorScheme.primary)
-                                    }
-                                }
-                                IconButton(onClick = { showSettings = true }) {
-                                    Icon(Icons.Default.Settings, "الإعدادات", tint = MaterialTheme.colorScheme.primary)
-                                }
-                            }
-                        }
-
-                        LibraryScreen(
-                            viewModel = libraryViewModel,
-                            onVideoClick = { mediaWithDetails ->
-                                val media = mediaWithDetails.media
-                                val uri = Uri.parse(media.uri)
-                                val title = media.title
-                                val isVideo = media.isVideo
-
-                                queueUris = listOf(uri)
-                                queueStartIndex = 0
-                                selected = MediaEntry(
-                                    uri = uri,
-                                    name = title,
-                                    durationMs = media.duration,
-                                    sizeBytes = media.sizeBytes,
-                                    dateAdded = media.dateAdded,
-                                    isVideo = isVideo
-                                )
-                                setFullscreen(true)
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
+            MalekPlayTheme(
+                mode = settings.themeMode,
+                accent = settings.accent,
+                dynamicColor = settings.dynamicColor
+            ) {
+                MalekPlayNavHost(externalUri = externalUri)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Re-deliver a file picked while the app was already running.
+        if (intent.action == Intent.ACTION_VIEW) {
+            externalUri = intent.data
+            recreate()
+        }
+    }
+
+    /**
+     * Asks for the two dangerous permissions the player cannot work without:
+     * notifications (Android 13+) so the media session keeps a visible,
+     * controllable foreground notification, and microphone capture which the
+     * audio visualizer needs to read the waveform.
+     */
+    private fun requestRuntimePermissions() {
+        val needed = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) add(Manifest.permission.POST_NOTIFICATIONS)
+
+            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED
+            ) add(Manifest.permission.RECORD_AUDIO)
+        }
+        if (needed.isEmpty()) return
+        permissionLauncher.launch(needed.toTypedArray())
+    }
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { /* Denied states are handled lazily: the visualizer degrades to a flat wave. */ }
+
+    private fun requestPictureInPicture(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        val params = android.app.PictureInPictureParams.Builder()
+            .setAspectRatio(Rational(16, 9))
+            .build()
+        return runCatching {
+            enterPictureInPictureMode(params)
+            true
+        }.getOrDefault(false)
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        pipController.setInPip(isInPictureInPictureMode)
+    }
+
+    fun setOrientation(landscape: Boolean) {
+        requestedOrientation = if (landscape) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_USER
+        }
+    }
+
+    override fun onDestroy() {
+        pipController.unbind()
+        super.onDestroy()
     }
 }

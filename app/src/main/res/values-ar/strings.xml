@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MalekPlay</string>
+    <string name="app_tagline">مشغّل الوسائط الشامل</string>
+
+    <!-- Bottom navigation -->
+    <string name="nav_local">محلي</string>
+    <string name="nav_music">موسيقى</string>
+    <string name="nav_network">Transfer</string>
+    <string name="nav_profile">أنا</string>
+
+    <!-- Library -->
+    <string name="lib_title_folders">المجلدات</string>
+    <string name="lib_title_all">كل الوسائط</string>
+    <string name="lib_search_hint">ابحث عن فيديو أو أغنية أو مجلد…</string>
+    <string name="lib_empty_title">لم نعثر على ملفات وسائط</string>
+    <string name="lib_empty_body">افتح ملفاً أو حدّث المكتبة.</string>
+    <string name="lib_no_results">لا توجد نتائج مطابقة</string>
+    <string name="lib_no_results_body">جرّب كلمة بحث أخرى.</string>
+    <string name="lib_grant_title">اسمح بالوصول إلى الوسائط</string>
+    <string name="lib_grant_body">نحتاج الإذن لعرض ملفات الفيديو والصوت على جهازك.</string>
+    <string name="lib_grant_action">منح الإذن</string>
+    <string name="lib_file_count">%1$d ملف</string>
+    <string name="lib_video_count">%1$d ملف فيديو</string>
+    <string name="lib_audio_count">%1$d ملف صوتي</string>
+    <string name="lib_refresh">تحديث المكتبة</string>
+    <string name="lib_open_file">فتح ملف</string>
+    <string name="lib_view_grid">عرض شبكي</string>
+    <string name="lib_view_list">عرض قائمة</string>
+    <string name="lib_new_playlist">قائمة جديدة</string>
+    <string name="lib_playlists">قوائم التشغيل</string>
+    <string name="lib_add_to_playlist">إضافة إلى قائمة تشغيل</string>
+    <string name="lib_playlist_name">اسم القائمة</string>
+    <string name="lib_create">إنشاء</string>
+    <string name="lib_cancel">إلغاء</string>
+    <string name="lib_delete">حذف</string>
+    <string name="lib_rename">إعادة تسمية</string>
+    <string name="lib_empty_playlist">هذه القائمة فارغة</string>
+    <string name="lib_no_playlists">لم تنشئ أي قائمة تشغيل بعد</string>
+    <string name="lib_shuffle">تشغيل عشوائي</string>
+    <string name="lib_play_all">تشغيل الكل</string>
+    <string name="lib_add_favourite">إضافة إلى المفضلة</string>
+    <string name="lib_remove_favourite">إزالة من المفضلة</string>
+
+    <!-- Sort -->
+    <string name="sort_title">ترتيب حسب</string>
+    <string name="sort_newest">الأحدث أولاً</string>
+    <string name="sort_oldest">الأقدم أولاً</string>
+    <string name="sort_name">الاسم أبجدياً</string>
+    <string name="sort_duration">الأطول مدة</string>
+    <string name="sort_size">الأكبر حجماً</string>
+
+    <!-- Music -->
+    <string name="music_songs">الأغاني</string>
+    <string name="music_albums">الألبومات</string>
+    <string name="music_artists">الفنانون</string>
+    <string name="music_genres">التصنيفات</string>
+    <string name="music_unknown_artist">فنان غير معروف</string>
+    <string name="music_unknown_album">ألبوم غير معروف</string>
+    <string name="music_track_count">%1$d أغنية</string>
+    <string name="music_album_count">%1$d ألبوم</string>
+
+    <!-- Player: actions -->
+    <string name="player_lock">قفل عناصر التحكم</string>
+    <string name="player_unlock">فتح عناصر التحكم</string>
+    <string name="player_locked_hint">عناصر التحكم مقفلة — اضغط القفل للفتح</string>
+    <string name="player_play">تشغيل</string>
+    <string name="player_pause">إيقاف مؤقت</string>
+    <string name="player_next">التالي</string>
+    <string name="player_previous">السابق</string>
+    <string name="player_speed">السرعة</string>
+    <string name="player_sleep_timer">مؤقت النوم</string>
+    <string name="player_sleep_off">إيقاف بعد %1$d دقيقة</string>
+    <string name="player_sleep_minutes">إيقاف بعد %1$d دقيقة</string>
+    <string name="player_sleep_end_of_episode">نهاية الحلقة</string>
+    <string name="player_sleep_cancel">إلغاء المؤقت</string>
+    <string name="player_repeat">التكرار</string>
+    <string name="player_repeat_off">بدون تكرار</string>
+    <string name="player_repeat_one">تكرار المقطع</string>
+    <string name="player_repeat_all">تكرار الكل</string>
+    <string name="player_shuffle_on">التشغيل العشوائي مفعّل</string>
+    <string name="player_shuffle_off">التشغيل العشوائي متوقف</string>
+    <string name="player_pip">نافذة عائمة</string>
+    <string name="player_fullscreen">ملء الشاشة</string>
+    <string name="player_exit_fullscreen">تصغير</string>
+    <string name="player_audio_track">المسار الصوتي</string>
+    <string name="player_subtitle_track">الترجمة</string>
+    <string name="player_subtitle_off">إيقاف</string>
+    <string name="player_open_subtitle">فتح ملف ترجمة</string>
+    <string name="player_translate_subtitle">ترجمة للعربية</string>
+    <string name="player_translating">جارٍ الترجمة…</string>
+    <string name="player_translation_done">اكتملت الترجمة على الجهاز</string>
+    <string name="player_translation_failed">تعذرت الترجمة: %1$s</string>
+    <string name="player_chapters">الفصول</string>
+    <string name="player_bookmarks">العلامات</string>
+    <string name="player_add_bookmark">إضافة علامة</string>
+    <string name="player_aspect">نسبة العرض</string>
+    <string name="player_zoom">تكبير وتحريك</string>
+    <string name="player_rotate">تدوير</string>
+    <string name="player_screenshot">لقطة شاشة</string>
+    <string name="player_equalizer">المعادل</string>
+    <string name="player_ab_repeat">تكرار أ-ب</string>
+    <string name="player_ab_set_a">تعيين أ</string>
+    <string name="player_ab_set_b">تعيين ب</string>
+    <string name="player_ab_clear">إلغاء</string>
+    <string name="player_visualizer">الموج الصوتي</string>
+    <string name="player_audio_device">جهاز الصوت</string>
+    <string name="player_stats">معلومات التشغيل</string>
+    <string name="player_resume">الاستئناف من %1$s</string>
+    <string name="player_restart">التشغيل من البداية</string>
+    <string name="player_cast">البث</string>
+    <string name="player_more">المزيد</string>
+    <string name="player_hw">HW</string>
+    <string name="player_sw">SW</string>
+
+    <!-- Player: sub-menus -->
+    <string name="menu_subtitle_style">مظهر الترجمة</string>
+    <string name="menu_subtitle_size">حجم النص</string>
+    <string name="menu_subtitle_color">لون النص</string>
+    <string name="menu_subtitle_bg">الخلفية</string>
+    <string name="menu_subtitle_position">الموضع الرأسي</string>
+    <string name="menu_subtitle_delay">مزامنة الترجمة</string>
+    <string name="menu_subtitle_delay_label">%1$d مللي ثانية</string>
+    <string name="menu_gestures">إعدادات الإيماءات</string>
+    <string name="menu_audio_delay">مزامنة الصوت</string>
+
+    <!-- Stats -->
+    <string name="stats_decoder">فك الترميز</string>
+    <string name="stats_video">الفيديو</string>
+    <string name="stats_audio">الصوت</string>
+    <string name="stats_container">الحاوية</string>
+    <string name="stats_bitrate">معدل البت</string>
+    <string name="stats_resolution">الدقة</string>
+    <string name="stats_fps">معدل الإطارات</string>
+    <string name="stats_buffer">المخزن المؤقت</string>
+    <string name="stats_dropped">إطارات مفقودة</string>
+
+    <!-- Settings -->
+    <string name="settings_title">إعدادات MalekPlay</string>
+    <string name="settings_playback">التشغيل</string>
+    <string name="settings_resume">استئناف التشغيل من آخر موضع</string>
+    <string name="settings_resume_summary">متابعة المشاهدة من حيث توقفت</string>
+    <string name="settings_speed_default">السرعة الافتراضية</string>
+    <string name="settings_skip">مدة التخطي</string>
+    <string name="settings_skip_seconds">%1$d ثانية</string>
+    <string name="settings_autoplay">تشغيل التالي تلقائياً</string>
+    <string name="settings_background">المتابعة في الخلفية</string>
+    <string name="settings_appearance">المظهر</string>
+    <string name="settings_theme">مظهر التطبيق</string>
+    <string name="settings_theme_light">فاتح</string>
+    <string name="settings_theme_dark">داكن</string>
+    <string name="settings_theme_amoled">أسود (AMOLED)</string>
+    <string name="settings_theme_system">حسب إعدادات الجهاز</string>
+    <string name="settings_accent">اللون الأساسي</string>
+    <string name="settings_dynamic_color">استخدام ألوان النظام</string>
+    <string name="settings_dynamic_color_summary">Material You على أندرويد 12 فأحدث</string>
+    <string name="settings_gestures">الإيماءات</string>
+    <string name="settings_gesture_swipe_left">السحب لليسار</string>
+    <string name="settings_gesture_swipe_right">السحب لليمين</string>
+    <string name="settings_gesture_double_tap">النقر المزدوج</string>
+    <string name="settings_gesture_long_press">الضغط المطوّل</string>
+    <string name="settings_gesture_action_none">بدون إجراء</string>
+    <string name="settings_gesture_action_seek">التقديم والرجوع</string>
+    <string name="settings_gesture_action_volume">الصوت</string>
+    <string name="settings_gesture_action_brightness">السطوع</string>
+    <string name="settings_gesture_action_play_pause">تشغيل / إيقاف</string>
+    <string name="settings_gesture_action_speed">تسريع مؤقت</string>
+    <string name="settings_gesture_swipe">السحب الأفقي</string>
+    <string name="settings_subtitles">الترجمة</string>
+    <string name="settings_audio">الصوت</string>
+    <string name="settings_bass_boost">تقوية الصوت الجهير</string>
+    <string name="settings_virtualizer">الصوت المحيطي الافتراضي</string>
+    <string name="settings_loudness">رفع مستوى الصوت</string>
+    <string name="settings_family">العائلة والخصوصية</string>
+    <string name="settings_child_mode">وضع الأطفال</string>
+    <string name="settings_child_mode_summary">يطلب رمز PIN لإيقافه</string>
+    <string name="settings_backup">النسخ الاحتياطي</string>
+    <string name="settings_backup_export">تصدير</string>
+    <string name="settings_backup_import">استعادة</string>
+    <string name="settings_backup_summary">الإعدادات والمفضلة وقوائم التشغيل والسجل</string>
+    <string name="settings_about">حول التطبيق</string>
+    <string name="settings_version">الإصدار %1$s</string>
+    <string name="settings_done">تم</string>
+
+    <!-- Kids mode -->
+    <string name="kids_title">وضع الأطفال</string>
+    <string name="kids_create_pin">إنشاء رمز PIN</string>
+    <string name="kids_pin_hint">من 4 إلى 8 أرقام</string>
+    <string name="kids_enable">تفعيل</string>
+    <string name="kids_disable">إيقاف</string>
+    <string name="kids_pin_wrong">الرمز غير صحيح أو أن المحاولات مقفلة مؤقتاً</string>
+    <string name="kids_blocked_folders">المجلدات المخفية</string>
+    <string name="kids_blocked_summary">مجلدات مخفية أثناء وضع الأطفال</string>
+
+    <!-- Network -->
+    <string name="net_title">مصادر الشبكة</string>
+    <string name="net_add">إضافة مصدر</string>
+    <string name="net_protocol">البروتوكول</string>
+    <string name="net_host">المضيف</string>
+    <string name="net_port">المنفذ</string>
+    <string name="net_username">اسم المستخدم</string>
+    <string name="net_password">كلمة المرور</string>
+    <string name="net_share">اسم المشاركة</string>
+    <string name="net_path">المسار</string>
+    <string name="net_display_name">اسم العرض</string>
+    <string name="net_save">حفظ</string>
+    <string name="net_browse">استعراض</string>
+    <string name="net_error">فشل الاتصال: %1$s</string>
+    <string name="net_https_only">يجب استخدام WebDAV عبر HTTPS</string>
+    <string name="net_browse_webdav_only">تصفح المجلدات متاح فقط لمصادر WebDAV</string>
+    <string name="net_empty">لم تتم إضافة أي مصدر بعد</string>
+
+    <!-- Profile -->
+    <string name="profile_library_stats">المكتبة</string>
+    <string name="profile_videos">فيديوهات</string>
+    <string name="profile_songs">أغانٍ</string>
+    <string name="profile_watched">تمت مشاهدته</string>
+    <string name="profile_storage">المساحة المستخدمة</string>
+    <string name="profile_favourites">المفضلة</string>
+    <string name="profile_continue">متابعة المشاهدة</string>
+
+    <!-- Common -->
+    <string name="common_unknown">غير معروف</string>
+    <string name="common_dismiss">إخفاء</string>
+    <string name="common_retry">إعادة المحاولة</string>
+    <string name="common_close">إغلاق</string>
+    <string name="common_reset">إعادة الضبط</string>
+    <string name="common_apply">تطبيق</string>
+    <string name="common_error">حدث خطأ ما</string>
+    <string name="common_video">فيديو</string>
+    <string name="common_audio">صوت</string>
+    <string name="cd_back">رجوع</string>
+
+    <!-- Player extras -->
+    <string name="player_brightness">السطوع</string>
+    <string name="player_volume">الصوت</string>
+    <string name="player_screenshot_saved">تم حفظ الصورة في Pictures/MalekPlay</string>
+    <string name="player_screenshot_failed">تعذر التقاط الصورة</string>
+    <string name="player_aspect_fit">ملاءمة</string>
+    <string name="player_aspect_fill">تمديد</string>
+    <string name="player_aspect_crop">قص</string>
+    <string name="player_speed_boost">تسريع مؤقت</string>
+    <string name="player_bookmark_deleted">تم حذف العلامة</string>
+
+    <string name="home_library_tagline">كل وسائطك مرتبة في مكان واحد</string>
+    <string name="home_hero_title">ترفيهك كله في مكان واحد</string>
+    <string name="home_hero_subtitle">تابع من حيث توقفت أو استكشف مكتبتك.</string>
+    <string name="home_total_media">الوسائط</string>
+</resources>

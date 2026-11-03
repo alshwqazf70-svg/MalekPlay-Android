@@ -1,16 +1,22 @@
 package com.malekplay.di
 
 import android.content.Context
-import com.malekplay.backup.MalekPlayBackupManager
+import androidx.room.Room
 import com.malekplay.data.local.MalekPlayDatabase
 import com.malekplay.data.local.dao.MediaDao
+import com.malekplay.data.local.dao.PlaylistDao
+import com.malekplay.data.local.dao.UserDataDao
 import com.malekplay.data.preferences.SettingsRepository
 import com.malekplay.data.repository.MediaRepository
+import com.malekplay.data.repository.PlaylistRepository
+import com.malekplay.data.repository.UserDataRepository
 import com.malekplay.data.scanner.MediaStoreScanner
 import com.malekplay.network.NetworkCredentialVault
+import com.malekplay.network.NetworkProfileStore
 import com.malekplay.network.SftpClient
 import com.malekplay.network.SmbClient
 import com.malekplay.network.WebDavClient
+import com.malekplay.player.audio.AudioEffectsController
 import com.malekplay.translation.SubtitleTranslationEngine
 import dagger.Module
 import dagger.Provides
@@ -26,12 +32,16 @@ object AppModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MalekPlayDatabase =
-        MalekPlayDatabase.get(context) // استخدام البناء الآمن مع كود التهجير وحماية الانهيار
+        MalekPlayDatabase.get(context)
 
     @Provides
-    @Singleton
-    fun provideMediaDao(database: MalekPlayDatabase): MediaDao = 
-        database.mediaDao()
+    fun provideMediaDao(database: MalekPlayDatabase): MediaDao = database.mediaDao()
+
+    @Provides
+    fun providePlaylistDao(database: MalekPlayDatabase): PlaylistDao = database.playlistDao()
+
+    @Provides
+    fun provideUserDataDao(database: MalekPlayDatabase): UserDataDao = database.userDataDao()
 
     @Provides
     @Singleton
@@ -41,9 +51,20 @@ object AppModule {
     @Provides
     @Singleton
     fun provideMediaRepository(
-        dao: MediaDao,
+        mediaDao: MediaDao,
+        userDataDao: UserDataDao,
         scanner: MediaStoreScanner
-    ): MediaRepository = MediaRepository(dao, scanner)
+    ): MediaRepository = MediaRepository(mediaDao, userDataDao, scanner)
+
+    @Provides
+    @Singleton
+    fun providePlaylistRepository(playlistDao: PlaylistDao): PlaylistRepository =
+        PlaylistRepository(playlistDao)
+
+    @Provides
+    @Singleton
+    fun provideUserDataRepository(userDataDao: UserDataDao): UserDataRepository =
+        UserDataRepository(userDataDao)
 
     @Provides
     @Singleton
@@ -54,6 +75,11 @@ object AppModule {
     @Singleton
     fun provideNetworkCredentialVault(@ApplicationContext context: Context): NetworkCredentialVault =
         NetworkCredentialVault(context)
+
+    @Provides
+    @Singleton
+    fun provideNetworkProfileStore(@ApplicationContext context: Context): NetworkProfileStore =
+        NetworkProfileStore(context)
 
     @Provides
     @Singleton
@@ -69,13 +95,15 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideSubtitleTranslationEngine(@ApplicationContext context: Context): SubtitleTranslationEngine =
-        SubtitleTranslationEngine(context)
+    fun provideSubtitleTranslationEngine(
+        @ApplicationContext context: Context
+    ): SubtitleTranslationEngine = SubtitleTranslationEngine(context)
 
+    // MalekPlayBackupManager is @Singleton with an @Inject constructor, so Hilt
+    // supplies it without an explicit provider.
+
+    /** One effect chain shared by every screen so EQ settings follow the session. */
     @Provides
     @Singleton
-    fun provideBackupManager(
-        @ApplicationContext context: Context,
-        settingsRepository: SettingsRepository
-    ): MalekPlayBackupManager = MalekPlayBackupManager(context, settingsRepository)
+    fun provideAudioEffectsController(): AudioEffectsController = AudioEffectsController()
 }

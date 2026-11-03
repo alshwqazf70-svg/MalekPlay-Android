@@ -6,57 +6,154 @@ import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.malekplay.data.local.entity.BookmarkEntity
+import com.malekplay.data.repository.MediaRepository
+import com.malekplay.data.repository.UserDataRepository
+import com.malekplay.domain.model.LibraryItem
+import com.malekplay.domain.model.MediaItem as DomainMedia
+import com.malekplay.player.PipController
 import com.malekplay.player.PlaybackService
+import com.malekplay.player.mediaItemFromUri
+import com.malekplay.player.audio.AudioEffectsController
+import com.malekplay.player.toMedia3Item
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
-/**
- * نموذج بيانات لحفظ حالة التشغيل واستئناف الفيديو (MX Player Resume Feature)
- */
-data class SavedPlaybackState(
-    val position: Long,
-    val playbackSpeed: Float,
-    val isCompleted: Boolean = false
+/** A selectable audio or text track surfaced from the current Tracks info. */
+data class TrackDescriptor(
+    val groupIndex: Int,
+    val trackIndex: Int,
+    val label: String,
+    val mimeType: String?,
+    val selected: Boolean
 )
 
-data class SavedTrackPreference(
-    val audioTrackId: String? = null,
-    val subtitleTrackId: String? = null
+/** Live codec/format telemetry shown in the "Playback info" sheet. */
+data class PlaybackStats(
+    val videoCodec: String = "—",
+    val videoMimeType: String? = null,
+    val width: Int = 0,
+    val height: Int = 0,
+    val frameRate: Float = 0f,
+    val bitrate: Long = 0L,
+    val audioCodec: String = "—",
+    val audioChannels: Int = 0,
+    val audioSampleRate: Int = 0,
+    val containerBitrate: Long = 0L
 )
 
+@OptIn(UnstableApi::class)
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    @ApplicationContext private val app: Context
+    @ApplicationContext private val app: Context,
+    private val mediaRepository: MediaRepository,
+    private val userDataRepository: UserDataRepository,
+    val audioEffects: AudioEffectsController,
+    val pipController: PipController
 ) : ViewModel() {
 
-    private val prefs = app.getSharedPreferences("malekplay_playback_state", Context.MODE_PRIVATE)
-
     private val _controller = MutableStateFlow<MediaController?>(null)
-    val controller = _controller.asStateFlow()
+    val controller: StateFlow<MediaController?> = _controller.asStateFlow()
 
     private val _connectionError = MutableStateFlow(false)
-    val connectionError = _connectionError.asStateFlow()
+    val connectionError: StateFlow<Boolean> = _connectionError.asStateFlow()
+
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
+    private val _isBuffering = MutableStateFlow(false)
+    val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
+
+    private val _positionMs = MutableStateFlow(0L)
+    val positionMs: StateFlow<Long> = _positionMs.asStateFlow()
+
+    private val _durationMs = MutableStateFlow(0L)
+    val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
+
+    private val _bufferedMs = MutableStateFlow(0L)
+    val bufferedMs: StateFlow<Long> = _bufferedMs.asStateFlow()
+
+    private val _speed = MutableStateFlow(1f)
+    val speed: StateFlow<Float> = _speed.asStateFlow()
+
+    private val _repeatMode = MutableStateFlow(Player.REPEAT_MODE_OFF)
+    val repeatMode: StateFlow<Int> = _repeatMode.asStateFlow()
+
+    private val _shuffleEnabled = MutableStateFlow(false)
+    val shuffleEnabled: StateFlow<Boolean> = _shuffleEnabled.asStateFlow()
+
+    private val _currentIndex = MutableStateFlow(0)
+    val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
+
+    private val _queueSize = MutableStateFlow(0)
+    val queueSize: StateFlow<Int> = _queueSize.asStateFlow()
+
+    private val _audioTracks = MutableStateFlow<List<TrackDescriptor>>(emptyList())
+    val audioTracks: StateFlow<List<TrackDescriptor>> = _audioTracks.asStateFlow()
+
+    private val _textTracks = MutableStateFlow<List<TrackDescriptor>>(emptyList())
+    val textTracks: StateFlow<List<TrackDescriptor>> = _textTracks.asStateFlow()
+
+    private val _textTrackDisabled = MutableStateFlow(false)
+    val textTrackDisabled: StateFlow<Boolean> = _textTrackDisabled.asStateFlow()
+
+    private val _stats = MutableStateFlow(PlaybackStats())
+    val stats: StateFlow<PlaybackStats> = _stats.asStateFlow()
+
+    private val _playerError = MutableStateFlow<String?>(null)
+    val playerError: StateFlow<String?> = _playerError.asStateFlow()
+
+    private val _sleepTimerEndsAtMs = MutableStateFlow(0L)
+    val sleepTimerEndsAtMs: StateFlow<Long> = _sleepTimerEndsAtMs.asStateFlow()
+
+    private val _abStartMs = MutableStateFlow<Long?>(null)
+    val abStartMs: StateFlow<Long?> = _abStartMs.asStateFlow()
+
+    private val _abEndMs = MutableStateFlow<Long?>(null)
+    val abEndMs: StateFlow<Long?> = _abEndMs.asStateFlow()
+
+    /** Queue of items handed to the player, kept so the UI can render "up next". */
+    private val _queue = MutableStateFlow<List<DomainMedia>>(emptyList())
+    val queue: StateFlow<List<DomainMedia>> = _queue.asStateFlow()
+
+    val favouriteIds: StateFlow<Set<String>> = userDataRepository.observeFavouriteIds()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
+    private var tickerJob: Job? = null
     private var sleepTimerJob: Job? = null
-    private val _sleepTimerActive = MutableStateFlow(false)
-    val sleepTimerActive = _sleepTimerActive.asStateFlow()
+    private var progressSaveJob: Job? = null
+    private var lastGroups: List<Tracks.Group> = emptyList()
+    private var currentMediaId: String? = null
 
-    /**
-     * الاتصال بخدمة المشغل بخلفية النظام
-     */
+    // ---------------------------------------------------------- lifecycle
+
+    init {
+        connect()
+    }
+
+    /** Idempotent: repeated calls are safe and a failed attempt can be retried. */
     fun connect() {
         if (_controller.value != null) return
         val pending = controllerFuture
@@ -71,9 +168,13 @@ class PlayerViewModel @Inject constructor(
                 if (controllerFuture !== future) return@addListener
                 val connected = runCatching { future.get() }.getOrNull()
                 if (connected != null) {
+                    connected.addListener(playerListener)
                     _controller.value = connected
                     _connectionError.value = false
+                    startTicker()
+                    startProgressSaver()
                 } else {
+                    // Clear so a later connect() can retry instead of returning early.
                     controllerFuture = null
                     _connectionError.value = true
                 }
@@ -82,106 +183,431 @@ class PlayerViewModel @Inject constructor(
         )
     }
 
-    /**
-     * تشغيل قائمة المقاطع مع دعم العناوين، واستعادة موضع الفيديو، وسرعة التشغيل
-     */
-    fun playQueue(
-        uris: List<Uri>,
-        startIndex: Int,
-        startPositionMs: Long,
-        speed: Float = 1f,
-        title: String = "",
-        trackPreference: SavedTrackPreference? = null
-    ) {
-        val player = _controller.value ?: return
-        if (uris.isEmpty()) return
-        val safeIndex = startIndex.coerceIn(0, uris.lastIndex)
-
-        // بناء قائمة MediaItems مع إرفاق العناوين والـ Metadata
-        val mediaItems = uris.mapIndexed { index, uri ->
-            val itemTitle = if (index == safeIndex && title.isNotBlank()) {
-                title
-            } else {
-                Uri.decode(uri.lastPathSegment.orEmpty()).substringAfterLast('/').ifBlank { "فيديو ${index + 1}" }
-            }
-
-            MediaItem.Builder()
-                .setUri(uri)
-                .setMediaId(uri.toString())
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(itemTitle)
-                        .setDisplayTitle(itemTitle)
-                        .build()
-                )
-                .build()
+    private val playerListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            _isPlaying.value = isPlaying
         }
 
-        player.setMediaItems(mediaItems, safeIndex, startPositionMs.coerceAtLeast(0L))
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            _isBuffering.value = playbackState == Player.STATE_BUFFERING
+            if (playbackState == Player.STATE_READY) {
+                refreshTracks()
+                refreshStats()
+            }
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (!playWhenReady) saveProgressNow()
+        }
+
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int
+        ) {
+            // Stop at the end of the episode when that sleep-timer flavour is armed.
+            if (sleepTimerEndOfEpisode && reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
+                _controller.value?.pause()
+                cancelSleepTimer()
+            }
+            _positionMs.value = newPosition.positionMs
+            applyAbBounds(newPosition.positionMs)
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            saveProgressNow()
+            currentMediaId = mediaItem?.mediaId
+            _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
+            _queueSize.value = _controller.value?.mediaItemCount ?: 0
+            viewModelScope.launch {
+                mediaItem?.mediaId?.let { userDataRepository.isFavourite(it) }
+            }
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
+            refreshTracks(tracks)
+        }
+
+        override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
+            _speed.value = playbackParameters.speed
+        }
+
+        override fun onRepeatModeChanged(repeatMode: Int) {
+            _repeatMode.value = repeatMode
+        }
+
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+            _shuffleEnabled.value = shuffleModeEnabled
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            _playerError.value = error.localizedMessage ?: "Playback failed"
+        }
+
+        override fun onAudioSessionIdChanged(audioSessionId: Int) {
+            audioEffects.attach(audioSessionId)
+        }
+    }
+
+    private fun startTicker() {
+        tickerJob?.cancel()
+        tickerJob = viewModelScope.launch {
+            while (isActive) {
+                val player = _controller.value ?: break
+                _positionMs.value = player.currentPosition
+                _durationMs.value = player.duration.coerceAtLeast(0L)
+                _bufferedMs.value = player.bufferedPosition
+                _currentIndex.value = player.currentMediaItemIndex
+                _queueSize.value = player.mediaItemCount
+                delay(TICK_INTERVAL_MS)
+            }
+        }
+    }
+
+    /** Persists the resume point periodically so a crash does not lose it. */
+    private fun startProgressSaver() {
+        progressSaveJob?.cancel()
+        progressSaveJob = viewModelScope.launch {
+            while (isActive) {
+                delay(PROGRESS_SAVE_INTERVAL_MS)
+                saveProgressNow()
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ playback
+
+    /**
+     * Replaces the queue and starts playback.
+     * `startPositionMs` is ignored when the caller passes -1 and resume is enabled.
+     */
+    fun playQueue(
+        items: List<DomainMedia>,
+        startIndex: Int = 0,
+        startPositionMs: Long = 0L,
+        speed: Float = 1f,
+        shuffle: Boolean = false
+    ) {
+        val player = _controller.value ?: return
+        if (items.isEmpty()) return
+        val safeIndex = startIndex.coerceIn(0, items.lastIndex)
+        _queue.value = items
+        currentMediaId = items[safeIndex].id
+        _playerError.value = null
+        player.setMediaItems(items.map { it.toMedia3Item() }, safeIndex, startPositionMs.coerceAtLeast(0L))
+        player.shuffleModeEnabled = shuffle
         player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
         player.prepare()
         player.playWhenReady = true
+        refreshStats()
     }
 
-    /**
-     * استرجاع نقطة التوقف السابقة للفيديو
-     */
-    suspend fun getSavedPlaybackState(uriString: String): SavedPlaybackState? = withContext(Dispatchers.IO) {
-        val pos = prefs.getLong("pos:$uriString", -1L)
-        if (pos <= 0L) return@withContext null
-        val speed = prefs.getFloat("spd:$uriString", 1f)
-        val completed = prefs.getBoolean("done:$uriString", false)
-        SavedPlaybackState(pos, speed, completed)
-    }
+    /** Convenience wrapper for the common "open this one file" case. */
+    fun playSingle(item: DomainMedia, startPositionMs: Long = 0L, speed: Float = 1f) =
+        playQueue(listOf(item), 0, startPositionMs, speed)
 
     /**
-     * حفظ موضع توقف الفيديو تلقائياً
+     * Plays a Uri that has no library row — a file opened from another app or a
+     * network stream. The Uri doubles as the media id so progress still sticks.
      */
-    fun savePlaybackState(uriString: String, positionMs: Long, speed: Float, isCompleted: Boolean = false) {
-        viewModelScope.launch(Dispatchers.IO) {
-            prefs.edit()
-                .putLong("pos:$uriString", positionMs)
-                .putFloat("spd:$uriString", speed)
-                .putBoolean("done:$uriString", isCompleted)
-                .apply()
+    fun playExternalUri(uri: Uri, startPositionMs: Long = 0L, speed: Float = 1f) {
+        val player = _controller.value ?: return
+        _queue.value = emptyList()
+        currentMediaId = uri.toString()
+        _playerError.value = null
+        player.setMediaItem(mediaItemFromUri(uri))
+        player.seekTo(startPositionMs.coerceAtLeast(0L))
+        player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
+        player.prepare()
+        player.playWhenReady = true
+        refreshStats()
+    }
+
+    fun togglePlayPause() {
+        val player = _controller.value ?: return
+        if (player.isPlaying) player.pause() else player.play()
+    }
+
+    fun seekTo(positionMs: Long) {
+        val player = _controller.value ?: return
+        val target = positionMs.coerceIn(0L, player.duration.takeIf { it > 0L } ?: Long.MAX_VALUE)
+        player.seekTo(target)
+        _positionMs.value = target
+    }
+
+    fun seekBy(deltaMs: Long) {
+        val player = _controller.value ?: return
+        seekTo(player.currentPosition + deltaMs)
+    }
+
+    fun seekToNext() = _controller.value?.seekToNext()
+    fun seekToPrevious() = _controller.value?.seekToPrevious()
+
+    fun setSpeed(value: Float) {
+        _controller.value?.setPlaybackSpeed(value.coerceIn(0.25f, 4f))
+        _speed.value = value.coerceIn(0.25f, 4f)
+    }
+
+    fun cycleRepeatMode() {
+        val player = _controller.value ?: return
+        val next = when (player.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ONE
+            Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_ALL
+            else -> Player.REPEAT_MODE_OFF
         }
+        player.repeatMode = next
+        _repeatMode.value = next
     }
 
-    /**
-     * استرجاع تفضيلات الصوت والترجمة للفيديو
-     */
-    suspend fun getSavedTrackPreference(uriString: String): SavedTrackPreference? = withContext(Dispatchers.IO) {
-        val audio = prefs.getString("audio:$uriString", null)
-        val sub = prefs.getString("sub:$uriString", null)
-        if (audio == null && sub == null) null else SavedTrackPreference(audio, sub)
+    fun toggleShuffle() {
+        val player = _controller.value ?: return
+        player.shuffleModeEnabled = !player.shuffleModeEnabled
+        _shuffleEnabled.value = player.shuffleModeEnabled
     }
 
-    /**
-     * مؤقت النوم (Sleep Timer)
-     */
+    // --------------------------------------------------------------- tracks
+
+    private fun refreshTracks(tracks: Tracks? = null) {
+        val player = _controller.value ?: return
+        val current = tracks ?: player.currentTracks
+        lastGroups = current.groups
+        val audio = mutableListOf<TrackDescriptor>()
+        val text = mutableListOf<TrackDescriptor>()
+        current.groups.forEachIndexed { groupIndex, group ->
+            val type = group.type
+            if (type != C.TRACK_TYPE_AUDIO && type != C.TRACK_TYPE_TEXT) return@forEachIndexed
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                val selected = group.isTrackSelected(trackIndex)
+                val descriptor = TrackDescriptor(
+                    groupIndex = groupIndex,
+                    trackIndex = trackIndex,
+                    label = buildTrackLabel(format, trackIndex),
+                    mimeType = format.sampleMimeType,
+                    selected = selected
+                )
+                if (type == C.TRACK_TYPE_AUDIO) audio += descriptor else text += descriptor
+            }
+        }
+        _audioTracks.value = audio
+        _textTracks.value = text
+        _textTrackDisabled.value = player.trackSelectionParameters.disabledTrackTypes
+            .contains(C.TRACK_TYPE_TEXT)
+    }
+
+    private fun buildTrackLabel(format: Format, index: Int): String {
+        val language = format.language
+        val label = format.label
+        val parts = mutableListOf<String>()
+        if (!label.isNullOrBlank()) parts += label
+        if (!language.isNullOrBlank()) parts += language
+        if (format.bitrate > 0) parts += "%d kbps".format(format.bitrate / 1000)
+        if (format.channelCount > 0) parts += channelLabel(format.channelCount)
+        if (parts.isEmpty()) parts += "Track ${index + 1}"
+        return parts.joinToString(" • ")
+    }
+
+    private fun channelLabel(count: Int): String = when (count) {
+        1 -> "Mono"
+        2 -> "Stereo"
+        6 -> "5.1"
+        8 -> "7.1"
+        else -> "$count ch"
+    }
+
+    fun selectAudioTrack(descriptor: TrackDescriptor) {
+        val player = _controller.value ?: return
+        val group = lastGroups.getOrNull(descriptor.groupIndex) ?: return
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setOverrideForType(
+                TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
+            )
+            .build()
+    }
+
+    fun selectTextTrack(descriptor: TrackDescriptor) {
+        val player = _controller.value ?: return
+        val group = lastGroups.getOrNull(descriptor.groupIndex) ?: return
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setOverrideForType(
+                TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
+            )
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .build()
+    }
+
+    fun setSubtitlesEnabled(enabled: Boolean) {
+        val player = _controller.value ?: return
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !enabled)
+            .build()
+        _textTrackDisabled.value = !enabled
+    }
+
+    // ----------------------------------------------------------------- stats
+
+    private fun refreshStats() {
+        val player = _controller.value ?: return
+        var video: Format? = null
+        var audio: Format? = null
+        player.currentTracks.groups.forEach { group ->
+            if (!group.isSelected) return@forEach
+            for (i in 0 until group.length) {
+                if (!group.isTrackSelected(i)) continue
+                when (group.type) {
+                    C.TRACK_TYPE_VIDEO -> if (video == null) video = group.getTrackFormat(i)
+                    C.TRACK_TYPE_AUDIO -> if (audio == null) audio = group.getTrackFormat(i)
+                }
+                break
+            }
+        }
+        _stats.value = PlaybackStats(
+            videoCodec = com.malekplay.core.ui.util.DecoderInfo.shortCodec(video?.sampleMimeType),
+            videoMimeType = video?.sampleMimeType,
+            width = video?.width ?: 0,
+            height = video?.height ?: 0,
+            frameRate = video?.frameRate ?: 0f,
+            bitrate = video?.bitrate?.toLong() ?: 0L,
+            audioCodec = com.malekplay.core.ui.util.DecoderInfo.shortCodec(audio?.sampleMimeType),
+            audioChannels = audio?.channelCount ?: 0,
+            audioSampleRate = audio?.sampleRate ?: 0,
+            containerBitrate = video?.bitrate?.toLong() ?: 0L
+        )
+    }
+
+    // ----------------------------------------------------------- sleep timer
+
+    private var sleepTimerEndOfEpisode = false
+
     fun setSleepTimer(minutes: Int) {
         require(minutes in 1..240) { "Sleep timer must be between 1 and 240 minutes" }
-        sleepTimerJob?.cancel()
-        _sleepTimerActive.value = true
+        cancelSleepTimer()
+        sleepTimerEndOfEpisode = false
+        _sleepTimerEndsAtMs.value = System.currentTimeMillis() + minutes * 60_000L
         sleepTimerJob = viewModelScope.launch {
             delay(minutes * 60_000L)
             _controller.value?.pause()
-            _sleepTimerActive.value = false
+            _sleepTimerEndsAtMs.value = 0L
             sleepTimerJob = null
         }
+    }
+
+    /** Pauses when the current item ends instead of after a fixed delay. */
+    fun setSleepTimerEndOfEpisode() {
+        cancelSleepTimer()
+        sleepTimerEndOfEpisode = true
+        _sleepTimerEndsAtMs.value = Long.MAX_VALUE
     }
 
     fun cancelSleepTimer() {
         sleepTimerJob?.cancel()
         sleepTimerJob = null
-        _sleepTimerActive.value = false
+        sleepTimerEndOfEpisode = false
+        _sleepTimerEndsAtMs.value = 0L
     }
 
+    // ------------------------------------------------------------ favourites
+
+    fun toggleFavourite(mediaId: String) {
+        viewModelScope.launch {
+            runCatching { userDataRepository.toggleFavourite(mediaId) }
+        }
+    }
+
+    // ------------------------------------------------------------- bookmarks
+
+    fun observeBookmarks(mediaId: String): Flow<List<BookmarkEntity>> = mediaRepository.observeBookmarks(mediaId)
+
+    fun addBookmark(mediaId: String, positionMs: Long, label: String) {
+        viewModelScope.launch {
+            runCatching { mediaRepository.addBookmark(mediaId, positionMs, label) }
+        }
+    }
+
+    fun deleteBookmark(bookmarkId: Long) {
+        viewModelScope.launch {
+            runCatching { mediaRepository.deleteBookmark(bookmarkId) }
+        }
+    }
+
+    // --------------------------------------------------------------- A-B loop
+
+    fun setAbStart() {
+        _abStartMs.value = _controller.value?.currentPosition ?: 0L
+        _abEndMs.value = null
+    }
+
+    fun setAbEnd() {
+        val player = _controller.value ?: return
+        val start = _abStartMs.value
+        val position = player.currentPosition
+        if (start == null || position <= start) return
+        _abEndMs.value = position
+        player.seekTo(start)
+    }
+
+    fun clearAbRepeat() {
+        _abStartMs.value = null
+        _abEndMs.value = null
+    }
+
+    private fun applyAbBounds(positionMs: Long) {
+        val start = _abStartMs.value ?: return
+        val end = _abEndMs.value ?: return
+        if (positionMs >= end) _controller.value?.seekTo(start)
+    }
+
+    // -------------------------------------------------------------- progress
+
+    fun saveProgressNow() {
+        val player = _controller.value ?: return
+        val mediaId = currentMediaId ?: player.currentMediaItem?.mediaId ?: return
+        viewModelScope.launch {
+            runCatching {
+                mediaRepository.saveProgress(
+                    mediaId = mediaId,
+                    positionMs = player.currentPosition,
+                    durationMs = player.duration.coerceAtLeast(0L),
+                    speed = player.playbackParameters.speed,
+                    markPlayed = true
+                )
+            }
+        }
+    }
+
+    /** Reads the saved resume point so the UI can offer "Resume from 12:34". */
+    suspend fun savedPositionFor(mediaId: String): Long {
+        val progress = runCatching { mediaRepository.getProgress(mediaId) }.getOrNull()
+            ?: return 0L
+        if (progress.isCompleted) return 0L
+        return progress.positionMs
+    }
+
+    /** Loads one media row so the player can render its title and artwork. */
+    suspend fun loadMedia(mediaId: String): DomainMedia? =
+        runCatching { mediaRepository.getMedia(mediaId) }.getOrNull()
+
+    suspend fun toLibraryItems(uris: List<Uri>): List<LibraryItem> =
+        runCatching { mediaRepository.getMediaList(uris.map { it.toString() }) }
+            .getOrDefault(emptyList())
+            .map { LibraryItem(media = it) }
+
+    fun currentMediaItem(): MediaItem? = _controller.value?.currentMediaItem
+
     override fun onCleared() {
+        saveProgressNow()
+        tickerJob?.cancel()
         sleepTimerJob?.cancel()
+        progressSaveJob?.cancel()
+        _controller.value?.removeListener(playerListener)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         _controller.value = null
         super.onCleared()
+    }
+
+    private companion object {
+        const val TICK_INTERVAL_MS = 250L
+        const val PROGRESS_SAVE_INTERVAL_MS = 5_000L
     }
 }

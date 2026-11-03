@@ -15,46 +15,22 @@ android {
         applicationId = "com.malekplay"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
+        versionCode = 2
+        versionName = "2.0.0"
 
-    buildTypes {
-        release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-            signingConfig = signingConfigs.getByName("debug") // للتجربة وبناء APK فوراً في GitHub
-        }
-        debug {
-            isMinifyEnabled = false
-            applicationIdSuffix = ".debug"
-        }
+        resourceConfigurations += setOf("ar", "en")
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
-    // تنظيف وحل تعارض الملفات المكررة لمكتبات الشبكات (SSHJ, SMBJ, OkHttp)
     packaging {
         resources {
-            excludes += listOf(
-                "/META-INF/versions/9/OSGI-INF/MANIFEST.MF",
-                "META-INF/DEPENDENCIES",
-                "META-INF/LICENSE",
-                "META-INF/LICENSE.txt",
-                "META-INF/license.txt",
-                "META-INF/NOTICE",
-                "META-INF/NOTICE.txt",
-                "META-INF/notice.txt",
-                "META-INF/ASL2.0",
-                "META-INF/*.kotlin_module"
-            )
+            excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/DEPENDENCIES"
         }
     }
 
@@ -63,53 +39,70 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    kotlin {
+        compilerOptions {
+            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+            freeCompilerArgs.add("-Xjvm-default=all")
+        }
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 }
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.incremental", "true")
 }
 
 dependencies {
     implementation(platform(libs.compose.bom))
     androidTestImplementation(platform(libs.compose.bom))
 
+    // AndroidX core
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.palette.ktx)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.runtime.ktx)
+    implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.viewmodel.ktx)
     implementation(libs.lifecycle.viewmodel.compose)
+
+    // Navigation
+    implementation(libs.navigation.compose)
+
+    // Compose
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
     implementation(libs.compose.icons.extended)
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // Media3 (ExoPlayer & Session)
+    // Media3
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation(libs.media3.session)
     implementation(libs.media3.datasource.okhttp)
 
-    // Room Database
+    // Room
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
-    // DataStore
+    // Datastore
     implementation(libs.datastore.preferences)
 
-    // Hilt Dependency Injection
+    // Hilt
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
 
-    // On-Device ML Kit Subtitle Translation
+    // ML Kit on-device translation
     implementation(libs.mlkit.translate)
 
-    // Network Streaming (SMB, SFTP, WebDAV)
+    // Network protocols
     implementation(libs.smbj)
     implementation(libs.sshj)
     implementation(libs.okhttp)

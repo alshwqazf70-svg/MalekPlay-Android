@@ -1,0 +1,258 @@
+package com.malekplay.navigation
+
+import android.net.Uri
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.malekplay.core.ui.util.stringResourceByName
+import com.malekplay.domain.model.MediaItem
+import com.malekplay.ui.local.LocalScreen
+import com.malekplay.ui.music.MusicScreen
+import com.malekplay.ui.network.NetworkScreen
+import com.malekplay.ui.player.audio.AudioPlayerScreen
+import com.malekplay.ui.player.video.VideoPlayerScreen
+import com.malekplay.ui.playlists.PlaylistScreen
+import com.malekplay.ui.profile.ProfileScreen
+import com.malekplay.ui.settings.SettingsScreen
+import com.malekplay.ui.library.LocalFolderScreen
+
+private const val ANIM_MS = 260
+
+@Composable
+fun MalekPlayNavHost(
+    externalUri: Uri? = null,
+    navController: NavHostController = rememberNavController()
+) {
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
+    val showBottomBar = TopLevelDestination.entries.any { it.screen.route == currentRoute }
+
+    Scaffold(
+        bottomBar = {
+            if (showBottomBar) {
+                MalekPlayBottomBar(
+                    navController = navController,
+                    currentRoute = currentRoute
+                )
+            }
+        }
+    ) { padding ->
+        NavHost(
+            navController = navController,
+            startDestination = externalUri?.let { Screen.VideoPlayer.create(it.toString()) }
+                ?: Screen.Local.route,
+            modifier = Modifier.fillMaxSize(),
+            enterTransition = { fadeIn(tween(ANIM_MS)) },
+            exitTransition = { fadeOut(tween(ANIM_MS)) }
+        ) {
+            composable(Screen.Local.route) {
+                LocalScreen(
+                    onOpenMedia = { item -> navController.openMedia(item) },
+                    onOpenFolder = { path -> navController.navigate(Screen.Folder.create(path)) },
+                    onOpenSettings = { navController.navigate(Screen.Settings.route) },
+                    contentPadding = padding
+                )
+            }
+
+            composable(Screen.Music.route) {
+                MusicScreen(
+                    onOpenMedia = { item -> navController.openMedia(item) },
+                    contentPadding = padding
+                )
+            }
+
+            composable(Screen.Network.route) {
+                NetworkScreen(
+                    onOpenMedia = { uri ->
+                        navController.navigate(Screen.VideoPlayer.create(uri.toString()))
+                    },
+                    contentPadding = padding
+                )
+            }
+
+            composable(Screen.Profile.route) {
+                ProfileScreen(
+                    onOpenMedia = { item -> navController.openMedia(item) },
+                    onOpenSettings = { navController.navigate(Screen.Settings.route) },
+                    contentPadding = padding
+                )
+            }
+
+            composable(
+                route = Screen.VideoPlayer.route,
+                arguments = listOf(navArgument(Screen.VideoPlayer.ARG_MEDIA_ID) {
+                    type = androidx.navigation.NavType.StringType
+                }),
+                enterTransition = {
+                    slideInVertically(tween(ANIM_MS)) { it } + fadeIn(tween(ANIM_MS))
+                },
+                exitTransition = {
+                    slideOutVertically(tween(ANIM_MS)) { it } + fadeOut(tween(ANIM_MS))
+                }
+            ) { entry ->
+                val mediaId = entry.arguments?.getString(Screen.VideoPlayer.ARG_MEDIA_ID)
+                    ?.let { Uri.decode(it) }.orEmpty()
+                VideoPlayerScreen(
+                    mediaId = mediaId,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(
+                route = Screen.AudioPlayer.route,
+                arguments = listOf(navArgument(Screen.AudioPlayer.ARG_MEDIA_ID) {
+                    type = androidx.navigation.NavType.StringType
+                }),
+                enterTransition = {
+                    slideInVertically(tween(ANIM_MS)) { it } + fadeIn(tween(ANIM_MS))
+                },
+                exitTransition = {
+                    slideOutVertically(tween(ANIM_MS)) { it } + fadeOut(tween(ANIM_MS))
+                }
+            ) { entry ->
+                val mediaId = entry.arguments?.getString(Screen.AudioPlayer.ARG_MEDIA_ID)
+                    ?.let { Uri.decode(it) }.orEmpty()
+                AudioPlayerScreen(
+                    mediaId = mediaId,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(
+                route = Screen.Folder.route,
+                arguments = listOf(navArgument(Screen.Folder.ARG_PATH) {
+                    type = androidx.navigation.NavType.StringType
+                })
+            ) { entry ->
+                val path = entry.arguments?.getString(Screen.Folder.ARG_PATH)
+                    ?.let { Uri.decode(it) }.orEmpty()
+                LocalFolderScreen(
+                    folderPath = path,
+                    onBack = { navController.popBackStack() },
+                    onOpenMedia = { item -> navController.openMedia(item) },
+                    contentPadding = padding
+                )
+            }
+
+            composable(
+                route = Screen.Playlist.route,
+                arguments = listOf(navArgument(Screen.Playlist.ARG_PLAYLIST_ID) {
+                    type = androidx.navigation.NavType.StringType
+                })
+            ) { entry ->
+                val id = entry.arguments?.getString(Screen.Playlist.ARG_PLAYLIST_ID)
+                    ?.let { Uri.decode(it) }.orEmpty()
+                PlaylistScreen(
+                    playlistId = id,
+                    onBack = { navController.popBackStack() },
+                    onOpenMedia = { item -> navController.openMedia(item) },
+                    contentPadding = padding
+                )
+            }
+
+            composable(
+                route = Screen.Settings.route,
+                enterTransition = { slideIntoSlideUp() },
+                exitTransition = { slideOutOfSlideDown() }
+            ) {
+                SettingsScreen(onBack = { navController.popBackStack() })
+            }
+        }
+    }
+}
+
+/** Routes audio to the audio player and video to the video player. */
+private fun NavHostController.openMedia(item: MediaItem) {
+    val route = if (item.isVideo) {
+        Screen.VideoPlayer.create(item.id)
+    } else {
+        Screen.AudioPlayer.create(item.id)
+    }
+    navigate(route)
+}
+
+private fun AnimatedContentTransitionScope<*>.slideIntoSlideUp() =
+    slideInVertically(tween(ANIM_MS)) { it } + fadeIn(tween(ANIM_MS))
+
+private fun AnimatedContentTransitionScope<*>.slideOutOfSlideDown() =
+    slideOutVertically(tween(ANIM_MS)) { it } + fadeOut(tween(ANIM_MS))
+
+@Composable
+private fun MalekPlayBottomBar(
+    navController: NavHostController,
+    currentRoute: String?
+) {
+    NavigationBar(
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 3.dp
+    ) {
+        TopLevelDestination.entries.forEach { destination ->
+            val selected = currentRoute == destination.screen.route
+            val label = stringResourceByName(destination.labelRes)
+            NavigationBarItem(
+                selected = selected,
+                onClick = {
+                    navController.navigate(destination.screen.route) {
+                        // Keep one instance per tab and restore its state on reselect.
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                icon = {
+                    Icon(
+                        imageVector = destination.icon(),
+                        contentDescription = label
+                    )
+                },
+                label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun TopLevelDestination.icon() = when (this) {
+    TopLevelDestination.LOCAL -> Icons.Filled.Folder
+    TopLevelDestination.MUSIC -> Icons.Filled.LibraryMusic
+    TopLevelDestination.NETWORK -> Icons.Filled.SwapHoriz
+    TopLevelDestination.PROFILE -> Icons.Filled.Person
+}

@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MalekPlay</string>
+    <string name="app_tagline">Universal media player</string>
+
+    <!-- Bottom navigation -->
+    <string name="nav_local">Local</string>
+    <string name="nav_music">Music</string>
+    <string name="nav_network">Transfer</string>
+    <string name="nav_profile">Me</string>
+
+    <!-- Library -->
+    <string name="lib_title_folders">Folders</string>
+    <string name="lib_title_all">All media</string>
+    <string name="lib_search_hint">Search videos, songs, folders…</string>
+    <string name="lib_empty_title">No media found</string>
+    <string name="lib_empty_body">Add a file or refresh your library.</string>
+    <string name="lib_no_results">No matching results</string>
+    <string name="lib_no_results_body">Try a different search term.</string>
+    <string name="lib_grant_title">Allow media access</string>
+    <string name="lib_grant_body">We need permission to show the videos and audio on your device.</string>
+    <string name="lib_grant_action">Grant permission</string>
+    <string name="lib_file_count">%1$d files</string>
+    <string name="lib_video_count">%1$d video files</string>
+    <string name="lib_audio_count">%1$d audio files</string>
+    <string name="lib_refresh">Refresh library</string>
+    <string name="lib_open_file">Open file</string>
+    <string name="lib_view_grid">Grid view</string>
+    <string name="lib_view_list">List view</string>
+    <string name="lib_new_playlist">New playlist</string>
+    <string name="lib_playlists">Playlists</string>
+    <string name="lib_add_to_playlist">Add to playlist</string>
+    <string name="lib_playlist_name">Playlist name</string>
+    <string name="lib_create">Create</string>
+    <string name="lib_cancel">Cancel</string>
+    <string name="lib_delete">Delete</string>
+    <string name="lib_rename">Rename</string>
+    <string name="lib_empty_playlist">This playlist is empty</string>
+    <string name="lib_no_playlists">You have not created any playlist yet</string>
+    <string name="lib_shuffle">Shuffle</string>
+    <string name="lib_play_all">Play all</string>
+    <string name="lib_add_favourite">Add to favourites</string>
+    <string name="lib_remove_favourite">Remove from favourites</string>
+
+    <!-- Sort -->
+    <string name="sort_title">Sort by</string>
+    <string name="sort_newest">Newest first</string>
+    <string name="sort_oldest">Oldest first</string>
+    <string name="sort_name">Name (A–Z)</string>
+    <string name="sort_duration">Longest duration</string>
+    <string name="sort_size">Largest size</string>
+
+    <!-- Music -->
+    <string name="music_songs">Songs</string>
+    <string name="music_albums">Albums</string>
+    <string name="music_artists">Artists</string>
+    <string name="music_genres">Genres</string>
+    <string name="music_unknown_artist">Unknown artist</string>
+    <string name="music_unknown_album">Unknown album</string>
+    <string name="music_track_count">%1$d songs</string>
+    <string name="music_album_count">%1$d albums</string>
+
+    <!-- Player: actions -->
+    <string name="player_lock">Lock controls</string>
+    <string name="player_unlock">Unlock controls</string>
+    <string name="player_locked_hint">Controls locked — tap the lock to unlock</string>
+    <string name="player_play">Play</string>
+    <string name="player_pause">Pause</string>
+    <string name="player_next">Next</string>
+    <string name="player_previous">Previous</string>
+    <string name="player_speed">Speed</string>
+    <string name="player_sleep_timer">Sleep timer</string>
+    <string name="player_sleep_off">Off</string>
+    <string name="player_sleep_minutes">Stop after %1$d minutes</string>
+    <string name="player_sleep_end_of_episode">End of episode</string>
+    <string name="player_sleep_cancel">Cancel timer</string>
+    <string name="player_repeat">Repeat</string>
+    <string name="player_repeat_off">Repeat off</string>
+    <string name="player_repeat_one">Repeat one</string>
+    <string name="player_repeat_all">Repeat all</string>
+    <string name="player_shuffle_on">Shuffle on</string>
+    <string name="player_shuffle_off">Shuffle off</string>
+    <string name="player_pip">Picture in picture</string>
+    <string name="player_fullscreen">Fullscreen</string>
+    <string name="player_exit_fullscreen">Exit fullscreen</string>
+    <string name="player_audio_track">Audio track</string>
+    <string name="player_subtitle_track">Subtitles</string>
+    <string name="player_subtitle_off">Off</string>
+    <string name="player_open_subtitle">Open subtitle file</string>
+    <string name="player_translate_subtitle">Translate to Arabic</string>
+    <string name="player_translating">Translating…</string>
+    <string name="player_translation_done">Translation completed on device</string>
+    <string name="player_translation_failed">Translation failed: %1$s</string>
+    <string name="player_chapters">Chapters</string>
+    <string name="player_bookmarks">Bookmarks</string>
+    <string name="player_add_bookmark">Add bookmark</string>
+    <string name="player_aspect">Aspect ratio</string>
+    <string name="player_zoom">Zoom &amp; pan</string>
+    <string name="player_rotate">Rotate</string>
+    <string name="player_screenshot">Screenshot</string>
+    <string name="player_equalizer">Equalizer</string>
+    <string name="player_ab_repeat">A–B repeat</string>
+    <string name="player_ab_set_a">Set A</string>
+    <string name="player_ab_set_b">Set B</string>
+    <string name="player_ab_clear">Clear</string>
+    <string name="player_visualizer">Visualizer</string>
+    <string name="player_audio_device">Audio device</string>
+    <string name="player_stats">Playback info</string>
+    <string name="player_resume">Resume from %1$s</string>
+    <string name="player_restart">Play from start</string>
+    <string name="player_cast">Cast</string>
+    <string name="player_more">More</string>
+    <string name="player_hw">HW</string>
+    <string name="player_sw">SW</string>
+
+    <!-- Player: sub-menus -->
+    <string name="menu_subtitle_style">Subtitle style</string>
+    <string name="menu_subtitle_size">Text size</string>
+    <string name="menu_subtitle_color">Text colour</string>
+    <string name="menu_subtitle_bg">Background</string>
+    <string name="menu_subtitle_position">Vertical position</string>
+    <string name="menu_subtitle_delay">Subtitle sync</string>
+    <string name="menu_subtitle_delay_label">%1$d ms</string>
+    <string name="menu_gestures">Gesture settings</string>
+    <string name="menu_audio_delay">Audio sync</string>
+
+    <!-- Stats -->
+    <string name="stats_decoder">Decoder</string>
+    <string name="stats_video">Video</string>
+    <string name="stats_audio">Audio</string>
+    <string name="stats_container">Container</string>
+    <string name="stats_bitrate">Bitrate</string>
+    <string name="stats_resolution">Resolution</string>
+    <string name="stats_fps">Frame rate</string>
+    <string name="stats_buffer">Buffer</string>
+    <string name="stats_dropped">Dropped frames</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_playback">Playback</string>
+    <string name="settings_resume">Resume from last position</string>
+    <string name="settings_resume_summary">Continue where you stopped</string>
+    <string name="settings_speed_default">Default speed</string>
+    <string name="settings_skip">Skip interval</string>
+    <string name="settings_skip_seconds">%1$d seconds</string>
+    <string name="settings_autoplay">Autoplay next</string>
+    <string name="settings_background">Continue in background</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_amoled">Black (AMOLED)</string>
+    <string name="settings_theme_system">Follow system</string>
+    <string name="settings_accent">Accent colour</string>
+    <string name="settings_dynamic_color">Use system colours</string>
+    <string name="settings_dynamic_color_summary">Material You on Android 12+</string>
+    <string name="settings_gestures">Gestures</string>
+    <string name="settings_gesture_swipe_left">Swipe left</string>
+    <string name="settings_gesture_swipe_right">Swipe right</string>
+    <string name="settings_gesture_double_tap">Double tap</string>
+    <string name="settings_gesture_long_press">Long press</string>
+    <string name="settings_gesture_action_none">Do nothing</string>
+    <string name="settings_gesture_action_seek">Seek</string>
+    <string name="settings_gesture_action_volume">Volume</string>
+    <string name="settings_gesture_action_brightness">Brightness</string>
+    <string name="settings_gesture_action_play_pause">Play / pause</string>
+    <string name="settings_gesture_action_speed">Fast forward boost</string>
+    <string name="settings_gesture_swipe">Horizontal swipe</string>
+    <string name="settings_subtitles">Subtitles</string>
+    <string name="settings_audio">Audio</string>
+    <string name="settings_bass_boost">Bass boost</string>
+    <string name="settings_virtualizer">Virtual surround</string>
+    <string name="settings_loudness">Loudness</string>
+    <string name="settings_family">Family &amp; privacy</string>
+    <string name="settings_child_mode">Kids mode</string>
+    <string name="settings_child_mode_summary">Requires a PIN to turn off</string>
+    <string name="settings_backup">Backup</string>
+    <string name="settings_backup_export">Export</string>
+    <string name="settings_backup_import">Import</string>
+    <string name="settings_backup_summary">Settings, favourites, playlists and history</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="settings_done">Done</string>
+
+    <!-- Kids mode -->
+    <string name="kids_title">Kids mode</string>
+    <string name="kids_create_pin">Create PIN</string>
+    <string name="kids_pin_hint">4 to 8 digits</string>
+    <string name="kids_enable">Enable</string>
+    <string name="kids_disable">Disable</string>
+    <string name="kids_pin_wrong">Wrong PIN or too many attempts</string>
+    <string name="kids_blocked_folders">Hidden folders</string>
+    <string name="kids_blocked_summary">Folders hidden while kids mode is on</string>
+
+    <!-- Network -->
+    <string name="net_title">Network sources</string>
+    <string name="net_add">Add source</string>
+    <string name="net_protocol">Protocol</string>
+    <string name="net_host">Host</string>
+    <string name="net_port">Port</string>
+    <string name="net_username">Username</string>
+    <string name="net_password">Password</string>
+    <string name="net_share">Share name</string>
+    <string name="net_path">Path</string>
+    <string name="net_display_name">Display name</string>
+    <string name="net_save">Save</string>
+    <string name="net_browse">Browse</string>
+    <string name="net_error">Connection failed: %1$s</string>
+    <string name="net_https_only">WebDAV requires HTTPS</string>
+    <string name="net_browse_webdav_only">Browsing is only available for WebDAV sources</string>
+    <string name="net_empty">No sources added yet</string>
+
+    <!-- Profile -->
+    <string name="profile_library_stats">Library</string>
+    <string name="profile_videos">Videos</string>
+    <string name="profile_songs">Songs</string>
+    <string name="profile_watched">Watched</string>
+    <string name="profile_storage">Storage used</string>
+    <string name="profile_favourites">Favourites</string>
+    <string name="profile_continue">Continue watching</string>
+
+    <!-- Common -->
+    <string name="common_unknown">Unknown</string>
+    <string name="common_dismiss">Dismiss</string>
+    <string name="common_retry">Retry</string>
+    <string name="common_close">Close</string>
+    <string name="common_reset">Reset</string>
+    <string name="common_apply">Apply</string>
+    <string name="common_error">Something went wrong</string>
+    <string name="common_video">Video</string>
+    <string name="common_audio">Audio</string>
+    <string name="cd_back">Back</string>
+
+    <!-- Player extras -->
+    <string name="player_brightness">Brightness</string>
+    <string name="player_volume">Volume</string>
+    <string name="player_screenshot_saved">Screenshot saved to Pictures/MalekPlay</string>
+    <string name="player_screenshot_failed">Screenshot failed</string>
+    <string name="player_aspect_fit">Fit</string>
+    <string name="player_aspect_fill">Stretch</string>
+    <string name="player_aspect_crop">Crop</string>
+    <string name="player_speed_boost">Speed boost</string>
+    <string name="player_bookmark_deleted">Bookmark removed</string>
+
+    <string name="home_library_tagline">Your media, beautifully organised</string>
+    <string name="home_hero_title">Your entertainment, in one place</string>
+    <string name="home_hero_subtitle">Pick up where you left off or explore your library.</string>
+    <string name="home_total_media">Media</string>
+</resources>

@@ -1,78 +1,214 @@
 package com.malekplay.data.repository
 
+import android.net.Uri
 import com.malekplay.data.local.dao.MediaDao
-import com.malekplay.data.local.entity.PlaybackStateEntity
+import com.malekplay.data.local.dao.UserDataDao
+import com.malekplay.data.local.entity.BookmarkEntity
+import com.malekplay.data.local.entity.PlaybackProgressEntity
 import com.malekplay.data.local.entity.TrackPreferenceEntity
+import com.malekplay.data.local.model.MediaWithState
 import com.malekplay.data.scanner.MediaStoreScanner
-import com.malekplay.domain.model.MediaWithDetails
+import com.malekplay.domain.model.AlbumSummary
+import com.malekplay.domain.model.ArtistSummary
+import com.malekplay.domain.model.GenreSummary
+import com.malekplay.domain.model.LibraryItem
+import com.malekplay.domain.model.LibraryStats
+import com.malekplay.domain.model.MediaFolder
+import com.malekplay.domain.model.toDomain
+import com.malekplay.domain.model.toLibraryItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+import javax.inject.Inject
+import javax.inject.Singleton
 
-/**
- * مستودع الوسائط الذكي (يدعم العرض الفوري والتحديث التلقائي في الخلفية)
- */
-class MediaRepository(
-    private val dao: MediaDao,
+@Singleton
+class MediaRepository @Inject constructor(
+    private val mediaDao: MediaDao,
+    private val userDataDao: UserDataDao,
     private val scanner: MediaStoreScanner
 ) {
-    private val scanMutex = Mutex()
-    private var lastScanTime = 0L
 
-    /**
-     * تدفق الوسائط الفوري: يعرض البيانات المخزنة فوراً ثم يفحص الهاتف في الخلفية
-     */
-    fun observeLibrary(): Flow<List<MediaWithDetails>> = channelFlow {
-        // 1. مراقبة وإرسال البيانات المخزنة فوراً إلى الشاشة (بدون أي تأخير)
-        val observationJob = launch {
-            dao.observeAllMediaWithDetails().collect { records ->
-                send(records)
+    /** Media rows joined with the favourite set, so lists can render star state. */
+    private fun Flow<List<MediaWithState>>.asLibraryItems(): Flow<List<LibraryItem>> =
+        combine(this, userDataDao.observeFavouriteIds()) { rows, favourites ->
+            val favSet = favourites.toSet()
+            rows.map { it.toLibraryItem(favSet) }
+        }.flowOn(Dispatchers.Default)
+
+    fun observeAll(): Flow<List<LibraryItem>> = mediaDao.observeAll().asLibraryItems()
+    fun observeVideos(): Flow<List<LibraryItem>> = mediaDao.observeVideos().asLibraryItems()
+    fun observeAudio(): Flow<List<LibraryItem>> = mediaDao.observeAudio().asLibraryItems()
+    fun observeFolder(path: String): Flow<List<LibraryItem>> =
+        mediaDao.observeFolder(path).asLibraryItems()
+    fun observeSearch(query: String): Flow<List<LibraryItem>> =
+        mediaDao.observeSearch(query).asLibraryItems()
+    fun observeContinueWatching(limit: Int = 20): Flow<List<LibraryItem>> =
+        mediaDao.observeContinueWatching(limit).asLibraryItems()
+    fun observeRecentlyPlayed(limit: Int = 50): Flow<List<LibraryItem>> =
+        mediaDao.observeRecentlyPlayed(limit).asLibraryItems()
+
+    fun observeFolders(): Flow<List<MediaFolder>> =
+        mediaDao.observeFolders().map { rows ->
+            rows.map { row ->
+                MediaFolder(
+                    path = row.path,
+                    name = row.name,
+                    itemCount = row.itemCount,
+                    videoCount = row.videoCount,
+                    audioCount = row.audioCount,
+                    totalBytes = row.totalBytes,
+                    lastAddedMs = row.lastAddedMs,
+                    sampleUri = row.sampleUri?.let { Uri.parse(it) }
+                )
             }
-        }
+        }.flowOn(Dispatchers.Default)
 
-        // 2. تحديث المكتبة في الخلفية بأمان إذا مرت 15 ثانية على آخر فحص
-        launch(Dispatchers.IO) {
-            val now = System.currentTimeMillis()
-            if (now - lastScanTime > 15_000L) {
-                scanMutex.withLock {
-                    runCatching {
-                        val freshMedia = scanner.scan()
-                        if (freshMedia.isNotEmpty()) {
-                            dao.upsertMedia(freshMedia)
-                        }
-                        lastScanTime = System.currentTimeMillis()
-                    }
-                }
+    fun observeAlbums(unknownLabel: String): Flow<List<AlbumSummary>> =
+        mediaDao.observeAlbums(unknownLabel).map { rows ->
+            rows.map {
+                AlbumSummary(
+                    name = it.name,
+                    artist = it.artist,
+                    albumId = it.albumId,
+                    trackCount = it.trackCount,
+                    sampleUri = it.sampleUri?.let(Uri::parse)
+                )
             }
-        }
+        }.flowOn(Dispatchers.Default)
 
-        // إبقاء القناة مفتوحة للاستماع لأي تغييرات جديدة
-        observationJob.join()
-    }.flowOn(Dispatchers.IO)
+    fun observeArtists(unknownLabel: String): Flow<List<ArtistSummary>> =
+        mediaDao.observeArtists(unknownLabel).map { rows ->
+            rows.map {
+                ArtistSummary(
+                    name = it.name,
+                    artistId = it.artistId,
+                    trackCount = it.trackCount,
+                    sampleUri = it.sampleUri?.let(Uri::parse)
+                )
+            }
+        }.flowOn(Dispatchers.Default)
 
-    /**
-     * حفظ تقدم المشاهدة وموضع الفيديو بدقة
-     */
-    suspend fun savePlayback(mediaId: String, position: Long, speed: Float, duration: Long) {
-        val completed = duration > 0L && position >= duration - 3_000L
-        dao.upsertPlaybackState(
-            PlaybackStateEntity(
-                mediaId = mediaId,
-                position = if (completed) 0L else position.coerceAtLeast(0L),
-                playbackSpeed = speed.coerceIn(0.25f, 4.0f),
-                isCompleted = completed
-            )
+    fun observeGenres(unknownLabel: String): Flow<List<GenreSummary>> =
+        mediaDao.observeGenres(unknownLabel).map { rows ->
+            rows.map {
+                GenreSummary(
+                    name = it.name,
+                    trackCount = it.trackCount,
+                    sampleUri = it.sampleUri?.let(Uri::parse)
+                )
+            }
+        }.flowOn(Dispatchers.Default)
+
+    fun observeStats(): Flow<LibraryStats> = combine(
+        mediaDao.observeVideoCount(),
+        mediaDao.observeAudioCount(),
+        mediaDao.observeTotalBytes(),
+        mediaDao.observeWatchedMs()
+    ) { videos, audio, bytes, watched ->
+        LibraryStats(
+            videoCount = videos,
+            audioCount = audio,
+            totalBytes = bytes,
+            watchedMs = watched
         )
+    }.flowOn(Dispatchers.Default)
+
+    /**
+     * Re-scans MediaStore and reconciles the cache.
+     * Rows that disappeared from MediaStore are deleted so deleted files vanish.
+     */
+    suspend fun refresh() = withContext(Dispatchers.IO) {
+        val scanned = scanner.scan()
+        if (scanned.isEmpty()) return@withContext
+        mediaDao.upsertMedia(scanned)
+        val keepIds = scanned.map { it.mediaId }
+        // Chunked because SQLite caps the number of bound variables per statement.
+        keepIds.chunked(900).forEach { chunk -> mediaDao.deleteMissing(chunk) }
     }
 
-    suspend fun getPlaybackState(mediaId: String) = dao.getPlaybackState(mediaId)
-    
-    suspend fun getTrackPreference(mediaId: String) = dao.getTrackPreference(mediaId)
-    
+    suspend fun clearLibrary() = withContext(Dispatchers.IO) { mediaDao.clearAll() }
+
+    // -------------------------------------------------------------- progress
+
+    suspend fun saveProgress(
+        mediaId: String,
+        positionMs: Long,
+        durationMs: Long,
+        speed: Float,
+        markPlayed: Boolean
+    ) = withContext(Dispatchers.IO) {
+        val existing = mediaDao.getProgress(mediaId)
+        val completed = durationMs > 0L && positionMs >= durationMs - 2_000L
+        mediaDao.upsertProgress(
+            PlaybackProgressEntity(
+                mediaId = mediaId,
+                positionMs = if (completed) 0L else positionMs.coerceAtLeast(0L),
+                durationMs = durationMs.coerceAtLeast(0L),
+                playbackSpeed = speed.coerceIn(0.25f, 4f),
+                isCompleted = completed,
+                lastPlayedAtMs = System.currentTimeMillis(),
+                playCount = (existing?.playCount ?: 0) + if (markPlayed) 1 else 0
+            )
+        )
+        if (markPlayed) recordHistory(mediaId)
+    }
+
+    suspend fun getProgress(mediaId: String) =
+        withContext(Dispatchers.IO) { mediaDao.getProgress(mediaId) }
+
+    suspend fun getTrackPreference(mediaId: String) =
+        withContext(Dispatchers.IO) { mediaDao.getTrackPreference(mediaId) }
+
     suspend fun saveTrackPreference(preference: TrackPreferenceEntity) =
-        dao.upsertTrackPreference(preference)
+        withContext(Dispatchers.IO) { mediaDao.upsertTrackPreference(preference) }
+
+    // -------------------------------------------------------------- bookmarks
+
+    fun observeBookmarks(mediaId: String) = mediaDao.observeBookmarks(mediaId)
+
+    suspend fun addBookmark(mediaId: String, positionMs: Long, label: String) =
+        withContext(Dispatchers.IO) {
+            mediaDao.upsertBookmark(
+                BookmarkEntity(mediaId = mediaId, positionMs = positionMs, label = label)
+            )
+        }
+
+    suspend fun deleteBookmark(bookmarkId: Long) =
+        withContext(Dispatchers.IO) { mediaDao.deleteBookmark(bookmarkId) }
+
+    // ---------------------------------------------------------------- history
+
+    /**
+     * Records a play in SQL rather than read-modify-write so overlapping
+     * play events cannot lose an increment.
+     */
+    private suspend fun recordHistory(mediaId: String) {
+        val now = System.currentTimeMillis()
+        val existing = userDataDao.getHistory(mediaId)
+        if (existing == null) {
+            userDataDao.insertHistory(
+                com.malekplay.data.local.entity.HistoryEntity(
+                    mediaId = mediaId,
+                    lastPlayedAtMs = now,
+                    playCount = 1
+                )
+            )
+        } else {
+            userDataDao.updateHistory(mediaId, now, existing.playCount + 1)
+        }
+        userDataDao.trimHistory()
+    }
+
+    suspend fun getMedia(mediaId: String) =
+        withContext(Dispatchers.IO) { mediaDao.getMedia(mediaId)?.media?.toDomain() }
+
+    suspend fun getMediaList(ids: List<String>) = withContext(Dispatchers.IO) {
+        val rows = mediaDao.getMediaList(ids)
+        val order = ids.withIndex().associate { it.value to it.index }
+        rows.map { it.media.toDomain() }.sortedBy { order[it.id] ?: Int.MAX_VALUE }
+    }
 }
