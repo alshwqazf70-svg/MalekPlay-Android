@@ -214,6 +214,16 @@ class PlayerViewModel @Inject constructor(
                 _controller.value?.pause()
                 cancelSleepTimer()
             }
+            val oldMediaId = oldPosition.mediaItem?.mediaId
+            val newMediaId = newPosition.mediaItem?.mediaId
+            if (!oldMediaId.isNullOrBlank() && oldMediaId != newMediaId) {
+                persistProgressSnapshot(
+                    mediaId = oldMediaId,
+                    positionMs = oldPosition.positionMs,
+                    durationMs = _durationMs.value,
+                    speed = _speed.value
+                )
+            }
             _positionMs.value = newPosition.positionMs
             applyAbBounds(newPosition.positionMs)
         }
@@ -300,6 +310,7 @@ class PlayerViewModel @Inject constructor(
         val safeIndex = startIndex.coerceIn(0, items.lastIndex)
         _queue.value = items
         currentMediaId = items[safeIndex].id
+        lastCountedMediaId = null
         _playerError.value = null
         player.setMediaItems(items.map { it.toMedia3Item() }, safeIndex, startPositionMs.coerceAtLeast(0L))
         player.shuffleModeEnabled = shuffle
@@ -321,6 +332,7 @@ class PlayerViewModel @Inject constructor(
         val player = _controller.value ?: return
         _queue.value = emptyList()
         currentMediaId = uri.toString()
+        lastCountedMediaId = null
         _playerError.value = null
         player.setMediaItem(mediaItemFromUri(uri))
         player.seekTo(startPositionMs.coerceAtLeast(0L))
@@ -576,13 +588,29 @@ class PlayerViewModel @Inject constructor(
     fun saveProgressNow(markPlayed: Boolean = false) {
         val player = _controller.value ?: return
         val mediaId = currentMediaId ?: player.currentMediaItem?.mediaId ?: return
+        persistProgressSnapshot(
+            mediaId = mediaId,
+            positionMs = player.currentPosition,
+            durationMs = player.duration.coerceAtLeast(0L),
+            speed = player.playbackParameters.speed,
+            markPlayed = markPlayed
+        )
+    }
+
+    private fun persistProgressSnapshot(
+        mediaId: String,
+        positionMs: Long,
+        durationMs: Long,
+        speed: Float,
+        markPlayed: Boolean = false
+    ) {
         viewModelScope.launch {
             runCatching {
                 mediaRepository.saveProgress(
                     mediaId = mediaId,
-                    positionMs = player.currentPosition,
-                    durationMs = player.duration.coerceAtLeast(0L),
-                    speed = player.playbackParameters.speed,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    speed = speed,
                     markPlayed = markPlayed
                 )
             }
