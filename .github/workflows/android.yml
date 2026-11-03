@@ -51,6 +51,12 @@ jobs:
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Run unit tests
+        run: gradle --no-daemon :app:testDebugUnitTest
+
+      - name: Run Android lint
+        run: gradle --no-daemon :app:lintDebug
+
       - name: Build APK
         run: gradle --no-daemon :app:assembleDebug
 
