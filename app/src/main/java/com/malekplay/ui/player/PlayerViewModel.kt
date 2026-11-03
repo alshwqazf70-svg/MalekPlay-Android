@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
@@ -348,6 +349,51 @@ class PlayerViewModel @Inject constructor(
         val player = _controller.value ?: return
         player.shuffleModeEnabled = !player.shuffleModeEnabled
         _shuffleEnabled.value = player.shuffleModeEnabled
+    }
+
+    /** Adds an external subtitle without discarding the current playback queue. */
+    fun addExternalSubtitle(uri: Uri) {
+        val player = _controller.value ?: run {
+            _playerError.value = "مشغل الفيديو غير جاهز"
+            return
+        }
+        val extension = uri.lastPathSegment.orEmpty().substringAfterLast('.', "").lowercase()
+        val mimeType = when (extension) {
+            "ass", "ssa" -> MimeTypes.TEXT_SSA
+            "srt" -> MimeTypes.APPLICATION_SUBRIP
+            "vtt" -> MimeTypes.TEXT_VTT
+            else -> null
+        }
+        if (mimeType == null) {
+            _playerError.value = "صيغة الترجمة غير مدعومة. استخدم ASS أو SSA أو SRT أو VTT"
+            return
+        }
+        val index = player.currentMediaItemIndex
+        val current = player.currentMediaItem
+        if (current == null || index !in 0 until player.mediaItemCount) {
+            _playerError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            return
+        }
+        val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
+        if (existing.any { it.uri == uri }) return
+
+        val configuration = MediaItem.SubtitleConfiguration.Builder(uri)
+            .setMimeType(mimeType)
+            .setLanguage("und")
+            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+            .build()
+        val updated = current.buildUpon()
+            .setSubtitleConfigurations(existing + configuration)
+            .build()
+        val queue = (0 until player.mediaItemCount).map { itemIndex ->
+            if (itemIndex == index) updated else player.getMediaItemAt(itemIndex)
+        }
+        val position = player.currentPosition.coerceAtLeast(0L)
+        val playWhenReady = player.playWhenReady
+        player.setMediaItems(queue, index, position)
+        player.prepare()
+        player.playWhenReady = playWhenReady
+        _playerError.value = null
     }
 
     // --------------------------------------------------------------- tracks

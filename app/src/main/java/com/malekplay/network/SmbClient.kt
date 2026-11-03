@@ -11,6 +11,7 @@ import kotlinx.coroutines.withContext
 class SmbClient {
     suspend fun list(
         host: String,
+        port: Int,
         shareName: String,
         path: String,
         username: String,
@@ -20,7 +21,8 @@ class SmbClient {
         require(host.isNotBlank() && shareName.isNotBlank())
         val client = SMBClient()
         client.use { smb ->
-            smb.connect(host).use { connection ->
+            require(port in 1..65535) { "منفذ SMB غير صالح" }
+            smb.connect(host, port).use { connection ->
                 val auth = AuthenticationContext(username, password.toCharArray(), domain)
                 val session = connection.authenticate(auth)
                 session.use {

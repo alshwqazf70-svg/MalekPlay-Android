@@ -1,6 +1,7 @@
 package com.malekplay.ui.player.video
 
 import android.content.ContentValues
+import android.content.Intent
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -18,6 +19,8 @@ import android.view.PixelCopy
 import android.view.SurfaceView
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -143,6 +146,20 @@ fun VideoPlayerScreen(
     settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val externalSubtitlePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { uri ->
+            if (uri != null) {
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }
+                viewModel.addExternalSubtitle(uri)
+            }
+        }
+    )
     val activity = remember(context) { context.findActivity() }
     val mainActivity = activity as? MainActivity
     val scope = rememberCoroutineScope()
@@ -575,6 +592,13 @@ fun VideoPlayerScreen(
                 .statusBarsPadding()
         ) {
             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.player_open_subtitle)) },
+                    onClick = {
+                        showMenu = false
+                        externalSubtitlePicker.launch(arrayOf("*/*"))
+                    }
+                )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.player_restart)) },
                     onClick = { showMenu = false; viewModel.seekTo(0L) }
