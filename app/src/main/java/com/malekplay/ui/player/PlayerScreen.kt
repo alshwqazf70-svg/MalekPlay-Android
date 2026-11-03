@@ -103,20 +103,18 @@ fun PlayerScreen(
     LaunchedEffect(player, uri, playbackQueue, safeStartIndex, resumePlayback, defaultPlaybackSpeed, title) {
         if (player != null) {
             val startUri = playbackQueue[safeStartIndex]
-            val roomState = if (resumePlayback) playerViewModel.getSavedPlaybackState(startUri.toString()) else null
-            val trackPreference = playerViewModel.getSavedTrackPreference(startUri.toString())
+            val roomState = if (resumePlayback) playerViewModel.getPlaybackProgress(startUri.toString()) else null
             val savedPosition = if (resumePlayback) {
-                roomState?.position?.coerceAtLeast(0L) ?: preferences.getLong("position:$startUri", 0L).coerceAtLeast(0L)
+                roomState?.positionMs?.coerceAtLeast(0L) ?: preferences.getLong("position:$startUri", 0L).coerceAtLeast(0L)
             } else 0L
             val savedSpeed = roomState?.playbackSpeed ?: preferences.getFloat("speed:$startUri", defaultPlaybackSpeed).coerceIn(0.25f, 4f)
             
-            playerViewModel.playQueue(
-                playbackQueue,
-                safeStartIndex,
-                savedPosition,
-                savedSpeed,
-                title,
-                trackPreference
+            playerViewModel.playUriQueue(
+                uris = playbackQueue,
+                startIndex = safeStartIndex,
+                startPositionMs = savedPosition,
+                speed = savedSpeed,
+                title = title
             )
         }
     }
