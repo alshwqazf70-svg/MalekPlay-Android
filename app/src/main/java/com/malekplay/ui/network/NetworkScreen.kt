@@ -93,9 +93,17 @@ private fun networkMediaUri(profile: NetworkProfile, remotePath: String): Uri {
                 .removePrefix("https://")
                 .removePrefix("http://")
                 .trimEnd('/')
-            Uri.parse("https://$host:${profile.port}").buildUpon().apply {
-                segments.forEach(::appendPath)
-            }.build()
+            val candidate = Uri.parse(remotePath)
+            if (candidate.scheme.equals("https", ignoreCase = true) &&
+                candidate.host.equals(host.substringBefore('/').substringBefore(':'), ignoreCase = true) &&
+                candidate.userInfo == null
+            ) {
+                candidate
+            } else {
+                Uri.parse("https://$host:${profile.port}").buildUpon().apply {
+                    segments.forEach(::appendPath)
+                }.build()
+            }
         }
         NetworkProtocol.SMB -> Uri.Builder().scheme("maleksmb").authority(profile.id).apply {
             segments.forEach(::appendPath)

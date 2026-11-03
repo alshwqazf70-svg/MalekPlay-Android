@@ -3,6 +3,7 @@ package com.malekplay.player
 import android.content.Context
 import android.net.Uri
 import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSpec
 import com.hierynomus.msdtyp.AccessMask
@@ -29,6 +30,7 @@ import java.io.File
 import java.io.IOException
 import java.util.EnumSet
 
+@UnstableApi
 /**
  * Random-access Media3 source for saved SMB and SFTP profiles.
  * Credentials and host-key material are resolved from private app storage; they
@@ -63,6 +65,12 @@ class NetworkMediaDataSource(
                 ?: throw IOException("مصدر الشبكة غير محدد")
             val profile = profileStore.load().firstOrNull { it.id == profileId }
                 ?: throw IOException("مصدر الشبكة لم يعد موجوداً")
+            val expectedProtocol = when (dataSpec.uri.scheme?.lowercase()) {
+                "maleksmb" -> NetworkProtocol.SMB
+                "maleksftp" -> NetworkProtocol.SFTP
+                else -> throw IOException("بروتوكول تشغيل الشبكة غير مدعوم")
+            }
+            require(profile.protocol == expectedProtocol) { "نوع المصدر لا يطابق رابط التشغيل" }
             val credentials = credentialVault.load(profile.id)
                 ?: (profile.username to "")
             val segments = dataSpec.uri.pathSegments
