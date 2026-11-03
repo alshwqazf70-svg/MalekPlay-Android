@@ -172,7 +172,7 @@ class PlayerViewModel @Inject constructor(
                     _controller.value = connected
                     currentMediaId = connected.currentMediaItem?.mediaId
                     _connectionError.value = false
-                    if (connected.isPlaying) markCurrentMediaPlayed()
+                    if (connected.isPlaying) saveProgressNow()
                     startTicker()
                     startProgressSaver()
                 } else {
@@ -329,7 +329,6 @@ class PlayerViewModel @Inject constructor(
         val player = _controller.value ?: return
         _queue.value = emptyList()
         currentMediaId = uri.toString()
-        lastCountedMediaId = null
         _playerError.value = null
         player.setMediaItem(mediaItemFromUri(uri))
         player.seekTo(startPositionMs.coerceAtLeast(0L))
