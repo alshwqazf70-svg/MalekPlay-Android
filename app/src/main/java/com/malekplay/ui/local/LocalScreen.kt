@@ -450,7 +450,7 @@ private fun LibraryHero(
                     colors = listOf(
                         MaterialTheme.colorScheme.primary,
                         MaterialTheme.colorScheme.primary.copy(alpha = 0.78f),
-                        MalekPlayColors.Emerald.copy(alpha = 0.82f)
+                        MalekPlayColors.Amethyst.copy(alpha = 0.88f)
                     )
                 )
             )
