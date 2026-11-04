@@ -15,7 +15,15 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 
-data class OnlineSubtitle(val fileId: Long, val language: String, val release: String, val downloads: Int, val format: String)
+data class OnlineSubtitle(
+    val fileId: Long,
+    val language: String,
+    val release: String,
+    val downloads: Int,
+    val format: String,
+    val sourceId: String = fileId.toString(),
+    val provider: String = "opensubtitles"
+)
 
 class OnlineSubtitleRepository(context: Context, private val vault: NetworkCredentialVault) {
     private val app = context.applicationContext
@@ -33,6 +41,123 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val user = vault.load(USER_SLOT)
         !key.isNullOrBlank() && !user?.first.isNullOrBlank() && !user?.second.isNullOrBlank()
     }.getOrDefault(false)
+
+    /**
+     * Searches a public guest endpoint first. No account, API key, or setup is required
+     * for the user. The provider documents a small daily guest quota, so failures are
+     * surfaced cleanly and can be retried later.
+     */
+    fun searchAutomatic(title: String, language: String, season: Int?, episode: Int?): List<OnlineSubtitle> {
+        val publicResults = searchPublic(title, language, season, episode)
+        val accountResults = if (hasCredentials()) {
+            runCatching { search(title, language, season, episode) }.getOrDefault(emptyList())
+        } else emptyList()
+        return (publicResults + accountResults)
+            .distinctBy { it.provider + ":" + it.sourceId }
+            .take(40)
+    }
+
+    private fun searchPublic(
+        title: String,
+        language: String,
+        season: Int?,
+        episode: Int?
+    ): List<OnlineSubtitle> {
+        require(title.isNotBlank()) { "أدخل اسم الفيلم أو المسلسل" }
+        val episodeSuffix = if (season != null && episode != null) {
+            " S%02dE%02d".format(Locale.ROOT, season, episode)
+        } else ""
+        val query = (title.trim().take(150) + episodeSuffix).trim()
+        val languages = language.split(',').map { it.trim().lowercase(Locale.ROOT) }
+            .filter { it in setOf("ar", "en") }.ifEmpty { listOf("ar", "en") }
+        return languages.flatMap { lang ->
+            val url = Uri.parse("$PUBLIC_API/search/subtitles").buildUpon()
+                .appendQueryParameter("title", query)
+                .appendQueryParameter("language", lang)
+                .build().toString()
+            val request = Request.Builder().url(url)
+                .header("User-Agent", AGENT)
+                .header("Accept", "application/json")
+                .get().build()
+            val data = execute(request).optJSONArray("data") ?: return@flatMap emptyList()
+            buildList {
+                for (index in 0 until data.length()) {
+                    val item = data.optJSONObject(index) ?: continue
+                    val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
+                    val format = item.optString("format").lowercase(Locale.ROOT)
+                    if (format !in FORMATS) continue
+                    val languageValue = item.opt("language")
+                    val languageCode = when (languageValue) {
+                        is JSONObject -> languageValue.optString("code", lang)
+                        null -> lang
+                        else -> languageValue.toString()
+                    }
+                    add(
+                        OnlineSubtitle(
+                            fileId = 0L,
+                            language = languageCode,
+                            release = item.optString("release").ifBlank { item.optString("film_title", "Subtitle") },
+                            downloads = item.optInt("downloads"),
+                            format = format,
+                            sourceId = id,
+                            provider = PUBLIC_PROVIDER
+                        )
+                    )
+                }
+            }
+        }.distinctBy { it.sourceId }.take(40)
+    }
+
+    fun download(subtitle: OnlineSubtitle): Uri {
+        if (subtitle.provider == PUBLIC_PROVIDER) return downloadPublic(subtitle)
+        return download(subtitle.fileId)
+    }
+
+    private fun downloadPublic(subtitle: OnlineSubtitle): Uri {
+        require(subtitle.sourceId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) {
+            "معرّف الترجمة غير صالح"
+        }
+        val dir = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
+        val cachePrefix = "subtitle-public-${subtitle.sourceId.hashCode().toUInt()}"
+        dir.listFiles()?.firstOrNull {
+            it.name.startsWith("$cachePrefix.") &&
+                it.extension.lowercase(Locale.ROOT) in FORMATS &&
+                it.length() in 1..MAX_BYTES.toLong()
+        }?.let { return Uri.fromFile(it) }
+
+        val endpoint = "$PUBLIC_API/search/download/${subtitle.sourceId}"
+        val request = Request.Builder().url(endpoint)
+            .header("User-Agent", AGENT)
+            .header("Accept", "application/json")
+            .get().build()
+        val downloadPath = execute(request).optString("download_url")
+            .takeIf { it.isNotBlank() } ?: error("لم توفر الخدمة رابط تنزيل للترجمة")
+        val downloadUri = if (downloadPath.startsWith("https://")) {
+            Uri.parse(downloadPath)
+        } else {
+            Uri.parse("$PUBLIC_API/${downloadPath.trimStart('/')}")
+        }
+        require(downloadUri.scheme == "https" && downloadUri.host == PUBLIC_HOST) {
+            "رابط تنزيل الترجمة غير آمن"
+        }
+        val response = client.newCall(Request.Builder().url(downloadUri.toString()).get().build()).execute()
+        response.use {
+            if (!it.isSuccessful) error("تعذر تنزيل الترجمة (HTTP ${it.code})")
+            val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
+            require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
+            val target = if (bytes.isZip()) {
+                extract(bytes, dir, subtitle.sourceId.hashCode().toLong())
+            } else {
+                val ext = detect(bytes) ?: subtitle.format.takeIf { it in FORMATS }
+                    ?: error("صيغة ملف الترجمة غير مدعومة")
+                File(dir, "$cachePrefix.$ext").also { file ->
+                    FileOutputStream(file).use { output -> output.write(bytes) }
+                }
+            }
+            require(target.length() in 1..MAX_BYTES.toLong()) { "حجم ملف الترجمة غير صالح" }
+            return Uri.fromFile(target)
+        }
+    }
 
     fun search(title: String, language: String, season: Int?, episode: Int?): List<OnlineSubtitle> {
         val key = credentials().first
@@ -171,6 +296,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
 
     private companion object {
         const val BASE = "https://api.opensubtitles.com/api/v1"
+        const val PUBLIC_HOST = "subtitles.website"
+        const val PUBLIC_API = "https://subtitles.website/strapi/api"
+        const val PUBLIC_PROVIDER = "subtitleSearchEngine"
         const val AGENT = "MalekPlay v2.0.0"
         const val KEY_SLOT = "opensubtitles_api_key"
         const val USER_SLOT = "opensubtitles_account"
