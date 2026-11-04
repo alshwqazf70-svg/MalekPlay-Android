@@ -22,7 +22,11 @@ class NetworkProfileStore @Inject constructor(
 
     fun load(): List<NetworkProfile> {
         val raw = prefs.getString("profiles", "[]") ?: "[]"
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        val array = try {
+            JSONArray(raw)
+        } catch (error: Exception) {
+            throw IllegalStateException("Saved network profiles are corrupted", error)
+        }
         return buildList {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
@@ -52,8 +56,19 @@ class NetworkProfileStore @Inject constructor(
     }
 
     fun remove(id: String) {
-        persist(load().filterNot { it.id == id })
+        val current = load()
+        val previousCredentials = credentialVault.load(id)
         credentialVault.remove(id)
+        try {
+            persist(current.filterNot { it.id == id })
+        } catch (failure: Throwable) {
+            if (previousCredentials != null) {
+                runCatching {
+                    credentialVault.save(id, previousCredentials.first, previousCredentials.second)
+                }.onFailure(failure::addSuppressed)
+            }
+            throw failure
+        }
     }
 
     private fun persist(profiles: List<NetworkProfile>) {
@@ -70,7 +85,9 @@ class NetworkProfileStore @Inject constructor(
                     .put("displayName", profile.displayName)
             )
         }
-        prefs.edit().putString("profiles", array.toString()).apply()
+        check(prefs.edit().putString("profiles", array.toString()).commit()) {
+            "Could not persist network profiles"
+        }
     }
 
     fun defaultPort(protocol: NetworkProtocol): Int = when (protocol) {
