@@ -209,19 +209,20 @@ fun VideoPlayerScreen(
     var title by remember { mutableStateOf("") }
     var resolved by remember(mediaId) { mutableStateOf(false) }
     var resumeMs by remember(mediaId) { mutableLongStateOf(0L) }
+    var resumeSpeed by remember(mediaId) { mutableFloatStateOf(settings.defaultSpeed) }
 
     LaunchedEffect(mediaId) {
         val item = viewModel.loadMedia(mediaId)
+        media = item
         if (item != null) {
-            media = item
             title = item.displayTitle
-            resumeMs = if (settings.resumePlayback) viewModel.savedPositionFor(mediaId) else 0L
         } else {
-            // File opened from another app: no library row exists yet.
+            // File opened from another app: the Uri is also the progress-store key.
             val uri = Uri.parse(mediaId)
             title = uri.lastPathSegment?.let { titleWithoutExtension(it) } ?: mediaId
-            resumeMs = 0L
         }
+        resumeMs = if (settings.resumePlayback) viewModel.savedPositionFor(mediaId) else 0L
+        resumeSpeed = viewModel.savedPlaybackSpeedFor(mediaId, settings.defaultSpeed)
         resolved = true
     }
 
@@ -229,9 +230,9 @@ fun VideoPlayerScreen(
         if (!resolved || controller == null) return@LaunchedEffect
         val item = media
         if (item != null) {
-            viewModel.playSingle(item, resumeMs, settings.defaultSpeed)
+            viewModel.playSingle(item, resumeMs, resumeSpeed)
         } else {
-            viewModel.playExternalUri(Uri.parse(mediaId), resumeMs, settings.defaultSpeed)
+            viewModel.playExternalUri(Uri.parse(mediaId), resumeMs, resumeSpeed)
         }
     }
 
