@@ -1,6 +1,5 @@
 package com.malekplay.data.local
 
-import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.malekplay.data.local.entity.MediaItemEntity
@@ -69,7 +68,7 @@ class MediaDaoReconciliationTest {
 
         val remaining = database.mediaDao().getMediaList(keepVideos + keepAudio)
         assertEquals(keepVideos.size + keepAudio.size, remaining.size)
-        database.query("SELECT COUNT(*) FROM media_items").use { cursor ->
+        database.openHelper.writableDatabase.query("SELECT COUNT(*) FROM media_items").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals(500, cursor.getInt(0))
         }
