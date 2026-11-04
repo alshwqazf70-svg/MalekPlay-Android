@@ -58,10 +58,10 @@ jobs:
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Assemble debug APK
-        run: gradle --stacktrace --max-workers=2 :app:assembleDebug
+      - name: Assemble ABI-specific debug APKs
+        run: gradle --stacktrace --max-workers=2 -PenableAbiSplits=true :app:assembleDebug
 
-      - name: Upload debug APK
+      - name: Upload debug APKs
         uses: actions/upload-artifact@v4
         with:
           name: MalekPlay-debug
@@ -69,8 +69,11 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Assemble minified release APK and Android App Bundle
-        run: gradle --stacktrace --max-workers=2 :app:assembleRelease :app:bundleRelease
+      - name: Assemble ABI-specific minified release APKs
+        run: gradle --stacktrace --max-workers=2 -PenableAbiSplits=true :app:assembleRelease
+
+      - name: Assemble Google Play Android App Bundle
+        run: gradle --stacktrace --max-workers=2 :app:bundleRelease
 
       - name: Upload release size-analysis outputs
         uses: actions/upload-artifact@v4
@@ -86,12 +89,12 @@ jobs:
         if: always()
         run: |
           echo "## MalekPlay build outputs" >> "$GITHUB_STEP_SUMMARY"
-          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
-            echo "### Debug APK" >> "$GITHUB_STEP_SUMMARY"
-            ls -lh app/build/outputs/apk/debug/*.apk >> "$GITHUB_STEP_SUMMARY"
+          if [ -d app/build/outputs/apk/debug ]; then
+            echo "### ABI-specific Debug APKs" >> "$GITHUB_STEP_SUMMARY"
+            ls -lh app/build/outputs/apk/debug/*.apk >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
           fi
           if [ -d app/build/outputs/apk/release ]; then
-            echo "### Minified release APK" >> "$GITHUB_STEP_SUMMARY"
+            echo "### ABI-specific minified Release APKs" >> "$GITHUB_STEP_SUMMARY"
             ls -lh app/build/outputs/apk/release/*.apk >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
           fi
           if [ -d app/build/outputs/bundle/release ]; then
@@ -183,6 +186,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11.1"
+
+      - name: Add Android SDK tools to PATH
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
       - name: Add Android SDK tools to PATH
         run: |
