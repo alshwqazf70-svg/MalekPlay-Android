@@ -67,6 +67,11 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
 
     fun download(fileId: Long): Uri {
         require(fileId > 0)
+        val dir = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
+        dir.listFiles()?.firstOrNull {
+            it.name.startsWith("subtitle-$fileId.") &&
+                it.extension.lowercase(Locale.ROOT) in FORMATS && it.length() in 1..MAX_BYTES.toLong()
+        }?.let { return Uri.fromFile(it) }
         val (key, account) = credentials()
         val loginBody = JSONObject().put("username", account.first).put("password", account.second)
             .toString().toRequestBody(JSON)
@@ -85,7 +90,6 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             if (!it.isSuccessful) error("تعذر تنزيل الترجمة (HTTP " + it.code + ")")
             val bytes = it.body?.bytes() ?: error("ملف الترجمة فارغ")
             require(bytes.isNotEmpty() && bytes.size <= MAX_BYTES) { "حجم ملف الترجمة غير صالح" }
-            val dir = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
             val target = if (bytes.isZip()) extract(bytes, dir, fileId) else {
                 val ext = detect(bytes) ?: error("صيغة ملف الترجمة غير مدعومة")
                 File(dir, "subtitle-$fileId.$ext").also { FileOutputStream(it).use { out -> out.write(bytes) } }
