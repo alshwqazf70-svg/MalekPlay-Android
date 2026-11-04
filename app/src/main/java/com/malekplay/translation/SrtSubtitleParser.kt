@@ -7,7 +7,7 @@ import java.nio.charset.StandardCharsets
 
 /** Small, deterministic SRT parser helpers kept independent from ML Kit for unit testing. */
 internal object SrtSubtitleParser {
-    private val timingPattern = Regex("""^\\s*\\d{2}:\\d{2}:\\d{2}[,.]\\d{3}\\s*-->.*$""")
+    private val timingPattern = Regex("""^\s*\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->.*$""")
     private val markupPattern = Regex("""<[^>]+>""")
 
     fun decode(bytes: ByteArray): String {
@@ -36,8 +36,8 @@ internal object SrtSubtitleParser {
     }
 
     fun splitBlocks(text: String): List<String> =
-        text.replace("\\r\\n", "\\n").replace('\\r', '\\n')
-            .split(Regex("\\n[\\t ]*\\n"))
+        text.replace("\r\n", "\n").replace('\r', '\n')
+            .split(Regex("\n[\t ]*\n"))
             .filter { it.isNotBlank() }
 
     fun timingLineIndex(lines: List<String>): Int =
