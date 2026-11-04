@@ -69,6 +69,15 @@ import com.malekplay.ui.playlists.PlaylistLibraryScreen
 
 private const val ANIM_MS = 260
 
+// Five primary destinations keep touch targets and labels comfortable on phones.
+private val BOTTOM_DESTINATIONS = listOf(
+    TopLevelDestination.HOME,
+    TopLevelDestination.MOVIES,
+    TopLevelDestination.SERIES,
+    TopLevelDestination.MUSIC,
+    TopLevelDestination.LOCAL
+)
+
 @UnstableApi
 @Composable
 fun MalekPlayNavHost(
@@ -77,7 +86,7 @@ fun MalekPlayNavHost(
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val showBottomBar = TopLevelDestination.entries.any { it.screen.route == currentRoute }
+    val showBottomBar = BOTTOM_DESTINATIONS.any { it.screen.route == currentRoute }
 
     Scaffold(
         bottomBar = {
@@ -286,7 +295,7 @@ private fun MalekPlayBottomBar(
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
     ) {
-        TopLevelDestination.entries.forEach { destination ->
+        BOTTOM_DESTINATIONS.forEach { destination ->
             val selected = currentRoute == destination.screen.route
             val label = stringResourceByName(destination.labelRes)
             val iconScale by androidx.compose.animation.core.animateFloatAsState(
