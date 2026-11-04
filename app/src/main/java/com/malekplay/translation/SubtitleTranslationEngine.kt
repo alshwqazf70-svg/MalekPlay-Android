@@ -44,25 +44,25 @@ class SubtitleTranslationEngine(private val context: Context) {
         return try {
             translator.downloadModelIfNeeded(DownloadConditions.Builder().build()).awaitResult()
             val translated = SrtSubtitleParser.splitBlocks(sourceText)
-                .map { block ->
-                    val lines = block.split('\\n')
+                .map { cue ->
+                    val lines = cue.split('\n')
                     val timeIndex = SrtSubtitleParser.timingLineIndex(lines)
                     if (timeIndex < 0 || timeIndex + 1 >= lines.size) {
-                        block
+                        cue
                     } else {
                         val textStart = timeIndex + 1
-                        val subtitleText = lines.drop(textStart).joinToString("\\n")
+                        val subtitleText = lines.drop(textStart).joinToString("\n")
                         if (subtitleText.isBlank()) {
-                            block
+                            cue
                         } else {
                             val (maskedText, markup) = SrtSubtitleParser.maskMarkup(subtitleText)
                             val translatedText = translator.translate(maskedText).awaitResult()
                             val restoredText = SrtSubtitleParser.restoreMarkup(translatedText, markup)
-                            (lines.take(textStart) + restoredText.split('\\n')).joinToString("\\n")
+                            (lines.take(textStart) + restoredText.split('\n')).joinToString("\n")
                         }
                     }
                 }
-                .joinToString("\\n\\n")
+                .joinToString("\n\n")
             val output = File.createTempFile("malekplay-ar-", ".srt", context.cacheDir)
             output.writeText(translated, StandardCharsets.UTF_8)
             Uri.fromFile(output)
