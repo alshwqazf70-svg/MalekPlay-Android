@@ -5,6 +5,7 @@ import android.net.Uri
 import com.malekplay.core.ui.theme.AppThemeMode
 import com.malekplay.data.preferences.SettingsRepository
 import com.malekplay.data.repository.PlaylistRepository
+import com.malekplay.data.repository.PlaylistRestoreEntry
 import com.malekplay.data.repository.UserDataRepository
 import com.malekplay.domain.model.GestureAction
 import com.malekplay.domain.model.PlayerSettings
@@ -41,6 +42,7 @@ class MalekPlayBackupManager @Inject constructor(
         for (playlist in playlistRepository.snapshotPlaylists()) {
             playlistsArray.put(
                 JSONObject()
+                    .put("id", playlist.playlist.playlistId)
                     .put("name", playlist.playlist.name)
                     .put("mediaIds", JSONArray().apply {
                         playlist.items.sortedBy { it.position }
@@ -109,6 +111,8 @@ class MalekPlayBackupManager @Inject constructor(
                 val name = item.optString("name").trim()
                 if (name.isBlank()) continue
                 val mediaArray = item.optJSONArray("mediaIds") ?: JSONArray()
+                val playlistId = item.optString("id")
+                    .takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }
                 val mediaIds = buildList {
                     for (j in 0 until mediaArray.length()) {
                         val value = mediaArray.optString(j)
@@ -117,15 +121,37 @@ class MalekPlayBackupManager @Inject constructor(
                 }.distinct().take(MAX_PLAYLIST_ITEMS)
                 totalItems += mediaIds.size
                 require(totalItems <= MAX_TOTAL_PLAYLIST_ITEMS) { "Too many playlist entries" }
-                add(name to mediaIds)
+                add(PlaylistRestoreEntry(playlistId, name, mediaIds))
             }
         }
         val settingsJson = root.optJSONObject("settings")
         val restoredSettings = settingsJson?.let(::settingsFromJson)
 
-        userDataRepository.replaceFavourites(favourites)
-        playlistRepository.replaceAll(restoredPlaylists)
-        if (restoredSettings != null) settingsRepository.restore(restoredSettings)
+        // Snapshot all stores before writing. Each store commits atomically locally;
+        // if a later store fails, restore the prior snapshots and retain the original error.
+        val previousFavourites = userDataRepository.observeFavouriteIdsSnapshot()
+        val previousPlaylists = playlistRepository.snapshotPlaylists().map { current ->
+            PlaylistRestoreEntry(
+                playlistId = current.playlist.playlistId,
+                name = current.playlist.name,
+                mediaIds = current.items.sortedBy { it.position }.map { it.mediaId }
+            )
+        }
+        val previousSettings = settingsRepository.currentSettings()
+
+        try {
+            userDataRepository.replaceFavourites(favourites)
+            playlistRepository.restoreAll(restoredPlaylists)
+            if (restoredSettings != null) settingsRepository.restore(restoredSettings)
+        } catch (failure: Throwable) {
+            runCatching { settingsRepository.restore(previousSettings) }
+                .onFailure(failure::addSuppressed)
+            runCatching { playlistRepository.restoreAll(previousPlaylists) }
+                .onFailure(failure::addSuppressed)
+            runCatching { userDataRepository.replaceFavourites(previousFavourites) }
+                .onFailure(failure::addSuppressed)
+            throw failure
+        }
     }
 
     // ------------------------------------------------------------- settings IO
