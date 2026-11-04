@@ -648,7 +648,7 @@ class PlayerViewModel @Inject constructor(
             _onlineSubtitleResults.value = emptyList()
             try {
                 val results = withContext(Dispatchers.IO) {
-                    onlineSubtitleRepository.search(title, language, season, episode)
+                    onlineSubtitleRepository.searchAutomatic(title, language, season, episode)
                 }
                 _onlineSubtitleResults.value = results
                 if (results.isEmpty()) _onlineSubtitleError.value = "لم نعثر على ترجمة مطابقة. جرّب تعديل اسم العنوان أو اللغة."
@@ -660,12 +660,12 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun downloadOnlineSubtitle(fileId: Long) {
+    fun downloadOnlineSubtitle(subtitle: OnlineSubtitle) {
         viewModelScope.launch {
             _onlineSubtitleLoading.value = true
             _onlineSubtitleError.value = null
             try {
-                val uri = withContext(Dispatchers.IO) { onlineSubtitleRepository.download(fileId) }
+                val uri = withContext(Dispatchers.IO) { onlineSubtitleRepository.download(subtitle) }
                 addExternalSubtitle(uri)
             } catch (error: Exception) {
                 _onlineSubtitleError.value = error.message ?: "تعذر تنزيل الترجمة"
