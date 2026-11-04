@@ -189,7 +189,9 @@ class PlayerViewModel @Inject constructor(
                     _controller.value = connected
                     currentMediaId = connected.currentMediaItem?.mediaId
                     _connectionError.value = false
-                    startTicker()
+                    _isPlaying.value = connected.isPlaying
+                    publishPlayerSnapshot(connected)
+                    if (connected.isPlaying) startTicker()
                 } else {
                     // Clear so a later connect() can retry instead of returning early.
                     controllerFuture = null
@@ -203,6 +205,13 @@ class PlayerViewModel @Inject constructor(
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _isPlaying.value = isPlaying
+            if (isPlaying) {
+                startTicker()
+            } else {
+                tickerJob?.cancel()
+                tickerJob = null
+                _controller.value?.let(::publishPlayerSnapshot)
+            }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -271,16 +280,25 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    private fun publishPlayerSnapshot(player: Player) {
+        _positionMs.value = player.currentPosition
+        _durationMs.value = player.duration.coerceAtLeast(0L)
+        _bufferedMs.value = player.bufferedPosition
+        _currentIndex.value = player.currentMediaItemIndex
+        _queueSize.value = player.mediaItemCount
+    }
+
+    /** The UI ticker exists only during active playback, never while paused or idle. */
     private fun startTicker() {
-        tickerJob?.cancel()
+        if (tickerJob?.isActive == true) return
         tickerJob = viewModelScope.launch {
             while (isActive) {
                 val player = _controller.value ?: break
-                _positionMs.value = player.currentPosition
-                _durationMs.value = player.duration.coerceAtLeast(0L)
-                _bufferedMs.value = player.bufferedPosition
-                _currentIndex.value = player.currentMediaItemIndex
-                _queueSize.value = player.mediaItemCount
+                if (!player.isPlaying) {
+                    publishPlayerSnapshot(player)
+                    break
+                }
+                publishPlayerSnapshot(player)
                 delay(TICK_INTERVAL_MS)
             }
         }
@@ -696,6 +714,6 @@ class PlayerViewModel @Inject constructor(
 
     private companion object {
         const val LOG_TAG = "MalekPlayPlayer"
-        const val TICK_INTERVAL_MS = 250L
+        const val TICK_INTERVAL_MS = 500L
     }
 }
