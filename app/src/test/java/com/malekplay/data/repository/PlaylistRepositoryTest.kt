@@ -53,8 +53,16 @@ class PlaylistRepositoryTest {
             repository.restoreAll(
                 listOf(PlaylistRestoreEntry("delete-me", "Temporary", listOf("media-1")))
             )
-            repository.delete("delete-me")
+            // Delete the parent row directly to verify SQLite's ON DELETE CASCADE,
+            // rather than relying on repository-side manual child cleanup.
+            database.playlistDao().deletePlaylist("delete-me")
             assertEquals(emptyList<com.malekplay.data.local.model.PlaylistWithItems>(), repository.snapshotPlaylists())
+            database.openHelper.readableDatabase.query(
+                "SELECT COUNT(*) FROM playlist_items"
+            ).use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
         } finally {
             database.close()
         }
