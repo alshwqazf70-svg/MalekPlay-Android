@@ -2,7 +2,7 @@ name: Build MalekPlay Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "backup/before-updated-2.0" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
@@ -135,7 +135,7 @@ jobs:
 
   emulator-ui-tests:
     name: Android emulator UI tests
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/backup/before-updated-2.0'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
