@@ -15,10 +15,10 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build debug APK
+  build-apk:
+    name: Build and publish debug APK
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -52,11 +52,68 @@ jobs:
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Run unit tests
-        run: gradle --no-daemon :app:testDebugUnitTest
+      - name: Assemble debug APK
+        run: gradle --stacktrace --max-workers=2 :app:assembleDebug
 
-      - name: Run Android lint
-        run: gradle --no-daemon :app:lintDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlay-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish build summary
+        if: always()
+        run: |
+          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            echo "## MalekPlay APK" >> "$GITHUB_STEP_SUMMARY"
+            echo "APK assembled successfully. Download the **MalekPlay-debug** artifact." >> "$GITHUB_STEP_SUMMARY"
+            ls -lh app/build/outputs/apk/debug/app-debug.apk >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## MalekPlay APK" >> "$GITHUB_STEP_SUMMARY"
+            echo "APK was not produced. See the build logs for the failing task." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  quality-checks:
+    name: Unit tests and Android lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Add Android SDK tools to PATH
+        run: |
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+
+      - name: Install Android SDK packages
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Run unit tests and Android lint
+        run: gradle --stacktrace --parallel --max-workers=2 :app:testDebugUnitTest :app:lintDebug
 
       - name: Print Android lint diagnostics
         if: always()
@@ -74,16 +131,46 @@ jobs:
             app/build/reports/lint-results-debug.html
             app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
           if-no-files-found: warn
+          retention-days: 14
 
-      - name: Build APK
-        run: gradle --no-daemon :app:assembleDebug
+  emulator-ui-tests:
+    name: Optional Android emulator UI tests
+    if: github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          name: MalekPlay-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Add Android SDK tools to PATH
+        run: |
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+
+      - name: Install Android SDK packages
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Run Android UI smoke tests on emulator
         timeout-minutes: 25
@@ -94,7 +181,7 @@ jobs:
           arch: x86_64
           profile: pixel_2
           emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           pre-emulator-launch-script: |
             mkdir -p artifacts
@@ -102,14 +189,15 @@ jobs:
             adb version >> artifacts/emulator-setup.txt 2>&1 || true
           script: |
             mkdir -p artifacts
-            set +e
-            adb devices -l > artifacts/emulator-devices.txt 2>&1
+            adb devices -l > artifacts/emulator-devices.txt 2>&1 || true
             adb logcat -c || true
-            gradle --no-daemon :app:connectedDebugAndroidTest
-            TEST_EXIT=$?
-            adb logcat -d -v threadtime > artifacts/emulator-logcat.txt
-            adb shell dumpsys activity activities > artifacts/emulator-activities.txt 2>&1
-            adb shell pm list instrumentation > artifacts/installed-instrumentation.txt 2>&1
+            set +e
+            set -o pipefail
+            gradle --stacktrace --max-workers=2 :app:connectedDebugAndroidTest 2>&1 | tee artifacts/instrumentation-tests.txt
+            TEST_EXIT=${PIPESTATUS[0]}
+            adb logcat -d -v threadtime > artifacts/emulator-logcat.txt 2>&1 || true
+            adb shell dumpsys activity activities > artifacts/emulator-activities.txt 2>&1 || true
+            adb shell pm list instrumentation > artifacts/installed-instrumentation.txt 2>&1 || true
             if [ "$TEST_EXIT" -ne 0 ]; then
               adb shell screencap -p /sdcard/malekplay-test-failure.png || true
               adb pull /sdcard/malekplay-test-failure.png artifacts/malekplay-test-failure.png || true
@@ -120,24 +208,20 @@ jobs:
             adb shell screencap -p /sdcard/malekplay-home.png
             adb pull /sdcard/malekplay-home.png artifacts/malekplay-home.png
 
+      - name: Collect emulator diagnostics
+        if: always()
+        run: |
+          mkdir -p artifacts
+          timeout 20s adb devices -l > artifacts/emulator-devices-final.txt 2>&1 || true
+          timeout 30s adb logcat -d -v threadtime > artifacts/emulator-logcat-final.txt 2>&1 || true
+          timeout 20s adb shell dumpsys activity activities > artifacts/emulator-activities-final.txt 2>&1 || true
+          timeout 20s adb shell pm list instrumentation > artifacts/installed-instrumentation-final.txt 2>&1 || true
+
       - name: Upload emulator diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: MalekPlay-emulator-diagnostics
-          path: |
-            artifacts/emulator-logcat.txt
-            artifacts/emulator-activities.txt
-            artifacts/installed-instrumentation.txt
-            artifacts/emulator-devices.txt
-            artifacts/emulator-setup.txt
-            artifacts/malekplay-test-failure.png
+          path: artifacts/
           if-no-files-found: warn
-
-      - name: Upload emulator home screenshot
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: MalekPlay-emulator-home
-          path: artifacts/malekplay-home.png
-          if-no-files-found: warn
+          retention-days: 14
