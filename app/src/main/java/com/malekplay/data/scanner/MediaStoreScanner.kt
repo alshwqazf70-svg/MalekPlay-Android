@@ -68,11 +68,18 @@ class MediaStoreScanner(context: Context) {
 
         // A partial visual grant permits reading selected videos, but never
         // authorizes deleting rows that are simply outside the selected set.
-        val videos = if (videosComplete || videosPartial) scanVideos() else emptyList()
-        val audio = if (audioComplete) scanAudio(readGenreIndex()) else emptyList()
+        // Build one result buffer to avoid the additional full-size list that
+        // the videos-plus-audio expression would allocate on large libraries.
+        val items = ArrayList<MediaItemEntity>()
+        if (videosComplete || videosPartial) {
+            items.addAll(scanVideos())
+        }
+        if (audioComplete) {
+            items.addAll(scanAudio(readGenreIndex()))
+        }
 
         MediaScanResult(
-            items = videos + audio,
+            items = items,
             videosComplete = videosComplete,
             audioComplete = audioComplete
         )
