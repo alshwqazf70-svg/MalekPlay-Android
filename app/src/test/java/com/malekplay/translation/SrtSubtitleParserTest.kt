@@ -3,6 +3,7 @@ package com.malekplay.translation
 import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class SrtSubtitleParserTest {
@@ -17,6 +18,22 @@ class SrtSubtitleParserTest {
 
         assertEquals(text, SrtSubtitleParser.decode(utf8))
         assertEquals(text, SrtSubtitleParser.decode(utf16))
+    }
+
+    @Test
+    fun rejectsTruncatedUtf16BomPayloads() {
+        val truncated = byteArrayOf(0xFF.toByte(), 0xFE.toByte(), 0x41)
+        assertThrows(Exception::class.java) { SrtSubtitleParser.decode(truncated) }
+    }
+
+    @Test
+    fun acceptsLongHourTimestampAndRejectsMalformedEndTimestamp() {
+        assertEquals(1, SrtSubtitleParser.timingLineIndex(listOf(
+            "1", "123:00:01,250 --> 123:00:03,500", "Text"
+        )))
+        assertEquals(-1, SrtSubtitleParser.timingLineIndex(listOf(
+            "1", "00:00:01,250 --> not-a-time", "Text"
+        )))
     }
 
     @Test

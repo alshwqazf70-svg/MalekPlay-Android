@@ -28,9 +28,16 @@ class SubtitleTranslationEngine(private val context: Context) {
             while (true) {
                 val count = stream.read(buffer)
                 if (count < 0) break
-                if (count == 0) continue
+                if (count == 0) {
+                    val single = stream.read()
+                    if (single < 0) break
+                    total += 1
+                    require(total <= MAX_SUBTITLE_BYTES) { "حجم ملف الترجمة يجب ألا يتجاوز 5 ميجابايت" }
+                    output.write(single)
+                    continue
+                }
                 total += count
-                require(total <= 5_000_000) { "حجم ملف الترجمة يجب ألا يتجاوز 5 ميجابايت" }
+                require(total <= MAX_SUBTITLE_BYTES) { "حجم ملف الترجمة يجب ألا يتجاوز 5 ميجابايت" }
                 output.write(buffer, 0, count)
             }
             output.toByteArray()
@@ -69,6 +76,10 @@ class SubtitleTranslationEngine(private val context: Context) {
         } finally {
             translator.close()
         }
+    }
+
+    private companion object {
+        const val MAX_SUBTITLE_BYTES = 5_000_000
     }
 
     private suspend fun <T> Task<T>.awaitResult(): T =

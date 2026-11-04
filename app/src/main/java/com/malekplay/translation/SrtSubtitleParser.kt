@@ -7,20 +7,32 @@ import java.nio.charset.StandardCharsets
 
 /** Small, deterministic SRT parser helpers kept independent from ML Kit for unit testing. */
 internal object SrtSubtitleParser {
-    private val timingPattern = Regex("""^\s*\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->.*$""")
+    private val timingPattern = Regex("""^\s*\d{1,}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*\d{1,}:\d{2}:\d{2}[,.]\d{3}(?:\s+.*)?\s*$""")
     private val markupPattern = Regex("""<[^>]+>""")
 
     fun decode(bytes: ByteArray): String {
         require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
         return when {
             bytes.startsWith(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())) ->
-                String(bytes, 3, bytes.size - 3, StandardCharsets.UTF_8)
+                decodeStrict(bytes, 3, StandardCharsets.UTF_8)
             bytes.startsWith(byteArrayOf(0xFF.toByte(), 0xFE.toByte())) ->
-                String(bytes, 2, bytes.size - 2, StandardCharsets.UTF_16LE)
+                decodeStrict(bytes, 2, StandardCharsets.UTF_16LE)
             bytes.startsWith(byteArrayOf(0xFE.toByte(), 0xFF.toByte())) ->
-                String(bytes, 2, bytes.size - 2, StandardCharsets.UTF_16BE)
+                decodeStrict(bytes, 2, StandardCharsets.UTF_16BE)
             else -> decodeWithoutBom(bytes)
         }
+    }
+
+    private fun decodeStrict(bytes: ByteArray, offset: Int, charset: Charset): String {
+        val unitSize = if (charset == StandardCharsets.UTF_8) 1 else 2
+        require((bytes.size - offset) % unitSize == 0) {
+            "ملف الترجمة يحتوي على بيانات ترميز غير مكتملة"
+        }
+        return charset.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes, offset, bytes.size - offset))
+            .toString()
     }
 
     private fun decodeWithoutBom(bytes: ByteArray): String {

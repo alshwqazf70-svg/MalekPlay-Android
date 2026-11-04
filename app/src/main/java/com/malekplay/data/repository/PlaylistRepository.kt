@@ -31,6 +31,7 @@ class PlaylistRepository @Inject constructor(
     suspend fun create(name: String): String = withContext(Dispatchers.IO) {
         val trimmed = name.trim()
         require(trimmed.isNotEmpty()) { "Playlist name cannot be empty" }
+        require(trimmed.length <= MAX_PLAYLIST_NAME_LENGTH) { "Playlist name is too long" }
         val id = UUID.randomUUID().toString()
         playlistDao.upsertPlaylist(
             PlaylistEntity(
@@ -45,6 +46,7 @@ class PlaylistRepository @Inject constructor(
     suspend fun rename(playlistId: String, name: String) = withContext(Dispatchers.IO) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return@withContext
+        require(trimmed.length <= MAX_PLAYLIST_NAME_LENGTH) { "Playlist name is too long" }
         val existing = playlistDao.getPlaylist(playlistId) ?: return@withContext
         playlistDao.upsertPlaylist(existing.copy(name = trimmed))
     }
@@ -56,11 +58,19 @@ class PlaylistRepository @Inject constructor(
     /** Appends media atomically and skips duplicate ids. */
     suspend fun addMedia(playlistId: String, mediaIds: List<String>) =
         withContext(Dispatchers.IO) {
-            playlistDao.appendMedia(playlistId, mediaIds, System.currentTimeMillis())
+            require(mediaIds.size <= MAX_MEDIA_IDS_PER_APPEND) { "Too many items in one playlist update" }
+            require(mediaIds.all { it.isNotBlank() && it.length <= MAX_MEDIA_ID_LENGTH }) {
+                "Playlist contains an invalid media identifier"
+            }
+            playlistDao.appendMedia(playlistId, mediaIds.distinct(), System.currentTimeMillis())
         }
 
     /** Replaces all playlists atomically and preserves valid IDs from backups. */
     suspend fun restoreAll(playlists: List<PlaylistRestoreEntry>) = withContext(Dispatchers.IO) {
+        require(playlists.size <= MAX_PLAYLISTS) { "Backup contains too many playlists" }
+        require(playlists.sumOf { it.mediaIds.size.toLong() } <= MAX_TOTAL_MEDIA_IDS) {
+            "Backup contains too many playlist items"
+        }
         val now = System.currentTimeMillis()
         val suppliedIds = playlists.mapNotNull { it.playlistId?.takeIf(String::isNotBlank) }
         require(suppliedIds.distinct().size == suppliedIds.size) {
@@ -69,6 +79,11 @@ class PlaylistRepository @Inject constructor(
         val normalized = playlists.mapIndexed { index, entry ->
             val name = entry.name.trim()
             require(name.isNotEmpty()) { "Playlist name cannot be empty" }
+            require(name.length <= MAX_PLAYLIST_NAME_LENGTH) { "Playlist name is too long" }
+            require(entry.mediaIds.size <= MAX_MEDIA_IDS_PER_PLAYLIST) { "Playlist contains too many items" }
+            require(entry.mediaIds.all { it.isNotBlank() && it.length <= MAX_MEDIA_ID_LENGTH }) {
+                "Playlist contains an invalid media identifier"
+            }
             val id = entry.playlistId
                 ?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }
                 ?: UUID.randomUUID().toString()
@@ -96,5 +111,14 @@ class PlaylistRepository @Inject constructor(
     /** One-shot snapshot used by the backup exporter. */
     suspend fun snapshotPlaylists(): List<PlaylistWithItems> = withContext(Dispatchers.IO) {
         playlistDao.observePlaylists().first()
+    }
+
+    private companion object {
+        const val MAX_PLAYLIST_NAME_LENGTH = 256
+        const val MAX_MEDIA_ID_LENGTH = 4_096
+        const val MAX_PLAYLISTS = 500
+        const val MAX_MEDIA_IDS_PER_APPEND = 5_000
+        const val MAX_MEDIA_IDS_PER_PLAYLIST = 5_000
+        const val MAX_TOTAL_MEDIA_IDS = 50_000L
     }
 }
