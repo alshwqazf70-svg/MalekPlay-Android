@@ -287,10 +287,20 @@ fun VideoPlayerScreen(
     var showQueue by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showOnlineSubtitles by remember { mutableStateOf(false) }
-    var onlineQuery by remember(title) { mutableStateOf(title) }
+    val detectedEpisode = remember(title) {
+        Regex("(?i)(?:S(\\d{1,2})[ ._-]*E(\\d{1,2})|(\\d{1,2})x(\\d{1,2}))").find(title)
+    }
+    val defaultSubtitleTitle = remember(title, detectedEpisode) {
+        detectedEpisode?.let { title.substring(0, it.range.first).trim(' ', '.', '_', '-') }?.ifBlank { title } ?: title
+    }
+    var onlineQuery by remember(title) { mutableStateOf(defaultSubtitleTitle) }
     var onlineLanguage by remember { mutableStateOf("ar,en") }
-    var onlineSeason by remember { mutableStateOf("") }
-    var onlineEpisode by remember { mutableStateOf("") }
+    var onlineSeason by remember(title) {
+        mutableStateOf(detectedEpisode?.groupValues?.get(1)?.ifBlank { detectedEpisode.groupValues[3] }.orEmpty())
+    }
+    var onlineEpisode by remember(title) {
+        mutableStateOf(detectedEpisode?.groupValues?.get(2)?.ifBlank { detectedEpisode.groupValues[4] }.orEmpty())
+    }
 
     LaunchedEffect(chromeVisible, isPlaying, locked) {
         if (chromeVisible && isPlaying && !locked) {
