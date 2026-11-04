@@ -151,7 +151,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
             require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
             val target = if (bytes.isZip()) {
-                extract(bytes, dir, subtitle.sourceId.hashCode().toLong())
+                extract(bytes, dir, subtitle.sourceId.hashCode().toLong(), cachePrefix)
             } else {
                 val ext = detect(bytes) ?: subtitle.format.takeIf { it in FORMATS }
                     ?: error("صيغة ملف الترجمة غير مدعومة")
@@ -231,13 +231,13 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }
     }
 
-    private fun extract(bytes: ByteArray, dir: File, id: Long): File {
+    private fun extract(bytes: ByteArray, dir: File, id: Long, outputPrefix: String = "subtitle-$id"): File {
         ZipInputStream(bytes.inputStream()).use { zip ->
             var entry = zip.nextEntry
             while (entry != null) {
                 val ext = entry.name.substringAfterLast('.', "").lowercase(Locale.ROOT)
                 if (!entry.isDirectory && ext in FORMATS) {
-                    val file = File(dir, "subtitle-$id.$ext")
+                    val file = File(dir, "$outputPrefix.$ext")
                     FileOutputStream(file).use { out ->
                         val buffer = ByteArray(8192); var total = 0
                         while (true) {
