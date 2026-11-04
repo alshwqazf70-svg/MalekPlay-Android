@@ -12,6 +12,7 @@ import com.malekplay.domain.model.PlayerSettings
 import com.malekplay.domain.model.SortMode
 import com.malekplay.domain.model.ViewMode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -144,12 +145,14 @@ class MalekPlayBackupManager @Inject constructor(
             playlistRepository.restoreAll(restoredPlaylists)
             if (restoredSettings != null) settingsRepository.restore(restoredSettings)
         } catch (failure: Throwable) {
-            runCatching { settingsRepository.restore(previousSettings) }
-                .onFailure(failure::addSuppressed)
-            runCatching { playlistRepository.restoreAll(previousPlaylists) }
-                .onFailure(failure::addSuppressed)
-            runCatching { userDataRepository.replaceFavourites(previousFavourites) }
-                .onFailure(failure::addSuppressed)
+            withContext(NonCancellable) {
+                runCatching { settingsRepository.restore(previousSettings) }
+                    .onFailure(failure::addSuppressed)
+                runCatching { playlistRepository.restoreAll(previousPlaylists) }
+                    .onFailure(failure::addSuppressed)
+                runCatching { userDataRepository.replaceFavourites(previousFavourites) }
+                    .onFailure(failure::addSuppressed)
+            }
             throw failure
         }
     }
