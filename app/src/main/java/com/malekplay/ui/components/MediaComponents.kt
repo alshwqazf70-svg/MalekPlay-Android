@@ -1,6 +1,7 @@
 package com.malekplay.ui.components
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.util.Size
 import android.util.LruCache
@@ -66,6 +67,23 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+private fun calculateInSampleSize(
+    options: BitmapFactory.Options,
+    requestedWidth: Int,
+    requestedHeight: Int
+): Int {
+    val width = options.outWidth
+    val height = options.outHeight
+    if (width <= 0 || height <= 0) return 1
+    var sample = 1
+    while (width / (sample * 2) >= requestedWidth &&
+        height / (sample * 2) >= requestedHeight
+    ) {
+        sample *= 2
+    }
+    return sample.coerceAtLeast(1)
+}
+
 // --------------------------------------------------------------- thumbnails
 
 // A small, byte-bounded cache prevents scrolling back through the library from
@@ -96,12 +114,24 @@ fun MediaThumbnail(
     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = cacheKey) {
         value = thumbnailCache.get(cacheKey) ?: withContext(Dispatchers.IO) {
             try {
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                    null
-                } else {
+                val loaded = if (!media.isVideo && media.artworkUri != null) {
+                    // Read the album-art bytes directly: MediaStore.loadThumbnail is
+                    // not consistently implemented for audio/album-art content URIs.
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    context.contentResolver.openInputStream(source)?.use { stream ->
+                        BitmapFactory.decodeStream(stream, null, bounds)
+                    }
+                    val sample = calculateInSampleSize(bounds, targetSize.width, targetSize.height)
+                    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+                    context.contentResolver.openInputStream(source)?.use { stream ->
+                        BitmapFactory.decodeStream(stream, null, options)
+                    }
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     context.contentResolver.loadThumbnail(source, targetSize, null)
-                        ?.also { thumbnailCache.put(cacheKey, it) }
+                } else {
+                    null
                 }
+                loaded?.also { thumbnailCache.put(cacheKey, it) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
