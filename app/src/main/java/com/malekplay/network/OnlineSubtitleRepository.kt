@@ -27,14 +27,21 @@ data class OnlineSubtitle(
 
 /** Strict content/extension check shared by the cache writer and unit tests. */
 internal fun isValidSubtitlePayload(bytes: ByteArray, extension: String): Boolean {
-    if (extension !in setOf("srt", "ass", "ssa", "vtt") || bytes.isEmpty() || bytes.size > 8 * 1024 * 1024) {
-        return false
-    }
-    val text = bytes.toString(Charsets.UTF_8).trimStart('\uFEFF', ' ', '\n', '\r')
+    if (extension !in setOf("srt", "ass", "ssa", "vtt") ||
+        bytes.isEmpty() || bytes.size > 8 * 1024 * 1024
+    ) return false
+
+    val text = bytes.toString(Charsets.UTF_8)
+        .trimStart('\uFEFF', ' ', '\t', '\n', '\r')
+    val timestamp = """\\d{2}:\\d{2}:\\d{2}[,.]\\d{3}"""
+    val arrowCue = Regex(
+        """(?m)^\\s*$timestamp\\s+-->\\s*$timestamp(?:\\s+.*)?$"""
+    ).containsMatchIn(text)
     val detected = when {
-        text.startsWith("WEBVTT", true) -> "vtt"
-        text.contains("-->") -> "srt"
-        text.startsWith("[Script Info]", true) || text.contains("[Events]", true) -> "ass"
+        text.startsWith("WEBVTT", ignoreCase = true) && arrowCue -> "vtt"
+        text.contains("[Script Info]", ignoreCase = true) &&
+            text.contains("[Events]", ignoreCase = true) -> "ass"
+        arrowCue -> "srt"
         else -> return false
     }
     return if (extension == "ssa") detected == "ass" else detected == extension
