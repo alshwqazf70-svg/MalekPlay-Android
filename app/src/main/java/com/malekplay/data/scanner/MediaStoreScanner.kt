@@ -107,13 +107,14 @@ class MediaStoreScanner(context: Context) {
             val rawResolution = columns.text(MediaStore.Video.Media.RESOLUTION)
             val (width, height) = parseResolution(rawResolution)
             val id = cursor.getLong(columns[MediaStore.MediaColumns._ID])
-            val display = columns.text(MediaStore.MediaColumns.DISPLAY_NAME).ifBlank { "Untitled" }
+            val display = columns.text(MediaStore.MediaColumns.DISPLAY_NAME)
+            val title = chooseMediaDisplayName(metadataTitle = "", fileName = display)
             val durationMs = columns.long(MediaStore.MediaColumns.DURATION)
             val sizeBytes = columns.long(MediaStore.MediaColumns.SIZE)
 
             MediaItemEntity(
                 mediaId = mediaId(collection, id),
-                title = display,
+                title = title,
                 uri = mediaId(collection, id),
                 mimeType = columns.text(MediaStore.MediaColumns.MIME_TYPE).ifBlank { "video/*" },
                 sizeBytes = sizeBytes,
@@ -158,10 +159,13 @@ class MediaStoreScanner(context: Context) {
         }.toTypedArray()
         return query(collection, projection, isVideo = false) { cursor, columns ->
             val id = cursor.getLong(columns[MediaStore.MediaColumns._ID])
-            val display = columns.text(MediaStore.MediaColumns.DISPLAY_NAME).ifBlank { "Untitled" }
-            // Prefer the embedded title tag; fall back to the file name.
-            val title = columns.text(MediaStore.Audio.Media.TITLE)
-                .takeIf { it.isNotBlank() } ?: display
+            val display = columns.text(MediaStore.MediaColumns.DISPLAY_NAME)
+            // Some downloaders write ID3 text using a legacy/invalid charset.
+            // Prefer a readable embedded tag, otherwise fall back to the filename.
+            val title = chooseMediaDisplayName(
+                metadataTitle = columns.text(MediaStore.Audio.Media.TITLE),
+                fileName = display
+            )
             val durationMs = columns.long(MediaStore.MediaColumns.DURATION)
             val sizeBytes = columns.long(MediaStore.MediaColumns.SIZE)
 
