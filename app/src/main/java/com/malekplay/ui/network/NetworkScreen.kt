@@ -246,10 +246,10 @@ class NetworkViewModel @Inject constructor(
                 }
             }
             _sourceError.value = outcome.exceptionOrNull()?.localizedMessage
-            if (outcome.isSuccess && _browse.value.profileId == profile.id) {
-                _browse.value = BrowseUiState()
+            if (outcome.isSuccess) {
+                if (_browse.value.profileId == profile.id) _browse.value = BrowseUiState()
+                reload()
             }
-            reload()
         }
     }
 
