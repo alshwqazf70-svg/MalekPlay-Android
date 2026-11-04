@@ -33,9 +33,9 @@ internal fun isValidSubtitlePayload(bytes: ByteArray, extension: String): Boolea
 
     val text = bytes.toString(Charsets.UTF_8)
         .trimStart('\uFEFF', ' ', '\t', '\n', '\r')
-    val timestamp = """\\d{2}:\\d{2}:\\d{2}[,.]\\d{3}"""
+    val timestamp = """\d{2}:\d{2}:\d{2}[,.]\d{3}"""
     val arrowCue = Regex(
-        """(?m)^\\s*$timestamp\\s+-->\\s*$timestamp(?:\\s+.*)?$"""
+        """(?m)^\s*$timestamp\s+-->\s*$timestamp(?:\s+.*)?$"""
     ).containsMatchIn(text)
     val detected = when {
         text.startsWith("WEBVTT", ignoreCase = true) && arrowCue -> "vtt"
