@@ -3,6 +3,7 @@ package com.malekplay.ui.components
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.provider.MediaStore
 import android.util.Size
 import android.util.LruCache
 import androidx.compose.foundation.background
@@ -129,7 +130,20 @@ fun MediaThumbnail(
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     context.contentResolver.loadThumbnail(source, targetSize, null)
                 } else {
-                    null
+                    // Legacy MediaStore thumbnail API supports Android 6–9.
+                    // Only use it for MediaStore video URIs with a numeric media ID.
+                    val mediaId = source.lastPathSegment?.toLongOrNull()
+                    if (source.scheme == "content" && source.authority == "media" && mediaId != null) {
+                        @Suppress("DEPRECATION")
+                        MediaStore.Video.Thumbnails.getThumbnail(
+                            context.contentResolver,
+                            mediaId,
+                            MediaStore.Video.Thumbnails.MINI_KIND,
+                            null
+                        )
+                    } else {
+                        null
+                    }
                 }
                 loaded?.also { thumbnailCache.put(cacheKey, it) }
             } catch (cancelled: CancellationException) {
