@@ -7,6 +7,10 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -33,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -88,8 +93,18 @@ fun MalekPlayNavHost(
             startDestination = externalUri?.let { Screen.VideoPlayer.create(it.toString()) }
                 ?: Screen.Home.route,
             modifier = Modifier.fillMaxSize(),
-            enterTransition = { fadeIn(tween(ANIM_MS)) },
-            exitTransition = { fadeOut(tween(ANIM_MS)) }
+            enterTransition = {
+                fadeIn(tween(ANIM_MS)) + scaleIn(
+                    initialScale = 0.985f,
+                    animationSpec = tween(ANIM_MS)
+                )
+            },
+            exitTransition = {
+                fadeOut(tween(ANIM_MS)) + scaleOut(
+                    targetScale = 0.985f,
+                    animationSpec = tween(ANIM_MS)
+                )
+            }
         ) {
             composable(Screen.Home.route) {
                 HomeScreen(
@@ -273,6 +288,14 @@ private fun MalekPlayBottomBar(
         TopLevelDestination.entries.forEach { destination ->
             val selected = currentRoute == destination.screen.route
             val label = stringResourceByName(destination.labelRes)
+            val iconScale by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = if (selected) 1.08f else 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                ),
+                label = "bottom-nav-icon-scale"
+            )
             NavigationBarItem(
                 selected = selected,
                 onClick = {
@@ -289,7 +312,12 @@ private fun MalekPlayBottomBar(
                     Icon(
                         imageVector = destination.icon(),
                         contentDescription = label,
-                        modifier = Modifier.size(23.dp)
+                        modifier = Modifier
+                            .size(23.dp)
+                            .graphicsLayer {
+                                scaleX = iconScale
+                                scaleY = iconScale
+                            }
                     )
                 },
                 label = { Text(label, style = MaterialTheme.typography.labelMedium) },
