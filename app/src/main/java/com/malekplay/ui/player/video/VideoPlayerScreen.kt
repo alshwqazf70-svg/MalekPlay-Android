@@ -296,10 +296,10 @@ fun VideoPlayerScreen(
     var onlineQuery by remember(title) { mutableStateOf(defaultSubtitleTitle) }
     var onlineLanguage by remember { mutableStateOf("ar,en") }
     var onlineSeason by remember(title) {
-        mutableStateOf(detectedEpisode?.groupValues?.get(1)?.ifBlank { detectedEpisode.groupValues[3] }.orEmpty())
+        mutableStateOf(detectedEpisode?.let { it.groupValues[1].ifBlank { it.groupValues[3] } }.orEmpty())
     }
     var onlineEpisode by remember(title) {
-        mutableStateOf(detectedEpisode?.groupValues?.get(2)?.ifBlank { detectedEpisode.groupValues[4] }.orEmpty())
+        mutableStateOf(detectedEpisode?.let { it.groupValues[2].ifBlank { it.groupValues[4] } }.orEmpty())
     }
 
     LaunchedEffect(chromeVisible, isPlaying, locked) {
