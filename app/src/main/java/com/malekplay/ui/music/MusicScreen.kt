@@ -69,6 +69,7 @@ import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.library.LibraryViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -462,12 +463,16 @@ private fun Artwork(uri: Uri?, modifier: Modifier = Modifier) {
         value = null
         val target = uri ?: return@produceState
         value = withContext(Dispatchers.IO) {
-            runCatching {
+            try {
                 val source = ImageDecoder.createSource(context.contentResolver, target)
                 ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
                     decoder.setTargetSize(256, 256)
                 }.asImageBitmap()
-            }.getOrNull()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 
