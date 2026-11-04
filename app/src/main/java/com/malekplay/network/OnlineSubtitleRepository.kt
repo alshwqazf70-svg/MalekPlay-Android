@@ -9,6 +9,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
@@ -88,7 +90,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val response = client.newCall(Request.Builder().url(link).get().build()).execute()
         response.use {
             if (!it.isSuccessful) error("تعذر تنزيل الترجمة (HTTP " + it.code + ")")
-            val bytes = it.body?.bytes() ?: error("ملف الترجمة فارغ")
+            val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
             require(bytes.isNotEmpty() && bytes.size <= MAX_BYTES) { "حجم ملف الترجمة غير صالح" }
             val target = if (bytes.isZip()) extract(bytes, dir, fileId) else {
                 val ext = detect(bytes) ?: error("صيغة ملف الترجمة غير مدعومة")
@@ -139,6 +141,21 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             }
             return JSONObject(text)
         }
+    }
+
+    /** Enforce the limit while streaming; never buffer an untrusted response of arbitrary size. */
+    private fun readBounded(input: InputStream): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            require(total <= MAX_BYTES) { "حجم ملف الترجمة يتجاوز الحد المسموح" }
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
     }
 
     private fun ByteArray.isZip() = size > 3 && this[0] == 0x50.toByte() && this[1] == 0x4b.toByte()
