@@ -38,6 +38,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -626,6 +627,14 @@ class PlayerViewModel @Inject constructor(
     /** Loads one media row so the player can render its title and artwork. */
     suspend fun loadMedia(mediaId: String): DomainMedia? =
         runCatching { mediaRepository.getMedia(mediaId) }.getOrNull()
+
+    /**
+     * Builds the complete local music queue for MediaSession controls.
+     * A single-item queue disables the system's previous/next actions, even
+     * when the user launched that song from the full Music library.
+     */
+    suspend fun loadAudioQueue(): List<DomainMedia> =
+        mediaRepository.observeAudio().first().map { it.media }
 
     suspend fun toLibraryItems(uris: List<Uri>): List<LibraryItem> =
         runCatching { mediaRepository.getMediaList(uris.map { it.toString() }) }
