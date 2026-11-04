@@ -35,9 +35,7 @@ class UserDataRepository @Inject constructor(
 
     /** One-shot read used by the backup exporter. */
     suspend fun observeFavouriteIdsSnapshot(): Set<String> = withContext(Dispatchers.IO) {
-        runCatching { userDataDao.observeFavouriteIds().first() }
-            .getOrDefault(emptyList())
-            .toSet()
+        userDataDao.observeFavouriteIds().first().toSet()
     }
 
     /** Replaces the whole favourite set during a restore atomically. */
