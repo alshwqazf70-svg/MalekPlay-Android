@@ -230,9 +230,18 @@ class NetworkViewModel @Inject constructor(
         val target = path.ifBlank { "/" }
         viewModelScope.launch {
             _browse.value = BrowseUiState(profileId = profile.id, path = target, loading = true)
-            val credentials = withContext(Dispatchers.IO) {
-                runCatching { credentialVault.load(profile.id) }.getOrNull()
+            val credentialsResult = withContext(Dispatchers.IO) {
+                runCatching { credentialVault.load(profile.id) }
             }
+            if (credentialsResult.isFailure) {
+                _browse.value = BrowseUiState(
+                    profileId = profile.id,
+                    path = target,
+                    error = "تعذّر فك تشفير بيانات الدخول المحفوظة. أعد إدخال بيانات اعتماد هذا المصدر ثم حاول مجدداً."
+                )
+                return@launch
+            }
+            val credentials = credentialsResult.getOrNull()
             val username = credentials?.first?.takeIf { it.isNotBlank() } ?: profile.username
             val password = credentials?.second.orEmpty()
             val result = runCatching {

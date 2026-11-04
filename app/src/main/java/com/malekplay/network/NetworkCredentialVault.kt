@@ -30,12 +30,21 @@ class NetworkCredentialVault(context: Context) {
         check(preferences.edit().putString(profileId, Base64.encodeToString(packed, Base64.NO_WRAP)).commit())
     }
 
-    fun load(profileId: String): Pair<String, String>? = runCatching {
-        if (!profileId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) return@runCatching null
-        val packed = preferences.getString(profileId, null)
-            ?.let { Base64.decode(it, Base64.NO_WRAP) }
-            ?: return@runCatching null
-        if (packed.size <= IV_LENGTH + 16) return@runCatching null
+    /**
+     * Returns null only when no credentials were saved. Corrupt ciphertext,
+     * invalidated Keystore keys and authentication failures are surfaced to callers.
+     */
+    fun load(profileId: String): Pair<String, String>? {
+        require(profileId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
+            "Invalid network profile id"
+        }
+        val encoded = preferences.getString(profileId, null) ?: return null
+        val packed = try {
+            Base64.decode(encoded, Base64.NO_WRAP)
+        } catch (error: IllegalArgumentException) {
+            throw IllegalStateException("Stored network credentials are corrupted", error)
+        }
+        require(packed.size > IV_LENGTH + 16) { "Stored network credentials are incomplete" }
 
         val iv = packed.copyOfRange(0, IV_LENGTH)
         val ciphertext = packed.copyOfRange(IV_LENGTH, packed.size)
@@ -43,9 +52,9 @@ class NetworkCredentialVault(context: Context) {
         cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
         val decoded = String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
         val separator = decoded.indexOf('\u0000')
-        if (separator < 0) return@runCatching null
-        decoded.substring(0, separator) to decoded.substring(separator + 1)
-    }.getOrNull()
+        check(separator >= 0) { "Stored network credentials have an invalid format" }
+        return decoded.substring(0, separator) to decoded.substring(separator + 1)
+    }
 
     fun remove(profileId: String) {
         preferences.edit().remove(profileId).apply()

@@ -117,7 +117,7 @@ class SettingsRepository(private val context: Context) {
         sortMode = runCatching { SortMode.valueOf(this[Keys.SORT_MODE] ?: "NEWEST") }
             .getOrDefault(SortMode.NEWEST),
         viewMode = runCatching { ViewMode.valueOf(this[Keys.VIEW_MODE] ?: "GRID") }
-            .getOrDefault(ViewMode.GRID)
+            .getOrDefault(ViewMode.LIST)
     )
 
     private fun androidx.datastore.preferences.core.MutablePreferences.writeFrom(s: PlayerSettings) {

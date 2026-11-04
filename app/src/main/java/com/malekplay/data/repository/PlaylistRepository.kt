@@ -77,6 +77,6 @@ class PlaylistRepository @Inject constructor(
 
     /** One-shot snapshot used by the backup exporter. */
     suspend fun snapshotPlaylists(): List<PlaylistWithItems> = withContext(Dispatchers.IO) {
-        playlistDao.observePlaylists().first()
+        runCatching { playlistDao.observePlaylists().first() }.getOrDefault(emptyList())
     }
 }
