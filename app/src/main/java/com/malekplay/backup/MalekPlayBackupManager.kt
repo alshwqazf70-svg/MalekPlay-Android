@@ -188,10 +188,10 @@ class MalekPlayBackupManager @Inject constructor(
         .put("viewMode", s.viewMode.name)
 
     private fun settingsFromJson(json: JSONObject): PlayerSettings = PlayerSettings(
-        themeMode = runCatching { AppThemeMode.valueOf(json.optString("themeMode", "SYSTEM")) }
-            .getOrDefault(AppThemeMode.SYSTEM),
-        accent = json.optString("accent").takeIf { it.isNotBlank() } ?: "emerald",
-        dynamicColor = json.optBoolean("dynamicColor", true),
+        themeMode = runCatching { AppThemeMode.valueOf(json.optString("themeMode", "DARK")) }
+            .getOrDefault(AppThemeMode.DARK),
+        accent = json.optString("accent").takeIf { it.isNotBlank() } ?: "amethyst",
+        dynamicColor = json.optBoolean("dynamicColor", false),
         resumePlayback = json.optBoolean("resumePlayback", true),
         defaultSpeed = json.optDouble("defaultSpeed", 1.0).toFloat().coerceIn(0.25f, 4f),
         skipSeconds = json.optInt("skipSeconds", 10).coerceIn(5, 60),
@@ -228,8 +228,8 @@ class MalekPlayBackupManager @Inject constructor(
         loudnessGainDb = json.optInt("loudnessGainDb", 0).coerceIn(0, 30),
         sortMode = runCatching { SortMode.valueOf(json.optString("sortMode", "NEWEST")) }
             .getOrDefault(SortMode.NEWEST),
-        viewMode = runCatching { ViewMode.valueOf(json.optString("viewMode", "LIST")) }
-            .getOrDefault(ViewMode.LIST)
+        viewMode = runCatching { ViewMode.valueOf(json.optString("viewMode", "GRID")) }
+            .getOrDefault(ViewMode.GRID)
     )
 
     private companion object {
