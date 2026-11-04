@@ -207,7 +207,7 @@ class AudioEffectsController {
                 scalingMode = Visualizer.SCALING_MODE_NORMALIZED
                 setDataCaptureListener(
                     visualizerListener,
-                    Visualizer.getMaxCaptureRate(),
+                    minOf(Visualizer.getMaxCaptureRate(), VISUALIZER_CAPTURE_RATE_HZ * 1_000),
                     true,
                     false
                 )
@@ -248,5 +248,7 @@ class AudioEffectsController {
     companion object {
         /** Guard against devices reporting an unreasonable band count. */
         const val MAX_BANDS = 12
+        /** A 10 Hz display is sufficient for reactive bars with lower DSP wakeups. */
+        const val VISUALIZER_CAPTURE_RATE_HZ = 10
     }
 }
