@@ -5,6 +5,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -62,6 +64,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -72,6 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.Role
 import com.malekplay.R
 import com.malekplay.core.ui.theme.PlayerChrome
 import com.malekplay.core.ui.util.formatDuration
@@ -88,8 +92,18 @@ fun PlayerRoundButton(
     label: String? = null,
     enabled: Boolean = true
 ) {
+    val emphasis by animateFloatAsState(
+        targetValue = if (active) 1.04f else 1f,
+        animationSpec = tween(durationMillis = 180),
+        label = "player-button-emphasis"
+    )
     Box(
         modifier = modifier.size(42.dp)
+            .graphicsLayer {
+                scaleX = emphasis
+                scaleY = emphasis
+                alpha = if (enabled) 1f else 0.42f
+            }
             .shadow(if (active) 15.dp else 7.dp, CircleShape,
                 ambientColor = PlayerChrome.ProgressGlow, spotColor = PlayerChrome.ProgressGlow)
             .clip(CircleShape)
@@ -97,7 +111,7 @@ fun PlayerRoundButton(
                 listOf(Color(0xFF7E22CE), PlayerChrome.ProgressActive, Color(0xFFC084FC))
             ) else Brush.verticalGradient(listOf(Color(0xE82A2038), PlayerChrome.Surface)))
             .border(1.dp, if (active) Color.White.copy(.42f) else PlayerChrome.ProgressGlow.copy(.65f), CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         if (label != null) Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
