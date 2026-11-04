@@ -29,6 +29,19 @@ android {
         buildConfig = true
     }
 
+    buildTypes {
+        getByName("release") {
+            // Keep the debug build unchanged for direct device testing.
+            // R8 and resource shrinking are applied only to production builds.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
