@@ -5,6 +5,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -228,7 +230,10 @@ fun LibraryScreen(
             AnimatedContent(
                 targetState = settings.viewMode,
                 modifier = Modifier.weight(1f),
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                transitionSpec = {
+                    (fadeIn() + slideInHorizontally { width -> width / 16 }) togetherWith
+                        (fadeOut() + slideOutHorizontally { width -> -width / 20 })
+                },
                 label = "library-view"
             ) { mode ->
                 if (visibleItems.isEmpty()) {
