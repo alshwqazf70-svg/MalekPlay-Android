@@ -290,6 +290,23 @@ internal fun readNetworkChunk(read: () -> Int): Int {
 }
 
 /**
+ * Retries one failed random-access read after the caller reopens the remote file
+ * at the same position. Only I/O failures are retried; programming errors and
+ * cancellation signals are allowed to propagate unchanged.
+ */
+internal fun readWithReconnect(
+    read: () -> Int,
+    reconnect: () -> Unit
+): Int {
+    return try {
+        read()
+    } catch (error: IOException) {
+        reconnect()
+        read()
+    }
+}
+
+/**
  * Chooses the remote protocol from the MediaItem Uri at open time. The wrapper
  * owns Media3 transfer callbacks while each delegate owns its protocol handles.
  */
