@@ -25,6 +25,21 @@ data class OnlineSubtitle(
     val provider: String = "opensubtitles"
 )
 
+/** Strict content/extension check shared by the cache writer and unit tests. */
+internal fun isValidSubtitlePayload(bytes: ByteArray, extension: String): Boolean {
+    if (extension !in setOf("srt", "ass", "ssa", "vtt") || bytes.isEmpty() || bytes.size > 8 * 1024 * 1024) {
+        return false
+    }
+    val text = bytes.toString(Charsets.UTF_8).trimStart('\uFEFF', ' ', '\n', '\r')
+    val detected = when {
+        text.startsWith("WEBVTT", true) -> "vtt"
+        text.contains("-->") -> "srt"
+        text.startsWith("[Script Info]", true) || text.contains("[Events]", true) -> "ass"
+        else -> return false
+    }
+    return if (extension == "ssa") detected == "ass" else detected == extension
+}
+
 class OnlineSubtitleRepository(context: Context, private val vault: NetworkCredentialVault) {
     private val app = context.applicationContext
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
@@ -320,15 +335,6 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             text.contains("-->") -> "srt"
             text.startsWith("[Script Info]", true) || text.contains("[Events]", true) -> "ass"
             else -> null
-        }
-    }
-
-    private fun isValidSubtitlePayload(bytes: ByteArray, extension: String): Boolean {
-        if (extension !in FORMATS || bytes.isEmpty() || bytes.size > MAX_BYTES) return false
-        val detected = detect(bytes) ?: return false
-        return when (extension) {
-            "ssa" -> detected == "ass"
-            else -> detected == extension
         }
     }
 
