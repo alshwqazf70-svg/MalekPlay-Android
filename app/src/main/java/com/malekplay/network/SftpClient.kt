@@ -23,6 +23,7 @@ class SftpClient @Inject constructor() {
             "يجب توفير ملف known_hosts موثوق قبل الاتصال"
         }
         val ssh = SSHClient()
+        NetworkClientTimeouts.configureSsh(ssh)
         try {
             ssh.loadKnownHosts(knownHostsFile)
             ssh.connect(host, port)

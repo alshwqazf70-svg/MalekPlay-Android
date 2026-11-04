@@ -20,6 +20,7 @@ import com.hierynomus.smbj.session.Session
 import com.hierynomus.smbj.share.DiskShare
 import com.hierynomus.smbj.share.File as SmbFile
 import com.malekplay.network.NetworkCredentialVault
+import com.malekplay.network.NetworkClientTimeouts
 import com.malekplay.network.NetworkProfile
 import com.malekplay.network.NetworkProfileStore
 import com.malekplay.network.NetworkProtocol
@@ -118,7 +119,7 @@ class NetworkMediaDataSource(
         segments: List<String>
     ) {
         require(segments.size >= 2) { "مسار SMB يجب أن يتضمن المشاركة واسم الملف" }
-        val client = SMBClient()
+        val client = NetworkClientTimeouts.createSmbClient()
         smbClient = client
         val connection = client.connect(profile.host, profile.port)
         smbConnection = connection
@@ -153,6 +154,7 @@ class NetworkMediaDataSource(
             "ملف known_hosts الموثوق غير موجود لمصدر SFTP"
         }
         val ssh = SSHClient()
+        NetworkClientTimeouts.configureSsh(ssh)
         sshClient = ssh
         ssh.loadKnownHosts(knownHosts)
         ssh.connect(profile.host, profile.port)

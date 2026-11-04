@@ -19,7 +19,7 @@ class SmbClient {
         domain: String = ""
     ): List<NetworkEntry> = withContext(Dispatchers.IO) {
         require(host.isNotBlank() && shareName.isNotBlank())
-        val client = SMBClient()
+        val client = NetworkClientTimeouts.createSmbClient()
         client.use { smb ->
             require(port in 1..65535) { "منفذ SMB غير صالح" }
             smb.connect(host, port).use { connection ->
