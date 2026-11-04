@@ -67,16 +67,19 @@ class LibraryViewModel @Inject constructor(
         )
 
     init {
-        refresh()
+        refresh(force = false)
     }
 
-    fun refresh() {
+    /** Explicit user refresh forces a scan; screen entry uses the short cache window. */
+    fun refresh() = refresh(force = true)
+
+    private fun refresh(force: Boolean) {
         viewModelScope.launch {
             if (!refreshMutex.tryLock()) return@launch
             _isRefreshing.value = true
             _error.value = null
             try {
-                mediaRepository.refresh()
+                if (force) mediaRepository.refresh() else mediaRepository.refreshIfStale()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
