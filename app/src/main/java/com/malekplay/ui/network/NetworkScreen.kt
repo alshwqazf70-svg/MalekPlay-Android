@@ -142,14 +142,21 @@ class NetworkViewModel @Inject constructor(
     private val _browse = MutableStateFlow(BrowseUiState())
     val browse: StateFlow<BrowseUiState> = _browse.asStateFlow()
 
+    private val _sourceError = MutableStateFlow<String?>(null)
+    val sourceError: StateFlow<String?> = _sourceError.asStateFlow()
+
     init {
         reload()
     }
 
     fun reload() {
         viewModelScope.launch {
-            _profiles.value = withContext(Dispatchers.IO) {
-                runCatching { profileStore.load() }.getOrDefault(emptyList())
+            val result = withContext(Dispatchers.IO) { runCatching { profileStore.load() } }
+            result.onSuccess {
+                _profiles.value = it
+                _sourceError.value = null
+            }.onFailure {
+                _sourceError.value = "تعذرت قراءة مصادر الشبكة المحفوظة: ${it.localizedMessage ?: "خطأ غير معروف"}"
             }
         }
     }
@@ -166,10 +173,14 @@ class NetworkViewModel @Inject constructor(
         knownHostsUri: Uri? = null
     ) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
+            val id = UUID.randomUUID().toString()
+            val outcome = withContext(Dispatchers.IO) {
+                var destination: File? = null
+                var temporary: File? = null
                 runCatching {
                     val cleanHost = host.trim()
-                    val id = UUID.randomUUID().toString()
+                    require(cleanHost.isNotBlank()) { "يجب إدخال اسم الخادم" }
+                    require(port in 1..65535) { "رقم المنفذ غير صالح" }
                     val cleanPath = path.trim().trim('/')
                     val root = when (protocol) {
                         NetworkProtocol.SMB -> {
@@ -195,33 +206,49 @@ class NetworkViewModel @Inject constructor(
                         }
                         val directory = File(context.filesDir, "network/known_hosts")
                         check(directory.exists() || directory.mkdirs()) { "تعذر إنشاء مجلد مفاتيح SFTP" }
-                        val destination = File(directory, id)
-                        val temporary = File(directory, "$id.tmp")
+                        destination = File(directory, id)
+                        temporary = File(directory, "$id.tmp")
                         val input = context.contentResolver.openInputStream(sourceUri)
                             ?: error("تعذر قراءة ملف known_hosts")
-                        input.use { stream -> temporary.outputStream().use { output -> stream.copyTo(output) } }
-                        require(temporary.length() in 1..1_000_000L) { "ملف known_hosts فارغ أو أكبر من الحد المسموح" }
-                        if (!temporary.renameTo(destination)) {
-                            temporary.copyTo(destination, overwrite = true)
-                            temporary.delete()
+                        input.use { stream ->
+                            temporary!!.outputStream().use { output -> stream.copyTo(output) }
                         }
+                        require(temporary!!.length() in 1..1_000_000L) {
+                            "ملف known_hosts فارغ أو أكبر من الحد المسموح"
+                        }
+                        check(temporary!!.renameTo(destination!!)) {
+                            "تعذر حفظ ملف مفاتيح SFTP"
+                        }
+                        temporary = null
                     }
                     credentialVault.save(id, username.trim(), password)
                     profileStore.save(profile)
+                }.onFailure {
+                    runCatching { credentialVault.remove(id) }
+                    temporary?.delete()
+                    destination?.delete()
                 }
             }
-            reload()
+            _sourceError.value = outcome.exceptionOrNull()?.localizedMessage
+            if (outcome.isSuccess) reload()
         }
     }
 
     fun removeSource(profile: NetworkProfile) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                runCatching { credentialVault.remove(profile.id) }
-                runCatching { profileStore.remove(profile.id) }
-                runCatching { File(context.filesDir, "network/known_hosts/${profile.id}").delete() }
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching {
+                    profileStore.remove(profile.id)
+                    val knownHosts = File(context.filesDir, "network/known_hosts/" + profile.id)
+                    check(!knownHosts.exists() || knownHosts.delete()) {
+                        "تم حذف المصدر لكن تعذر حذف ملف مفاتيح SFTP"
+                    }
+                }
             }
-            if (_browse.value.profileId == profile.id) _browse.value = BrowseUiState()
+            _sourceError.value = outcome.exceptionOrNull()?.localizedMessage
+            if (outcome.isSuccess && _browse.value.profileId == profile.id) {
+                _browse.value = BrowseUiState()
+            }
             reload()
         }
     }
@@ -320,6 +347,7 @@ fun NetworkScreen(
     val viewModel: NetworkViewModel = hiltViewModel()
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val browse by viewModel.browse.collectAsStateWithLifecycle()
+    val sourceError by viewModel.sourceError.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
     val activeProfile = profiles.firstOrNull { it.id == browse.profileId }
@@ -342,6 +370,15 @@ fun NetworkScreen(
                     contentDescription = stringResource(R.string.net_add)
                 )
             }
+        }
+
+        sourceError?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
         }
 
         if (activeProfile == null) {
