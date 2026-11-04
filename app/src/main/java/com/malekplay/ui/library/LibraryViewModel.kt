@@ -56,7 +56,7 @@ class LibraryViewModel @Inject constructor(
     val folders = mediaRepository.observeFolders()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val continueWatching = mediaRepository.observeContinueWatching(20)
+    val continueWatching = mediaRepository.observeContinueWatching(5)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val stats = mediaRepository.observeStats()
