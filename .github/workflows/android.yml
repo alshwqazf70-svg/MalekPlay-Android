@@ -93,6 +93,13 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_2
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          pre-emulator-launch-script: |
+            mkdir -p artifacts
+            emulator -version > artifacts/emulator-setup.txt 2>&1 || true
+            adb version >> artifacts/emulator-setup.txt 2>&1 || true
           script: |
             mkdir -p artifacts
             set +e
@@ -123,6 +130,7 @@ jobs:
             artifacts/emulator-activities.txt
             artifacts/installed-instrumentation.txt
             artifacts/emulator-devices.txt
+            artifacts/emulator-setup.txt
             artifacts/malekplay-test-failure.png
           if-no-files-found: warn
 

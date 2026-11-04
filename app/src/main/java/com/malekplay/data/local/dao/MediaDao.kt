@@ -109,7 +109,7 @@ interface MediaDao {
            WHERE title LIKE '%' || :query || '%'
               OR folderName LIKE '%' || :query || '%'
               OR IFNULL(artist,'') LIKE '%' || :query || '%'
-              OR IFNULL(album,'') LIKE '%' || :query || '%'
+              OR IFNULL(album,'') LIKE '%' || :query || '%' ESCAPE '\\'
            ORDER BY addedAtMs DESC"""
     )
     fun observeSearch(query: String): Flow<List<MediaWithState>>
