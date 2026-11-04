@@ -30,7 +30,7 @@ import com.malekplay.data.local.model.PlaylistWithItems
         FavouriteEntity::class,
         HistoryEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class MalekPlayDatabase : RoomDatabase() {
@@ -272,6 +272,47 @@ abstract class MalekPlayDatabase : RoomDatabase() {
             ).use { cursor -> return cursor.moveToFirst() }
         }
 
+        /** Adds referential integrity for playlist entries without losing valid rows. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Entries without a parent playlist are unreachable application data.
+                db.execSQL(
+                    "DELETE FROM playlist_items WHERE playlistId NOT IN (SELECT playlistId FROM playlists)"
+                )
+                db.execSQL("ALTER TABLE playlist_items RENAME TO playlist_items_legacy")
+                db.execSQL("DROP INDEX IF EXISTS index_playlist_items_mediaId")
+                db.execSQL("DROP INDEX IF EXISTS index_playlist_items_playlistId_position")
+                db.execSQL(
+                    """CREATE TABLE playlist_items (
+                        playlistId TEXT NOT NULL,
+                        mediaId TEXT NOT NULL,
+                        position INTEGER NOT NULL,
+                        addedAtMs INTEGER NOT NULL,
+                        PRIMARY KEY(playlistId, mediaId),
+                        FOREIGN KEY(playlistId) REFERENCES playlists(playlistId)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )"""
+                )
+                db.execSQL(
+                    """INSERT INTO playlist_items (playlistId, mediaId, position, addedAtMs)
+                    SELECT playlistId, mediaId, position, addedAtMs
+                    FROM playlist_items_legacy"""
+                )
+                db.execSQL("DROP TABLE playlist_items_legacy")
+                db.execSQL(
+                    "CREATE INDEX index_playlist_items_mediaId ON playlist_items(mediaId)"
+                )
+                db.execSQL(
+                    "CREATE INDEX index_playlist_items_playlistId_position ON playlist_items(playlistId, position)"
+                )
+                db.query("PRAGMA foreign_key_check").use { cursor ->
+                    check(!cursor.moveToFirst()) {
+                        "Playlist foreign-key validation failed during migration"
+                    }
+                }
+            }
+        }
+
         fun get(context: Context): MalekPlayDatabase =
             instance ?: synchronized(this) {
                 instance ?: build(context).also { instance = it }
@@ -283,7 +324,7 @@ abstract class MalekPlayDatabase : RoomDatabase() {
                 MalekPlayDatabase::class.java,
                 "malekplay.db"
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
     }
 }
