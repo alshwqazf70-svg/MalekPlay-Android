@@ -24,6 +24,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -492,8 +494,12 @@ fun VideoPlayerScreen(
 
         AnimatedVisibility(
             visible = chromeVisible && !inPip && !locked,
-            enter = fadeIn(),
-            exit = fadeOut()
+            enter = fadeIn() + slideInVertically(
+                initialOffsetY = { height -> height / 18 }
+            ),
+            exit = fadeOut() + slideOutVertically(
+                targetOffsetY = { height -> height / 24 }
+            )
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 PlayerTopBar(

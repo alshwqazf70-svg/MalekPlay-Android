@@ -2,6 +2,7 @@ package com.malekplay.ui.library
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -296,7 +297,7 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun FolderTile(folder: MediaFolder, onClick: () -> Unit) {
     Row(
-        Modifier.width(190.dp).clip(RoundedCornerShape(17.dp)).background(Glass)
+        Modifier.width(190.dp).animateContentSize().clip(RoundedCornerShape(17.dp)).background(Glass)
             .border(1.dp, GlassStroke, RoundedCornerShape(17.dp))
             .clickable(onClick = onClick).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -318,7 +319,7 @@ private fun FolderTile(folder: MediaFolder, onClick: () -> Unit) {
 @Composable
 private fun PremiumVideoRow(item: LibraryItem, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(19.dp)).background(Glass)
+        Modifier.fillMaxWidth().animateContentSize().clip(RoundedCornerShape(19.dp)).background(Glass)
             .border(1.dp, GlassStroke, RoundedCornerShape(19.dp))
             .clickable(onClick = onClick).padding(10.dp),
         verticalAlignment = Alignment.CenterVertically

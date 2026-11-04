@@ -3,6 +3,9 @@ package com.malekplay.ui.home
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -169,14 +172,24 @@ fun HomeScreen(
             }
 
             item(key = "hero") {
-                HeroCard(
-                    item = featured,
-                    isResume = featuredIsResume,
-                    videoCount = stats.videoCount,
-                    audioCount = stats.audioCount,
-                    onOpenMedia = onOpenMedia,
-                    onOpenLibrary = onOpenLibrary
-                )
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn(animationSpec = tween(420)) +
+                        slideInVertically(
+                            animationSpec = tween(420, easing = FastOutSlowInEasing),
+                            initialOffsetY = { height -> height / 10 }
+                        ),
+                    label = "home-hero-enter"
+                ) {
+                    HeroCard(
+                        item = featured,
+                        isResume = featuredIsResume,
+                        videoCount = stats.videoCount,
+                        audioCount = stats.audioCount,
+                        onOpenMedia = onOpenMedia,
+                        onOpenLibrary = onOpenLibrary
+                    )
+                }
             }
 
             item(key = "quick-actions") {
