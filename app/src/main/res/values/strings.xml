@@ -267,7 +267,7 @@
     <string name="subtitle_search_title">Movie or series title</string>
     <string name="subtitle_season">Season</string>
     <string name="subtitle_episode">Episode</string>
-    <string name="subtitle_service_setup">OpenSubtitles account setup (credentials are encrypted on this device)</string>
+    <string name="subtitle_service_setup">MalekPlay searches automatically without an account or API key. Try another language if no results appear.</string>
     <string name="subtitle_api_key">OpenSubtitles API key</string>
     <string name="subtitle_username">OpenSubtitles username</string>
     <string name="subtitle_password">OpenSubtitles password</string>
