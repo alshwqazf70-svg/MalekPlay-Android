@@ -48,10 +48,15 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
      * surfaced cleanly and can be retried later.
      */
     fun searchAutomatic(title: String, language: String, season: Int?, episode: Int?): List<OnlineSubtitle> {
-        val publicResults = searchPublic(title, language, season, episode)
-        val accountResults = if (hasCredentials()) {
-            runCatching { search(title, language, season, episode) }.getOrDefault(emptyList())
-        } else emptyList()
+        val publicAttempt = runCatching { searchPublic(title, language, season, episode) }
+        val accountAttempt = if (hasCredentials()) {
+            runCatching { search(title, language, season, episode) }
+        } else null
+        val publicResults = publicAttempt.getOrDefault(emptyList())
+        val accountResults = accountAttempt?.getOrDefault(emptyList()).orEmpty()
+        if (publicAttempt.isFailure && accountAttempt?.isFailure != false) {
+            throw publicAttempt.exceptionOrNull() ?: IllegalStateException("تعذر البحث عن الترجمة")
+        }
         return (publicResults + accountResults)
             .distinctBy { it.provider + ":" + it.sourceId }
             .take(40)
@@ -132,10 +137,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             .get().build()
         val downloadPath = execute(request).optString("download_url")
             .takeIf { it.isNotBlank() } ?: error("لم توفر الخدمة رابط تنزيل للترجمة")
-        val downloadUri = if (downloadPath.startsWith("https://")) {
-            Uri.parse(downloadPath)
-        } else {
-            Uri.parse("$PUBLIC_API/${downloadPath.trimStart('/')}")
+        val downloadUri = when {
+            downloadPath.startsWith("https://") -> Uri.parse(downloadPath)
+            downloadPath.startsWith("/strapi/") -> Uri.parse("https://$PUBLIC_HOST$downloadPath")
+            else -> Uri.parse("$PUBLIC_BASE/${downloadPath.trimStart('/')}")
         }
         require(downloadUri.scheme == "https" && downloadUri.host == PUBLIC_HOST) {
             "رابط تنزيل الترجمة غير آمن"
@@ -297,7 +302,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     private companion object {
         const val BASE = "https://api.opensubtitles.com/api/v1"
         const val PUBLIC_HOST = "subtitles.website"
-        const val PUBLIC_API = "https://subtitles.website/strapi/api"
+        const val PUBLIC_BASE = "https://subtitles.website/strapi"
+        const val PUBLIC_API = "$PUBLIC_BASE/api"
         const val PUBLIC_PROVIDER = "subtitleSearchEngine"
         const val AGENT = "MalekPlay v2.0.0"
         const val KEY_SLOT = "opensubtitles_api_key"
