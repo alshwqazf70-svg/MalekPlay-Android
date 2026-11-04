@@ -1,6 +1,8 @@
 package com.malekplay.ui.music
 
+import android.graphics.Bitmap
 import android.graphics.ImageDecoder
+import android.util.LruCache
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -70,6 +72,7 @@ import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.library.LibraryViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -115,6 +118,9 @@ fun MusicScreen(
     val genres by remember(unknownArtist) { viewModel.genres(unknownArtist) }
         .collectAsStateWithLifecycle(initialValue = emptyList())
 
+    val sortedSongs = remember(songs, settings.sortMode) {
+        libraryViewModel.applySort(songs, settings.sortMode)
+    }
     var tabIndex by remember { mutableIntStateOf(0) }
     val tabLabels = listOf(
         R.string.music_songs,
@@ -146,7 +152,7 @@ fun MusicScreen(
 
         when (tabIndex) {
             0 -> SongsTab(
-                songs = libraryViewModel.applySort(songs, settings.sortMode),
+                songs = sortedSongs,
                 unknownArtist = unknownArtist,
                 onOpenMedia = onOpenMedia,
                 onToggleFavourite = { libraryViewModel.toggleFavourite(it) }
@@ -453,6 +459,10 @@ private fun EmptyState(
  * Album art is decoded off the main thread; any failure falls back to a
  * tinted placeholder so a missing thumbnail never breaks the list.
  */
+private val albumArtworkCache = object : LruCache<String, Bitmap>(16 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+}
+
 @Composable
 private fun Artwork(uri: Uri?, modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -462,12 +472,20 @@ private fun Artwork(uri: Uri?, modifier: Modifier = Modifier) {
     ) {
         value = null
         val target = uri ?: return@produceState
+        val cacheKey = target.toString()
         value = withContext(Dispatchers.IO) {
             try {
-                val source = ImageDecoder.createSource(context.contentResolver, target)
-                ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-                    decoder.setTargetSize(256, 256)
-                }.asImageBitmap()
+                val cached = albumArtworkCache.get(cacheKey)
+                if (cached != null) {
+                    cached.asImageBitmap()
+                } else {
+                    val source = ImageDecoder.createSource(context.contentResolver, target)
+                    val decoded = ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                        decoder.setTargetSize(256, 256)
+                    }
+                    albumArtworkCache.put(cacheKey, decoded)
+                    decoded.asImageBitmap()
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
