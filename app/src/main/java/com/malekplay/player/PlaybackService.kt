@@ -39,7 +39,7 @@ import com.malekplay.network.NetworkProtocol
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.ConcurrentHashMap
+import java.util.LinkedHashMap
 
 /**
  * Owns the single ExoPlayer instance and its MediaSession.
@@ -63,7 +63,7 @@ class PlaybackService : MediaSessionService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var progressJob: Job? = null
     private var lastCountedMediaId: String? = null
-    private val playbackMetadataById = ConcurrentHashMap<String, PlaybackMetadata>()
+    private val playbackMetadataById = LinkedHashMap<String, PlaybackMetadata>(MAX_CACHED_PLAYBACK_METADATA, 0.75f, true)
     private val progressSaveMutex = Mutex()
 
     override fun onCreate() {
@@ -195,8 +195,12 @@ class PlaybackService : MediaSessionService() {
             durationMs = player.duration.coerceAtLeast(0L),
             speed = player.playbackParameters.speed
         )
-        if (playbackMetadataById.size > MAX_CACHED_PLAYBACK_METADATA) {
-            playbackMetadataById.keys.firstOrNull { it != mediaId }?.let(playbackMetadataById::remove)
+        while (playbackMetadataById.size > MAX_CACHED_PLAYBACK_METADATA) {
+            val iterator = playbackMetadataById.keys.iterator()
+            if (!iterator.hasNext()) break
+            val eldestId = iterator.next()
+            if (eldestId == mediaId) break
+            iterator.remove()
         }
     }
 

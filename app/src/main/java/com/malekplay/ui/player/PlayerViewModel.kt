@@ -24,6 +24,7 @@ import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem as DomainMedia
 import com.malekplay.player.PipController
 import com.malekplay.player.PlaybackService
+import com.malekplay.player.PlaybackValuePolicy
 import com.malekplay.player.mediaItemFromUri
 import com.malekplay.player.audio.AudioEffectsController
 import com.malekplay.player.toMedia3Item
@@ -282,7 +283,7 @@ class PlayerViewModel @Inject constructor(
         _playerError.value = null
         player.setMediaItems(items.map { it.toMedia3Item() }, safeIndex, startPositionMs.coerceAtLeast(0L))
         player.shuffleModeEnabled = shuffle
-        player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
+        player.setPlaybackSpeed(PlaybackValuePolicy.normalizeSpeed(speed))
         player.prepare()
         player.playWhenReady = true
         refreshStats()
@@ -323,15 +324,16 @@ class PlayerViewModel @Inject constructor(
 
     fun seekBy(deltaMs: Long) {
         val player = _controller.value ?: return
-        seekTo(player.currentPosition + deltaMs)
+        seekTo(PlaybackValuePolicy.addSeekDelta(player.currentPosition, deltaMs))
     }
 
     fun seekToNext() = _controller.value?.seekToNext()
     fun seekToPrevious() = _controller.value?.seekToPrevious()
 
     fun setSpeed(value: Float) {
-        _controller.value?.setPlaybackSpeed(value.coerceIn(0.25f, 4f))
-        _speed.value = value.coerceIn(0.25f, 4f)
+        val safeSpeed = PlaybackValuePolicy.normalizeSpeed(value)
+        _controller.value?.setPlaybackSpeed(safeSpeed)
+        _speed.value = safeSpeed
     }
 
     fun cycleRepeatMode() {
@@ -616,6 +618,7 @@ class PlayerViewModel @Inject constructor(
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         _controller.value = null
+        audioEffects.release()
         super.onCleared()
     }
 

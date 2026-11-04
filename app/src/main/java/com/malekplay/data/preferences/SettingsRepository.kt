@@ -15,6 +15,7 @@ import com.malekplay.domain.model.GestureAction
 import com.malekplay.domain.model.PlayerSettings
 import com.malekplay.domain.model.SortMode
 import com.malekplay.domain.model.ViewMode
+import com.malekplay.player.PlaybackValuePolicy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -79,7 +80,7 @@ class SettingsRepository(private val context: Context) {
         dynamicColor = this[Keys.DYNAMIC_COLOR] ?: false,
 
         resumePlayback = this[Keys.RESUME] ?: true,
-        defaultSpeed = (this[Keys.DEFAULT_SPEED] ?: 1f).coerceIn(0.25f, 4f),
+        defaultSpeed = PlaybackValuePolicy.normalizeSpeed(this[Keys.DEFAULT_SPEED] ?: 1f),
         skipSeconds = (this[Keys.SKIP_SECONDS] ?: 10).coerceIn(5, 60),
         autoplayNext = this[Keys.AUTOPLAY_NEXT] ?: true,
         backgroundPlayback = this[Keys.BACKGROUND_PLAYBACK] ?: true,
@@ -126,7 +127,7 @@ class SettingsRepository(private val context: Context) {
         this[Keys.DYNAMIC_COLOR] = s.dynamicColor
 
         this[Keys.RESUME] = s.resumePlayback
-        this[Keys.DEFAULT_SPEED] = s.defaultSpeed.coerceIn(0.25f, 4f)
+        this[Keys.DEFAULT_SPEED] = PlaybackValuePolicy.normalizeSpeed(s.defaultSpeed)
         this[Keys.SKIP_SECONDS] = s.skipSeconds.coerceIn(5, 60)
         this[Keys.AUTOPLAY_NEXT] = s.autoplayNext
         this[Keys.BACKGROUND_PLAYBACK] = s.backgroundPlayback

@@ -5,6 +5,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
+import java.util.Locale
 import com.malekplay.core.ui.util.titleWithoutExtension
 import com.malekplay.domain.model.MediaItem as DomainMedia
 
@@ -47,15 +48,21 @@ fun mediaItemFromUri(uri: Uri, title: String? = null, isVideoHint: Boolean = tru
 
 /** Best-effort MIME guess so the right renderer is picked for external files. */
 @UnstableApi
+@Suppress("UNUSED_PARAMETER")
 fun guessMimeType(uri: Uri, isVideoHint: Boolean): String? {
     val path = uri.lastPathSegment.orEmpty()
-    val extension = path.substringAfterLast('.', "").lowercase()
+    val extension = path.substringAfterLast('.', "").lowercase(Locale.ROOT)
     return when (extension) {
         "mp4", "m4v", "mov" -> MimeTypes.VIDEO_MP4
         "mkv" -> MimeTypes.VIDEO_MATROSKA
         "webm" -> MimeTypes.VIDEO_WEBM
         "avi" -> MimeTypes.VIDEO_AVI
-        "mpg", "mpeg", "ts" -> "video/mp2t"
+        "mpg", "mpeg", "m2v" -> MimeTypes.VIDEO_MPEG
+        "ts", "m2ts", "mts" -> "video/mp2t"
+        "3gp", "3g2" -> "video/3gpp"
+        "wmv" -> "video/x-ms-wmv"
+        "flv" -> "video/x-flv"
+        "f4v" -> "video/mp4"
         "mp3" -> MimeTypes.AUDIO_MPEG
         "m4a" -> MimeTypes.AUDIO_AAC
         "aac" -> MimeTypes.AUDIO_AAC
@@ -63,6 +70,12 @@ fun guessMimeType(uri: Uri, isVideoHint: Boolean): String? {
         "ogg", "oga" -> MimeTypes.AUDIO_OGG
         "opus" -> MimeTypes.AUDIO_OPUS
         "wav" -> MimeTypes.AUDIO_WAV
-        else -> if (isVideoHint) MimeTypes.VIDEO_MP4 else MimeTypes.AUDIO_MPEG
+        "amr" -> "audio/amr"
+        "aiff", "aif" -> "audio/aiff"
+        "mid", "midi" -> "audio/midi"
+        "mka" -> "audio/x-matroska"
+        "ac3" -> "audio/ac3"
+        "eac3" -> "audio/eac3"
+        else -> null
     }
 }
