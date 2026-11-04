@@ -171,6 +171,7 @@ class DatabaseMigrationTest {
             db.execSQL("PRAGMA foreign_keys=ON")
             db.execSQL("INSERT INTO playlists VALUES('list-1', 'Favorites', 1, 0)")
             db.execSQL("INSERT INTO playlist_items VALUES('list-1', 'media-1', 0, 2)")
+            db.execSQL("INSERT INTO playlist_items VALUES('missing-list', 'orphan-media', 1, 3)")
             MalekPlayDatabase.MIGRATION_3_4.migrate(db)
 
             db.query("SELECT playlistId, mediaId FROM playlist_items").use { cursor ->

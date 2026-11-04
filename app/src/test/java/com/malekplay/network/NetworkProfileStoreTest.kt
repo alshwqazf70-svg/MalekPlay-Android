@@ -32,6 +32,34 @@ class NetworkProfileStoreTest {
     }
 
     @Test
+    fun malformedIndividualProfileIsReportedInsteadOfSilentlySkipped() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
+            .edit().putString("profiles", "[{\"id\":\"valid\",\"protocol\":\"WEBDAV\",\"host\":\"media.example.test\",\"port\":443},{\"broken\":true}]").commit()
+
+        try {
+            NetworkProfileStore(context).load()
+            fail("Malformed profile entries must be reported")
+        } catch (expected: IllegalStateException) {
+            assertEquals("Saved network profile at index 1 is not an object", expected.message)
+        }
+    }
+
+    @Test
+    fun invalidProfileFieldsAreReported() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
+            .edit().putString("profiles", "[{\"id\":\"bad id\",\"protocol\":\"SMB\",\"host\":\"media.example.test\",\"port\":445}]").commit()
+
+        try {
+            NetworkProfileStore(context).load()
+            fail("Invalid profile fields must be reported")
+        } catch (expected: IllegalStateException) {
+            assertEquals("Saved network profile at index 0 is invalid", expected.message)
+        }
+    }
+
+    @Test
     fun corruptedProfileJsonIsNotSilentlyTreatedAsEmpty() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
