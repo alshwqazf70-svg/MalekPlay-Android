@@ -291,6 +291,7 @@ private fun AlbumCard(album: AlbumSummary) {
         Column(modifier = Modifier.padding(12.dp)) {
             Artwork(
                 uri = albumArtUri(album.albumId),
+                mediaUri = album.sampleUri,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
