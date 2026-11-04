@@ -403,8 +403,10 @@ fun VideoPlayerScreen(
                         }
                         when (action) {
                             GestureAction.BRIGHTNESS -> {
-                                applyBrightness(brightness + dyFraction)
-                                indicator = brightnessLabel to brightness
+                                if (settings.rememberBrightness) {
+                                    applyBrightness(brightness + dyFraction)
+                                    indicator = brightnessLabel to brightness
+                                }
                             }
                             GestureAction.VOLUME -> {
                                 applyVolume(volume + dyFraction)
