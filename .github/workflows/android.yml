@@ -69,6 +69,25 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Assemble universal debug APK for direct installation
+        run: |
+          rm -rf app/build/outputs/apk/debug
+          gradle --stacktrace --max-workers=2 :app:assembleDebug
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/MalekPlay-universal-debug.apk
+          cd dist
+          zip -9 MalekPlay-universal-debug.zip MalekPlay-universal-debug.apk
+          unzip -t MalekPlay-universal-debug.zip
+
+      - name: Upload universal install package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlay-universal-install
+          path: dist/MalekPlay-universal-debug.zip
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Assemble ABI-specific minified release APKs
         run: gradle --stacktrace --max-workers=2 -PenableAbiSplits=true :app:assembleRelease
 
