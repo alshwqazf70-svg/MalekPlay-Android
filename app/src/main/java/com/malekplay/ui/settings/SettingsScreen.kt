@@ -314,6 +314,14 @@ fun SettingsScreen(onBack: () -> Unit) {
                         viewModel.update { it.copy(gestureLongPress = action) }
                     }
                 )
+                SwitchRow(
+                    title = stringResource(R.string.settings_brightness_gesture),
+                    summary = stringResource(R.string.settings_brightness_gesture_summary),
+                    checked = settings.rememberBrightness,
+                    onCheckedChange = { enabled ->
+                        viewModel.update { it.copy(rememberBrightness = enabled) }
+                    }
+                )
             }
 
             // --------------------------------------------------------- audio
