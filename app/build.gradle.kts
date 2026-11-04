@@ -42,6 +42,17 @@ android {
         }
     }
 
+    // Generate device-specific APKs instead of shipping every native ABI in one APK.
+    // All four ABIs remain supported; the AAB continues to serve Play's device targeting.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+            isUniversalApk = false
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
