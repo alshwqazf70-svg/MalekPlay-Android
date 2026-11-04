@@ -94,12 +94,35 @@ jobs:
           arch: x86_64
           profile: pixel_2
           script: |
+            mkdir -p artifacts
+            adb logcat -c
+            set +e
             gradle --no-daemon :app:connectedDebugAndroidTest
+            TEST_EXIT=$?
+            adb logcat -d -v threadtime > artifacts/emulator-logcat.txt
+            adb shell dumpsys activity activities > artifacts/emulator-activities.txt 2>&1
+            adb shell pm list instrumentation > artifacts/installed-instrumentation.txt 2>&1
+            if [ "$TEST_EXIT" -ne 0 ]; then
+              adb shell screencap -p /sdcard/malekplay-test-failure.png || true
+              adb pull /sdcard/malekplay-test-failure.png artifacts/malekplay-test-failure.png || true
+              exit "$TEST_EXIT"
+            fi
             adb shell monkey -p com.malekplay -c android.intent.category.LAUNCHER 1
             sleep 5
-            mkdir -p artifacts
             adb shell screencap -p /sdcard/malekplay-home.png
             adb pull /sdcard/malekplay-home.png artifacts/malekplay-home.png
+
+      - name: Upload emulator diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlay-emulator-diagnostics
+          path: |
+            artifacts/emulator-logcat.txt
+            artifacts/emulator-activities.txt
+            artifacts/installed-instrumentation.txt
+            artifacts/malekplay-test-failure.png
+          if-no-files-found: warn
 
       - name: Upload emulator home screenshot
         if: always()
