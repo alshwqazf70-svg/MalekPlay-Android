@@ -24,11 +24,19 @@ interface MediaDao {
     suspend fun upsertMedia(items: List<MediaItemEntity>)
 
     /** Media ids are read and reconciled in one transaction without SQLite bind limits. */
-    @Query("SELECT mediaId FROM media_items WHERE isVideo = 1")
-    suspend fun getVideoMediaIds(): List<String>
+    @Query("""
+        SELECT mediaId FROM media_items
+        WHERE isVideo = 1 AND mediaId > :afterId
+        ORDER BY mediaId ASC LIMIT :limit
+    """)
+    suspend fun getVideoMediaIdsAfter(afterId: String, limit: Int): List<String>
 
-    @Query("SELECT mediaId FROM media_items WHERE isVideo = 0")
-    suspend fun getAudioMediaIds(): List<String>
+    @Query("""
+        SELECT mediaId FROM media_items
+        WHERE isVideo = 0 AND mediaId > :afterId
+        ORDER BY mediaId ASC LIMIT :limit
+    """)
+    suspend fun getAudioMediaIdsAfter(afterId: String, limit: Int): List<String>
 
     @Query("DELETE FROM media_items WHERE mediaId IN (:mediaIds)")
     suspend fun deleteMediaByIds(mediaIds: List<String>): Int
@@ -36,15 +44,27 @@ interface MediaDao {
     @Transaction
     suspend fun reconcileVideos(keepIds: List<String>) {
         val keep = keepIds.toHashSet()
-        getVideoMediaIds().filterNot { it in keep }.chunked(MAX_SQLITE_BIND_IDS)
-            .forEach { batch -> if (batch.isNotEmpty()) deleteMediaByIds(batch) }
+        var afterId = ""
+        while (true) {
+            val page = getVideoMediaIdsAfter(afterId, RECONCILE_PAGE_SIZE)
+            if (page.isEmpty()) break
+            afterId = page.last()
+            val staleIds = page.filterNot(keep::contains)
+            if (staleIds.isNotEmpty()) deleteMediaByIds(staleIds)
+        }
     }
 
     @Transaction
     suspend fun reconcileAudio(keepIds: List<String>) {
         val keep = keepIds.toHashSet()
-        getAudioMediaIds().filterNot { it in keep }.chunked(MAX_SQLITE_BIND_IDS)
-            .forEach { batch -> if (batch.isNotEmpty()) deleteMediaByIds(batch) }
+        var afterId = ""
+        while (true) {
+            val page = getAudioMediaIdsAfter(afterId, RECONCILE_PAGE_SIZE)
+            if (page.isEmpty()) break
+            afterId = page.last()
+            val staleIds = page.filterNot(keep::contains)
+            if (staleIds.isNotEmpty()) deleteMediaByIds(staleIds)
+        }
     }
 
     @Upsert
@@ -220,7 +240,7 @@ interface MediaDao {
     fun observeBookmarks(mediaId: String): Flow<List<BookmarkEntity>>
 }
 
-private const val MAX_SQLITE_BIND_IDS = 900
+private const val RECONCILE_PAGE_SIZE = 500
 
 /** Projection returned by [MediaDao.observeFolders]. Column names must match. */
 data class FolderRow(
