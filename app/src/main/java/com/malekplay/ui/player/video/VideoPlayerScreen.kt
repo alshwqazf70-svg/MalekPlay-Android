@@ -49,7 +49,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -727,7 +726,7 @@ fun VideoPlayerScreen(
                         if (onlineSubtitleLoading) CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
                         onlineSubtitleError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
-                            items(onlineSubtitleResults, key = { it.fileId }) { item ->
+                            items(onlineSubtitleResults, key = { it.provider + ":" + it.sourceId }) { item ->
                                 TextButton(
                                     onClick = { viewModel.downloadOnlineSubtitle(item) },
                                     modifier = Modifier.fillMaxWidth(),
