@@ -36,6 +36,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -44,6 +46,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -186,6 +192,10 @@ fun VideoPlayerScreen(
     val textTrackDisabled by viewModel.textTrackDisabled.collectAsStateWithLifecycle()
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val playerError by viewModel.playerError.collectAsStateWithLifecycle()
+    val onlineSubtitleResults by viewModel.onlineSubtitleResults.collectAsStateWithLifecycle()
+    val onlineSubtitleLoading by viewModel.onlineSubtitleLoading.collectAsStateWithLifecycle()
+    val onlineSubtitleError by viewModel.onlineSubtitleError.collectAsStateWithLifecycle()
+    val onlineSubtitleCredentialsReady by viewModel.onlineSubtitleCredentialsReady.collectAsStateWithLifecycle()
     val sleepEndsAt by viewModel.sleepTimerEndsAtMs.collectAsStateWithLifecycle()
     val inPip by viewModel.pipController.inPip.collectAsStateWithLifecycle()
 
@@ -278,6 +288,14 @@ fun VideoPlayerScreen(
     var showBookmarks by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var showOnlineSubtitles by remember { mutableStateOf(false) }
+    var onlineQuery by remember(title) { mutableStateOf(title) }
+    var onlineLanguage by remember { mutableStateOf("ar,en") }
+    var onlineSeason by remember { mutableStateOf("") }
+    var onlineEpisode by remember { mutableStateOf("") }
+    var onlineApiKey by remember { mutableStateOf("") }
+    var onlineUsername by remember { mutableStateOf("") }
+    var onlinePassword by remember { mutableStateOf("") }
 
     LaunchedEffect(chromeVisible, isPlaying, locked) {
         if (chromeVisible && isPlaying && !locked) {
@@ -607,6 +625,10 @@ fun VideoPlayerScreen(
                     }
                 )
                 DropdownMenuItem(
+                    text = { Text(stringResource(R.string.player_search_subtitle_online)) },
+                    onClick = { showMenu = false; onlineQuery = title; showOnlineSubtitles = true }
+                )
+                DropdownMenuItem(
                     text = { Text(stringResource(R.string.player_restart)) },
                     onClick = { showMenu = false; viewModel.seekTo(0L) }
                 )
@@ -674,6 +696,78 @@ fun VideoPlayerScreen(
                 onSelect = viewModel::selectTextTrack,
                 onSetDisabled = { disabled -> viewModel.setSubtitlesEnabled(!disabled) },
                 onDismiss = { showTextTracks = false }
+            )
+        }
+
+
+        if (showOnlineSubtitles) {
+            AlertDialog(
+                onDismissRequest = { if (!onlineSubtitleLoading) showOnlineSubtitles = false },
+                title = { Text(stringResource(R.string.player_search_subtitle_online)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(onlineQuery, { onlineQuery = it },
+                            label = { Text(stringResource(R.string.subtitle_search_title)) },
+                            singleLine = true, modifier = Modifier.fillMaxWidth())
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextButton(onClick = { onlineLanguage = "ar,en" }) { Text("العربية + English") }
+                            TextButton(onClick = { onlineLanguage = "ar" }) { Text("العربية") }
+                            TextButton(onClick = { onlineLanguage = "en" }) { Text("English") }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(onlineSeason, { onlineSeason = it.filter(Char::isDigit).take(2) },
+                                label = { Text(stringResource(R.string.subtitle_season)) },
+                                modifier = Modifier.weight(1f), singleLine = true)
+                            OutlinedTextField(onlineEpisode, { onlineEpisode = it.filter(Char::isDigit).take(2) },
+                                label = { Text(stringResource(R.string.subtitle_episode)) },
+                                modifier = Modifier.weight(1f), singleLine = true)
+                        }
+                        if (!onlineSubtitleCredentialsReady) {
+                            Text(stringResource(R.string.subtitle_service_setup))
+                            OutlinedTextField(onlineApiKey, { onlineApiKey = it },
+                                label = { Text(stringResource(R.string.subtitle_api_key)) },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true)
+                            OutlinedTextField(onlineUsername, { onlineUsername = it },
+                                label = { Text(stringResource(R.string.subtitle_username)) },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true)
+                            OutlinedTextField(onlinePassword, { onlinePassword = it },
+                                label = { Text(stringResource(R.string.subtitle_password)) },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true)
+                            Button(
+                                onClick = { viewModel.saveOnlineSubtitleCredentials(onlineApiKey, onlineUsername, onlinePassword) },
+                                enabled = onlineApiKey.isNotBlank() && onlineUsername.isNotBlank() && onlinePassword.isNotBlank()
+                            ) { Text(stringResource(R.string.subtitle_save_credentials)) }
+                        }
+                        Button(
+                            onClick = { viewModel.searchOnlineSubtitles(onlineQuery, onlineLanguage, onlineSeason.toIntOrNull(), onlineEpisode.toIntOrNull()) },
+                            enabled = onlineSubtitleCredentialsReady && onlineQuery.isNotBlank() && !onlineSubtitleLoading,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(stringResource(R.string.subtitle_search)) }
+                        if (onlineSubtitleLoading) CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                        onlineSubtitleError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
+                            items(onlineSubtitleResults, key = { it.fileId }) { item ->
+                                TextButton(
+                                    onClick = { viewModel.downloadOnlineSubtitle(item.fileId) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = !onlineSubtitleLoading
+                                ) {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Text(item.release.ifBlank { item.format.uppercase() }, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Text(item.language.uppercase() + " · " + item.format.uppercase() + " · " +
+                                            item.downloads + " " + context.getString(R.string.subtitle_downloads),
+                                            style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showOnlineSubtitles = false }) {
+                        Text(stringResource(R.string.common_close))
+                    }
+                }
             )
         }
 
