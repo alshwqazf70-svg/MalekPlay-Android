@@ -267,7 +267,7 @@
     <string name="subtitle_search_title">اسم الفيلم أو المسلسل</string>
     <string name="subtitle_season">الموسم</string>
     <string name="subtitle_episode">الحلقة</string>
-    <string name="subtitle_service_setup">بيانات حساب OpenSubtitles (تُحفظ مشفّرة على هذا الجهاز)</string>
+    <string name="subtitle_service_setup">سيبحث MalekPlay تلقائيًا دون حساب أو مفتاح API. قد تتوفر نتائج أكثر عند تجربة لغة أخرى.</string>
     <string name="subtitle_api_key">مفتاح OpenSubtitles API</string>
     <string name="subtitle_username">اسم مستخدم OpenSubtitles</string>
     <string name="subtitle_password">كلمة مرور OpenSubtitles</string>
