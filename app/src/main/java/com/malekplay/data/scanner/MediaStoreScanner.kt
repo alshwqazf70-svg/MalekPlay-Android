@@ -9,7 +9,10 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.malekplay.data.local.entity.MediaItemEntity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 private const val TAG = "MediaStoreScanner"
@@ -23,8 +26,13 @@ data class MediaScanResult(
     val videosComplete: Boolean,
     val audioComplete: Boolean
 ) {
-    val videoItems: List<MediaItemEntity> get() = items.filter { it.isVideo }
-    val audioItems: List<MediaItemEntity> get() = items.filterNot { it.isVideo }
+    /** Build only the compact reconciliation keys, not a second list of full media rows. */
+    val videoIds: List<String> by lazy(LazyThreadSafetyMode.NONE) {
+        items.asSequence().filter { it.isVideo }.map { it.mediaId }.toList()
+    }
+    val audioIds: List<String> by lazy(LazyThreadSafetyMode.NONE) {
+        items.asSequence().filterNot { it.isVideo }.map { it.mediaId }.toList()
+    }
 }
 
 /**
@@ -72,7 +80,7 @@ class MediaStoreScanner(context: Context) {
 
     // ------------------------------------------------------------------ video
 
-    private fun scanVideos(): List<MediaItemEntity> {
+    private suspend fun scanVideos(): List<MediaItemEntity> {
         val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         val projection = buildList {
             add(MediaStore.MediaColumns._ID)
@@ -121,7 +129,7 @@ class MediaStoreScanner(context: Context) {
 
     // ------------------------------------------------------------------ audio
 
-    private fun scanAudio(genres: Map<Long, String>): List<MediaItemEntity> {
+    private suspend fun scanAudio(genres: Map<Long, String>): List<MediaItemEntity> {
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = buildList {
             add(MediaStore.MediaColumns._ID)
@@ -174,7 +182,7 @@ class MediaStoreScanner(context: Context) {
     }
 
     /** Audio ids to genre name. Genre lives in a separate table, so it is indexed first. */
-    private fun readGenreIndex(): Map<Long, String> {
+    private suspend fun readGenreIndex(): Map<Long, String> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return emptyMap()
         val result = HashMap<Long, String>()
         val genresUri = MediaStore.Audio.Genres.EXTERNAL_CONTENT_URI
@@ -187,6 +195,7 @@ class MediaStoreScanner(context: Context) {
                 val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Genres._ID)
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Genres.NAME)
                 while (cursor.moveToNext()) {
+                    currentCoroutineContext().ensureActive()
                     val genreId = cursor.getLong(idCol)
                     val genreName = cursor.getString(nameCol) ?: continue
                     val membersUri =
@@ -202,19 +211,26 @@ class MediaStoreScanner(context: Context) {
                             val audioIdCol = memberCursor.getColumnIndex(MediaStore.Audio.Media._ID)
                             if (audioIdCol < 0) return@use
                             while (memberCursor.moveToNext()) {
+                                currentCoroutineContext().ensureActive()
                                 result[memberCursor.getLong(audioIdCol)] = genreName
                             }
                         }
-                    }.onFailure { Log.w(TAG, "Genre members unavailable", it) }
+                    }.onFailure {
+                        if (it is CancellationException) throw it
+                        Log.w(TAG, "Genre members unavailable", it)
+                    }
                 }
             }
-        }.onFailure { Log.w(TAG, "Genre index unavailable", it) }
+        }.onFailure {
+            if (it is CancellationException) throw it
+            Log.w(TAG, "Genre index unavailable", it)
+        }
         return result
     }
 
     // ----------------------------------------------------------------- shared
 
-    private fun <T> query(
+    private suspend fun <T> query(
         collection: android.net.Uri,
         projection: Array<String>,
         isVideo: Boolean,
@@ -245,6 +261,7 @@ class MediaStoreScanner(context: Context) {
         cursor.use {
             val columns = ColumnIndex(cursor, projection)
             while (cursor.moveToNext()) {
+                currentCoroutineContext().ensureActive()
                 // Do not silently skip malformed rows: refresh must never treat a
                 // partial scan as a complete library snapshot and delete valid rows.
                 out += row(cursor, columns)

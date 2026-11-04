@@ -183,25 +183,21 @@ class NetworkMediaDataSource(
         if (!opened) throw IOException("مصدر الشبكة غير مفتوح")
         if (bytesRemaining <= 0L) return C.RESULT_END_OF_INPUT
         val requested = minOf(length.toLong(), bytesRemaining, MAX_READ_BYTES.toLong()).toInt()
-        val readRemote = {
-            validateNetworkReadCount(readNetworkChunk {
-                when {
-                    smbFile != null -> smbFile!!.read(buffer, position, offset, requested)
-                    sftpFile != null -> sftpFile!!.read(position, buffer, offset, requested)
-                    else -> throw IOException("اتصال الشبكة غير جاهز")
-                }
-            }, requested)
-        }
         val count = try {
-            readRemote()
-        } catch (firstFailure: IOException) {
-            try {
-                reconnectAtCurrentPosition()
-                readRemote()
-            } catch (retryFailure: Exception) {
-                retryFailure.addSuppressed(firstFailure)
-                throw IOException("انقطع اتصال مصدر الشبكة وتعذرت استعادة القراءة", retryFailure)
-            }
+            readWithReconnect(
+                read = {
+                    validateNetworkReadCount(readNetworkChunk {
+                        when {
+                            smbFile != null -> smbFile!!.read(buffer, position, offset, requested)
+                            sftpFile != null -> sftpFile!!.read(position, buffer, offset, requested)
+                            else -> throw IOException("اتصال الشبكة غير جاهز")
+                        }
+                    }, requested)
+                },
+                reconnect = { reconnectAtCurrentPosition() }
+            )
+        } catch (error: IOException) {
+            throw IOException("انقطع اتصال مصدر الشبكة وتعذرت استعادة القراءة", error)
         }
         position += count
         bytesRemaining -= count

@@ -148,13 +148,11 @@ class MediaRepository @Inject constructor(
             if (scan.items.isNotEmpty()) mediaDao.upsertMedia(scan.items)
     
             if (scan.videosComplete) {
-                val videoIds = scan.videoItems.map { it.mediaId }
-                mediaDao.reconcileVideos(videoIds)
+                mediaDao.reconcileVideos(scan.videoIds)
             }
     
             if (scan.audioComplete) {
-                val audioIds = scan.audioItems.map { it.mediaId }
-                mediaDao.reconcileAudio(audioIds)
+                mediaDao.reconcileAudio(scan.audioIds)
             }
         }
     }
