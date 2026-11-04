@@ -50,6 +50,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -732,7 +733,8 @@ fun VideoPlayerScreen(
                                 modifier = Modifier.fillMaxWidth(), singleLine = true)
                             OutlinedTextField(onlinePassword, { onlinePassword = it },
                                 label = { Text(stringResource(R.string.subtitle_password)) },
-                                modifier = Modifier.fillMaxWidth(), singleLine = true)
+                                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                                visualTransformation = PasswordVisualTransformation())
                             Button(
                                 onClick = { viewModel.saveOnlineSubtitleCredentials(onlineApiKey, onlineUsername, onlinePassword) },
                                 enabled = onlineApiKey.isNotBlank() && onlineUsername.isNotBlank() && onlinePassword.isNotBlank()
