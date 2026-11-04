@@ -70,7 +70,7 @@ import kotlinx.coroutines.withContext
 
 // A small, byte-bounded cache prevents scrolling back through the library from
 // decoding the same artwork repeatedly while keeping memory use predictable.
-private val thumbnailCache = LruCache<String, Bitmap>(
+private val thumbnailCache = object : LruCache<String, Bitmap>(
     (Runtime.getRuntime().maxMemory() / 8L)
         .coerceAtMost(32L * 1024L * 1024L)
         .toInt()
