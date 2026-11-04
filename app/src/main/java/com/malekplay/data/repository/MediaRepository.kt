@@ -1,6 +1,7 @@
 package com.malekplay.data.repository
 
 import android.net.Uri
+import android.os.SystemClock
 import com.malekplay.data.local.ExternalPlaybackProgressStore
 import com.malekplay.data.local.isPlaybackCompleted
 import com.malekplay.data.local.dao.MediaDao
@@ -41,6 +42,7 @@ class MediaRepository @Inject constructor(
 
     private companion object {
         const val MAX_SEARCH_QUERY_LENGTH = 256
+        const val DEFAULT_REFRESH_INTERVAL_MS = 5 * 60 * 1_000L
     }
 
     /** Media rows joined with the favourite set, so lists can render star state. */
@@ -138,22 +140,48 @@ class MediaRepository @Inject constructor(
      * Scanner failures are propagated, so an incomplete snapshot cannot erase
      * rows that were temporarily hidden by a provider/permission error.
      */
+    // Monotonic timestamp avoids repeating an expensive MediaStore scan when
+    // the user quickly revisits the library during the same app process.
+    private var lastSuccessfulRefreshElapsedMs = 0L
+
+    /** Force a full scan (used by the user's explicit pull-to-refresh action). */
     suspend fun refresh() = withContext(Dispatchers.IO) {
         refreshMutex.withLock {
-    
-            val scan = scanner.scan()
-    
-            // Selected-only access can add/update visible rows, but must never be
-            // interpreted as a complete snapshot for deletion.
-            if (scan.items.isNotEmpty()) mediaDao.upsertMedia(scan.items)
-    
-            if (scan.videosComplete) {
-                mediaDao.reconcileVideos(scan.videoIds)
+            refreshLocked()
+            lastSuccessfulRefreshElapsedMs = SystemClock.elapsedRealtime()
+        }
+    }
+
+    /**
+     * Refresh on first library entry, then skip redundant scans for five minutes.
+     * This is only an optimization: explicit refresh() always performs a scan.
+     */
+    suspend fun refreshIfStale(minIntervalMs: Long = DEFAULT_REFRESH_INTERVAL_MS) =
+        withContext(Dispatchers.IO) {
+            require(minIntervalMs >= 0L)
+            refreshMutex.withLock {
+                val now = SystemClock.elapsedRealtime()
+                if (lastSuccessfulRefreshElapsedMs > 0L &&
+                    now - lastSuccessfulRefreshElapsedMs < minIntervalMs
+                ) return@withLock
+                refreshLocked()
+                lastSuccessfulRefreshElapsedMs = SystemClock.elapsedRealtime()
             }
-    
-            if (scan.audioComplete) {
-                mediaDao.reconcileAudio(scan.audioIds)
-            }
+        }
+
+    private suspend fun refreshLocked() {
+        val scan = scanner.scan()
+
+        // Selected-only access can add/update visible rows, but must never be
+        // interpreted as a complete snapshot for deletion.
+        if (scan.items.isNotEmpty()) mediaDao.upsertMedia(scan.items)
+
+        if (scan.videosComplete) {
+            mediaDao.reconcileVideos(scan.videoIds)
+        }
+
+        if (scan.audioComplete) {
+            mediaDao.reconcileAudio(scan.audioIds)
         }
     }
 
