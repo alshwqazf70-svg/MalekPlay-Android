@@ -275,7 +275,9 @@ class NetworkMediaDataSource(
  * Media3 otherwise treats a premature EOF as a successful, truncated stream.
  */
 internal fun validateNetworkReadCount(count: Int, requested: Int): Int {
+    if (requested <= 0) throw IOException("حجم القراءة المطلوب غير صالح")
     if (count < 0) throw EOFException("انتهى ملف الشبكة قبل اكتمال القراءة")
+    if (count == 0) throw IOException("مصدر الشبكة لم يحقق أي تقدم في القراءة")
     if (count > requested) throw IOException("مصدر الشبكة أعاد حجماً أكبر من المطلوب")
     return count
 }
