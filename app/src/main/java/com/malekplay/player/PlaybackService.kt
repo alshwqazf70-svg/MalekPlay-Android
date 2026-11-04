@@ -14,6 +14,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.type.AssRenderType
@@ -76,6 +77,12 @@ class PlaybackService : MediaSessionService() {
         profileStore = NetworkProfileStore(this)
         credentialVault = NetworkCredentialVault(this)
 
+        // Keep Media3's decoder fallback enabled for devices whose preferred
+        // AVC decoder advertises support but fails during initialization.
+        // buildWithAssSupport wraps this factory, preserving ASS/SSA rendering.
+        val renderersFactory = DefaultRenderersFactory(this)
+            .setEnableDecoderFallback(true)
+
         val player = ExoPlayer.Builder(this)
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -88,7 +95,8 @@ class PlaybackService : MediaSessionService() {
             .buildWithAssSupport(
                 context = this,
                 renderType = AssRenderType.EFFECTS_OPEN_GL,
-                dataSourceFactory = buildDataSourceFactory()
+                dataSourceFactory = buildDataSourceFactory(),
+                renderersFactory = renderersFactory
             )
 
         player.addListener(progressListener)
