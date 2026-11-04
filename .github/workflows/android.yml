@@ -134,9 +134,8 @@ jobs:
           retention-days: 14
 
   emulator-ui-tests:
-    name: Optional Android emulator UI tests
-    if: github.event_name == 'workflow_dispatch'
-    continue-on-error: true
+    name: Android emulator UI tests
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/backup/before-updated-2.0'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

@@ -1,35 +1,59 @@
 package com.malekplay.translation
 
+import java.nio.charset.Charset
+import java.nio.charset.CharacterCodingException
 import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SrtSubtitleParserTest {
 
     @Test
-    fun decodesUtf8BomAndUtf16Files() {
-        val text = "1\n00:00:01,000 --> 00:00:02,000\nHello"
+    fun decodesUtf8BomAndUtf16LittleAndBigEndianFiles() {
+        val text = "1\\n00:00:01,000 --> 00:00:02,000\\nHello"
         val utf8 = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) +
             text.toByteArray(StandardCharsets.UTF_8)
-        val utf16 = byteArrayOf(0xFF.toByte(), 0xFE.toByte()) +
+        val utf16Le = byteArrayOf(0xFF.toByte(), 0xFE.toByte()) +
             text.toByteArray(StandardCharsets.UTF_16LE)
+        val utf16Be = byteArrayOf(0xFE.toByte(), 0xFF.toByte()) +
+            text.toByteArray(StandardCharsets.UTF_16BE)
 
         assertEquals(text, SrtSubtitleParser.decode(utf8))
-        assertEquals(text, SrtSubtitleParser.decode(utf16))
+        assertEquals(text, SrtSubtitleParser.decode(utf16Le))
+        assertEquals(text, SrtSubtitleParser.decode(utf16Be))
     }
 
     @Test
-    fun rejectsTruncatedUtf16BomPayloads() {
-        val truncated = byteArrayOf(0xFF.toByte(), 0xFE.toByte(), 0x41)
-        assertThrows(Exception::class.java) { SrtSubtitleParser.decode(truncated) }
+    fun decodesArabicWindows1256WithoutBom() {
+        val arabic = "مرحبا بالعالم"
+        val bytes = arabic.toByteArray(Charset.forName("windows-1256"))
+        assertEquals(arabic, SrtSubtitleParser.decode(bytes))
     }
 
     @Test
-    fun acceptsLongHourTimestampAndRejectsMalformedEndTimestamp() {
+    fun rejectsTruncatedUtf16AndMalformedUtf8BomPayloads() {
+        val truncatedUtf16 = byteArrayOf(0xFF.toByte(), 0xFE.toByte(), 0x41)
+        val malformedUtf8 = byteArrayOf(
+            0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte(), 0xC3.toByte(), 0x28
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            SrtSubtitleParser.decode(truncatedUtf16)
+        }
+        assertThrows(CharacterCodingException::class.java) {
+            SrtSubtitleParser.decode(malformedUtf8)
+        }
+    }
+
+    @Test
+    fun acceptsLongHoursAndWebVttStyleCueSettingsButRejectsMalformedEndTimestamp() {
         assertEquals(1, SrtSubtitleParser.timingLineIndex(listOf(
             "1", "123:00:01,250 --> 123:00:03,500", "Text"
+        )))
+        assertEquals(1, SrtSubtitleParser.timingLineIndex(listOf(
+            "1", "00:00:01.250 --> 00:00:03.500 X1:10 X2:90", "Text"
         )))
         assertEquals(-1, SrtSubtitleParser.timingLineIndex(listOf(
             "1", "00:00:01,250 --> not-a-time", "Text"
@@ -38,11 +62,11 @@ class SrtSubtitleParserTest {
 
     @Test
     fun preservesCueTimingAndFormattingMarkup() {
-        val source = "1\n00:00:01,000 --> 00:00:02,000\n<i>Hello</i>\n\n2\n00:00:03,000 --> 00:00:04,000\nWorld"
+        val source = "1\\n00:00:01,000 --> 00:00:02,000\\n<i>Hello</i>\\n\\n2\\n00:00:03,000 --> 00:00:04,000\\nWorld"
         val cues = SrtSubtitleParser.splitBlocks(source)
         assertEquals(2, cues.size)
 
-        val lines = cues.first().split('\n')
+        val lines = cues.first().split('\\n')
         assertEquals(1, SrtSubtitleParser.timingLineIndex(lines))
         val (masked, tags) = SrtSubtitleParser.maskMarkup("<i>Hello</i>")
         assertTrue(masked.contains("MALekPLAYTAG0TOKEN"))
@@ -54,9 +78,7 @@ class SrtSubtitleParserTest {
     @Test
     fun supportsCommaAndDotTimestampSeparators() {
         assertEquals(1, SrtSubtitleParser.timingLineIndex(listOf(
-            "7",
-            "00:00:01.250 --> 00:00:03.500",
-            "Text"
+            "7", "00:00:01.250 --> 00:00:03.500", "Text"
         )))
     }
 }
