@@ -194,7 +194,14 @@ class NetworkMediaDataSource(
                         }
                     }, requested)
                 },
-                reconnect = { reconnectAtCurrentPosition() }
+                reconnect = {
+                    try {
+                        reconnectAtCurrentPosition()
+                    } catch (error: Exception) {
+                        closeRemoteConnections()
+                        throw IOException("تعذرت إعادة فتح مصدر الشبكة", error)
+                    }
+                }
             )
         } catch (error: IOException) {
             throw IOException("انقطع اتصال مصدر الشبكة وتعذرت استعادة القراءة", error)
