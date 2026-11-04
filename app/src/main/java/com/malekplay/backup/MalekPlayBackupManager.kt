@@ -22,6 +22,67 @@ import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
 
 /**
+ * Validate the complete user-data payload before restore mutates any store.
+ * Missing or malformed sections must never be interpreted as empty collections,
+ * because that could silently erase the user's existing favourites and playlists.
+ */
+internal data class ValidatedBackupCollections(
+    val favourites: JSONArray,
+    val playlists: JSONArray,
+    val settings: JSONObject
+)
+
+internal fun validateBackupCollections(root: JSONObject): ValidatedBackupCollections {
+    val favourites = root.optJSONArray("favourites")
+        ?: throw IllegalArgumentException("Backup favourites section is missing or invalid")
+    val playlists = root.optJSONArray("playlists")
+        ?: throw IllegalArgumentException("Backup playlists section is missing or invalid")
+    val settings = root.optJSONObject("settings")
+        ?: throw IllegalArgumentException("Backup settings section is missing or invalid")
+
+    require(favourites.length() <= 20_000) { "Too many favourites" }
+    require(playlists.length() <= 500) { "Too many playlists" }
+
+    for (i in 0 until favourites.length()) {
+        val value = favourites.get(i)
+        require(value is String && value.length in 1..4096) {
+            "Favourite entry at index $i is invalid"
+        }
+    }
+
+    val seenPlaylistIds = HashSet<String>()
+    var totalItems = 0
+    for (i in 0 until playlists.length()) {
+        val item = playlists.get(i) as? JSONObject
+            ?: throw IllegalArgumentException("Playlist entry at index $i is invalid")
+        val name = item.opt("name") as? String
+        require(!name.isNullOrBlank() && name.length <= 256) {
+            "Playlist name at index $i is invalid"
+        }
+        if (item.has("id") && !item.isNull("id")) {
+            val id = item.opt("id") as? String
+            require(id != null && id.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
+                "Playlist id at index $i is invalid"
+            }
+            require(seenPlaylistIds.add(id)) { "Duplicate playlist identifier in backup" }
+        }
+        val mediaIds = item.optJSONArray("mediaIds")
+            ?: throw IllegalArgumentException("Playlist media list at index $i is invalid")
+        require(mediaIds.length() <= 5_000) { "Playlist at index $i has too many entries" }
+        totalItems += mediaIds.length()
+        require(totalItems <= 50_000) { "Too many playlist entries" }
+        for (j in 0 until mediaIds.length()) {
+            val mediaId = mediaIds.get(j)
+            require(mediaId is String && mediaId.length in 1..4096) {
+                "Playlist media entry at index $i, item $j is invalid"
+            }
+        }
+    }
+    return ValidatedBackupCollections(favourites, playlists, settings)
+}
+
+
+/**
  * Exports and restores the parts of the app that are pure user data.
  *
  * Media files and the cached MediaStore rows are deliberately excluded: they are
@@ -92,10 +153,9 @@ class MalekPlayBackupManager @Inject constructor(
         require(root.optString("format") == FORMAT) { "Not a MalekPlay backup file" }
         require(root.optInt("version", -1) == BACKUP_VERSION) { "Unsupported backup version" }
 
-        val favouritesArray = root.optJSONArray("favourites") ?: JSONArray()
-        val playlistsArray = root.optJSONArray("playlists") ?: JSONArray()
-        require(favouritesArray.length() <= MAX_FAVOURITES) { "Too many favourites" }
-        require(playlistsArray.length() <= MAX_PLAYLISTS) { "Too many playlists" }
+        val validated = validateBackupCollections(root)
+        val favouritesArray = validated.favourites
+        val playlistsArray = validated.playlists
 
         val favourites = buildSet {
             for (i in 0 until favouritesArray.length()) {
@@ -125,8 +185,7 @@ class MalekPlayBackupManager @Inject constructor(
                 add(PlaylistRestoreEntry(playlistId, name, mediaIds))
             }
         }
-        val settingsJson = root.optJSONObject("settings")
-        val restoredSettings = settingsJson?.let(::settingsFromJson)
+        val restoredSettings = settingsFromJson(validated.settings)
 
         // Snapshot all stores before writing. Each store commits atomically locally;
         // if a later store fails, restore the prior snapshots and retain the original error.
