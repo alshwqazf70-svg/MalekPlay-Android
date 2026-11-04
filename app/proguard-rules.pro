@@ -48,3 +48,7 @@
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 -dontwarn kotlinx.coroutines.**
 -keepclassmembers enum * { *; }
+
+# Optional Java Expression Language integration in the transitive MBassador dependency.
+# MalekPlay does not use EL-based event filters; R8 can safely omit this optional path.
+-dontwarn javax.el.**
