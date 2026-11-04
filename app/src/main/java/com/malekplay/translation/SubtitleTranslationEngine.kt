@@ -21,20 +21,21 @@ class SubtitleTranslationEngine(private val context: Context) {
     suspend fun translateSrtToArabic(source: Uri): Uri {
         val input = context.contentResolver.openInputStream(source)
             ?: error("تعذر فتح ملف الترجمة")
-        val sourceText = input.use { stream ->
+        val sourceBytes = input.use { stream ->
             val output = java.io.ByteArrayOutputStream()
             val buffer = ByteArray(8192)
             var total = 0
             while (true) {
                 val count = stream.read(buffer)
                 if (count < 0) break
+                if (count == 0) continue
                 total += count
                 require(total <= 5_000_000) { "حجم ملف الترجمة يجب ألا يتجاوز 5 ميجابايت" }
                 output.write(buffer, 0, count)
             }
-            require(total > 0) { "ملف الترجمة فارغ" }
-            String(output.toByteArray(), StandardCharsets.UTF_8).removePrefix("\uFEFF")
+            output.toByteArray()
         }
+        val sourceText = SrtSubtitleParser.decode(sourceBytes)
         val options = TranslatorOptions.Builder()
             .setSourceLanguage(TranslateLanguage.ENGLISH)
             .setTargetLanguage(TranslateLanguage.ARABIC)
@@ -42,21 +43,26 @@ class SubtitleTranslationEngine(private val context: Context) {
         val translator = Translation.getClient(options)
         return try {
             translator.downloadModelIfNeeded(DownloadConditions.Builder().build()).awaitResult()
-            val translated = sourceText.split(Regex("\\r?\\n\\s*\\r?\\n"))
+            val translated = SrtSubtitleParser.splitBlocks(sourceText)
                 .map { block ->
-                    val lines = block.split(Regex("\\r?\\n")).toMutableList()
-                    val timeIndex = lines.indexOfFirst { it.contains("-->") }
-                    if (timeIndex >= 0 && timeIndex + 1 < lines.size) {
+                    val lines = block.split('\\n')
+                    val timeIndex = SrtSubtitleParser.timingLineIndex(lines)
+                    if (timeIndex < 0 || timeIndex + 1 >= lines.size) {
+                        block
+                    } else {
                         val textStart = timeIndex + 1
-                        val subtitleText = lines.drop(textStart).joinToString("\n").trim()
-                        if (subtitleText.isNotBlank()) {
-                            val translatedText = translator.translate(subtitleText).awaitResult()
-                            (lines.take(textStart) + translatedText.lines()).joinToString("\n")
-                        } else block
-                    } else block
+                        val subtitleText = lines.drop(textStart).joinToString("\\n")
+                        if (subtitleText.isBlank()) {
+                            block
+                        } else {
+                            val (maskedText, markup) = SrtSubtitleParser.maskMarkup(subtitleText)
+                            val translatedText = translator.translate(maskedText).awaitResult()
+                            val restoredText = SrtSubtitleParser.restoreMarkup(translatedText, markup)
+                            (lines.take(textStart) + restoredText.split('\\n')).joinToString("\\n")
+                        }
+                    }
                 }
-                .filter { it.isNotBlank() }
-                .joinToString("\n\n")
+                .joinToString("\\n\\n")
             val output = File.createTempFile("malekplay-ar-", ".srt", context.cacheDir)
             output.writeText(translated, StandardCharsets.UTF_8)
             Uri.fromFile(output)
