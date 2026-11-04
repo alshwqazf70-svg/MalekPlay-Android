@@ -249,6 +249,7 @@ fun VideoPlayerScreen(
     DisposableEffect(Unit) {
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
+            if (!inPip) mainActivity?.setOrientation(false)
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             // Never leave the user with a dimmed or blown-out screen.
             activity?.window?.let { window ->
