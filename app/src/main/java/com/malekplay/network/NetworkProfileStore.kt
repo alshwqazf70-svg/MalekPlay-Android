@@ -57,16 +57,11 @@ class NetworkProfileStore @Inject constructor(
 
     fun remove(id: String) {
         val current = load()
-        val previousCredentials = credentialVault.load(id)
-        credentialVault.remove(id)
+        persist(current.filterNot { it.id == id })
         try {
-            persist(current.filterNot { it.id == id })
+            credentialVault.remove(id)
         } catch (failure: Throwable) {
-            if (previousCredentials != null) {
-                runCatching {
-                    credentialVault.save(id, previousCredentials.first, previousCredentials.second)
-                }.onFailure(failure::addSuppressed)
-            }
+            runCatching { persist(current) }.onFailure(failure::addSuppressed)
             throw failure
         }
     }
