@@ -162,17 +162,22 @@ class NetworkMediaDataSource(
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (offset < 0 || length < 0 || offset > buffer.size || length > buffer.size - offset) {
+            throw IndexOutOfBoundsException("حدود مخزن القراءة غير صالحة")
+        }
         if (length == 0) return 0
         if (!opened) throw IOException("مصدر الشبكة غير مفتوح")
         if (bytesRemaining <= 0L) return C.RESULT_END_OF_INPUT
         val requested = minOf(length.toLong(), bytesRemaining, MAX_READ_BYTES.toLong()).toInt()
-        val count = when {
-            smbFile != null -> smbFile!!.read(buffer, position, offset, requested)
-            sftpFile != null -> sftpFile!!.read(position, buffer, offset, requested)
-            else -> throw IOException("اتصال الشبكة غير جاهز")
+        val count = readNetworkChunk {
+            when {
+                smbFile != null -> smbFile!!.read(buffer, position, offset, requested)
+                sftpFile != null -> sftpFile!!.read(position, buffer, offset, requested)
+                else -> throw IOException("اتصال الشبكة غير جاهز")
+            }
         }
         if (count < 0) return C.RESULT_END_OF_INPUT
-        if (count == 0) return 0
+        if (count > requested) throw IOException("مصدر الشبكة أعاد حجماً أكبر من المطلوب")
         position += count
         bytesRemaining -= count
         bytesTransferred(count)
@@ -211,6 +216,15 @@ class NetworkMediaDataSource(
     private companion object {
         const val MAX_READ_BYTES = 256 * 1024
     }
+}
+
+/** Retry transient zero-byte responses without returning a no-progress read. */
+internal fun readNetworkChunk(read: () -> Int): Int {
+    repeat(3) {
+        val count = read()
+        if (count != 0) return count
+    }
+    throw IOException("مصدر الشبكة لم يُرجع بيانات بعد عدة محاولات")
 }
 
 /**
