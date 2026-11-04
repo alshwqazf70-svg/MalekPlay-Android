@@ -20,6 +20,8 @@ import com.malekplay.domain.model.MediaFolder
 import com.malekplay.domain.model.toDomain
 import com.malekplay.domain.model.toLibraryItem
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
@@ -42,6 +44,7 @@ class MediaRepository @Inject constructor(
 
     private companion object {
         const val MAX_SEARCH_QUERY_LENGTH = 256
+        const val MEDIA_UPSERT_BATCH_SIZE = 500
         const val DEFAULT_REFRESH_INTERVAL_MS = 5 * 60 * 1_000L
     }
 
@@ -174,8 +177,18 @@ class MediaRepository @Inject constructor(
 
         // Selected-only access can add/update visible rows, but must never be
         // interpreted as a complete snapshot for deletion.
-        if (scan.items.isNotEmpty()) mediaDao.upsertMedia(scan.items)
+        // Keep each Room write bounded: a very large library should not be sent
+        // to SQLite as one oversized batch. Cancellation between batches is safe;
+        // reconciliation is deliberately skipped unless every batch completes.
+        var start = 0
+        while (start < scan.items.size) {
+            currentCoroutineContext().ensureActive()
+            val end = minOf(start + MEDIA_UPSERT_BATCH_SIZE, scan.items.size)
+            mediaDao.upsertMedia(scan.items.subList(start, end))
+            start = end
+        }
 
+        currentCoroutineContext().ensureActive()
         if (scan.videosComplete) {
             mediaDao.reconcileVideos(scan.videoIds)
         }
