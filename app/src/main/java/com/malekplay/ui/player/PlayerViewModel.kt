@@ -618,7 +618,6 @@ class PlayerViewModel @Inject constructor(
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         _controller.value = null
-        audioEffects.release()
         super.onCleared()
     }
 

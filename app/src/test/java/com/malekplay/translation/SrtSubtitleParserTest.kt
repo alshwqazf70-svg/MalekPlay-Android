@@ -12,7 +12,7 @@ class SrtSubtitleParserTest {
 
     @Test
     fun decodesUtf8BomAndUtf16LittleAndBigEndianFiles() {
-        val text = "1\\n00:00:01,000 --> 00:00:02,000\\nHello"
+        val text = "1\n00:00:01,000 --> 00:00:02,000\nHello"
         val utf8 = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) +
             text.toByteArray(StandardCharsets.UTF_8)
         val utf16Le = byteArrayOf(0xFF.toByte(), 0xFE.toByte()) +
@@ -62,11 +62,11 @@ class SrtSubtitleParserTest {
 
     @Test
     fun preservesCueTimingAndFormattingMarkup() {
-        val source = "1\\n00:00:01,000 --> 00:00:02,000\\n<i>Hello</i>\\n\\n2\\n00:00:03,000 --> 00:00:04,000\\nWorld"
+        val source = "1\n00:00:01,000 --> 00:00:02,000\n<i>Hello</i>\n\n2\n00:00:03,000 --> 00:00:04,000\nWorld"
         val cues = SrtSubtitleParser.splitBlocks(source)
         assertEquals(2, cues.size)
 
-        val lines = cues.first().split('\\n')
+        val lines = cues.first().split('\n')
         assertEquals(1, SrtSubtitleParser.timingLineIndex(lines))
         val (masked, tags) = SrtSubtitleParser.maskMarkup("<i>Hello</i>")
         assertTrue(masked.contains("MALekPLAYTAG0TOKEN"))

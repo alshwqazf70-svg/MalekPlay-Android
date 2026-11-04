@@ -19,6 +19,7 @@ import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.type.AssRenderType
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.malekplay.player.audio.AudioEffectsController
 import com.malekplay.network.NetworkCredentialVault
 import com.malekplay.network.NetworkProfileStore
 import com.malekplay.data.repository.MediaRepository
@@ -57,6 +58,9 @@ class PlaybackService : MediaSessionService() {
 
     @Inject
     lateinit var mediaRepository: MediaRepository
+
+    @Inject
+    lateinit var audioEffectsController: AudioEffectsController
 
     // ExoPlayer is application-looper confined; read its state on Main and let
     // MediaRepository switch to IO for database/preferences work.
@@ -105,6 +109,9 @@ class PlaybackService : MediaSessionService() {
             release()
         }
         mediaSession = null
+        // Audio effects share the application's active audio session. Their lifetime
+        // follows the playback service, not the transient player screen ViewModel.
+        audioEffectsController.release()
         if (finalSave == null) serviceScope.cancel()
         else finalSave.invokeOnCompletion { serviceScope.cancel() }
         super.onDestroy()

@@ -32,6 +32,38 @@ class NetworkMediaDataSourceTest {
     }
 
     @Test
+    fun retriesOneFailedRemoteReadAfterReconnection() {
+        var attempts = 0
+        var reconnects = 0
+        val count = readWithReconnect(
+            read = {
+                attempts++
+                if (attempts == 1) throw IOException("connection dropped")
+                512
+            },
+            reconnect = { reconnects++ }
+        )
+        assertEquals(512, count)
+        assertEquals(2, attempts)
+        assertEquals(1, reconnects)
+    }
+
+    @Test
+    fun propagatesFailureWhenReconnectAlsoFails() {
+        var reconnects = 0
+        assertThrows(IOException::class.java) {
+            readWithReconnect(
+                read = { throw IOException("connection dropped") },
+                reconnect = {
+                    reconnects++
+                    throw IOException("server unavailable")
+                }
+            )
+        }
+        assertEquals(1, reconnects)
+    }
+
+    @Test
     fun preservesEndOfInputResult() {
         assertEquals(-1, readNetworkChunk { -1 })
     }

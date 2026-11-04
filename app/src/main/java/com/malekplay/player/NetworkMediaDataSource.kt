@@ -183,22 +183,53 @@ class NetworkMediaDataSource(
         if (!opened) throw IOException("مصدر الشبكة غير مفتوح")
         if (bytesRemaining <= 0L) return C.RESULT_END_OF_INPUT
         val requested = minOf(length.toLong(), bytesRemaining, MAX_READ_BYTES.toLong()).toInt()
-        val count = validateNetworkReadCount(readNetworkChunk {
-            when {
-                smbFile != null -> smbFile!!.read(buffer, position, offset, requested)
-                sftpFile != null -> sftpFile!!.read(position, buffer, offset, requested)
-                else -> throw IOException("اتصال الشبكة غير جاهز")
+        val readRemote = {
+            validateNetworkReadCount(readNetworkChunk {
+                when {
+                    smbFile != null -> smbFile!!.read(buffer, position, offset, requested)
+                    sftpFile != null -> sftpFile!!.read(position, buffer, offset, requested)
+                    else -> throw IOException("اتصال الشبكة غير جاهز")
+                }
+            }, requested)
+        }
+        val count = try {
+            readRemote()
+        } catch (firstFailure: IOException) {
+            try {
+                reconnectAtCurrentPosition()
+                readRemote()
+            } catch (retryFailure: Exception) {
+                retryFailure.addSuppressed(firstFailure)
+                throw IOException("انقطع اتصال مصدر الشبكة وتعذرت استعادة القراءة", retryFailure)
             }
-        }, requested)
+        }
         position += count
         bytesRemaining -= count
         bytesTransferred(count)
         return count
     }
 
+    /** Reopens the same remote file at the unchanged random-access position once. */
+    private fun reconnectAtCurrentPosition() {
+        val uri = currentUri ?: throw IOException("رابط مصدر الشبكة غير متاح لإعادة الاتصال")
+        val profileId = uri.host ?: throw IOException("معرّف مصدر الشبكة مفقود")
+        val profile = profileStore.load().firstOrNull { it.id == profileId }
+            ?: throw IOException("مصدر الشبكة لم يعد موجوداً")
+        val segments = uri.pathSegments
+        if (segments.isEmpty()) throw IOException("مسار الملف غير صالح لإعادة الاتصال")
+        val credentials = credentialVault.load(profile.id) ?: (profile.username to "")
+        closeRemoteConnections()
+        when (profile.protocol) {
+            NetworkProtocol.SMB -> openSmb(profile, credentials.first, credentials.second, segments)
+            NetworkProtocol.SFTP -> openSftp(profile, credentials.first, credentials.second, segments)
+            NetworkProtocol.WEBDAV -> throw IOException("مصدر WebDAV لا يستخدم هذا المسار")
+        }
+        if (position > fileLength) throw EOFException("تغير حجم الملف البعيد أثناء إعادة الاتصال")
+    }
+
     override fun getUri(): Uri? = currentUri
 
-    override fun close() {
+    private fun closeRemoteConnections() {
         runCatching { sftpFile?.close() }
         sftpFile = null
         runCatching { sftpClient?.close() }
@@ -217,7 +248,10 @@ class NetworkMediaDataSource(
         smbConnection = null
         runCatching { smbClient?.close() }
         smbClient = null
+    }
 
+    override fun close() {
+        closeRemoteConnections()
         currentUri = null
         fileLength = C.LENGTH_UNSET.toLong()
         bytesRemaining = C.LENGTH_UNSET.toLong()
