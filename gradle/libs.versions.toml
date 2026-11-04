@@ -12,7 +12,6 @@ room = "2.8.5"
 datastore = "1.1.2"
 hilt = "2.57.1"
 hiltNavigation = "1.2.0"
-palette = "1.1.0"
 mlkitTranslate = "17.0.3"
 smbj = "0.14.0"
 sshj = "0.40.0"
@@ -21,7 +20,6 @@ assMedia = "0.4.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core" }
-androidx-palette-ktx = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 compose-ui = { group = "androidx.compose.ui", name = "ui" }
 compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
