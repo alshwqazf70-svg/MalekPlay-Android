@@ -103,7 +103,6 @@ class PlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(buildSessionActivityIntent())
             .build()
-        startProgressPersistence()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -144,7 +143,14 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (isPlaying) markCurrentItemStarted() else saveCurrentProgress()
+            if (isPlaying) {
+                markCurrentItemStarted()
+                startProgressPersistence()
+            } else {
+                progressJob?.cancel()
+                progressJob = null
+                saveCurrentProgress()
+            }
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -187,13 +193,18 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * Persist playback checkpoints only while media is actually playing.
+     * A paused/idle media session must not keep waking the process on a timer.
+     */
     private fun startProgressPersistence() {
-        progressJob?.cancel()
+        if (progressJob?.isActive == true) return
         progressJob = serviceScope.launch {
             while (isActive) {
                 delay(PROGRESS_SAVE_INTERVAL_MS)
                 val player = mediaSession?.player ?: break
-                if (player.isPlaying) saveCurrentProgress()
+                if (!player.isPlaying) break
+                saveCurrentProgress()
             }
         }
     }
@@ -324,6 +335,6 @@ class PlaybackService : MediaSessionService() {
         const val TAG = "MalekPlayPlayback"
         const val MAX_CACHED_PLAYBACK_METADATA = 16
         const val SESSION_REQUEST_CODE = 1001
-        const val PROGRESS_SAVE_INTERVAL_MS = 5_000L
+        const val PROGRESS_SAVE_INTERVAL_MS = 15_000L
     }
 }
