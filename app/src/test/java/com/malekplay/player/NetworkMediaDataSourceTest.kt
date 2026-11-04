@@ -86,4 +86,42 @@ class NetworkMediaDataSourceTest {
     fun acceptsValidPartialReads() {
         assertEquals(1024, validateNetworkReadCount(1024, requested = 4096))
     }
+
+    @Test
+    fun acceptsEndOfInputOnlyForUnknownLengthAtCallerBoundary() {
+        // The helper rejects premature EOF for known-length streams; the
+        // Media3 end marker remains represented by -1 for unknown-length reads.
+        assertEquals(-1, readNetworkChunk { -1 })
+    }
+
+    @Test
+    fun rejectsZeroAsAValidatedReadCount() {
+        assertThrows(IOException::class.java) {
+            validateNetworkReadCount(0, requested = 1024)
+        }
+    }
+
+    @Test
+    fun rejectsNegativeRequestedReadLengthsThroughValidationContract() {
+        assertThrows(IOException::class.java) {
+            validateNetworkReadCount(1, requested = -1)
+        }
+    }
+
+    @Test
+    fun doesNotAttemptASecondReconnectAfterRetryReadFails() {
+        var reads = 0
+        var reconnects = 0
+        assertThrows(IOException::class.java) {
+            readWithReconnect(
+                read = {
+                    reads++
+                    throw IOException("remote server still unavailable")
+                },
+                reconnect = { reconnects++ }
+            )
+        }
+        assertEquals(2, reads)
+        assertEquals(1, reconnects)
+    }
 }
