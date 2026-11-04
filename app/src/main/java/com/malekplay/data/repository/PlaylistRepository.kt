@@ -12,6 +12,12 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+data class PlaylistRestoreEntry(
+    val playlistId: String?,
+    val name: String,
+    val mediaIds: List<String>
+)
+
 @Singleton
 class PlaylistRepository @Inject constructor(
     private val playlistDao: PlaylistDao
@@ -53,21 +59,33 @@ class PlaylistRepository @Inject constructor(
             playlistDao.appendMedia(playlistId, mediaIds, System.currentTimeMillis())
         }
 
-    /** Replaces all playlists during restore; each invocation is idempotent. */
-    suspend fun replaceAll(playlists: List<Pair<String, List<String>>>) = withContext(Dispatchers.IO) {
+    /** Replaces all playlists atomically and preserves valid IDs from backups. */
+    suspend fun restoreAll(playlists: List<PlaylistRestoreEntry>) = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        val playlistEntities = playlists.mapIndexedNotNull { index, (name, _) ->
-            name.trim().takeIf { it.isNotEmpty() }?.let { trimmed ->
-                PlaylistEntity(UUID.randomUUID().toString(), trimmed, now + index, index)
-            }
+        val suppliedIds = playlists.mapNotNull { it.playlistId?.takeIf(String::isNotBlank) }
+        require(suppliedIds.distinct().size == suppliedIds.size) {
+            "Duplicate playlist identifiers in backup"
         }
-        val itemEntities = playlistEntities.zip(playlists.filter { it.first.isNotBlank() }).flatMap { (playlist, source) ->
-            source.second.distinct().mapIndexed { position, mediaId ->
+        val normalized = playlists.mapIndexed { index, entry ->
+            val name = entry.name.trim()
+            require(name.isNotEmpty()) { "Playlist name cannot be empty" }
+            val id = entry.playlistId
+                ?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }
+                ?: UUID.randomUUID().toString()
+            PlaylistEntity(id, name, now + index, index) to entry.mediaIds.distinct()
+        }
+        val playlistEntities = normalized.map { it.first }
+        val itemEntities = normalized.flatMap { (playlist, mediaIds) ->
+            mediaIds.mapIndexed { position, mediaId ->
                 PlaylistItemEntity(playlist.playlistId, mediaId, position, now)
             }
         }
         playlistDao.replaceAll(playlistEntities, itemEntities)
     }
+
+    /** Backward-compatible restore path for callers without stable IDs. */
+    suspend fun replaceAll(playlists: List<Pair<String, List<String>>>) =
+        restoreAll(playlists.map { PlaylistRestoreEntry(null, it.first, it.second) })
 
     suspend fun removeMedia(playlistId: String, mediaId: String) =
         withContext(Dispatchers.IO) { playlistDao.removeItem(playlistId, mediaId) }
@@ -77,6 +95,6 @@ class PlaylistRepository @Inject constructor(
 
     /** One-shot snapshot used by the backup exporter. */
     suspend fun snapshotPlaylists(): List<PlaylistWithItems> = withContext(Dispatchers.IO) {
-        runCatching { playlistDao.observePlaylists().first() }.getOrDefault(emptyList())
+        playlistDao.observePlaylists().first()
     }
 }
