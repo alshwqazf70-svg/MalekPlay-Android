@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -48,17 +49,25 @@ fun VideoCategoryScreen(
     val videos by viewModel.videos.collectAsStateWithLifecycle()
     var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
     val title = stringResource(if (series) R.string.nav_series else R.string.nav_movies)
-    val classified = videos.map { item ->
-        item to VideoKindClassifier.classify(
-            item.media.displayTitle,
-            item.media.folderName,
-            item.media.folderPath
-        )
+    // Classification depends only on the media snapshot. Reuse it across
+    // unrelated recompositions (for example playlist dialog visibility).
+    val classified = remember(videos) {
+        videos.map { item ->
+            item to VideoKindClassifier.classify(
+                item.media.displayTitle,
+                item.media.folderName,
+                item.media.folderPath
+            )
+        }
     }
-    val unclassifiedCount = classified.count { it.second == VideoKind.UNCLASSIFIED }
-    val filtered = classified.filter { (_, kind) ->
-        if (series) kind == VideoKind.SERIES else kind != VideoKind.SERIES
-    }.map { it.first }
+    val unclassifiedCount = remember(classified) {
+        classified.count { it.second == VideoKind.UNCLASSIFIED }
+    }
+    val filtered = remember(classified, series) {
+        classified.filter { (_, kind) ->
+            if (series) kind == VideoKind.SERIES else kind != VideoKind.SERIES
+        }.map { it.first }
+    }
 
     Scaffold(
         topBar = {
