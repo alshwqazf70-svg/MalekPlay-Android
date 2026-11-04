@@ -642,6 +642,17 @@ class PlayerViewModel @Inject constructor(
         return progress.positionMs
     }
 
+    /**
+     * Restores the last speed used for this media item. The global preference is
+     * only a fallback for first-time playback or missing progress records.
+     */
+    suspend fun savedPlaybackSpeedFor(mediaId: String, fallback: Float): Float {
+        val safeFallback = PlaybackValuePolicy.normalizeSpeed(fallback)
+        val progress = runCatching { mediaRepository.getProgress(mediaId) }.getOrNull()
+            ?: return safeFallback
+        return PlaybackValuePolicy.normalizeSpeed(progress.playbackSpeed)
+    }
+
     /** Loads one media row so the player can render its title and artwork. */
     suspend fun loadMedia(mediaId: String): DomainMedia? =
         runCatching { mediaRepository.getMedia(mediaId) }.getOrNull()
