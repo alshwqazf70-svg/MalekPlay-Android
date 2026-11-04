@@ -133,4 +133,62 @@ class DatabaseMigrationTest {
             helper.close()
         }
     }
+
+    @Test
+    fun playlistForeignKeyMigrationPreservesRowsAndCascadesDeletes() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val configuration = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(null)
+            .callback(object : SupportSQLiteOpenHelper.Callback(3) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """CREATE TABLE playlists (
+                            playlistId TEXT NOT NULL PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            createdAtMs INTEGER NOT NULL,
+                            sortOrder INTEGER NOT NULL
+                        )"""
+                    )
+                    db.execSQL(
+                        """CREATE TABLE playlist_items (
+                            playlistId TEXT NOT NULL,
+                            mediaId TEXT NOT NULL,
+                            position INTEGER NOT NULL,
+                            addedAtMs INTEGER NOT NULL,
+                            PRIMARY KEY(playlistId, mediaId)
+                        )"""
+                    )
+                    db.execSQL("CREATE INDEX index_playlist_items_mediaId ON playlist_items(mediaId)")
+                    db.execSQL("CREATE INDEX index_playlist_items_playlistId_position ON playlist_items(playlistId, position)")
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+            })
+            .build()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(configuration)
+        try {
+            val db = helper.writableDatabase
+            db.execSQL("INSERT INTO playlists VALUES('list-1', 'Favorites', 1, 0)")
+            db.execSQL("INSERT INTO playlist_items VALUES('list-1', 'media-1', 0, 2)")
+            MalekPlayDatabase.MIGRATION_3_4.migrate(db)
+
+            db.query("SELECT playlistId, mediaId FROM playlist_items").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("list-1", cursor.getString(0))
+                assertEquals("media-1", cursor.getString(1))
+                assertFalse(cursor.moveToNext())
+            }
+            db.execSQL("DELETE FROM playlists WHERE playlistId = 'list-1'")
+            db.query("SELECT COUNT(*) FROM playlist_items").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            db.query("PRAGMA foreign_key_check").use { cursor ->
+                assertFalse(cursor.moveToFirst())
+            }
+        } finally {
+            helper.close()
+        }
+    }
+
 }
