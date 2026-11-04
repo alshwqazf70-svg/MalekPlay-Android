@@ -13,6 +13,7 @@ import com.malekplay.data.repository.PlaylistRepository
 import com.malekplay.data.repository.UserDataRepository
 import com.malekplay.data.scanner.MediaStoreScanner
 import com.malekplay.network.NetworkCredentialVault
+import com.malekplay.network.OnlineSubtitleRepository
 import com.malekplay.network.NetworkProfileStore
 import com.malekplay.network.SftpClient
 import com.malekplay.network.SmbClient
@@ -77,6 +78,13 @@ object AppModule {
     @Singleton
     fun provideNetworkCredentialVault(@ApplicationContext context: Context): NetworkCredentialVault =
         NetworkCredentialVault(context)
+
+    @Provides
+    @Singleton
+    fun provideOnlineSubtitleRepository(
+        @ApplicationContext context: Context,
+        vault: NetworkCredentialVault
+    ): OnlineSubtitleRepository = OnlineSubtitleRepository(context, vault)
 
     @Provides
     @Singleton
