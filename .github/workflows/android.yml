@@ -95,8 +95,9 @@ jobs:
           profile: pixel_2
           script: |
             mkdir -p artifacts
-            adb logcat -c
             set +e
+            adb devices -l > artifacts/emulator-devices.txt 2>&1
+            adb logcat -c || true
             gradle --no-daemon :app:connectedDebugAndroidTest
             TEST_EXIT=$?
             adb logcat -d -v threadtime > artifacts/emulator-logcat.txt
@@ -121,6 +122,7 @@ jobs:
             artifacts/emulator-logcat.txt
             artifacts/emulator-activities.txt
             artifacts/installed-instrumentation.txt
+            artifacts/emulator-devices.txt
             artifacts/malekplay-test-failure.png
           if-no-files-found: warn
 
