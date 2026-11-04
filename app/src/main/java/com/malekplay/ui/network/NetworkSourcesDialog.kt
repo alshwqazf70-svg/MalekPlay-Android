@@ -51,10 +51,23 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
         if (uri != null) {
             runCatching {
                 val target = File(context.filesDir, "network_known_hosts_import")
+                val temporary = File(context.filesDir, "network_known_hosts_import.tmp")
                 context.contentResolver.openInputStream(uri)?.use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
+                    temporary.outputStream().buffered().use { output ->
+                        val buffer = ByteArray(8 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            require(total <= 1024L * 1024L) { "ملف known_hosts أكبر من الحد المسموح (1 ميجابايت)" }
+                            output.write(buffer, 0, count)
+                        }
+                    }
                 } ?: error("تعذر فتح ملف known_hosts")
-                require(target.isFile && target.length() > 0L) { "ملف known_hosts فارغ" }
+                require(temporary.isFile && temporary.length() > 0L) { "ملف known_hosts فارغ" }
+                if (target.exists()) require(target.delete()) { "تعذر استبدال ملف known_hosts السابق" }
+                require(temporary.renameTo(target)) { "تعذر حفظ ملف known_hosts المستورد" }
                 knownHosts = target
                 message = "تم استيراد ملف known_hosts"
             }.onFailure { message = "تعذر استيراد الملف: ${it.localizedMessage}" }
