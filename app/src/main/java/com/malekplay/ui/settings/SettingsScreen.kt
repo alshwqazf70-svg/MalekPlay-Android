@@ -174,8 +174,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                     title = stringResource(R.string.settings_resume),
                     summary = stringResource(R.string.settings_resume_summary),
                     checked = settings.resumePlayback,
-                    onCheckedChange = {
-                        viewModel.update { it.copy(resumePlayback = !settings.resumePlayback) }
+                    onCheckedChange = { checked ->
+                        viewModel.update { it.copy(resumePlayback = checked) }
                     }
                 )
                 SliderRow(
@@ -199,15 +199,15 @@ fun SettingsScreen(onBack: () -> Unit) {
                 SwitchRow(
                     title = stringResource(R.string.settings_autoplay),
                     checked = settings.autoplayNext,
-                    onCheckedChange = {
-                        viewModel.update { it.copy(autoplayNext = !settings.autoplayNext) }
+                    onCheckedChange = { checked ->
+                        viewModel.update { it.copy(autoplayNext = checked) }
                     }
                 )
                 SwitchRow(
                     title = stringResource(R.string.settings_background),
                     checked = settings.backgroundPlayback,
-                    onCheckedChange = {
-                        viewModel.update { it.copy(backgroundPlayback = !settings.backgroundPlayback) }
+                    onCheckedChange = { checked ->
+                        viewModel.update { it.copy(backgroundPlayback = checked) }
                     }
                 )
             }

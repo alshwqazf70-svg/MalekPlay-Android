@@ -1,8 +1,10 @@
 package com.malekplay.ui.player.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -187,7 +189,12 @@ fun PlayerControlRail(
             )
         }
 
-        AnimatedVisibility(visible = expanded, enter = fadeIn(), exit = fadeOut()) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top),
+            label = "player-extra-controls"
+        ) {
             Row(
                 modifier = Modifier.padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -252,13 +259,18 @@ fun PlayerSeekRow(
             Slider(
                 value = shown.coerceIn(0f, 1f),
                 onValueChange = { value ->
-                    scrubbing = true
-                    scrubValue = value
+                    if (total > 0L) {
+                        scrubbing = true
+                        scrubValue = value
+                    }
                 },
                 onValueChangeFinished = {
-                    scrubbing = false
-                    onScrubFinished((scrubValue * total).toLong())
+                    if (total > 0L && scrubbing) {
+                        scrubbing = false
+                        onScrubFinished((scrubValue * total).toLong())
+                    }
                 },
+                enabled = total > 0L,
                 modifier = Modifier.fillMaxWidth(),
                 colors = SliderDefaults.colors(
                     thumbColor = PlayerChrome.ProgressActive,
