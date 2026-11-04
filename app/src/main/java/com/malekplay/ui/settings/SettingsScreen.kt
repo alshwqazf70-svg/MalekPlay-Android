@@ -285,8 +285,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                     title = stringResource(R.string.settings_dynamic_color),
                     summary = stringResource(R.string.settings_dynamic_color_summary),
                     checked = settings.dynamicColor,
-                    onCheckedChange = {
-                        viewModel.update { it.copy(dynamicColor = !settings.dynamicColor) }
+                    onCheckedChange = { checked ->
+                        viewModel.update { it.copy(dynamicColor = checked) }
                     }
                 )
             }
