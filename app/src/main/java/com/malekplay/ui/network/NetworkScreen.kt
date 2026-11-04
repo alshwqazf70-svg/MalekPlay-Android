@@ -223,10 +223,19 @@ class NetworkViewModel @Inject constructor(
                     }
                     credentialVault.save(id, username.trim(), password)
                     profileStore.save(profile)
-                }.onFailure {
+                }.onFailure { failure ->
                     runCatching { credentialVault.remove(id) }
-                    temporary?.delete()
-                    destination?.delete()
+                        .onFailure(failure::addSuppressed)
+                    if (temporary?.exists() == true) {
+                        check(temporary?.delete() != false) {
+                            failure.addSuppressed(IllegalStateException("تعذر حذف الملف المؤقت لمفاتيح SFTP"))
+                        }
+                    }
+                    if (destination?.exists() == true) {
+                        check(destination?.delete() != false) {
+                            failure.addSuppressed(IllegalStateException("تعذر حذف ملف مفاتيح SFTP غير المكتمل"))
+                        }
+                    }
                 }
             }
             _sourceError.value = outcome.exceptionOrNull()?.localizedMessage
