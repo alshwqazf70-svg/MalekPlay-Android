@@ -45,15 +45,25 @@ internal fun loadMediaArtwork(
     return null
 }
 
-private fun java.io.InputStream.readLimitedBytes(): ByteArray {
+internal fun java.io.InputStream.readLimitedBytes(maxBytes: Int = MAX_ARTWORK_BYTES): ByteArray {
+    require(maxBytes > 0) { "Maximum artwork size must be positive" }
     val output = ByteArrayOutputStream()
     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
     var total = 0
     while (true) {
         val read = read(buffer)
         if (read < 0) break
+        if (read == 0) {
+            // A broken ContentProvider must not trap thumbnail loading in a busy loop.
+            val single = read()
+            if (single < 0) break
+            total++
+            require(total <= maxBytes) { "Album artwork exceeds size limit" }
+            output.write(single)
+            continue
+        }
         total += read
-        require(total <= MAX_ARTWORK_BYTES) { "Album artwork exceeds size limit" }
+        require(total <= maxBytes) { "Album artwork exceeds size limit" }
         output.write(buffer, 0, read)
     }
     return output.toByteArray()
