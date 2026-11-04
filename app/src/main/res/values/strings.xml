@@ -183,6 +183,8 @@
     <string name="settings_gesture_action_play_pause">Play / pause</string>
     <string name="settings_gesture_action_speed">Fast forward boost</string>
     <string name="settings_gesture_swipe">Horizontal swipe</string>
+    <string name="settings_brightness_gesture">Enable brightness gesture</string>
+    <string name="settings_brightness_gesture_summary">Allow vertical swipes on the left side of the video to adjust screen brightness.</string>
     <string name="settings_subtitles">Subtitles</string>
     <string name="settings_audio">Audio</string>
     <string name="settings_bass_boost">Bass boost</string>
