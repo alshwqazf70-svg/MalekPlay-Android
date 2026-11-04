@@ -263,4 +263,15 @@
     <string name="home_hero_title">ترفيهك كله في مكان واحد</string>
     <string name="home_hero_subtitle">تابع من حيث توقفت أو استكشف مكتبتك.</string>
     <string name="home_total_media">الوسائط</string>
+    <string name="player_search_subtitle_online">البحث عن ترجمة عبر الإنترنت</string>
+    <string name="subtitle_search_title">اسم الفيلم أو المسلسل</string>
+    <string name="subtitle_season">الموسم</string>
+    <string name="subtitle_episode">الحلقة</string>
+    <string name="subtitle_service_setup">بيانات حساب OpenSubtitles (تُحفظ مشفّرة على هذا الجهاز)</string>
+    <string name="subtitle_api_key">مفتاح OpenSubtitles API</string>
+    <string name="subtitle_username">اسم مستخدم OpenSubtitles</string>
+    <string name="subtitle_password">كلمة مرور OpenSubtitles</string>
+    <string name="subtitle_save_credentials">حفظ البيانات بشكل آمن</string>
+    <string name="subtitle_search">بحث</string>
+    <string name="subtitle_downloads">تنزيل</string>
 </resources>
