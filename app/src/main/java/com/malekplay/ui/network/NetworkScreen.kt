@@ -251,9 +251,14 @@ class NetworkViewModel @Inject constructor(
                 }
             }
             _sourceError.value = outcome.exceptionOrNull()?.localizedMessage
-            if (outcome.isSuccess) {
-                if (_browse.value.profileId == profile.id) _browse.value = BrowseUiState()
-                reload()
+            // The profile may already be removed even if deleting its auxiliary
+            // known_hosts file failed; refresh the list without erasing that error.
+            val refreshedProfiles = withContext(Dispatchers.IO) {
+                runCatching { profileStore.load() }.getOrNull()
+            }
+            if (refreshedProfiles != null) _profiles.value = refreshedProfiles
+            if (outcome.isSuccess && _browse.value.profileId == profile.id) {
+                _browse.value = BrowseUiState()
             }
         }
     }
