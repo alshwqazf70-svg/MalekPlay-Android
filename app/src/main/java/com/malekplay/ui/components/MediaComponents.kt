@@ -3,6 +3,7 @@ package com.malekplay.ui.components
 import android.graphics.Bitmap
 import android.os.Build
 import android.util.Size
+import android.util.LruCache
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -61,10 +62,21 @@ import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaFolder
 import com.malekplay.domain.model.MediaItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 // --------------------------------------------------------------- thumbnails
+
+// A small, byte-bounded cache prevents scrolling back through the library from
+// decoding the same artwork repeatedly while keeping memory use predictable.
+private val thumbnailCache = LruCache<String, Bitmap>(
+    (Runtime.getRuntime().maxMemory() / 8L)
+        .coerceAtMost(32L * 1024L * 1024L)
+        .toInt()
+) {
+    override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+}
 
 /**
  * Loads a MediaStore thumbnail off the main thread.
@@ -79,13 +91,22 @@ fun MediaThumbnail(
     contentScale: ContentScale = ContentScale.Crop
 ) {
     val context = LocalContext.current
-    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = media.id) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return@runCatching null
-                val source = if (media.isVideo) media.uri else (media.artworkUri ?: media.uri)
-                context.contentResolver.loadThumbnail(source, targetSize, null)
-            }.getOrNull()
+    val source = if (media.isVideo) media.uri else (media.artworkUri ?: media.uri)
+    val cacheKey = "${source}:${targetSize.width}x${targetSize.height}"
+    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = cacheKey) {
+        value = thumbnailCache.get(cacheKey) ?: withContext(Dispatchers.IO) {
+            try {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    null
+                } else {
+                    context.contentResolver.loadThumbnail(source, targetSize, null)
+                        ?.also { thumbnailCache.put(cacheKey, it) }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 
