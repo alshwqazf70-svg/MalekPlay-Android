@@ -281,8 +281,8 @@ class PlaybackService : MediaSessionService() {
                 it.port == (if (uri.port == -1) 443 else uri.port)
         } ?: return dataSpec
 
-        val credentials = runCatching { credentialVault.load(profile.id) }.getOrNull()
-            ?: return dataSpec
+        // Surface corrupt credential storage instead of silently issuing an unauthenticated request.
+        val credentials = credentialVault.load(profile.id) ?: return dataSpec
 
         val authorization = Credentials.basic(credentials.first, credentials.second)
         return dataSpec.buildUpon()

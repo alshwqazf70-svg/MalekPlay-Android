@@ -60,6 +60,10 @@ class NetworkMediaDataSource(
     private var sftpFile: RemoteFile? = null
 
     override fun open(dataSpec: DataSpec): Long {
+        if (opened || smbClient != null || sshClient != null) close()
+        fileLength = C.LENGTH_UNSET.toLong()
+        bytesRemaining = C.LENGTH_UNSET.toLong()
+        position = 0L
         transferInitializing(dataSpec)
         currentUri = dataSpec.uri
         try {
@@ -207,6 +211,9 @@ class NetworkMediaDataSource(
         smbClient = null
 
         currentUri = null
+        fileLength = C.LENGTH_UNSET.toLong()
+        bytesRemaining = C.LENGTH_UNSET.toLong()
+        position = 0L
         if (opened) {
             opened = false
             transferEnded()

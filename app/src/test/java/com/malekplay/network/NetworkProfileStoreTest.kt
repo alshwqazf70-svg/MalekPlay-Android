@@ -41,7 +41,7 @@ class NetworkProfileStoreTest {
             NetworkProfileStore(context).load()
             fail("Malformed profile entries must be reported")
         } catch (expected: IllegalStateException) {
-            assertEquals("Saved network profile at index 1 is not an object", expected.message)
+            assertEquals("Saved network profile at index 1 is invalid", expected.message)
         }
     }
 

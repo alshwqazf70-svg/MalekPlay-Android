@@ -9,19 +9,15 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Stores resume points for document-provider and network Uris.
- *
- * These items intentionally do not get inserted into media_items, because that
- * table is a MediaStore cache and its satellite tables have foreign keys to it.
- * The original Uri is not persisted: preference keys use a SHA-256 digest.
+ * Stores resume points for document-provider and network Uris without persisting
+ * the original Uri. Preference keys are SHA-256 digests of media identifiers.
  */
 @Singleton
 class ExternalPlaybackProgressStore @Inject constructor(
     @ApplicationContext context: Context
 ) {
     private val preferences = context.applicationContext.getSharedPreferences(
-        "malekplay_external_progress",
-        Context.MODE_PRIVATE
+        "malekplay_external_progress", Context.MODE_PRIVATE
     )
 
     @Synchronized
@@ -32,47 +28,67 @@ class ExternalPlaybackProgressStore @Inject constructor(
         speed: Float,
         markPlayed: Boolean
     ) {
-        val key = keyFor(mediaId)
-        val previous = preferences.getString(key, null)
-            ?.let { runCatching { JSONObject(it) }.getOrNull() }
-        val safeDuration = durationMs.coerceAtLeast(0L)
-        val completed = isPlaybackCompleted(positionMs, safeDuration)
-        val playCount = (previous?.optInt("playCount", 0) ?: 0) + if (markPlayed) 1 else 0
+        require(mediaId.isNotBlank()) { "Media id must not be blank" }
+        require(positionMs >= 0L) { "Playback position must not be negative" }
+        require(durationMs >= 0L) { "Media duration must not be negative" }
+
+        val previous = get(mediaId)
+        val safeSpeed = speed.takeIf { it.isFinite() }?.coerceIn(0.25f, 4f) ?: 1f
+        val completed = isPlaybackCompleted(positionMs, durationMs)
+        val playCount = Math.addExact(previous?.playCount ?: 0, if (markPlayed) 1 else 0)
+        val safePosition = if (completed) 0L else
+            positionMs.coerceAtMost(durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
         val json = JSONObject()
-            .put("positionMs", if (completed) 0L else positionMs.coerceAtLeast(0L))
-            .put("durationMs", safeDuration)
-            .put("playbackSpeed", speed.coerceIn(0.25f, 4f).toDouble())
+            .put("positionMs", safePosition)
+            .put("durationMs", durationMs)
+            .put("playbackSpeed", safeSpeed.toDouble())
             .put("isCompleted", completed)
             .put("lastPlayedAtMs", System.currentTimeMillis())
             .put("playCount", playCount)
-        check(preferences.edit().putString(key, json.toString()).commit()) {
+        check(preferences.edit().putString(keyFor(mediaId), json.toString()).commit()) {
             "Could not save external playback progress"
         }
         trimOldEntries()
     }
 
+    /** Corrupt records are reported, never silently converted into a missing resume point. */
     @Synchronized
     fun get(mediaId: String): PlaybackProgressEntity? {
-        val key = keyFor(mediaId)
-        val json = preferences.getString(key, null)?.let {
-            runCatching { JSONObject(it) }.getOrNull()
-        } ?: return null
-        return runCatching {
+        require(mediaId.isNotBlank()) { "Media id must not be blank" }
+        val raw = preferences.getString(keyFor(mediaId), null) ?: return null
+        return try {
+            val json = JSONObject(raw)
+            val position = json.getLong("positionMs")
+            val duration = json.getLong("durationMs")
+            val speed = json.getDouble("playbackSpeed").toFloat()
+            val lastPlayed = json.getLong("lastPlayedAtMs")
+            val playCount = json.getInt("playCount")
+            check(position >= 0L && duration >= 0L && lastPlayed >= 0L && playCount >= 0) {
+                "Stored playback progress contains negative values"
+            }
+            check(speed.isFinite() && speed in 0.25f..4f) {
+                "Stored playback speed is invalid"
+            }
             PlaybackProgressEntity(
                 mediaId = mediaId,
-                positionMs = json.optLong("positionMs", 0L).coerceAtLeast(0L),
-                durationMs = json.optLong("durationMs", 0L).coerceAtLeast(0L),
-                playbackSpeed = json.optDouble("playbackSpeed", 1.0).toFloat().coerceIn(0.25f, 4f),
-                isCompleted = json.optBoolean("isCompleted", false),
-                lastPlayedAtMs = json.optLong("lastPlayedAtMs", 0L).coerceAtLeast(0L),
-                playCount = json.optInt("playCount", 0).coerceAtLeast(0)
+                positionMs = position,
+                durationMs = duration,
+                playbackSpeed = speed,
+                isCompleted = json.getBoolean("isCompleted"),
+                lastPlayedAtMs = lastPlayed,
+                playCount = playCount
             )
-        }.getOrNull()
+        } catch (error: Exception) {
+            throw IllegalStateException("Stored playback progress is corrupted", error)
+        }
     }
 
     @Synchronized
     fun remove(mediaId: String) {
-        preferences.edit().remove(keyFor(mediaId)).apply()
+        require(mediaId.isNotBlank()) { "Media id must not be blank" }
+        check(preferences.edit().remove(keyFor(mediaId)).commit()) {
+            "Could not remove external playback progress"
+        }
     }
 
     private fun trimOldEntries() {
@@ -80,13 +96,13 @@ class ExternalPlaybackProgressStore @Inject constructor(
             if (!key.startsWith(PREFIX)) return@mapNotNull null
             val json = (value as? String)?.let { runCatching { JSONObject(it) }.getOrNull() }
                 ?: return@mapNotNull key to 0L
-            key to json.optLong("lastPlayedAtMs", 0L)
+            key to json.optLong("lastPlayedAtMs", 0L).coerceAtLeast(0L)
         }
         if (entries.size <= MAX_ENTRIES) return
-        val removeCount = entries.size - MAX_ENTRIES
-        preferences.edit().apply {
-            entries.sortedBy { it.second }.take(removeCount).forEach { remove(it.first) }
-        }.apply()
+        val editor = preferences.edit()
+        entries.sortedBy { it.second }.take(entries.size - MAX_ENTRIES)
+            .forEach { editor.remove(it.first) }
+        check(editor.commit()) { "Could not prune old playback progress" }
     }
 
     private fun keyFor(mediaId: String): String {

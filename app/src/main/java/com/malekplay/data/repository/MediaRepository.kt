@@ -39,6 +39,10 @@ class MediaRepository @Inject constructor(
 
     private val refreshMutex = Mutex()
 
+    private companion object {
+        const val MAX_SEARCH_QUERY_LENGTH = 256
+    }
+
     /** Media rows joined with the favourite set, so lists can render star state. */
     private fun Flow<List<MediaWithState>>.asLibraryItems(): Flow<List<LibraryItem>> =
         combine(this, userDataDao.observeFavouriteIds()) { rows, favourites ->
@@ -51,8 +55,13 @@ class MediaRepository @Inject constructor(
     fun observeAudio(): Flow<List<LibraryItem>> = mediaDao.observeAudio().asLibraryItems()
     fun observeFolder(path: String): Flow<List<LibraryItem>> =
         mediaDao.observeFolder(path).asLibraryItems()
-    fun observeSearch(query: String): Flow<List<LibraryItem>> =
-        mediaDao.observeSearch(query).asLibraryItems()
+    fun observeSearch(query: String): Flow<List<LibraryItem>> {
+        val normalized = query.trim().take(MAX_SEARCH_QUERY_LENGTH)
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        return mediaDao.observeSearch(normalized).asLibraryItems()
+    }
     fun observeContinueWatching(limit: Int = 20): Flow<List<LibraryItem>> =
         mediaDao.observeContinueWatching(limit).asLibraryItems()
     fun observeRecentlyPlayed(limit: Int = 50): Flow<List<LibraryItem>> =
@@ -163,19 +172,23 @@ class MediaRepository @Inject constructor(
         speed: Float,
         markPlayed: Boolean
     ) = withContext(Dispatchers.IO) {
-        val completed = isPlaybackCompleted(positionMs, durationMs)
+        require(mediaId.isNotBlank()) { "Media id must not be blank" }
+        val safePosition = positionMs.coerceAtLeast(0L)
+        val safeDuration = durationMs.coerceAtLeast(0L)
+        val safeSpeed = speed.takeIf { it.isFinite() }?.coerceIn(0.25f, 4f) ?: 1f
+        val completed = isPlaybackCompleted(safePosition, safeDuration)
         val progress = PlaybackProgressEntity(
             mediaId = mediaId,
-            positionMs = if (completed) 0L else positionMs.coerceAtLeast(0L),
-            durationMs = durationMs.coerceAtLeast(0L),
-            playbackSpeed = speed.coerceIn(0.25f, 4f),
+            positionMs = if (completed) 0L else safePosition.coerceAtMost(safeDuration.takeIf { it > 0L } ?: Long.MAX_VALUE),
+            durationMs = safeDuration,
+            playbackSpeed = safeSpeed,
             isCompleted = completed,
             lastPlayedAtMs = System.currentTimeMillis(),
             playCount = 0 // Assigned atomically by the DAO or external store.
         )
         val savedInLibrary = mediaDao.saveProgressIfMediaExists(progress, markPlayed)
         if (!savedInLibrary) {
-            externalProgressStore.save(mediaId, positionMs, durationMs, speed, markPlayed)
+            externalProgressStore.save(mediaId, safePosition, safeDuration, safeSpeed, markPlayed)
         }
         if (markPlayed) recordHistory(mediaId)
 

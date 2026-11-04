@@ -3,6 +3,7 @@ package com.malekplay.data.local
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -64,4 +65,26 @@ class ExternalPlaybackProgressStoreTest {
         assertTrue(saved.isCompleted)
         assertEquals(1, saved.playCount)
     }
+    @Test
+    fun corruptedProgressIsReportedInsteadOfResetToZero() {
+        val mediaId = "content://provider/document/corrupt"
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(mediaId.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+        val key = "progress_$digest"
+        ApplicationProvider.getApplicationContext<Context>()
+            .getSharedPreferences("malekplay_external_progress", Context.MODE_PRIVATE)
+            .edit().putString(key, "{broken-json").commit()
+
+        assertThrows(IllegalStateException::class.java) { store.get(mediaId) }
+    }
+
+    @Test
+    fun nonFinitePlaybackSpeedFallsBackToNormalSpeed() {
+        val mediaId = "content://provider/document/nan-speed"
+        store.save(mediaId, 2_000L, 10_000L, Float.NaN, markPlayed = false)
+
+        assertEquals(1f, store.get(mediaId)!!.playbackSpeed, 0.001f)
+    }
 }
+
