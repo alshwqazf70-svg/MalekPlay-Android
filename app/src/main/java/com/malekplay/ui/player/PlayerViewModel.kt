@@ -23,6 +23,8 @@ import com.malekplay.data.repository.MediaRepository
 import com.malekplay.data.repository.UserDataRepository
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem as DomainMedia
+import com.malekplay.network.OnlineSubtitle
+import com.malekplay.network.OnlineSubtitleRepository
 import com.malekplay.player.PipController
 import com.malekplay.player.PlaybackService
 import com.malekplay.player.PlaybackValuePolicy
@@ -31,6 +33,8 @@ import com.malekplay.player.audio.AudioEffectsController
 import com.malekplay.player.toMedia3Item
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -73,7 +77,8 @@ class PlayerViewModel @Inject constructor(
     private val mediaRepository: MediaRepository,
     private val userDataRepository: UserDataRepository,
     val audioEffects: AudioEffectsController,
-    val pipController: PipController
+    val pipController: PipController,
+    private val onlineSubtitleRepository: OnlineSubtitleRepository
 ) : ViewModel() {
 
     private val _controller = MutableStateFlow<MediaController?>(null)
@@ -126,6 +131,15 @@ class PlayerViewModel @Inject constructor(
 
     private val _playerError = MutableStateFlow<String?>(null)
     val playerError: StateFlow<String?> = _playerError.asStateFlow()
+
+    private val _onlineSubtitleResults = MutableStateFlow<List<OnlineSubtitle>>(emptyList())
+    val onlineSubtitleResults: StateFlow<List<OnlineSubtitle>> = _onlineSubtitleResults.asStateFlow()
+    private val _onlineSubtitleLoading = MutableStateFlow(false)
+    val onlineSubtitleLoading: StateFlow<Boolean> = _onlineSubtitleLoading.asStateFlow()
+    private val _onlineSubtitleError = MutableStateFlow<String?>(null)
+    val onlineSubtitleError: StateFlow<String?> = _onlineSubtitleError.asStateFlow()
+    private val _onlineSubtitleCredentialsReady = MutableStateFlow(onlineSubtitleRepository.hasCredentials())
+    val onlineSubtitleCredentialsReady: StateFlow<Boolean> = _onlineSubtitleCredentialsReady.asStateFlow()
 
     private val _sleepTimerEndsAtMs = MutableStateFlow(0L)
     val sleepTimerEndsAtMs: StateFlow<Long> = _sleepTimerEndsAtMs.asStateFlow()
@@ -619,6 +633,47 @@ class PlayerViewModel @Inject constructor(
             .map { LibraryItem(media = it) }
 
     fun currentMediaItem(): MediaItem? = _controller.value?.currentMediaItem
+
+    fun saveOnlineSubtitleCredentials(apiKey: String, username: String, password: String) {
+        runCatching { onlineSubtitleRepository.saveCredentials(apiKey, username, password) }
+            .onSuccess { _onlineSubtitleCredentialsReady.value = true; _onlineSubtitleError.value = null }
+            .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ بيانات الخدمة" }
+    }
+
+    fun searchOnlineSubtitles(title: String, language: String, season: Int?, episode: Int?) {
+        if (_onlineSubtitleLoading.value) return
+        viewModelScope.launch {
+            _onlineSubtitleLoading.value = true
+            _onlineSubtitleError.value = null
+            _onlineSubtitleResults.value = emptyList()
+            try {
+                val results = withContext(Dispatchers.IO) {
+                    onlineSubtitleRepository.search(title, language, season, episode)
+                }
+                _onlineSubtitleResults.value = results
+                if (results.isEmpty()) _onlineSubtitleError.value = "لم نعثر على ترجمة مطابقة. جرّب تعديل اسم العنوان أو اللغة."
+            } catch (error: Exception) {
+                _onlineSubtitleError.value = error.message ?: "تعذر البحث عن الترجمة"
+            } finally {
+                _onlineSubtitleLoading.value = false
+            }
+        }
+    }
+
+    fun downloadOnlineSubtitle(fileId: Long) {
+        viewModelScope.launch {
+            _onlineSubtitleLoading.value = true
+            _onlineSubtitleError.value = null
+            try {
+                val uri = withContext(Dispatchers.IO) { onlineSubtitleRepository.download(fileId) }
+                addExternalSubtitle(uri)
+            } catch (error: Exception) {
+                _onlineSubtitleError.value = error.message ?: "تعذر تنزيل الترجمة"
+            } finally {
+                _onlineSubtitleLoading.value = false
+            }
+        }
+    }
 
     override fun onCleared() {
         tickerJob?.cancel()
