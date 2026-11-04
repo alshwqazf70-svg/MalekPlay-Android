@@ -9,6 +9,8 @@ import com.malekplay.data.local.entity.MediaItemEntity
 import com.malekplay.data.local.entity.PlaybackProgressEntity
 import com.malekplay.data.local.entity.TrackPreferenceEntity
 import com.malekplay.data.local.model.MediaWithState
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -46,6 +48,9 @@ interface MediaDao {
         val keep = keepIds.toHashSet()
         var afterId = ""
         while (true) {
+            // Reconciliation may span many pages on large libraries. Honor job
+            // cancellation between pages so Room can roll back this transaction.
+            currentCoroutineContext().ensureActive()
             val page = getVideoMediaIdsAfter(afterId, RECONCILE_PAGE_SIZE)
             if (page.isEmpty()) break
             afterId = page.last()
@@ -59,6 +64,8 @@ interface MediaDao {
         val keep = keepIds.toHashSet()
         var afterId = ""
         while (true) {
+            // Keep cancellation behavior symmetric with video reconciliation.
+            currentCoroutineContext().ensureActive()
             val page = getAudioMediaIdsAfter(afterId, RECONCILE_PAGE_SIZE)
             if (page.isEmpty()) break
             afterId = page.last()
