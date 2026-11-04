@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
         requestedOrientation = if (landscape) {
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         } else {
-            ActivityInfo.SCREEN_ORIENTATION_USER
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
     }
 
