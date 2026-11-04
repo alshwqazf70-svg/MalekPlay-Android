@@ -60,6 +60,21 @@ class NetworkProfileStoreTest {
     }
 
     @Test
+    fun duplicateProfileIdsAreReported() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val profile = "{\"id\":\"same-id\",\"protocol\":\"SMB\",\"host\":\"media.example.test\",\"port\":445}"
+        context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
+            .edit().putString("profiles", "[$profile,$profile]").commit()
+
+        try {
+            NetworkProfileStore(context).load()
+            fail("Duplicate profile IDs must be reported")
+        } catch (expected: IllegalStateException) {
+            assertEquals("Saved network profile at index 1 is invalid", expected.message)
+        }
+    }
+
+    @Test
     fun corruptedProfileJsonIsNotSilentlyTreatedAsEmpty() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)

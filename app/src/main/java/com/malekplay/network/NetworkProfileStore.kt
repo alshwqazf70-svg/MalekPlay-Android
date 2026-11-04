@@ -27,29 +27,25 @@ class NetworkProfileStore @Inject constructor(
         } catch (error: Exception) {
             throw IllegalStateException("Saved network profiles are corrupted", error)
         }
-        val seenIds = HashSet<String>()
         return buildList {
             for (i in 0 until array.length()) {
-                val item = array.optJSONObject(i)
-                    ?: throw IllegalStateException("Saved network profile at index $i is not an object")
-                try {
-                    val protocol = NetworkProtocol.valueOf(item.optString("protocol", "WEBDAV"))
-                    val id = item.getString("id")
-                    val host = item.getString("host")
-                    val profile = NetworkProfile(
+                val item = array.optJSONObject(i) ?: continue
+                val protocol = runCatching {
+                    NetworkProtocol.valueOf(item.optString("protocol", "WEBDAV"))
+                }.getOrNull() ?: continue
+                val id = item.optString("id")
+                if (id.isBlank()) continue
+                add(
+                    NetworkProfile(
                         id = id,
                         protocol = protocol,
-                        host = host,
+                        host = item.optString("host"),
                         port = item.optInt("port", defaultPort(protocol)),
                         username = item.optString("username"),
                         rootPath = item.optString("rootPath", "/"),
-                        displayName = item.optString("displayName").ifBlank { host }
+                        displayName = item.optString("displayName").ifBlank { item.optString("host") }
                     )
-                    check(seenIds.add(profile.id)) { "Duplicate network profile id at index $i" }
-                    add(profile)
-                } catch (error: Exception) {
-                    throw IllegalStateException("Saved network profile at index $i is invalid", error)
-                }
+                )
             }
         }
     }
