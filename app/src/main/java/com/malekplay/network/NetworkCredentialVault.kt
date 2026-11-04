@@ -57,7 +57,10 @@ class NetworkCredentialVault(context: Context) {
     }
 
     fun remove(profileId: String) {
-        preferences.edit().remove(profileId).apply()
+        require(profileId.matches(Regex("[A-Za-z0-9_-]{1,64}")))
+        check(preferences.edit().remove(profileId).commit()) {
+            "Could not remove stored network credentials"
+        }
     }
 
     private fun getOrCreateKey(): SecretKey {
