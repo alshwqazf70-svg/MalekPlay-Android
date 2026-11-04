@@ -263,4 +263,15 @@
     <string name="home_hero_title">Your entertainment, in one place</string>
     <string name="home_hero_subtitle">Pick up where you left off or explore your library.</string>
     <string name="home_total_media">Media</string>
+    <string name="player_search_subtitle_online">Search subtitles online</string>
+    <string name="subtitle_search_title">Movie or series title</string>
+    <string name="subtitle_season">Season</string>
+    <string name="subtitle_episode">Episode</string>
+    <string name="subtitle_service_setup">OpenSubtitles account setup (credentials are encrypted on this device)</string>
+    <string name="subtitle_api_key">OpenSubtitles API key</string>
+    <string name="subtitle_username">OpenSubtitles username</string>
+    <string name="subtitle_password">OpenSubtitles password</string>
+    <string name="subtitle_save_credentials">Save credentials securely</string>
+    <string name="subtitle_search">Search</string>
+    <string name="subtitle_downloads">downloads</string>
 </resources>
