@@ -115,18 +115,13 @@ fun MediaThumbnail(
     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = cacheKey) {
         value = thumbnailCache.get(cacheKey) ?: withContext(Dispatchers.IO) {
             try {
-                val loaded = if (!media.isVideo && media.artworkUri != null) {
-                    // Read the album-art bytes directly: MediaStore.loadThumbnail is
-                    // not consistently implemented for audio/album-art content URIs.
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    context.contentResolver.openInputStream(source)?.use { stream ->
-                        BitmapFactory.decodeStream(stream, null, bounds)
-                    }
-                    val sample = calculateInSampleSize(bounds, targetSize.width, targetSize.height)
-                    val options = BitmapFactory.Options().apply { inSampleSize = sample }
-                    context.contentResolver.openInputStream(source)?.use { stream ->
-                        BitmapFactory.decodeStream(stream, null, options)
-                    }
+                val loaded = if (!media.isVideo) {
+                    loadMediaArtwork(
+                        context = context,
+                        artworkUri = media.artworkUri,
+                        mediaUri = media.uri,
+                        targetSize = maxOf(targetSize.width, targetSize.height)
+                    )
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     context.contentResolver.loadThumbnail(source, targetSize, null)
                 } else {
