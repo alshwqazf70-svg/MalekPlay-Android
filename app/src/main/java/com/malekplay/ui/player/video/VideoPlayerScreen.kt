@@ -37,7 +37,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -196,7 +195,6 @@ fun VideoPlayerScreen(
     val onlineSubtitleResults by viewModel.onlineSubtitleResults.collectAsStateWithLifecycle()
     val onlineSubtitleLoading by viewModel.onlineSubtitleLoading.collectAsStateWithLifecycle()
     val onlineSubtitleError by viewModel.onlineSubtitleError.collectAsStateWithLifecycle()
-    val onlineSubtitleCredentialsReady by viewModel.onlineSubtitleCredentialsReady.collectAsStateWithLifecycle()
     val sleepEndsAt by viewModel.sleepTimerEndsAtMs.collectAsStateWithLifecycle()
     val inPip by viewModel.pipController.inPip.collectAsStateWithLifecycle()
 
@@ -294,9 +292,6 @@ fun VideoPlayerScreen(
     var onlineLanguage by remember { mutableStateOf("ar,en") }
     var onlineSeason by remember { mutableStateOf("") }
     var onlineEpisode by remember { mutableStateOf("") }
-    var onlineApiKey by remember { mutableStateOf("") }
-    var onlineUsername by remember { mutableStateOf("") }
-    var onlinePassword by remember { mutableStateOf("") }
 
     LaunchedEffect(chromeVisible, isPlaying, locked) {
         if (chromeVisible && isPlaying && !locked) {
@@ -723,26 +718,10 @@ fun VideoPlayerScreen(
                                 label = { Text(stringResource(R.string.subtitle_episode)) },
                                 modifier = Modifier.weight(1f), singleLine = true)
                         }
-                        if (!onlineSubtitleCredentialsReady) {
-                            Text(stringResource(R.string.subtitle_service_setup))
-                            OutlinedTextField(onlineApiKey, { onlineApiKey = it },
-                                label = { Text(stringResource(R.string.subtitle_api_key)) },
-                                modifier = Modifier.fillMaxWidth(), singleLine = true)
-                            OutlinedTextField(onlineUsername, { onlineUsername = it },
-                                label = { Text(stringResource(R.string.subtitle_username)) },
-                                modifier = Modifier.fillMaxWidth(), singleLine = true)
-                            OutlinedTextField(onlinePassword, { onlinePassword = it },
-                                label = { Text(stringResource(R.string.subtitle_password)) },
-                                modifier = Modifier.fillMaxWidth(), singleLine = true,
-                                visualTransformation = PasswordVisualTransformation())
-                            Button(
-                                onClick = { viewModel.saveOnlineSubtitleCredentials(onlineApiKey, onlineUsername, onlinePassword) },
-                                enabled = onlineApiKey.isNotBlank() && onlineUsername.isNotBlank() && onlinePassword.isNotBlank()
-                            ) { Text(stringResource(R.string.subtitle_save_credentials)) }
-                        }
+                        Text(stringResource(R.string.subtitle_service_setup), style = MaterialTheme.typography.bodySmall)
                         Button(
                             onClick = { viewModel.searchOnlineSubtitles(onlineQuery, onlineLanguage, onlineSeason.toIntOrNull(), onlineEpisode.toIntOrNull()) },
-                            enabled = onlineSubtitleCredentialsReady && onlineQuery.isNotBlank() && !onlineSubtitleLoading,
+                            enabled = onlineQuery.isNotBlank() && !onlineSubtitleLoading,
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(stringResource(R.string.subtitle_search)) }
                         if (onlineSubtitleLoading) CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
@@ -750,7 +729,7 @@ fun VideoPlayerScreen(
                         LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
                             items(onlineSubtitleResults, key = { it.fileId }) { item ->
                                 TextButton(
-                                    onClick = { viewModel.downloadOnlineSubtitle(item.fileId) },
+                                    onClick = { viewModel.downloadOnlineSubtitle(item) },
                                     modifier = Modifier.fillMaxWidth(),
                                     enabled = !onlineSubtitleLoading
                                 ) {
