@@ -1,6 +1,7 @@
 package com.malekplay.ui.player
 
 import android.content.ComponentName
+import android.util.Log
 import android.content.Context
 import android.net.Uri
 import androidx.core.content.ContextCompat
@@ -239,7 +240,15 @@ class PlayerViewModel @Inject constructor(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            _playerError.value = error.localizedMessage ?: "Playback failed"
+            // Keep the full codec/renderer cause in Logcat for diagnosis, but
+            // never expose raw MediaCodec internals to the viewer.
+            Log.e(
+                LOG_TAG,
+                "Playback failed: code=${error.errorCodeName}, mediaId=${currentMediaId ?: "unknown"}",
+                error
+            )
+            _playerError.value =
+                "تعذّر تشغيل هذا الفيديو. قد تكون الصيغة أو وحدة فك الترميز غير متوافقة؛ حاول تشغيله مرة أخرى."
         }
 
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -622,6 +631,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private companion object {
+        const val LOG_TAG = "MalekPlayPlayer"
         const val TICK_INTERVAL_MS = 250L
     }
 }
