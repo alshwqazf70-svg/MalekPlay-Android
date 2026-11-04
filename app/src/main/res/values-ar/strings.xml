@@ -183,6 +183,8 @@
     <string name="settings_gesture_action_play_pause">تشغيل / إيقاف</string>
     <string name="settings_gesture_action_speed">تسريع مؤقت</string>
     <string name="settings_gesture_swipe">السحب الأفقي</string>
+    <string name="settings_brightness_gesture">تفعيل إيماءة السطوع</string>
+    <string name="settings_brightness_gesture_summary">السماح بالسحب العمودي في الجهة اليسرى من الفيديو للتحكم بسطوع الشاشة.</string>
     <string name="settings_subtitles">الترجمة</string>
     <string name="settings_audio">الصوت</string>
     <string name="settings_bass_boost">تقوية الصوت الجهير</string>
