@@ -139,7 +139,20 @@ fun AudioPlayerScreen(
         if (!resolved || controller == null) return@LaunchedEffect
         val item = media
         if (item != null) {
-            viewModel.playSingle(item, resumeMs, settings.defaultSpeed)
+            // Keep the entire music library in the service queue. Media3 then
+            // exposes previous/next commands to the notification and lock screen.
+            val audioQueue = viewModel.loadAudioQueue()
+            val selectedIndex = audioQueue.indexOfFirst { it.id == item.id }
+            if (selectedIndex >= 0) {
+                viewModel.playQueue(
+                    items = audioQueue,
+                    startIndex = selectedIndex,
+                    startPositionMs = resumeMs,
+                    speed = settings.defaultSpeed
+                )
+            } else {
+                viewModel.playSingle(item, resumeMs, settings.defaultSpeed)
+            }
         } else {
             viewModel.playExternalUri(android.net.Uri.parse(mediaId), resumeMs, settings.defaultSpeed)
         }
