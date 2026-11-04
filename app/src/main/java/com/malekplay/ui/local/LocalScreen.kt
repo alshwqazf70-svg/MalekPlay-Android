@@ -104,8 +104,14 @@ fun LocalScreen(
     var sortMenu by remember { mutableStateOf(false) }
     var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
 
-    val searchResults by viewModel.search(query)
-        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val searchFlow = remember(query) { viewModel.search(query) }
+    val searchResults by searchFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val sortedVideos = remember(videos, settings.sortMode) {
+        viewModel.applySort(videos, settings.sortMode)
+    }
+    val sortedAudio = remember(audio, settings.sortMode) {
+        viewModel.applySort(audio, settings.sortMode)
+    }
 
     var hasPermission by remember { mutableStateOf(MediaPermissions.isGranted(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -404,7 +410,7 @@ fun LocalScreen(
                 }
             }
             LocalTab.VIDEOS -> MediaList(
-                items = viewModel.applySort(videos, settings.sortMode),
+                items = sortedVideos,
                 viewMode = settings.viewMode,
                 emptyTitle = stringResource(R.string.lib_empty_title),
                 emptyBody = stringResource(R.string.lib_empty_body),
@@ -413,7 +419,7 @@ fun LocalScreen(
                 onAddToPlaylist = { playlistTarget = it.media }
             )
             LocalTab.AUDIO -> MediaList(
-                items = viewModel.applySort(audio, settings.sortMode),
+                items = sortedAudio,
                 viewMode = settings.viewMode,
                 emptyTitle = stringResource(R.string.lib_empty_title),
                 emptyBody = stringResource(R.string.lib_empty_body),
