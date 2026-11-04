@@ -1,5 +1,6 @@
 package com.malekplay.data.local
 
+import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.malekplay.data.local.entity.MediaItemEntity
@@ -34,7 +35,7 @@ class MediaDaoReconciliationTest {
     fun reconcilesLargeVideoAndAudioLibrariesInBoundedPages() = runBlocking {
         val rows = buildList {
             repeat(2_500) { index ->
-                val id = "media-\${index.toString().padStart(5, '0')}"
+                val id = "media-${index.toString().padStart(5, '0')}"
                 add(
                     MediaItemEntity(
                         mediaId = id,
