@@ -1,6 +1,7 @@
 package com.malekplay.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -19,7 +20,18 @@ data class PlaylistEntity(
 @Entity(
     tableName = "playlist_items",
     primaryKeys = ["playlistId", "mediaId"],
-    indices = [Index(value = ["mediaId"]), Index(value = ["playlistId", "position"])]
+    foreignKeys = [
+        ForeignKey(
+            entity = PlaylistEntity::class,
+            parentColumns = ["playlistId"],
+            childColumns = ["playlistId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index(value = ["mediaId"]),
+        Index(value = ["playlistId", "position"])
+    ]
 )
 data class PlaylistItemEntity(
     val playlistId: String,
