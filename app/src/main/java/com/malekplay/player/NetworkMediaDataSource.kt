@@ -173,15 +173,13 @@ class NetworkMediaDataSource(
         if (!opened) throw IOException("مصدر الشبكة غير مفتوح")
         if (bytesRemaining <= 0L) return C.RESULT_END_OF_INPUT
         val requested = minOf(length.toLong(), bytesRemaining, MAX_READ_BYTES.toLong()).toInt()
-        val count = readNetworkChunk {
+        val count = validateNetworkReadCount(readNetworkChunk {
             when {
                 smbFile != null -> smbFile!!.read(buffer, position, offset, requested)
                 sftpFile != null -> sftpFile!!.read(position, buffer, offset, requested)
                 else -> throw IOException("اتصال الشبكة غير جاهز")
             }
-        }
-        if (count < 0) return C.RESULT_END_OF_INPUT
-        if (count > requested) throw IOException("مصدر الشبكة أعاد حجماً أكبر من المطلوب")
+        }, requested)
         position += count
         bytesRemaining -= count
         bytesTransferred(count)
@@ -225,6 +223,16 @@ class NetworkMediaDataSource(
     }
 }
 
+/**
+ * A known-length remote file must not silently end before its advertised size.
+ * Media3 otherwise treats a premature EOF as a successful, truncated stream.
+ */
+internal fun validateNetworkReadCount(count: Int, requested: Int): Int {
+    if (count < 0) throw EOFException("انتهى ملف الشبكة قبل اكتمال القراءة")
+    if (count > requested) throw IOException("مصدر الشبكة أعاد حجماً أكبر من المطلوب")
+    return count
+}
+
 /** Retry transient zero-byte responses without returning a no-progress read. */
 internal fun readNetworkChunk(read: () -> Int): Int {
     repeat(3) {
@@ -250,6 +258,7 @@ class NetworkRoutingDataSource(
     private var opened = false
 
     override fun open(dataSpec: DataSpec): Long {
+        if (delegate != null || opened || currentUri != null) close()
         transferInitializing(dataSpec)
         currentUri = dataSpec.uri
         val source = when (dataSpec.uri.scheme?.lowercase()) {
@@ -265,6 +274,7 @@ class NetworkRoutingDataSource(
         } catch (error: Throwable) {
             runCatching { source.close() }
             delegate = null
+            currentUri = null
             throw error
         }
     }
