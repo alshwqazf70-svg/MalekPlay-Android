@@ -11,12 +11,16 @@ import com.malekplay.domain.model.PlayerSettings
 import com.malekplay.domain.model.SortMode
 import com.malekplay.domain.model.ViewMode
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.Locale
 import javax.inject.Inject
 
 @HiltViewModel
@@ -31,6 +35,8 @@ class LibraryViewModel @Inject constructor(
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = PlayerSettings()
     )
+
+    private val refreshMutex = Mutex()
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
@@ -66,11 +72,19 @@ class LibraryViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
+            if (!refreshMutex.tryLock()) return@launch
             _isRefreshing.value = true
             _error.value = null
-            runCatching { mediaRepository.refresh() }
-                .onFailure { _error.value = it.localizedMessage ?: "Could not refresh the library" }
-            _isRefreshing.value = false
+            try {
+                mediaRepository.refresh()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _error.value = error.localizedMessage ?: "Could not refresh the library"
+            } finally {
+                _isRefreshing.value = false
+                refreshMutex.unlock()
+            }
         }
     }
 
@@ -94,13 +108,13 @@ class LibraryViewModel @Inject constructor(
     fun applySort(items: List<LibraryItem>, mode: SortMode): List<LibraryItem> = when (mode) {
         SortMode.NEWEST -> items.sortedByDescending { it.media.addedAtMs }
         SortMode.OLDEST -> items.sortedBy { it.media.addedAtMs }
-        SortMode.NAME -> items.sortedBy { it.media.title.lowercase() }
+        SortMode.NAME -> items.sortedBy { it.media.title.lowercase(Locale.ROOT) }
         SortMode.DURATION -> items.sortedByDescending { it.media.durationMs }
         SortMode.SIZE -> items.sortedByDescending { it.media.sizeBytes }
     }
 
     fun applyFolderSort(items: List<MediaFolder>, mode: SortMode): List<MediaFolder> = when (mode) {
-        SortMode.NAME -> items.sortedBy { it.name.lowercase() }
+        SortMode.NAME -> items.sortedBy { it.name.lowercase(Locale.ROOT) }
         SortMode.SIZE -> items.sortedByDescending { it.totalBytes }
         SortMode.NEWEST -> items.sortedByDescending { it.lastAddedMs }
         SortMode.OLDEST -> items.sortedBy { it.lastAddedMs }

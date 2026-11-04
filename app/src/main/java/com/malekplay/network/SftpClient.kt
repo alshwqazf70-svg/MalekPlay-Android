@@ -19,6 +19,8 @@ class SftpClient @Inject constructor() {
         remotePath: String,
         knownHostsFile: File
     ): List<NetworkEntry> = withContext(Dispatchers.IO) {
+        require(host.isNotBlank()) { "اسم خادم SFTP مطلوب" }
+        require(port in 1..65535) { "منفذ SFTP غير صالح" }
         require(knownHostsFile.isFile && knownHostsFile.length() > 0L) {
             "يجب توفير ملف known_hosts موثوق قبل الاتصال"
         }
@@ -27,7 +29,12 @@ class SftpClient @Inject constructor() {
         try {
             ssh.loadKnownHosts(knownHostsFile)
             ssh.connect(host, port)
-            ssh.authPassword(username, password)
+            val passwordChars = password.toCharArray()
+            try {
+                ssh.authPassword(username, passwordChars)
+            } finally {
+                passwordChars.fill('\u0000')
+            }
             ssh.newSFTPClient().use { sftp ->
                 sftp.ls(remotePath).mapNotNull { item ->
                     val name = item.name
@@ -42,7 +49,7 @@ class SftpClient @Inject constructor() {
             }
         } finally {
             runCatching { ssh.disconnect() }
-            ssh.close()
+            runCatching { ssh.close() }
         }
     }
 }

@@ -23,8 +23,12 @@ class SmbClient {
         client.use { smb ->
             require(port in 1..65535) { "منفذ SMB غير صالح" }
             smb.connect(host, port).use { connection ->
-                val auth = AuthenticationContext(username, password.toCharArray(), domain)
-                val session = connection.authenticate(auth)
+                val passwordChars = password.toCharArray()
+                val session = try {
+                    connection.authenticate(AuthenticationContext(username, passwordChars, domain))
+                } finally {
+                    passwordChars.fill('\u0000')
+                }
                 session.use {
                     val share = session.connectShare(shareName) as? DiskShare
                         ?: error("المشاركة ليست مجلداً من نوع DiskShare")

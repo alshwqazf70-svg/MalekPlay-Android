@@ -105,7 +105,7 @@ class NetworkMediaDataSource(
             opened = true
             transferStarted(dataSpec)
             return bytesRemaining
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             close()
             if (error is IOException) throw error
             throw IOException("تعذر فتح الملف عبر الشبكة: ${error.localizedMessage ?: error.javaClass.simpleName}", error)
@@ -123,9 +123,12 @@ class NetworkMediaDataSource(
         smbClient = client
         val connection = client.connect(profile.host, profile.port)
         smbConnection = connection
-        val session = connection.authenticate(
-            AuthenticationContext(username, password.toCharArray(), "")
-        )
+        val passwordChars = password.toCharArray()
+        val session = try {
+            connection.authenticate(AuthenticationContext(username, passwordChars, ""))
+        } finally {
+            passwordChars.fill('\u0000')
+        }
         smbSession = session
         val share = session.connectShare(segments.first()) as? DiskShare
             ?: throw IOException("مشاركة SMB ليست قرصاً")
@@ -158,7 +161,12 @@ class NetworkMediaDataSource(
         sshClient = ssh
         ssh.loadKnownHosts(knownHosts)
         ssh.connect(profile.host, profile.port)
-        ssh.authPassword(username, password)
+        val passwordChars = password.toCharArray()
+        try {
+            ssh.authPassword(username, passwordChars)
+        } finally {
+            passwordChars.fill('\u0000')
+        }
         val sftp = ssh.newSFTPClient()
         sftpClient = sftp
         val remotePath = "/" + segments.joinToString("/")

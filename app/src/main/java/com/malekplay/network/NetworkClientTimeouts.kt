@@ -13,12 +13,12 @@ internal object NetworkClientTimeouts {
     const val CONNECT_TIMEOUT_MS = 15_000
     const val SOCKET_TIMEOUT_MS = 30_000
 
-    fun createSmbClient(): SMBClient = SMBClient(
-        SmbConfig.builder()
-            .withTimeout(SOCKET_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
-            .withSoTimeout(SOCKET_TIMEOUT_MS)
-            .build()
-    )
+    fun createSmbConfig(): SmbConfig = SmbConfig.builder()
+        .withTimeout(SOCKET_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+        .withSoTimeout(SOCKET_TIMEOUT_MS)
+        .build()
+
+    fun createSmbClient(): SMBClient = SMBClient(createSmbConfig())
 
     fun configureSsh(client: SSHClient) {
         client.setConnectTimeout(CONNECT_TIMEOUT_MS)

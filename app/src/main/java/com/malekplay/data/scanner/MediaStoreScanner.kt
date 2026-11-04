@@ -305,8 +305,11 @@ class MediaStoreScanner(context: Context) {
     private fun mediaId(collection: android.net.Uri, id: Long): String =
         android.content.ContentUris.withAppendedId(collection, id).toString()
 
-    private fun secondsToMillis(seconds: Long): Long =
-        if (seconds > 0L) seconds * 1000L else System.currentTimeMillis()
+    private fun secondsToMillis(seconds: Long): Long = when {
+        seconds <= 0L -> System.currentTimeMillis()
+        seconds > Long.MAX_VALUE / 1_000L -> Long.MAX_VALUE
+        else -> seconds * 1_000L
+    }
 
     private fun parseResolution(raw: String): Pair<Int, Int> {
         // MediaStore reports resolution as "1920x1080" (older) or "1920×1080".
@@ -316,7 +319,11 @@ class MediaStoreScanner(context: Context) {
 
     private fun estimateBitrate(sizeBytes: Long, durationMs: Long): Long {
         if (sizeBytes <= 0L || durationMs <= 0L) return 0L
-        return (sizeBytes * 8L * 1000L / durationMs)
+        // Use floating-point intermediates to avoid overflow on very large media files.
+        val bitsPerSecond = sizeBytes.toDouble() * 8_000.0 / durationMs.toDouble()
+        return bitsPerSecond.takeIf { it.isFinite() && it > 0.0 }
+            ?.coerceAtMost(Long.MAX_VALUE.toDouble())
+            ?.toLong() ?: 0L
     }
 
     private fun String.nullIfBlank(): String? = takeIf { it.isNotBlank() }

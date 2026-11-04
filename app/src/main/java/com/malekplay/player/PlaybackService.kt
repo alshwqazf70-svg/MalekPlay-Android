@@ -2,6 +2,7 @@ package com.malekplay.player
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.malekplay.MainActivity
@@ -23,6 +24,7 @@ import com.malekplay.network.NetworkProfileStore
 import com.malekplay.data.repository.MediaRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -221,7 +223,7 @@ class PlaybackService : MediaSessionService() {
     ): Job {
         return serviceScope.launch {
             progressSaveMutex.withLock {
-                runCatching {
+                try {
                     mediaRepository.saveProgress(
                         mediaId = mediaId,
                         positionMs = positionMs,
@@ -229,6 +231,11 @@ class PlaybackService : MediaSessionService() {
                         speed = speed,
                         markPlayed = markPlayed
                     )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    // Do not silently lose resume-point failures. Never log the media id/URI.
+                    Log.e(TAG, "Could not persist playback progress", error)
                 }
             }
         }
@@ -293,6 +300,7 @@ class PlaybackService : MediaSessionService() {
     private data class PlaybackMetadata(val durationMs: Long, val speed: Float)
 
     private companion object {
+        const val TAG = "MalekPlayPlayback"
         const val MAX_CACHED_PLAYBACK_METADATA = 16
         const val SESSION_REQUEST_CODE = 1001
         const val PROGRESS_SAVE_INTERVAL_MS = 5_000L

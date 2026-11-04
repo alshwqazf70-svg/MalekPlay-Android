@@ -30,19 +30,21 @@ interface MediaDao {
     @Query("SELECT mediaId FROM media_items WHERE isVideo = 0")
     suspend fun getAudioMediaIds(): List<String>
 
-    @Query("DELETE FROM media_items WHERE mediaId = :mediaId")
-    suspend fun deleteMediaById(mediaId: String): Int
+    @Query("DELETE FROM media_items WHERE mediaId IN (:mediaIds)")
+    suspend fun deleteMediaByIds(mediaIds: List<String>): Int
 
     @Transaction
     suspend fun reconcileVideos(keepIds: List<String>) {
         val keep = keepIds.toHashSet()
-        getVideoMediaIds().filterNot { it in keep }.forEach { deleteMediaById(it) }
+        getVideoMediaIds().filterNot { it in keep }.chunked(MAX_SQLITE_BIND_IDS)
+            .forEach { batch -> if (batch.isNotEmpty()) deleteMediaByIds(batch) }
     }
 
     @Transaction
     suspend fun reconcileAudio(keepIds: List<String>) {
         val keep = keepIds.toHashSet()
-        getAudioMediaIds().filterNot { it in keep }.forEach { deleteMediaById(it) }
+        getAudioMediaIds().filterNot { it in keep }.chunked(MAX_SQLITE_BIND_IDS)
+            .forEach { batch -> if (batch.isNotEmpty()) deleteMediaByIds(batch) }
     }
 
     @Upsert
@@ -217,6 +219,8 @@ interface MediaDao {
     @Query("SELECT * FROM bookmarks WHERE mediaId = :mediaId ORDER BY positionMs ASC")
     fun observeBookmarks(mediaId: String): Flow<List<BookmarkEntity>>
 }
+
+private const val MAX_SQLITE_BIND_IDS = 900
 
 /** Projection returned by [MediaDao.observeFolders]. Column names must match. */
 data class FolderRow(

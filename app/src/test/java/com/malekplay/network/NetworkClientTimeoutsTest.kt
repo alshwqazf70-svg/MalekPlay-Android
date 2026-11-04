@@ -3,7 +3,6 @@ package com.malekplay.network
 import net.schmizz.sshj.SSHClient
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import java.util.concurrent.TimeUnit
 
 class NetworkClientTimeoutsTest {
 
@@ -15,7 +14,7 @@ class NetworkClientTimeoutsTest {
             assertEquals(NetworkClientTimeouts.CONNECT_TIMEOUT_MS, client.connectTimeout)
             assertEquals(NetworkClientTimeouts.SOCKET_TIMEOUT_MS, client.timeout)
         } finally {
-            client.close()
+            runCatching { client.close() }
         }
     }
 
@@ -23,10 +22,7 @@ class NetworkClientTimeoutsTest {
     fun configuresBoundedSmbSocketAndOperationTimeouts() {
         val client = NetworkClientTimeouts.createSmbClient()
         client.close()
-        val config = com.hierynomus.smbj.SmbConfig.builder()
-            .withTimeout(NetworkClientTimeouts.SOCKET_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
-            .withSoTimeout(NetworkClientTimeouts.SOCKET_TIMEOUT_MS)
-            .build()
+        val config = NetworkClientTimeouts.createSmbConfig()
         assertEquals(NetworkClientTimeouts.SOCKET_TIMEOUT_MS.toLong(), config.readTimeout)
         assertEquals(NetworkClientTimeouts.SOCKET_TIMEOUT_MS.toLong(), config.writeTimeout)
         assertEquals(NetworkClientTimeouts.SOCKET_TIMEOUT_MS.toLong(), config.transactTimeout)
