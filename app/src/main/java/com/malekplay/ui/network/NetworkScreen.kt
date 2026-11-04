@@ -226,15 +226,11 @@ class NetworkViewModel @Inject constructor(
                 }.onFailure { failure ->
                     runCatching { credentialVault.remove(id) }
                         .onFailure(failure::addSuppressed)
-                    if (temporary?.exists() == true) {
-                        check(temporary?.delete() != false) {
-                            failure.addSuppressed(IllegalStateException("تعذر حذف الملف المؤقت لمفاتيح SFTP"))
-                        }
+                    if (temporary?.exists() == true && temporary?.delete() != true) {
+                        failure.addSuppressed(IllegalStateException("تعذر حذف الملف المؤقت لمفاتيح SFTP"))
                     }
-                    if (destination?.exists() == true) {
-                        check(destination?.delete() != false) {
-                            failure.addSuppressed(IllegalStateException("تعذر حذف ملف مفاتيح SFTP غير المكتمل"))
-                        }
+                    if (destination?.exists() == true && destination?.delete() != true) {
+                        failure.addSuppressed(IllegalStateException("تعذر حذف ملف مفاتيح SFTP غير المكتمل"))
                     }
                 }
             }
