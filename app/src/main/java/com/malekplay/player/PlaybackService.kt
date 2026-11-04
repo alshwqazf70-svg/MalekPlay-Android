@@ -41,6 +41,7 @@ import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import java.util.LinkedHashMap
+import java.io.IOException
 
 /**
  * Owns the single ExoPlayer instance and its MediaSession.
@@ -299,8 +300,9 @@ class PlaybackService : MediaSessionService() {
                 it.port == (if (uri.port == -1) 443 else uri.port)
         } ?: return dataSpec
 
-        // Surface corrupt credential storage instead of silently issuing an unauthenticated request.
-        val credentials = credentialVault.load(profile.id) ?: return dataSpec
+        // Never downgrade a configured WebDAV profile to an unauthenticated request.
+        val credentials = credentialVault.load(profile.id)
+            ?: throw IOException("بيانات اعتماد WebDAV غير متاحة؛ أعد حفظ بيانات الدخول للمصدر")
 
         val authorization = Credentials.basic(credentials.first, credentials.second)
         return dataSpec.buildUpon()
