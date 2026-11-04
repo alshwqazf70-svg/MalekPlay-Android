@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.malekplay.network.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -49,8 +50,11 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
     val knownHostsPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
             runCatching {
-                val target = File(context.filesDir, "network_known_hosts")
-                context.contentResolver.openInputStream(uri)!!.use { input -> target.outputStream().use { output -> input.copyTo(output) } }
+                val target = File(context.filesDir, "network_known_hosts_import")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                } ?: error("تعذر فتح ملف known_hosts")
+                require(target.isFile && target.length() > 0L) { "ملف known_hosts فارغ" }
                 knownHosts = target
                 message = "تم استيراد ملف known_hosts"
             }.onFailure { message = "تعذر استيراد الملف: ${it.localizedMessage}" }
@@ -87,10 +91,14 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                             smb.list(profile.host, profile.port, parts[0], path.ifBlank { parts.getOrNull(1).orEmpty() },
                                 credentials.first, credentials.second)
                         }
-                        NetworkProtocol.SFTP -> sftp.list(profile.host, profile.port, credentials.first,
-                            credentials.second, path.ifBlank { profile.rootPath }, knownHosts
-                                ?: File(context.filesDir, "network_known_hosts").takeIf { it.isFile }
-                                ?: error("استورد ملف known_hosts أولاً"))
+                        NetworkProtocol.SFTP -> {
+                            val trustedHosts = File(context.filesDir, "network/known_hosts/${profile.id}")
+                            require(trustedHosts.isFile && trustedHosts.length() > 0L) {
+                                "ملف known_hosts غير محفوظ لهذا المصدر؛ احذف المصدر وأعد إضافته بعد استيراد الملف"
+                            }
+                            sftp.list(profile.host, profile.port, credentials.first,
+                                credentials.second, path.ifBlank { profile.rootPath }, trustedHosts)
+                        }
                     }
                 }
                 active = profile
@@ -124,7 +132,8 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                     OutlinedTextField(host, { host = it }, label = { Text("اسم الخادم أو عنوان IP") }, singleLine = true)
                     OutlinedTextField(port, { port = it.filter(Char::isDigit).take(5) }, label = { Text("المنفذ") }, singleLine = true)
                     OutlinedTextField(username, { username = it }, label = { Text("اسم المستخدم") }, singleLine = true)
-                    OutlinedTextField(password, { password = it }, label = { Text("كلمة المرور") }, singleLine = true)
+                    OutlinedTextField(password, { password = it }, label = { Text("كلمة المرور") },
+                        singleLine = true, visualTransformation = PasswordVisualTransformation())
                     OutlinedTextField(rootPath, { rootPath = it }, label = { Text(if (protocol == NetworkProtocol.SMB) "المشاركة/المجلد (مثال: media/videos)" else "المسار الجذر") }, singleLine = true)
                     if (protocol == NetworkProtocol.SFTP) {
                         TextButton(onClick = { knownHostsPicker.launch(arrayOf("*/*")) }) { Text("استيراد ملف known_hosts") }
@@ -134,9 +143,17 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                             val id = "net_" + java.util.UUID.randomUUID().toString().replace("-", "")
                             runCatching {
                                 val profile = NetworkProfile(id, protocol, host.trim(), port.toInt(), username.trim(), rootPath.trim().ifBlank { "/" }, name.trim().ifBlank { host.trim() })
+                                if (protocol == NetworkProtocol.SFTP) {
+                                    val importedHosts = knownHosts ?: error("استورد ملف known_hosts الموثوق أولاً")
+                                    require(importedHosts.isFile && importedHosts.length() > 0L) { "ملف known_hosts فارغ" }
+                                    val profileHosts = File(context.filesDir, "network/known_hosts/$id")
+                                    profileHosts.parentFile?.mkdirs()
+                                    importedHosts.copyTo(profileHosts, overwrite = true)
+                                }
                                 vault.save(id, username, password)
                                 saveProfiles(profiles + profile)
                                 name = ""; host = ""; username = ""; password = ""; rootPath = "/"
+                                knownHosts = null
                                 showAdd = false
                                 message = "تم حفظ المصدر وبيانات الدخول مشفرة"
                             }.onFailure { message = it.localizedMessage ?: "تعذر حفظ المصدر" }
@@ -154,6 +171,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                             TextButton(onClick = {
                                 saveProfiles(profiles.filterNot { it.id == profile.id })
                                 vault.remove(profile.id)
+                                File(context.filesDir, "network/known_hosts/${profile.id}").delete()
                                 if (active?.id == profile.id) { active = null; entries = emptyList() }
                             }) { Text("حذف") }
                         }
