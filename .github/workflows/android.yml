@@ -190,10 +190,12 @@ jobs:
             mkdir -p artifacts
             adb devices -l > artifacts/emulator-devices.txt 2>&1 || true
             adb logcat -c || true
+            # The runner executes this script with /bin/sh, so avoid Bash-only
+            # pipefail and PIPESTATUS. Capture Gradle's status directly.
             set +e
-            set -o pipefail
-            gradle --stacktrace --max-workers=2 :app:connectedDebugAndroidTest 2>&1 | tee artifacts/instrumentation-tests.txt
-            TEST_EXIT=${PIPESTATUS[0]}
+            gradle --stacktrace --max-workers=2 :app:connectedDebugAndroidTest > artifacts/instrumentation-tests.txt 2>&1
+            TEST_EXIT=$?
+            cat artifacts/instrumentation-tests.txt
             adb logcat -d -v threadtime > artifacts/emulator-logcat.txt 2>&1 || true
             adb shell dumpsys activity activities > artifacts/emulator-activities.txt 2>&1 || true
             adb shell pm list instrumentation > artifacts/installed-instrumentation.txt 2>&1 || true
