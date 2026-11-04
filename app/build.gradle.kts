@@ -42,14 +42,16 @@ android {
         }
     }
 
-    // Generate device-specific APKs instead of shipping every native ABI in one APK.
-    // All four ABIs remain supported; the AAB continues to serve Play's device targeting.
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
-            isUniversalApk = false
+    // ABI APK splits are enabled only for APK assembly. Android App Bundles
+    // perform their own device targeting and must be built without APK splits.
+    if (providers.gradleProperty("enableAbiSplits").orNull == "true") {
+        splits {
+            abi {
+                isEnable = true
+                reset()
+                include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+                isUniversalApk = false
+            }
         }
     }
 
