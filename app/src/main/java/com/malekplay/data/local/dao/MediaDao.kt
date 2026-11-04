@@ -106,10 +106,10 @@ interface MediaDao {
     @Transaction
     @Query(
         """SELECT * FROM media_items
-           WHERE title LIKE '%' || :query || '%'
-              OR folderName LIKE '%' || :query || '%'
-              OR IFNULL(artist,'') LIKE '%' || :query || '%'
-              OR IFNULL(album,'') LIKE '%' || :query || '%' ESCAPE '\\'
+           WHERE title LIKE '%' || :query || '%' ESCAPE '\'
+              OR folderName LIKE '%' || :query || '%' ESCAPE '\'
+              OR IFNULL(artist,'') LIKE '%' || :query || '%' ESCAPE '\'
+              OR IFNULL(album,'') LIKE '%' || :query || '%' ESCAPE '\'
            ORDER BY addedAtMs DESC"""
     )
     fun observeSearch(query: String): Flow<List<MediaWithState>>

@@ -26,7 +26,7 @@ class MediaDaoSearchTest {
                 listOf(
                     item("literal-percent", "100% genuine"),
                     item("literal-underscore", "episode_01"),
-                    item("literal-backslash", "folder\\\u005cname"),
+                    item("literal-backslash", "folder\\name"),
                     item("ordinary", "100x genuine")
                 )
             )
