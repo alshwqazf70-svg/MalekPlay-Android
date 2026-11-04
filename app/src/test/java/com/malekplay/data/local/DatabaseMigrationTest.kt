@@ -168,6 +168,7 @@ class DatabaseMigrationTest {
         val helper = FrameworkSQLiteOpenHelperFactory().create(configuration)
         try {
             val db = helper.writableDatabase
+            db.execSQL("PRAGMA foreign_keys=ON")
             db.execSQL("INSERT INTO playlists VALUES('list-1', 'Favorites', 1, 0)")
             db.execSQL("INSERT INTO playlist_items VALUES('list-1', 'media-1', 0, 2)")
             MalekPlayDatabase.MIGRATION_3_4.migrate(db)
