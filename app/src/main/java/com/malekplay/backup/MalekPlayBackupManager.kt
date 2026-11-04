@@ -199,8 +199,8 @@ class MalekPlayBackupManager @Inject constructor(
         loudnessGainDb = json.optInt("loudnessGainDb", 0).coerceIn(0, 30),
         sortMode = runCatching { SortMode.valueOf(json.optString("sortMode", "NEWEST")) }
             .getOrDefault(SortMode.NEWEST),
-        viewMode = runCatching { ViewMode.valueOf(json.optString("viewMode", "LIST")) }
-            .getOrDefault(ViewMode.LIST)
+        viewMode = runCatching { ViewMode.valueOf(json.optString("viewMode", "GRID")) }
+            .getOrDefault(ViewMode.GRID)
     )
 
     private companion object {
