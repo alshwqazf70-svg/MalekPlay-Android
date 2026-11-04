@@ -125,9 +125,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val dir = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
         val cachePrefix = "subtitle-public-${subtitle.sourceId.hashCode().toUInt()}"
         dir.listFiles()?.firstOrNull {
-            it.name.startsWith("$cachePrefix.") &&
-                it.extension.lowercase(Locale.ROOT) in FORMATS &&
-                it.length() in 1..MAX_BYTES.toLong()
+            it.name.startsWith("$cachePrefix.") && isValidCachedSubtitle(it)
         }?.let { return Uri.fromFile(it) }
 
         val endpoint = "$PUBLIC_API/search/download/${subtitle.sourceId}"
@@ -155,9 +153,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             } else {
                 val ext = detect(bytes) ?: subtitle.format.takeIf { it in FORMATS }
                     ?: error("صيغة ملف الترجمة غير مدعومة")
-                File(dir, "$cachePrefix.$ext").also { file ->
-                    FileOutputStream(file).use { output -> output.write(bytes) }
-                }
+                writeSubtitleAtomically(dir, "$cachePrefix.$ext", bytes)
             }
             require(target.length() in 1..MAX_BYTES.toLong()) { "حجم ملف الترجمة غير صالح" }
             return Uri.fromFile(target)
@@ -201,8 +197,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         require(fileId > 0)
         val dir = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
         dir.listFiles()?.firstOrNull {
-            it.name.startsWith("subtitle-$fileId.") &&
-                it.extension.lowercase(Locale.ROOT) in FORMATS && it.length() in 1..MAX_BYTES.toLong()
+            it.name.startsWith("subtitle-$fileId.") && isValidCachedSubtitle(it)
         }?.let { return Uri.fromFile(it) }
         val (key, account) = credentials()
         val loginBody = JSONObject().put("username", account.first).put("password", account.second)
@@ -224,7 +219,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             require(bytes.isNotEmpty() && bytes.size <= MAX_BYTES) { "حجم ملف الترجمة غير صالح" }
             val target = if (bytes.isZip()) extract(bytes, dir, fileId) else {
                 val ext = detect(bytes) ?: error("صيغة ملف الترجمة غير مدعومة")
-                File(dir, "subtitle-$fileId.$ext").also { FileOutputStream(it).use { out -> out.write(bytes) } }
+                writeSubtitleAtomically(dir, "subtitle-$fileId.$ext", bytes)
             }
             require(target.length() in 1..MAX_BYTES.toLong())
             return Uri.fromFile(target)
@@ -237,16 +232,19 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             while (entry != null) {
                 val ext = entry.name.substringAfterLast('.', "").lowercase(Locale.ROOT)
                 if (!entry.isDirectory && ext in FORMATS) {
-                    val file = File(dir, "$outputPrefix.$ext")
-                    FileOutputStream(file).use { out ->
-                        val buffer = ByteArray(8192); var total = 0
-                        while (true) {
-                            val n = zip.read(buffer); if (n < 0) break
-                            total += n; require(total <= MAX_BYTES) { "ملف الترجمة كبير جدًا" }
-                            out.write(buffer, 0, n)
-                        }
+                    val output = ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    var total = 0
+                    while (true) {
+                        val n = zip.read(buffer)
+                        if (n < 0) break
+                        total += n
+                        require(total <= MAX_BYTES) { "ملف الترجمة كبير جدًا" }
+                        output.write(buffer, 0, n)
                     }
-                    return file
+                    val payload = output.toByteArray()
+                    require(isValidSubtitlePayload(payload, ext)) { "محتوى ملف الترجمة غير صالح" }
+                    return writeSubtitleAtomically(dir, "$outputPrefix.$ext", payload)
                 }
                 zip.closeEntry(); entry = zip.nextEntry
             }
@@ -288,6 +286,32 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         return output.toByteArray()
     }
 
+    private fun isValidCachedSubtitle(file: File): Boolean {
+        if (!file.isFile || file.length() !in 1..MAX_BYTES.toLong()) return false
+        val ext = file.extension.lowercase(Locale.ROOT)
+        if (ext !in FORMATS) return false
+        return runCatching { isValidSubtitlePayload(file.readBytes(), ext) }.getOrDefault(false)
+    }
+
+    private fun writeSubtitleAtomically(dir: File, fileName: String, bytes: ByteArray): File {
+        require(bytes.size in 1..MAX_BYTES) { "حجم ملف الترجمة غير صالح" }
+        val ext = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        require(isValidSubtitlePayload(bytes, ext)) { "محتوى ملف الترجمة غير صالح" }
+        val target = File(dir, fileName)
+        val temporary = File.createTempFile("subtitle-", ".part", dir)
+        try {
+            FileOutputStream(temporary).use { output ->
+                output.write(bytes)
+                output.fd.sync()
+            }
+            if (target.exists() && !target.delete()) error("تعذر استبدال ملف الترجمة القديم")
+            if (!temporary.renameTo(target)) error("تعذر اعتماد ملف الترجمة بعد التنزيل")
+            return target
+        } finally {
+            if (temporary.exists()) temporary.delete()
+        }
+    }
+
     private fun ByteArray.isZip() = size > 3 && this[0] == 0x50.toByte() && this[1] == 0x4b.toByte()
     private fun detect(bytes: ByteArray): String? {
         val text = bytes.toString(Charsets.UTF_8).trimStart('\uFEFF', ' ', '\n', '\r')
@@ -296,6 +320,15 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             text.contains("-->") -> "srt"
             text.startsWith("[Script Info]", true) || text.contains("[Events]", true) -> "ass"
             else -> null
+        }
+    }
+
+    private fun isValidSubtitlePayload(bytes: ByteArray, extension: String): Boolean {
+        if (extension !in FORMATS || bytes.isEmpty() || bytes.size > MAX_BYTES) return false
+        val detected = detect(bytes) ?: return false
+        return when (extension) {
+            "ssa" -> detected == "ass"
+            else -> detected == extension
         }
     }
 
