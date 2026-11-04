@@ -1,7 +1,6 @@
 package com.malekplay.ui.music
 
 import android.graphics.Bitmap
-import android.graphics.ImageDecoder
 import android.util.LruCache
 import android.net.Uri
 import androidx.compose.foundation.Image
@@ -70,6 +69,7 @@ import com.malekplay.domain.model.GenreSummary
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.library.LibraryViewModel
+import com.malekplay.ui.components.loadMediaArtwork
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -213,7 +213,7 @@ private fun SongRow(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Artwork(uri = item.media.artworkUri, modifier = Modifier.size(48.dp))
+        Artwork(uri = item.media.artworkUri, mediaUri = item.media.uri, modifier = Modifier.size(48.dp))
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -463,7 +463,7 @@ private val albumArtworkCache = object : LruCache<String, Bitmap>(16 * 1024 * 10
 }
 
 @Composable
-private fun Artwork(uri: Uri?, modifier: Modifier = Modifier) {
+private fun Artwork(uri: Uri?, modifier: Modifier = Modifier, mediaUri: Uri? = null) {
     val context = LocalContext.current
     val bitmap: ImageBitmap? by produceState<ImageBitmap?>(
         initialValue = null,
@@ -475,15 +475,17 @@ private fun Artwork(uri: Uri?, modifier: Modifier = Modifier) {
         value = withContext(Dispatchers.IO) {
             try {
                 val cached = albumArtworkCache.get(cacheKey)
-                if (cached != null) {
-                    cached.asImageBitmap()
-                } else {
-                    val source = ImageDecoder.createSource(context.contentResolver, target)
-                    val decoded = ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-                        decoder.setTargetSize(256, 256)
-                    }
-                    albumArtworkCache.put(cacheKey, decoded)
+                val decoded = cached ?: loadMediaArtwork(
+                    context = context,
+                    artworkUri = target,
+                    mediaUri = mediaUri,
+                    targetSize = 256
+                )
+                if (decoded != null) {
+                    if (cached == null) albumArtworkCache.put(cacheKey, decoded)
                     decoded.asImageBitmap()
+                } else {
+                    null
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
