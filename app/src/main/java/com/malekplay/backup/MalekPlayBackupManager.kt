@@ -99,9 +99,16 @@ class MalekPlayBackupManager @Inject constructor(
     suspend fun exportTo(destination: Uri) = withContext(Dispatchers.IO) {
         val settings = settingsRepository.currentSettings()
         val favourites = userDataRepository.observeFavouriteIdsSnapshot()
+        require(favourites.size <= MAX_FAVOURITES) { "Too many favourites to export" }
+        val playlistSnapshot = playlistRepository.snapshotPlaylists()
+        require(playlistSnapshot.size <= MAX_PLAYLISTS) { "Too many playlists to export" }
+        val totalPlaylistItems = playlistSnapshot.sumOf { it.items.size }
+        require(totalPlaylistItems <= MAX_TOTAL_PLAYLIST_ITEMS) {
+            "Too many playlist entries to export"
+        }
 
         val playlistsArray = JSONArray()
-        for (playlist in playlistRepository.snapshotPlaylists()) {
+        for (playlist in playlistSnapshot) {
             playlistsArray.put(
                 JSONObject()
                     .put("id", playlist.playlist.playlistId)
@@ -142,6 +149,16 @@ class MalekPlayBackupManager @Inject constructor(
             while (true) {
                 val count = stream.read(buffer)
                 if (count < 0) break
+                if (count == 0) {
+                    // Some document providers can return zero without EOF.
+                    // Force one-byte progress rather than spinning forever.
+                    val single = stream.read()
+                    if (single < 0) break
+                    total++
+                    require(total <= MAX_BACKUP_BYTES) { "Backup file exceeds the size limit" }
+                    out.write(single)
+                    continue
+                }
                 total += count
                 require(total <= MAX_BACKUP_BYTES) { "Backup file exceeds the size limit" }
                 out.write(buffer, 0, count)
