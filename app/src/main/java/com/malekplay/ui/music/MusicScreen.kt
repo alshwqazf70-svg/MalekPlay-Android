@@ -467,17 +467,17 @@ private fun Artwork(uri: Uri?, modifier: Modifier = Modifier, mediaUri: Uri? = n
     val context = LocalContext.current
     val bitmap: ImageBitmap? by produceState<ImageBitmap?>(
         initialValue = null,
-        key1 = uri
+        key1 = uri.toString() + "|" + mediaUri.toString()
     ) {
         value = null
-        val target = uri ?: return@produceState
-        val cacheKey = target.toString()
+        if (uri == null && mediaUri == null) return@produceState
+        val cacheKey = (uri?.toString() ?: "no-album-id") + "|" + mediaUri.toString()
         value = withContext(Dispatchers.IO) {
             try {
                 val cached = albumArtworkCache.get(cacheKey)
                 val decoded = cached ?: loadMediaArtwork(
                     context = context,
-                    artworkUri = target,
+                    artworkUri = uri,
                     mediaUri = mediaUri,
                     targetSize = 256
                 )
