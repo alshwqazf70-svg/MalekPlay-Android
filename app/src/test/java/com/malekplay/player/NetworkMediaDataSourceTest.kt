@@ -3,6 +3,7 @@ package com.malekplay.player
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import com.malekplay.network.NetworkProtocol
 import java.io.EOFException
 import java.io.IOException
 
@@ -123,5 +124,18 @@ class NetworkMediaDataSourceTest {
         }
         assertEquals(2, reads)
         assertEquals(1, reconnects)
+    }
+
+    @Test
+    fun mapsOnlySupportedPrivatePlaybackSchemes() {
+        assertEquals(NetworkProtocol.SMB, networkProtocolForScheme("maleksmb"))
+        assertEquals(NetworkProtocol.SFTP, networkProtocolForScheme("maleksftp"))
+        assertEquals(NetworkProtocol.SMB, networkProtocolForScheme("MALEKSMB"))
+    }
+
+    @Test
+    fun rejectsUnknownOrMissingPlaybackSchemes() {
+        assertThrows(IOException::class.java) { networkProtocolForScheme("https") }
+        assertThrows(IOException::class.java) { networkProtocolForScheme(null) }
     }
 }
