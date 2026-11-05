@@ -118,7 +118,8 @@ fun VideoCategoryScreen(
                             item = item,
                             onPlay = { onOpenMedia(item.media) },
                             onFavourite = { viewModel.toggleFavourite(item.media.id) },
-                            onAddToPlaylist = { playlistTarget = item.media }
+                            onAddToPlaylist = { playlistTarget = item.media },
+                            onDeleted = viewModel::refresh
                         )
                     }
                 }
