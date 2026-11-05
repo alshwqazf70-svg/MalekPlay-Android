@@ -528,6 +528,9 @@ class PlayerViewModel @Inject constructor(
     /** Restores a file's remembered track choices once its current tracks are available. */
     private fun restoreTrackPreferencesForCurrentMedia() {
         val mediaId = currentMediaId?.takeIf(String::isNotBlank) ?: return
+        // Wait until Media3 has exposed at least one selectable track; the first
+        // tracks callback can legitimately arrive empty while the source buffers.
+        if (_audioTracks.value.isEmpty() && _textTracks.value.isEmpty()) return
         if (!restoredTrackPreferenceIds.add(mediaId)) return
         viewModelScope.launch {
             val preference = runCatchingCancellable {
