@@ -134,7 +134,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                 }
                 active = profile
                 currentPath = path.ifBlank { profile.rootPath }
-                message = "تم الاتصال بالمصدر. اختر ملف WebDAV لتشغيله مباشرة."
+                message = "تم الاتصال بالمصدر. اختر ملفاً لتشغيله مباشرة داخل المشغل."
             } catch (error: Exception) {
                 message = "تعذر الاتصال: ${error.localizedMessage ?: "خطأ غير معروف"}"
             } finally { busy = false }
