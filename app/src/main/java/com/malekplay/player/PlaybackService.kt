@@ -69,6 +69,8 @@ class PlaybackService : MediaSessionService() {
     // MediaRepository switch to IO for database/preferences work.
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var progressJob: Job? = null
+    // Keep the newest queued checkpoint so service shutdown can drain pending writes.
+    private var lastProgressSaveJob: Job? = null
     private var lastCountedMediaId: String? = null
     private val playbackMetadataById = LinkedHashMap<String, PlaybackMetadata>(MAX_CACHED_PLAYBACK_METADATA, 0.75f, true)
     private val progressSaveMutex = Mutex()
@@ -118,7 +120,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         progressJob?.cancel()
-        val finalSave = saveCurrentProgress()
+        val finalSave = saveCurrentProgress() ?: lastProgressSaveJob
         mediaSession?.run {
             player.removeListener(progressListener)
             player.release()
@@ -260,7 +262,7 @@ class PlaybackService : MediaSessionService() {
         speed: Float,
         markPlayed: Boolean = false
     ): Job {
-        return serviceScope.launch {
+        val saveJob = serviceScope.launch {
             progressSaveMutex.withLock {
                 try {
                     mediaRepository.saveProgress(
@@ -278,6 +280,8 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         }
+        lastProgressSaveJob = saveJob
+        return saveJob
     }
 
     /** Tapping the notification reopens the app in its existing task. */
