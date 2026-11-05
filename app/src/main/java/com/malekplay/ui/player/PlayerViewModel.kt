@@ -342,7 +342,7 @@ class PlayerViewModel @Inject constructor(
         val safeIndex = startIndex.coerceIn(0, items.lastIndex)
         _queue.value = items
         val nextMediaId = items[safeIndex].id
-        if (nextMediaId != currentMediaId) clearSubtitleTranslationSource()
+        clearSubtitleTranslationSource()
         restoredTrackPreferenceIds.remove(nextMediaId)
         currentMediaId = nextMediaId
         _playerError.value = null
@@ -366,7 +366,7 @@ class PlayerViewModel @Inject constructor(
         val player = _controller.value ?: return
         _queue.value = emptyList()
         val nextMediaId = uri.toString()
-        if (nextMediaId != currentMediaId) clearSubtitleTranslationSource()
+        clearSubtitleTranslationSource()
         currentMediaId = nextMediaId
         _playerError.value = null
         player.setMediaItem(mediaItemFromUri(uri))
