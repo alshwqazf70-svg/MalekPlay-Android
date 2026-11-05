@@ -25,9 +25,7 @@ class NetworkCredentialVault(context: Context) {
             require(profileId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
                 "Invalid network profile id"
             }
-            require('\u0000' !in username && '\u0000' !in password) {
-                "Network credentials must not contain the reserved separator"
-            }
+            validateNetworkCredentials(username, password)
             val plain = (username + "\u0000" + password).toByteArray(StandardCharsets.UTF_8)
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
