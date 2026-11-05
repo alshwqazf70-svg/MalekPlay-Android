@@ -70,8 +70,9 @@ class NetworkProfileStoreTest {
             }.start()
         }
 
-        assertTrue("Workers did not become ready", ready.await(5, TimeUnit.SECONDS))
+        val allWorkersReady = ready.await(5, TimeUnit.SECONDS)
         start.countDown()
+        assertTrue("Workers did not become ready", allWorkersReady)
         assertTrue("Concurrent profile writes did not finish", finished.await(10, TimeUnit.SECONDS))
         failure.get()?.let { throw AssertionError("Concurrent profile save failed", it) }
 
