@@ -68,8 +68,7 @@ class NetworkMediaDataSource(
         transferInitializing(dataSpec)
         currentUri = dataSpec.uri
         try {
-            val profileId = dataSpec.uri.host
-                ?: throw IOException("مصدر الشبكة غير محدد")
+            val profileId = validateNetworkPlaybackUri(dataSpec.uri)
             val profile = profileStore.load().firstOrNull { it.id == profileId }
                 ?: throw IOException("مصدر الشبكة لم يعد موجوداً")
             val expectedProtocol = networkProtocolForScheme(dataSpec.uri.scheme)
@@ -77,7 +76,6 @@ class NetworkMediaDataSource(
             val credentials = credentialVault.load(profile.id)
             ?: throw IOException("بيانات اعتماد مصدر الشبكة غير متاحة؛ أعد حفظ بيانات الدخول")
             val segments = dataSpec.uri.pathSegments
-            NetworkPathPolicy.validateSegments(segments)
             require(dataSpec.position >= 0L) { "موضع القراءة غير صالح" }
             require(dataSpec.length == C.LENGTH_UNSET.toLong() || dataSpec.length > 0L) {
                 "طول القراءة غير صالح"
@@ -209,7 +207,7 @@ class NetworkMediaDataSource(
     /** Reopens the same remote file at the unchanged random-access position once. */
     private fun reconnectAtCurrentPosition() {
         val uri = currentUri ?: throw IOException("رابط مصدر الشبكة غير متاح لإعادة الاتصال")
-        val profileId = uri.host ?: throw IOException("معرّف مصدر الشبكة مفقود")
+        val profileId = validateNetworkPlaybackUri(uri)
         val profile = profileStore.load().firstOrNull { it.id == profileId }
             ?: throw IOException("مصدر الشبكة لم يعد موجوداً")
         val expectedProtocol = networkProtocolForScheme(uri.scheme)
@@ -217,7 +215,6 @@ class NetworkMediaDataSource(
             throw IOException("نوع مصدر الشبكة لا يطابق رابط التشغيل أثناء إعادة الاتصال")
         }
         val segments = uri.pathSegments
-        NetworkPathPolicy.validateSegments(segments)
         val credentials = credentialVault.load(profile.id)
             ?: throw IOException("بيانات اعتماد مصدر الشبكة غير متاحة؛ أعد حفظ بيانات الدخول")
         closeRemoteConnections()
