@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.DropdownMenu
@@ -266,7 +267,13 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(9.dp)
                     ) {
                         items(visibleItems, key = { it.media.id }) { item ->
-                            PremiumVideoRow(item, onClick = { onVideoClick(item) }, onDeleted = viewModel::refresh)
+                            PremiumVideoRow(
+                                item = item,
+                                onClick = { onVideoClick(item) },
+                                onFavourite = { viewModel.toggleFavourite(item.media.id) },
+                                onAddToPlaylist = { playlistTarget = item.media },
+                                onDeleted = viewModel::refresh
+                            )
                         }
                     }
                 }
@@ -324,7 +331,13 @@ private fun FolderTile(folder: MediaFolder, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PremiumVideoRow(item: LibraryItem, onClick: () -> Unit, onDeleted: () -> Unit) {
+private fun PremiumVideoRow(
+    item: LibraryItem,
+    onClick: () -> Unit,
+    onFavourite: () -> Unit,
+    onAddToPlaylist: () -> Unit,
+    onDeleted: () -> Unit
+) {
     Row(
         Modifier.fillMaxWidth().animateContentSize().clip(RoundedCornerShape(19.dp)).background(Glass)
             .border(1.dp, GlassStroke, RoundedCornerShape(19.dp))
@@ -353,6 +366,34 @@ private fun PremiumVideoRow(item: LibraryItem, onClick: () -> Unit, onDeleted: (
             if (item.isInProgress) Text("متابعة المشاهدة • ${(item.fraction * 100).toInt()}%",
                 color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             else if (item.isCompleted) Text("تمت المشاهدة", color = MalekPlayColors.Emerald, style = MaterialTheme.typography.labelSmall)
+        }
+        Box(
+            Modifier.size(38.dp).clip(CircleShape).clickable(
+                onClick = onAddToPlaylist,
+                role = androidx.compose.ui.semantics.Role.Button
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Filled.PlaylistAdd,
+                contentDescription = "إضافة إلى قائمة التشغيل",
+                tint = MalekPlayColors.PurpleBright,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Box(
+            Modifier.size(38.dp).clip(CircleShape).clickable(
+                onClick = onFavourite,
+                role = androidx.compose.ui.semantics.Role.Button
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Filled.Favorite,
+                contentDescription = if (item.isFavourite) "إزالة من المفضلة" else "إضافة إلى المفضلة",
+                tint = if (item.isFavourite) Color(0xFFFF6B9D) else MalekPlayColors.TextMuted,
+                modifier = Modifier.size(19.dp)
+            )
         }
         MediaDeleteButton(media = item.media, onDeleted = onDeleted)
     }
