@@ -43,6 +43,7 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import java.util.LinkedHashMap
 import java.io.IOException
+import java.nio.charset.StandardCharsets
 
 /**
  * Owns the single ExoPlayer instance and its MediaSession.
@@ -330,9 +331,16 @@ class PlaybackService : MediaSessionService() {
         val credentials = credentialVault.load(profile.id)
             ?: throw IOException("بيانات اعتماد WebDAV غير متاحة؛ أعد حفظ بيانات الدخول للمصدر")
 
-        val authorization = Credentials.basic(credentials.first, credentials.second)
+        val authorization = Credentials.basic(
+            credentials.first,
+            credentials.second,
+            StandardCharsets.UTF_8
+        )
+        val headers = dataSpec.httpRequestHeaders
+            .filterKeys { !it.equals("Authorization", ignoreCase = true) } +
+            ("Authorization" to authorization)
         return dataSpec.buildUpon()
-            .setHttpRequestHeaders(dataSpec.httpRequestHeaders + ("Authorization" to authorization))
+            .setHttpRequestHeaders(headers)
             .build()
     }
 
