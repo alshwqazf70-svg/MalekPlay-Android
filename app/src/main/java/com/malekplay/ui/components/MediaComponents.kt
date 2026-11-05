@@ -556,7 +556,7 @@ fun MediaDeleteButton(media: MediaItem, compact: Boolean = false, onDeleted: () 
     val scope = rememberCoroutineScope()
     var showConfirm by remember { mutableStateOf(false) }
     // Declare the retry callback before registering launchers that invoke it.
-    lateinit var deleteLegacyFile: () -> Unit
+    var deleteLegacyFile: () -> Unit = {}
     val approvalLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
