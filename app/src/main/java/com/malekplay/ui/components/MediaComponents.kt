@@ -557,8 +557,12 @@ fun MediaDeleteButton(media: MediaItem, compact: Boolean = false, onDeleted: () 
     var showConfirm by remember { mutableStateOf(false) }
     val approvalLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            Toast.makeText(context, "تم حذف الملف", Toast.LENGTH_SHORT).show()
-            onDeleted()
+            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+                deleteLegacyFile()
+            } else {
+                Toast.makeText(context, "تم حذف الملف", Toast.LENGTH_SHORT).show()
+                onDeleted()
+            }
         }
     }
     fun requestApproval(sender: android.content.IntentSender) {
