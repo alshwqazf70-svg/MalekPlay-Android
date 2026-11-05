@@ -92,6 +92,7 @@ class MediaStoreScanner(context: Context) {
         val projection = buildList {
             add(MediaStore.MediaColumns._ID)
             add(MediaStore.MediaColumns.DISPLAY_NAME)
+            add(MediaStore.MediaColumns.TITLE)
             add(MediaStore.MediaColumns.DURATION)
             add(MediaStore.MediaColumns.SIZE)
             add(MediaStore.MediaColumns.DATE_ADDED)
@@ -108,7 +109,10 @@ class MediaStoreScanner(context: Context) {
             val (width, height) = parseResolution(rawResolution)
             val id = cursor.getLong(columns[MediaStore.MediaColumns._ID])
             val display = columns.text(MediaStore.MediaColumns.DISPLAY_NAME)
-            val title = chooseMediaDisplayName(metadataTitle = "", fileName = display)
+            val title = chooseMediaDisplayName(
+                metadataTitle = columns.text(MediaStore.MediaColumns.TITLE),
+                fileName = display
+            )
             val durationMs = columns.long(MediaStore.MediaColumns.DURATION)
             val sizeBytes = columns.long(MediaStore.MediaColumns.SIZE)
 
