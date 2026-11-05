@@ -413,7 +413,8 @@ fun VideoPlayerScreen(
                                 applyVolume(volume + dyFraction)
                                 indicator = volumeLabel to volume
                             }
-                            GestureAction.SEEK -> pushSeek(dxFraction)
+                            // Vertical seek follows the finger's vertical movement.
+                            GestureAction.SEEK -> pushSeek(dyFraction)
                             else -> Unit
                         }
                     }
@@ -1039,11 +1040,10 @@ private suspend fun PointerInputScope.detectPlayerGestures(
                     longPressed = false
                     onLongPressEnd()
                 }
-                // Rebase on the slop crossing so the drag starts under the finger.
-                origin = change.position
-                previous = change.position
+                // Keep the original touch origin for left/right zone detection and
+                // include the movement that crossed touch slop in the first update.
+                previous = down.position
                 onDragStart()
-                continue
             }
             if (dragging) {
                 val width = size.width.toFloat().coerceAtLeast(1f)
