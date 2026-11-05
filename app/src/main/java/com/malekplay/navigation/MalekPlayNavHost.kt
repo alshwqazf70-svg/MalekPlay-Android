@@ -43,7 +43,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -266,21 +265,25 @@ fun MalekPlayNavHost(
     }
 }
 
-/** Navigate between primary tabs without restoring a stale saved back stack. */
+/**
+ * Switch primary tabs from one stable root.
+ *
+ * Always normalize the stack to Home before opening the requested tab. This
+ * avoids relying on a possibly stale back-stack lookup while a destination
+ * transition is still settling, and launchSingleTop makes rapid repeated taps
+ * idempotent.
+ */
 private fun NavHostController.navigateToTopLevel(destination: TopLevelDestination) {
     val route = destination.screen.route
-    if (currentDestination?.hierarchy?.any { it.route == route } == true) return
+    if (currentDestination?.route == route) return
 
-    // If this tab is already in the active stack, return to its existing entry.
-    if (popBackStack(route, inclusive = false)) return
-
-    // Otherwise replace the previous tab while keeping Home as the stable root.
     navigate(route) {
         popUpTo(Screen.Home.route) {
             inclusive = false
             saveState = false
         }
         launchSingleTop = true
+        restoreState = false
     }
 }
 
