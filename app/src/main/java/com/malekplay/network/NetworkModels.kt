@@ -1,5 +1,12 @@
 package com.malekplay.network
 
+/** Rejects the reserved delimiter used by the encrypted credential record format. */
+internal fun validateNetworkCredentials(username: String, password: String) {
+    require('\u0000' !in username && '\u0000' !in password) {
+        "Network credentials must not contain the reserved separator"
+    }
+}
+
 /** Canonicalizes a server host before it is stored or passed to network clients. */
 fun normalizeNetworkHost(rawHost: String): String {
     var host = rawHost.trim()
