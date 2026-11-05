@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.malekplay.network.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -122,6 +123,8 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                 active = profile
                 currentPath = path.ifBlank { profile.rootPath }
                 message = "تم الاتصال بالمصدر. اختر ملف WebDAV لتشغيله مباشرة."
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 message = "تعذر الاتصال: ${error.localizedMessage ?: "خطأ غير معروف"}"
             } finally { busy = false }
