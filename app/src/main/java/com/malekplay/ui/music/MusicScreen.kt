@@ -69,6 +69,7 @@ import com.malekplay.domain.model.GenreSummary
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.library.LibraryViewModel
+import com.malekplay.ui.components.MediaDeleteButton
 import com.malekplay.ui.components.loadMediaArtwork
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -154,7 +155,8 @@ fun MusicScreen(
                 songs = sortedSongs,
                 unknownArtist = unknownArtist,
                 onOpenMedia = onOpenMedia,
-                onToggleFavourite = { libraryViewModel.toggleFavourite(it) }
+                onToggleFavourite = { libraryViewModel.toggleFavourite(it) },
+                onDeleted = libraryViewModel::refresh
             )
 
             1 -> AlbumsTab(albums = albums)
@@ -171,7 +173,8 @@ private fun SongsTab(
     songs: List<LibraryItem>,
     unknownArtist: String,
     onOpenMedia: (MediaItem) -> Unit,
-    onToggleFavourite: (String) -> Unit
+    onToggleFavourite: (String) -> Unit,
+    onDeleted: () -> Unit
 ) {
     if (songs.isEmpty()) {
         EmptyState(
@@ -190,7 +193,8 @@ private fun SongsTab(
                 item = item,
                 unknownArtist = unknownArtist,
                 onClick = { onOpenMedia(item.media) },
-                onToggleFavourite = { onToggleFavourite(item.media.id) }
+                onToggleFavourite = { onToggleFavourite(item.media.id) },
+                onDeleted = onDeleted
             )
         }
     }
@@ -201,7 +205,8 @@ private fun SongRow(
     item: LibraryItem,
     unknownArtist: String,
     onClick: () -> Unit,
-    onToggleFavourite: () -> Unit
+    onToggleFavourite: () -> Unit,
+    onDeleted: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -239,6 +244,7 @@ private fun SongRow(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        MediaDeleteButton(media = item.media, onDeleted = onDeleted)
         IconButton(onClick = onToggleFavourite) {
             Icon(
                 imageVector = if (item.isFavourite) Icons.Filled.Star else Icons.Filled.StarBorder,
