@@ -4,7 +4,11 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
@@ -29,6 +33,49 @@ class NetworkProfileStoreTest {
         NetworkProfileStore(context).save(profile)
 
         assertEquals(listOf(profile), NetworkProfileStore(context).load())
+    }
+
+    @Test
+    fun concurrentSavesFromSeparateStoreInstancesDoNotLoseProfiles() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
+            .edit().clear().commit()
+
+        val workerCount = 8
+        val ready = CountDownLatch(workerCount)
+        val start = CountDownLatch(1)
+        val finished = CountDownLatch(workerCount)
+        val failure = AtomicReference<Throwable?>(null)
+
+        repeat(workerCount) { index ->
+            Thread {
+                ready.countDown()
+                try {
+                    start.await()
+                    NetworkProfileStore(context).save(
+                        NetworkProfile(
+                            id = "parallel-$index",
+                            protocol = NetworkProtocol.SMB,
+                            host = "nas-$index.example.test",
+                            port = 445,
+                            username = "viewer",
+                            rootPath = "/"
+                        )
+                    )
+                } catch (error: Throwable) {
+                    failure.compareAndSet(null, error)
+                } finally {
+                    finished.countDown()
+                }
+            }.start()
+        }
+
+        assertTrue("Workers did not become ready", ready.await(5, TimeUnit.SECONDS))
+        start.countDown()
+        assertTrue("Concurrent profile writes did not finish", finished.await(10, TimeUnit.SECONDS))
+        failure.get()?.let { throw AssertionError("Concurrent profile save failed", it) }
+
+        assertEquals(workerCount, NetworkProfileStore(context).load().size)
     }
 
     @Test
