@@ -889,7 +889,8 @@ class PlayerViewModel @Inject constructor(
 
     private companion object {
         const val LOG_TAG = "MalekPlayPlayer"
-        const val TICK_INTERVAL_MS = 500L
+        // A one-second UI snapshot is sufficient for the seek bar and halves ticker wakeups.
+        const val TICK_INTERVAL_MS = 1_000L
     }
 }
 
