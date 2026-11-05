@@ -226,7 +226,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                                             }
                                             val segments = entry.path.split('/').filter { it.isNotBlank() }
                                             require(segments.isNotEmpty() &&
-                                                segments.none { it == "." || it == ".." || it.contains('\\u0000') }) {
+                                                segments.none { it == "." || it == ".." || it.contains('\u0000') }) {
                                                 "مسار الملف البعيد غير صالح"
                                             }
                                             val scheme = when (profile.protocol) {
