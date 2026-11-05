@@ -27,6 +27,11 @@ class SubtitleTranslationEngine @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     suspend fun translateSrtToArabic(source: Uri): Uri {
+        val extension = source.lastPathSegment.orEmpty()
+            .substringAfterLast('.', "").lowercase()
+        require(extension == "srt" || extension == "vtt") {
+            "الترجمة المحلية تدعم ملفات SRT وVTT فقط حالياً"
+        }
         val sourceBytes = withContext(Dispatchers.IO) {
             val input = context.contentResolver.openInputStream(source)
                 ?: error("تعذر فتح ملف الترجمة")
