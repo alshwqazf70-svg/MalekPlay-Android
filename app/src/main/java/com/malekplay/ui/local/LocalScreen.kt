@@ -370,7 +370,8 @@ fun LocalScreen(
                 showFolder = true,
                 onPlay = onOpenMedia,
                 onFavourite = { viewModel.toggleFavourite(it.media.id) },
-                onAddToPlaylist = { playlistTarget = it.media }
+                onAddToPlaylist = { playlistTarget = it.media },
+                onDeleted = viewModel::refresh
             )
             return
         }
@@ -528,7 +529,8 @@ private fun MediaList(
     showFolder: Boolean = false,
     onPlay: (com.malekplay.domain.model.MediaItem) -> Unit,
     onFavourite: (com.malekplay.domain.model.LibraryItem) -> Unit,
-    onAddToPlaylist: (com.malekplay.domain.model.LibraryItem) -> Unit
+    onAddToPlaylist: (com.malekplay.domain.model.LibraryItem) -> Unit,
+    onDeleted: () -> Unit = {}
 ) {
     if (items.isEmpty()) {
         EmptyState(title = emptyTitle, body = emptyBody)
@@ -549,7 +551,8 @@ private fun MediaList(
                     item = item,
                     onPlay = { onPlay(item.media) },
                     onFavourite = { onFavourite(item) },
-                    onAddToPlaylist = { onAddToPlaylist(item) }
+                    onAddToPlaylist = { onAddToPlaylist(item) },
+                    onDeleted = onDeleted
                 )
             }
         }
@@ -567,7 +570,8 @@ private fun MediaList(
                     showFolder = showFolder,
                     onPlay = { onPlay(item.media) },
                     onFavourite = { onFavourite(item) },
-                    onAddToPlaylist = { onAddToPlaylist(item) }
+                    onAddToPlaylist = { onAddToPlaylist(item) },
+                    onDeleted = onDeleted
                 )
             }
         }
