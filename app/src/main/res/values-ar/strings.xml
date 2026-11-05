@@ -276,4 +276,6 @@
     <string name="subtitle_save_credentials">حفظ البيانات بشكل آمن</string>
     <string name="subtitle_search">بحث</string>
     <string name="subtitle_downloads">تنزيل</string>
+    <string name="subtitle_translate_ar">ترجمة الترجمة إلى العربية (على الجهاز)</string>
+    <string name="subtitle_translate_ar_loading">جارٍ ترجمة ملف الترجمة…</string>
 </resources>
