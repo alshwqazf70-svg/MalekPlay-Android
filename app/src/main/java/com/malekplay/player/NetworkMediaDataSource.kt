@@ -79,11 +79,9 @@ class NetworkMediaDataSource(
             }
             require(profile.protocol == expectedProtocol) { "نوع المصدر لا يطابق رابط التشغيل" }
             val credentials = credentialVault.load(profile.id)
-                ?: (profile.username to "")
+            ?: throw IOException("بيانات اعتماد مصدر الشبكة غير متاحة؛ أعد حفظ بيانات الدخول")
             val segments = dataSpec.uri.pathSegments
-            require(segments.isNotEmpty() && segments.none { it == "." || it == ".." || it.contains('\u0000') }) {
-                "مسار الملف غير صالح"
-            }
+            NetworkPathPolicy.validateSegments(segments)
             require(dataSpec.position >= 0L) { "موضع القراءة غير صالح" }
             require(dataSpec.length == C.LENGTH_UNSET.toLong() || dataSpec.length > 0L) {
                 "طول القراءة غير صالح"
@@ -220,7 +218,8 @@ class NetworkMediaDataSource(
             ?: throw IOException("مصدر الشبكة لم يعد موجوداً")
         val segments = uri.pathSegments
         if (segments.isEmpty()) throw IOException("مسار الملف غير صالح لإعادة الاتصال")
-        val credentials = credentialVault.load(profile.id) ?: (profile.username to "")
+        val credentials = credentialVault.load(profile.id)
+            ?: throw IOException("بيانات اعتماد مصدر الشبكة غير متاحة؛ أعد حفظ بيانات الدخول")
         closeRemoteConnections()
         when (profile.protocol) {
             NetworkProtocol.SMB -> openSmb(profile, credentials.first, credentials.second, segments)
