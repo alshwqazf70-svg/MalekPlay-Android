@@ -1012,15 +1012,19 @@ private suspend fun PointerInputScope.detectPlayerGestures(
         val down = awaitFirstDown(requireUnconsumed = false)
         down.consume()
 
-        var longPressJob: Job? = null
         var longPressed = false
+        var longPressTriggered = false
         var dragging = false
         var origin = down.position
         var previous = down.position
 
-        longPressJob = launch {
+        val longPressJob = launch {
             delay(LONG_PRESS_MS)
             longPressed = true
+            longPressTriggered = true
+            // A long press is its own gesture; it must never be reclassified
+            // as a tap or as the second half of a double tap on release.
+            lastTapMs = 0L
             onLongPressStart()
         }
 
@@ -1035,6 +1039,7 @@ private suspend fun PointerInputScope.detectPlayerGestures(
                     abs(dyTotal) > viewConfiguration.touchSlop)
             ) {
                 dragging = true
+                lastTapMs = 0L
                 longPressJob.cancel()
                 if (longPressed) {
                     longPressed = false
@@ -1062,21 +1067,23 @@ private suspend fun PointerInputScope.detectPlayerGestures(
             onLongPressEnd()
         }
 
-        if (dragging) {
-            onDragEnd()
-        } else {
-            val now = System.currentTimeMillis()
-            if (now - lastTapMs < DOUBLE_TAP_TIMEOUT_MS) {
-                tapJob?.cancel()
-                tapJob = null
-                lastTapMs = 0L
-                onDoubleTap(down.position.x / size.width.toFloat().coerceAtLeast(1f))
-            } else {
-                lastTapMs = now
-                tapJob?.cancel()
-                tapJob = launch {
-                    delay(DOUBLE_TAP_TIMEOUT_MS)
-                    onTap()
+        when {
+            dragging -> onDragEnd()
+            longPressTriggered -> Unit
+            else -> {
+                val now = System.currentTimeMillis()
+                if (now - lastTapMs < DOUBLE_TAP_TIMEOUT_MS) {
+                    tapJob?.cancel()
+                    tapJob = null
+                    lastTapMs = 0L
+                    onDoubleTap(down.position.x / size.width.toFloat().coerceAtLeast(1f))
+                } else {
+                    lastTapMs = now
+                    tapJob?.cancel()
+                    tapJob = launch {
+                        delay(DOUBLE_TAP_TIMEOUT_MS)
+                        onTap()
+                    }
                 }
             }
         }
