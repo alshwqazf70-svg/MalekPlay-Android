@@ -20,6 +20,12 @@ object NetworkPlaybackUriBuilder {
 
         val rawSegments = entry.path.split('/').filter { it.isNotBlank() }
         require(rawSegments.isNotEmpty()) { "مسار الملف فارغ" }
+        val pathLength = rawSegments.sumOf { it.length } + (rawSegments.size - 1).coerceAtLeast(0)
+        require(
+            rawSegments.size <= NetworkPathPolicy.MAX_SEGMENTS &&
+                rawSegments.all { it.length <= NetworkPathPolicy.MAX_SEGMENT_LENGTH } &&
+                pathLength <= NetworkPathPolicy.MAX_PATH_LENGTH
+        ) { "مسار الملف يتجاوز الحدود المسموحة" }
         require(rawSegments.none { segment ->
             segment == "." || segment == ".." ||
                 segment.contains('\\') ||
