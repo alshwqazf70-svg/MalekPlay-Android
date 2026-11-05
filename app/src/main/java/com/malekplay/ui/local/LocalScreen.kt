@@ -417,7 +417,8 @@ fun LocalScreen(
                 emptyBody = stringResource(R.string.lib_empty_body),
                 onPlay = onOpenMedia,
                 onFavourite = { viewModel.toggleFavourite(it.media.id) },
-                onAddToPlaylist = { playlistTarget = it.media }
+                onAddToPlaylist = { playlistTarget = it.media },
+                onDeleted = viewModel::refresh
             )
             LocalTab.AUDIO -> MediaList(
                 items = sortedAudio,
