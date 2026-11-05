@@ -256,11 +256,11 @@ class PlayerViewModel @Inject constructor(
             // The player already points at the new item here. Do not save its
             // position under the previous item's id.
             val nextMediaId = mediaItem?.mediaId
-            if (nextMediaId != currentMediaId) nextMediaId?.let(restoredTrackPreferenceIds::remove)
+            if (nextMediaId != currentMediaId) {
+                nextMediaId?.let(restoredTrackPreferenceIds::remove)
+                clearSubtitleTranslationSource()
+            }
             currentMediaId = nextMediaId
-            translationSourceSubtitleUri = null
-            _subtitleTranslationAvailable.value = false
-            _subtitleTranslationError.value = null
             _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
             _queueSize.value = _controller.value?.mediaItemCount ?: 0
             viewModelScope.launch {
@@ -341,7 +341,10 @@ class PlayerViewModel @Inject constructor(
         if (items.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, items.lastIndex)
         _queue.value = items
-        currentMediaId = items[safeIndex].id
+        val nextMediaId = items[safeIndex].id
+        if (nextMediaId != currentMediaId) clearSubtitleTranslationSource()
+        restoredTrackPreferenceIds.remove(nextMediaId)
+        currentMediaId = nextMediaId
         _playerError.value = null
         player.setMediaItems(items.map { it.toMedia3Item() }, safeIndex, startPositionMs.coerceAtLeast(0L))
         player.shuffleModeEnabled = shuffle
@@ -362,7 +365,9 @@ class PlayerViewModel @Inject constructor(
     fun playExternalUri(uri: Uri, startPositionMs: Long = 0L, speed: Float = 1f) {
         val player = _controller.value ?: return
         _queue.value = emptyList()
-        currentMediaId = uri.toString()
+        val nextMediaId = uri.toString()
+        if (nextMediaId != currentMediaId) clearSubtitleTranslationSource()
+        currentMediaId = nextMediaId
         _playerError.value = null
         player.setMediaItem(mediaItemFromUri(uri))
         player.seekTo(startPositionMs.coerceAtLeast(0L))
@@ -466,6 +471,12 @@ class PlayerViewModel @Inject constructor(
         player.prepare()
         player.playWhenReady = playWhenReady
         _playerError.value = null
+    }
+
+    private fun clearSubtitleTranslationSource() {
+        translationSourceSubtitleUri = null
+        _subtitleTranslationAvailable.value = false
+        _subtitleTranslationError.value = null
     }
 
     /** Translates the currently added external SRT subtitle to Arabic on-device. */
