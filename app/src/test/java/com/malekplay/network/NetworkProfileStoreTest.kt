@@ -35,7 +35,10 @@ class NetworkProfileStoreTest {
     fun malformedIndividualProfileIsReportedInsteadOfSilentlySkipped() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
-            .edit().putString("profiles", "[{\"id\":\"valid\",\"protocol\":\"WEBDAV\",\"host\":\"media.example.test\",\"port\":443},{\"broken\":true}]").commit()
+            .edit().putString(
+                "profiles",
+                """[{"id":"valid","protocol":"WEBDAV","host":"media.example.test","port":443},{"broken":true}]"""
+            ).commit()
 
         try {
             NetworkProfileStore(context).load()
@@ -49,7 +52,10 @@ class NetworkProfileStoreTest {
     fun invalidProfileFieldsAreReported() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
-            .edit().putString("profiles", "[{\"id\":\"bad id\",\"protocol\":\"SMB\",\"host\":\"media.example.test\",\"port\":445}]").commit()
+            .edit().putString(
+                "profiles",
+                """[{"id":"bad id","protocol":"SMB","host":"media.example.test","port":445}]"""
+            ).commit()
 
         try {
             NetworkProfileStore(context).load()
@@ -62,7 +68,7 @@ class NetworkProfileStoreTest {
     @Test
     fun duplicateProfileIdsAreReported() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val profile = "{\"id\":\"same-id\",\"protocol\":\"SMB\",\"host\":\"media.example.test\",\"port\":445}"
+        val profile = """{"id":"same-id","protocol":"SMB","host":"media.example.test","port":445}"""
         context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
             .edit().putString("profiles", "[$profile,$profile]").commit()
 
@@ -95,7 +101,7 @@ class NetworkProfileStoreTest {
             .edit()
             .putString(
                 "profiles",
-                "[{\\"id\\":\\"legacy-1\\",\\"protocol\\":\\"SMB\\",\\"host\\":\\"nas.example.test\\",\\"port\\":445,\\"name\\":\\"Old NAS label\\"}]"
+                """[{"id":"legacy-1","protocol":"SMB","host":"nas.example.test","port":445,"name":"Old NAS label"}]"""
             )
             .commit()
 
@@ -110,7 +116,7 @@ class NetworkProfileStoreTest {
             .edit()
             .putString(
                 "profiles",
-                "[{\\"id\\":\\"legacy-host\\",\\"protocol\\":\\"WEBDAV\\",\\"host\\":\\"https://media.example.test/\\",\\"port\\":443}]"
+                """[{"id":"legacy-host","protocol":"WEBDAV","host":"https://media.example.test/","port":443}]"""
             )
             .commit()
 
