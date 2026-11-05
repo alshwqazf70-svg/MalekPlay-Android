@@ -20,7 +20,11 @@ class NetworkProfileStore @Inject constructor(
         .getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
     private val credentialVault = NetworkCredentialVault(appContext)
 
-    fun load(): List<NetworkProfile> {
+    fun load(): List<NetworkProfile> = synchronized(STORE_LOCK) {
+        loadLocked()
+    }
+
+    private fun loadLocked(): List<NetworkProfile> {
         val raw = prefs.getString("profiles", "[]") ?: "[]"
         val array = try {
             JSONArray(raw)
@@ -57,18 +61,22 @@ class NetworkProfileStore @Inject constructor(
     }
 
     fun save(profile: NetworkProfile) {
-        val updated = load().filterNot { it.id == profile.id } + profile
-        persist(updated)
+        synchronized(STORE_LOCK) {
+            val updated = loadLocked().filterNot { it.id == profile.id } + profile
+            persist(updated)
+        }
     }
 
     fun remove(id: String) {
-        val current = load()
-        persist(current.filterNot { it.id == id })
-        try {
-            credentialVault.remove(id)
-        } catch (failure: Throwable) {
-            runCatching { persist(current) }.onFailure(failure::addSuppressed)
-            throw failure
+        synchronized(STORE_LOCK) {
+            val current = loadLocked()
+            persist(current.filterNot { it.id == id })
+            try {
+                credentialVault.remove(id)
+            } catch (failure: Throwable) {
+                runCatching { persist(current) }.onFailure(failure::addSuppressed)
+                throw failure
+            }
         }
     }
 
@@ -89,6 +97,12 @@ class NetworkProfileStore @Inject constructor(
         check(prefs.edit().putString("profiles", array.toString()).commit()) {
             "Could not persist network profiles"
         }
+    }
+
+    private companion object {
+        // Store instances can be created by the service and dependency injection.
+        // Serialize read-modify-write operations across all instances in this process.
+        val STORE_LOCK = Any()
     }
 
     fun defaultPort(protocol: NetworkProtocol): Int = when (protocol) {
