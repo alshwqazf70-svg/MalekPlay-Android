@@ -87,4 +87,19 @@ class NetworkProfileStoreTest {
             assertEquals("Saved network profiles are corrupted", expected.message)
         }
     }
+
+    @Test
+    fun loadsLegacyNameFieldAsDisplayName() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
+            .edit()
+            .putString(
+                "profiles",
+                "[{\\"id\\":\\"legacy-1\\",\\"protocol\\":\\"SMB\\",\\"host\\":\\"nas.example.test\\",\\"port\\":445,\\"name\\":\\"Old NAS label\\"}]"
+            )
+            .commit()
+
+        val loaded = NetworkProfileStore(context).load().single()
+        assertEquals("Old NAS label", loaded.displayName)
+    }
 }
