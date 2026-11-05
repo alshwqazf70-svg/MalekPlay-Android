@@ -24,6 +24,7 @@ class SftpClient @Inject constructor() {
         require(knownHostsFile.isFile && knownHostsFile.length() > 0L) {
             "يجب توفير ملف known_hosts موثوق قبل الاتصال"
         }
+        val safeRemotePath = normalizeSftpRemotePath(remotePath)
         val ssh = SSHClient()
         NetworkClientTimeouts.configureSsh(ssh)
         try {
@@ -36,12 +37,12 @@ class SftpClient @Inject constructor() {
                 passwordChars.fill('\u0000')
             }
             ssh.newSFTPClient().use { sftp ->
-                sftp.ls(remotePath).mapNotNull { item ->
+                sftp.ls(safeRemotePath).mapNotNull { item ->
                     val name = item.name
-                    if (name == "." || name == "..") null
+                    if (!isSafeNetworkEntryName(name)) null
                     else NetworkEntry(
                         name = name,
-                        path = remotePath.trimEnd('/') + "/" + name,
+                        path = safeRemotePath.trimEnd('/') + "/" + name,
                         isDirectory = item.isDirectory,
                         sizeBytes = item.attributes.size
                     )
