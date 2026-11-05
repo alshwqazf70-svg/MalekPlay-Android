@@ -627,12 +627,15 @@ fun VideoPlayerScreen(
                     }
 
 
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     PlayerSeekRow(
                         positionMs = positionMs,
                         durationMs = durationMs,
                         bufferedMs = bufferedMs,
                         onScrubFinished = viewModel::seekTo
                     )
+                    }
+
 
                     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     PlayerMainControls(

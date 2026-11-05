@@ -346,6 +346,7 @@ fun AudioPlayerScreen(
             Spacer(Modifier.height(18.dp))
 
             val total = durationMs.takeIf { it > 0L } ?: 0L
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             Slider(
                 value = (if (total > 0L) positionMs.toFloat() / total else 0f).coerceIn(0f, 1f),
                 onValueChange = { value -> viewModel.seekTo((value * total).toLong()) },
@@ -356,6 +357,9 @@ fun AudioPlayerScreen(
                     inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest
                 )
             )
+            }
+
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     formatDuration(positionMs),
@@ -369,6 +373,8 @@ fun AudioPlayerScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            }
+
 
             Spacer(Modifier.weight(1f))
 
