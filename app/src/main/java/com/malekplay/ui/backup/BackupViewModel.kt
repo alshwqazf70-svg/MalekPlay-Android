@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.malekplay.backup.MalekPlayBackupManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,6 +39,8 @@ class BackupViewModel @Inject constructor(
             _message.value = startMessage
             try {
                 _message.value = withContext(Dispatchers.IO) { action() }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 _message.value = "تعذرت العملية: " + (error.localizedMessage ?: "خطأ غير معروف")
             } finally {
