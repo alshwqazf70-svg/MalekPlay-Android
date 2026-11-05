@@ -81,7 +81,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
             next.forEach { p ->
                 put(JSONObject().put("id", p.id).put("protocol", p.protocol.name)
                     .put("host", p.host).put("port", p.port).put("username", p.username)
-                    .put("rootPath", p.rootPath).put("name", p.displayName))
+                    .put("rootPath", p.rootPath).put("displayName", p.displayName))
             }
         }
         prefs.edit().putString("profiles", json.toString()).apply()
@@ -258,7 +258,7 @@ private fun loadProfiles(raw: String): List<NetworkProfile> = runCatching {
         for (i in 0 until array.length()) {
             val o = array.getJSONObject(i)
             add(NetworkProfile(o.getString("id"), NetworkProtocol.valueOf(o.getString("protocol")),
-                o.getString("host"), o.getInt("port"), o.optString("username"), o.optString("rootPath", "/"), o.optString("name", o.getString("host")) ))
+                o.getString("host"), o.getInt("port"), o.optString("username"), o.optString("rootPath", "/"), o.optString("displayName").ifBlank { o.optString("name", o.getString("host")) } ))
         }
     }
 }.getOrDefault(emptyList())
