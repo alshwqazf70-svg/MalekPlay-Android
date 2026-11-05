@@ -220,7 +220,30 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                                             onPlayNetworkMedia(mediaUri, entry.name)
                                         }
                                     } else {
-                                        message = "التصفح يعمل، لكن تشغيل SMB وSFTP داخل المشغل لم يُفعّل بعد. سنفعّلهما بعد إضافة موصل بث قابل للبحث والتنقل واختباره."
+                                        runCatching {
+                                            require(profile.protocol != NetworkProtocol.WEBDAV) {
+                                                "بروتوكول WebDAV يستخدم رابط HTTPS"
+                                            }
+                                            val segments = entry.path.split('/').filter { it.isNotBlank() }
+                                            require(segments.isNotEmpty() &&
+                                                segments.none { it == "." || it == ".." || it.contains('\\u0000') }) {
+                                                "مسار الملف البعيد غير صالح"
+                                            }
+                                            val scheme = when (profile.protocol) {
+                                                NetworkProtocol.SMB -> "maleksmb"
+                                                NetworkProtocol.SFTP -> "maleksftp"
+                                                NetworkProtocol.WEBDAV -> error("بروتوكول غير مدعوم")
+                                            }
+                                            val mediaUri = Uri.Builder()
+                                                .scheme(scheme)
+                                                .authority(profile.id)
+                                                .apply { segments.forEach(::appendPath) }
+                                                .build()
+                                            message = "جارٍ فتح ${entry.name} عبر ${profile.protocol}..."
+                                            onPlayNetworkMedia(mediaUri, entry.name)
+                                        }.onFailure {
+                                            message = "تعذر تجهيز الملف للتشغيل: ${it.localizedMessage ?: "مسار غير صالح"}"
+                                        }
                                     }
                                 }
                             ) {
