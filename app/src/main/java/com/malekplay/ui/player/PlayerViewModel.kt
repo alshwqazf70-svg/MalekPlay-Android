@@ -649,7 +649,7 @@ class PlayerViewModel @Inject constructor(
      */
     suspend fun savedPlaybackSpeedFor(mediaId: String, fallback: Float): Float {
         val safeFallback = PlaybackValuePolicy.normalizeSpeed(fallback)
-        val progress = runCatching { mediaRepository.getProgress(mediaId) }.getOrNull()
+        val progress = runCatchingCancellable { mediaRepository.getProgress(mediaId) }.getOrNull()
             ?: return safeFallback
         return PlaybackValuePolicy.normalizeSpeed(progress.playbackSpeed)
     }
