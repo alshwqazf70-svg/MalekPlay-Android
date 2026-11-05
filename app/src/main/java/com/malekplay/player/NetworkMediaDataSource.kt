@@ -217,13 +217,15 @@ class NetworkMediaDataSource(
         val segments = uri.pathSegments
         val credentials = credentialVault.load(profile.id)
             ?: throw IOException("بيانات اعتماد مصدر الشبكة غير متاحة؛ أعد حفظ بيانات الدخول")
+        val expectedFileLength = fileLength
         closeRemoteConnections()
         when (profile.protocol) {
             NetworkProtocol.SMB -> openSmb(profile, credentials.first, credentials.second, segments)
             NetworkProtocol.SFTP -> openSftp(profile, credentials.first, credentials.second, segments)
             NetworkProtocol.WEBDAV -> throw IOException("مصدر WebDAV لا يستخدم هذا المسار")
         }
-        if (position > fileLength) throw EOFException("تغير حجم الملف البعيد أثناء إعادة الاتصال")
+        validateReconnectedFileLength(expectedFileLength, fileLength)
+        if (position > fileLength) throw EOFException("موضع القراءة يتجاوز حجم الملف بعد إعادة الاتصال")
     }
 
     override fun getUri(): Uri? = currentUri
@@ -289,6 +291,15 @@ internal fun validateNetworkReadCount(count: Int, requested: Int): Int {
 internal fun validateRemoteFileLength(length: Long): Long {
     if (length < 0L) throw IOException("مصدر الشبكة أعاد حجماً غير صالح للملف")
     return length
+}
+
+/** Refuses to continue a resumed read if the remote object changed size. */
+internal fun validateReconnectedFileLength(expectedLength: Long, actualLength: Long): Long {
+    validateRemoteFileLength(actualLength)
+    if (expectedLength < 0L || actualLength != expectedLength) {
+        throw IOException("تغير حجم الملف البعيد أثناء إعادة الاتصال؛ أُوقف التشغيل لمنع دمج أجزاء غير متطابقة")
+    }
+    return actualLength
 }
 
 /** Retry transient zero-byte responses without returning a no-progress read. */
