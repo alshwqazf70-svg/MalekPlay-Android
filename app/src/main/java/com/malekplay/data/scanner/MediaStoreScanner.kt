@@ -258,7 +258,9 @@ class MediaStoreScanner(context: Context) {
             projection,
             selection,
             null,
-            "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+            // Scan order is irrelevant: batches are upserted by stable media id.
+            // Avoid asking MediaStore to sort the entire library on every refresh.
+            null
         ) ?: throw IllegalStateException(
             "MediaStore returned a null cursor for ${if (isVideo) "video" else "audio"}"
         )
