@@ -26,7 +26,7 @@ class NetworkProfileValidationTest {
             "media.example.com?token=x",
             "media.example.com#fragment",
             "media example.com",
-            "media.example.com\\r\\nHost:evil"
+            "media.example.com\r\nHost:evil"
         ).forEach { host ->
             assertThrows(IllegalArgumentException::class.java) {
                 profile(host = host)
@@ -38,9 +38,9 @@ class NetworkProfileValidationTest {
     fun rejectsInvalidPortAndControlCharactersInMetadata() {
         assertThrows(IllegalArgumentException::class.java) { profile(port = 0) }
         assertThrows(IllegalArgumentException::class.java) { profile(port = 65536) }
-        assertThrows(IllegalArgumentException::class.java) { profile(rootPath = "/media\\u0000/private") }
-        assertThrows(IllegalArgumentException::class.java) { profile(username = "admin\\r\\n") }
-        assertThrows(IllegalArgumentException::class.java) { profile(displayName = "NAS\\nserver") }
+        assertThrows(IllegalArgumentException::class.java) { profile(rootPath = "/media\u0000/private") }
+        assertThrows(IllegalArgumentException::class.java) { profile(username = "admin\r\n") }
+        assertThrows(IllegalArgumentException::class.java) { profile(displayName = "NAS\nserver") }
     }
 
     private fun profile(
