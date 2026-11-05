@@ -278,8 +278,16 @@ class NetworkViewModel @Inject constructor(
                 return@launch
             }
             val credentials = credentialsResult.getOrNull()
-            val username = credentials?.first?.takeIf { it.isNotBlank() } ?: profile.username
-            val password = credentials?.second.orEmpty()
+            if (credentials == null) {
+                _browse.value = BrowseUiState(
+                    profileId = profile.id,
+                    path = target,
+                    error = "بيانات اعتماد مصدر الشبكة غير محفوظة. أعد حفظ بيانات الدخول قبل الاتصال."
+                )
+                return@launch
+            }
+            val username = credentials.first
+            val password = credentials.second
             val result = runCatching {
                 when (profile.protocol) {
                     NetworkProtocol.WEBDAV -> webDavClient.list(
