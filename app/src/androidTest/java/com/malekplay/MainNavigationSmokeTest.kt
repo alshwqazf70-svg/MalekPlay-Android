@@ -24,6 +24,14 @@ class MainNavigationSmokeTest {
         composeRule.onNodeWithText("MalekPlay").assertExists()
         composeRule.onNodeWithText("Movies").performClick()
         composeRule.onNodeWithText("Series").performClick()
+        composeRule.onNodeWithText("Music").performClick()
+        composeRule.onNodeWithText("Home").performClick()
+        composeRule.onNodeWithText("MalekPlay").assertExists()
+
+        // Repeated tab changes must not leave a stale restored destination.
+        composeRule.onNodeWithText("Music").performClick()
+        composeRule.onNodeWithText("Home").performClick()
+        composeRule.onNodeWithText("Movies").performClick()
         composeRule.onNodeWithText("Home").performClick()
         composeRule.onNodeWithText("MalekPlay").assertExists()
     }
