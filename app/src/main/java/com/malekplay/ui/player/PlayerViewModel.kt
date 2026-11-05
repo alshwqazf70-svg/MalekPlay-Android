@@ -32,6 +32,7 @@ import com.malekplay.player.PlaybackValuePolicy
 import com.malekplay.player.mediaItemFromUri
 import com.malekplay.player.audio.AudioEffectsController
 import com.malekplay.player.toMedia3Item
+import com.malekplay.translation.SubtitleTranslationEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -82,7 +83,8 @@ class PlayerViewModel @Inject constructor(
     private val userDataRepository: UserDataRepository,
     val audioEffects: AudioEffectsController,
     val pipController: PipController,
-    private val onlineSubtitleRepository: OnlineSubtitleRepository
+    private val onlineSubtitleRepository: OnlineSubtitleRepository,
+    private val subtitleTranslationEngine: SubtitleTranslationEngine
 ) : ViewModel() {
 
     private val _controller = MutableStateFlow<MediaController?>(null)
@@ -144,6 +146,14 @@ class PlayerViewModel @Inject constructor(
     val onlineSubtitleError: StateFlow<String?> = _onlineSubtitleError.asStateFlow()
     private val _onlineSubtitleCredentialsReady = MutableStateFlow(onlineSubtitleRepository.hasCredentials())
     val onlineSubtitleCredentialsReady: StateFlow<Boolean> = _onlineSubtitleCredentialsReady.asStateFlow()
+
+    private val _subtitleTranslationAvailable = MutableStateFlow(false)
+    val subtitleTranslationAvailable: StateFlow<Boolean> = _subtitleTranslationAvailable.asStateFlow()
+    private val _subtitleTranslationLoading = MutableStateFlow(false)
+    val subtitleTranslationLoading: StateFlow<Boolean> = _subtitleTranslationLoading.asStateFlow()
+    private val _subtitleTranslationError = MutableStateFlow<String?>(null)
+    val subtitleTranslationError: StateFlow<String?> = _subtitleTranslationError.asStateFlow()
+    private var translationSourceSubtitleUri: Uri? = null
 
     private val _sleepTimerEndsAtMs = MutableStateFlow(0L)
     val sleepTimerEndsAtMs: StateFlow<Long> = _sleepTimerEndsAtMs.asStateFlow()
@@ -246,6 +256,9 @@ class PlayerViewModel @Inject constructor(
             // The player already points at the new item here. Do not save its
             // position under the previous item's id.
             currentMediaId = mediaItem?.mediaId
+            translationSourceSubtitleUri = null
+            _subtitleTranslationAvailable.value = false
+            _subtitleTranslationError.value = null
             _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
             _queueSize.value = _controller.value?.mediaItemCount ?: 0
             viewModelScope.launch {
@@ -401,7 +414,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     /** Adds an external subtitle without discarding the current playback queue. */
-    fun addExternalSubtitle(uri: Uri) {
+    fun addExternalSubtitle(uri: Uri, rememberAsTranslationSource: Boolean = true) {
         val player = _controller.value ?: run {
             _playerError.value = "مشغل الفيديو غير جاهز"
             return
@@ -423,6 +436,11 @@ class PlayerViewModel @Inject constructor(
             _playerError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
             return
         }
+        if (rememberAsTranslationSource) {
+            translationSourceSubtitleUri = uri
+            _subtitleTranslationAvailable.value = true
+            _subtitleTranslationError.value = null
+        }
         val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
         if (existing.any { it.uri == uri }) return
 
@@ -443,6 +461,31 @@ class PlayerViewModel @Inject constructor(
         player.prepare()
         player.playWhenReady = playWhenReady
         _playerError.value = null
+    }
+
+    /** Translates the currently added external SRT subtitle to Arabic on-device. */
+    fun translateCurrentSubtitleToArabic() {
+        val source = translationSourceSubtitleUri ?: run {
+            _subtitleTranslationError.value = "أضف ملف ترجمة خارجي أولاً"
+            return
+        }
+        if (_subtitleTranslationLoading.value) return
+        viewModelScope.launch {
+            _subtitleTranslationLoading.value = true
+            _subtitleTranslationError.value = null
+            try {
+                val translated = withContext(Dispatchers.IO) {
+                    subtitleTranslationEngine.translateSrtToArabic(source)
+                }
+                addExternalSubtitle(translated, rememberAsTranslationSource = false)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _subtitleTranslationError.value = error.message ?: "تعذرت ترجمة ملف الترجمة"
+            } finally {
+                _subtitleTranslationLoading.value = false
+            }
+        }
     }
 
     // --------------------------------------------------------------- tracks
