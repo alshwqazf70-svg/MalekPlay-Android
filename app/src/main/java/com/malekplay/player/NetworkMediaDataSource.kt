@@ -77,7 +77,7 @@ class NetworkMediaDataSource(
             ?: throw IOException("بيانات اعتماد مصدر الشبكة غير متاحة؛ أعد حفظ بيانات الدخول")
             val segments = dataSpec.uri.pathSegments
             require(dataSpec.position >= 0L) { "موضع القراءة غير صالح" }
-            require(dataSpec.length == C.LENGTH_UNSET.toLong() || dataSpec.length > 0L) {
+            require(dataSpec.length == C.LENGTH_UNSET.toLong() || dataSpec.length >= 0L) {
                 "طول القراءة غير صالح"
             }
 
@@ -135,7 +135,7 @@ class NetworkMediaDataSource(
             EnumSet.noneOf(SMB2CreateOptions::class.java)
         ) as? SmbFile ?: throw IOException("المسار المحدد ليس ملفاً عادياً")
         smbFile = file
-        fileLength = file.getFileInformation(FileStandardInformation::class.java).endOfFile
+        fileLength = validateRemoteFileLength(file.getFileInformation(FileStandardInformation::class.java).endOfFile)
     }
 
     private fun openSftp(
@@ -164,7 +164,7 @@ class NetworkMediaDataSource(
         val remotePath = "/" + segments.joinToString("/")
         val file = sftp.open(remotePath)
         sftpFile = file
-        fileLength = file.length()
+        fileLength = validateRemoteFileLength(file.length())
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
@@ -283,6 +283,12 @@ internal fun validateNetworkReadCount(count: Int, requested: Int): Int {
     if (count == 0) throw IOException("مصدر الشبكة لم يحقق أي تقدم في القراءة")
     if (count > requested) throw IOException("مصدر الشبكة أعاد حجماً أكبر من المطلوب")
     return count
+}
+
+/** SMB/SFTP sources must provide a real, non-negative random-access file length. */
+internal fun validateRemoteFileLength(length: Long): Long {
+    if (length < 0L) throw IOException("مصدر الشبكة أعاد حجماً غير صالح للملف")
+    return length
 }
 
 /** Retry transient zero-byte responses without returning a no-progress read. */
