@@ -36,7 +36,7 @@ class SmbClient {
                         val normalized = path.trim('/').replace('/', '\\')
                         share.list(normalized).mapNotNull { entry ->
                             val name = entry.fileName
-                            if (name == "." || name == "..") null
+                            if (!isSafeNetworkEntryName(name)) null
                             else {
                                 val directory = (entry.fileAttributes and FileAttributes.FILE_ATTRIBUTE_DIRECTORY.value) != 0L
                                 NetworkEntry(
