@@ -33,6 +33,7 @@ import com.malekplay.player.audio.AudioEffectsController
 import com.malekplay.player.toMedia3Item
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
@@ -268,7 +269,7 @@ class PlayerViewModel @Inject constructor(
             // never expose raw MediaCodec internals to the viewer.
             Log.e(
                 LOG_TAG,
-                "Playback failed: code=${error.errorCodeName}, mediaId=${currentMediaId ?: "unknown"}",
+                "Playback failed: code=${error.errorCodeName}",
                 error
             )
             _playerError.value =
@@ -346,7 +347,7 @@ class PlayerViewModel @Inject constructor(
         _playerError.value = null
         player.setMediaItem(mediaItemFromUri(uri))
         player.seekTo(startPositionMs.coerceAtLeast(0L))
-        player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
+        player.setPlaybackSpeed(PlaybackValuePolicy.normalizeSpeed(speed))
         player.prepare()
         player.playWhenReady = true
         refreshStats()
@@ -585,7 +586,7 @@ class PlayerViewModel @Inject constructor(
 
     fun toggleFavourite(mediaId: String) {
         viewModelScope.launch {
-            runCatching { userDataRepository.toggleFavourite(mediaId) }
+            runCatchingCancellable { userDataRepository.toggleFavourite(mediaId) }
         }
     }
 
@@ -595,13 +596,13 @@ class PlayerViewModel @Inject constructor(
 
     fun addBookmark(mediaId: String, positionMs: Long, label: String) {
         viewModelScope.launch {
-            runCatching { mediaRepository.addBookmark(mediaId, positionMs, label) }
+            runCatchingCancellable { mediaRepository.addBookmark(mediaId, positionMs, label) }
         }
     }
 
     fun deleteBookmark(bookmarkId: Long) {
         viewModelScope.launch {
-            runCatching { mediaRepository.deleteBookmark(bookmarkId) }
+            runCatchingCancellable { mediaRepository.deleteBookmark(bookmarkId) }
         }
     }
 
@@ -636,7 +637,7 @@ class PlayerViewModel @Inject constructor(
 
     /** Reads the saved resume point so the UI can offer "Resume from 12:34". */
     suspend fun savedPositionFor(mediaId: String): Long {
-        val progress = runCatching { mediaRepository.getProgress(mediaId) }.getOrNull()
+        val progress = runCatchingCancellable { mediaRepository.getProgress(mediaId) }.getOrNull()
             ?: return 0L
         if (progress.isCompleted) return 0L
         return progress.positionMs
@@ -655,7 +656,7 @@ class PlayerViewModel @Inject constructor(
 
     /** Loads one media row so the player can render its title and artwork. */
     suspend fun loadMedia(mediaId: String): DomainMedia? =
-        runCatching { mediaRepository.getMedia(mediaId) }.getOrNull()
+        runCatchingCancellable { mediaRepository.getMedia(mediaId) }.getOrNull()
 
     /**
      * Builds the complete local music queue for MediaSession controls.
@@ -666,7 +667,7 @@ class PlayerViewModel @Inject constructor(
         mediaRepository.observeAudio().first().map { it.media }
 
     suspend fun toLibraryItems(uris: List<Uri>): List<LibraryItem> =
-        runCatching { mediaRepository.getMediaList(uris.map { it.toString() }) }
+        runCatchingCancellable { mediaRepository.getMediaList(uris.map { it.toString() }) }
             .getOrDefault(emptyList())
             .map { LibraryItem(media = it) }
 
@@ -690,6 +691,8 @@ class PlayerViewModel @Inject constructor(
                 }
                 _onlineSubtitleResults.value = results
                 if (results.isEmpty()) _onlineSubtitleError.value = "لم نعثر على ترجمة مطابقة. جرّب تعديل اسم العنوان أو اللغة."
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 _onlineSubtitleError.value = error.message ?: "تعذر البحث عن الترجمة"
             } finally {
@@ -705,6 +708,8 @@ class PlayerViewModel @Inject constructor(
             try {
                 val uri = withContext(Dispatchers.IO) { onlineSubtitleRepository.download(subtitle) }
                 addExternalSubtitle(uri)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 _onlineSubtitleError.value = error.message ?: "تعذر تنزيل الترجمة"
             } finally {
@@ -727,4 +732,16 @@ class PlayerViewModel @Inject constructor(
         const val LOG_TAG = "MalekPlayPlayer"
         const val TICK_INTERVAL_MS = 500L
     }
+}
+
+
+/** Preserve structured coroutine cancellation when converting recoverable failures. */
+private suspend fun <T> runCatchingCancellable(
+    block: suspend () -> T
+): Result<T> = try {
+    Result.success(block())
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (error: Exception) {
+    Result.failure(error)
 }
