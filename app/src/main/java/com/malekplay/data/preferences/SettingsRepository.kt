@@ -1,9 +1,11 @@
 package com.malekplay.data.preferences
 
 import android.content.Context
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -17,10 +19,14 @@ import com.malekplay.domain.model.SortMode
 import com.malekplay.domain.model.ViewMode
 import com.malekplay.player.PlaybackValuePolicy
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-private val Context.malekPlayDataStore by preferencesDataStore(name = "malekplay_settings")
+private val Context.malekPlayDataStore by preferencesDataStore(
+    name = "malekplay_settings",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 class SettingsRepository(private val context: Context) {
 
@@ -58,7 +64,11 @@ class SettingsRepository(private val context: Context) {
         val VIEW_MODE = stringPreferencesKey("view_mode")
     }
 
-    val settings: Flow<PlayerSettings> = context.malekPlayDataStore.data.map { p -> p.toSettings() }
+    val settings: Flow<PlayerSettings> = context.malekPlayDataStore.data
+        .catch { error ->
+            if (error is java.io.IOException) emit(emptyPreferences()) else throw error
+        }
+        .map { preferences -> preferences.toSettings() }
 
     suspend fun currentSettings(): PlayerSettings = settings.first()
 
