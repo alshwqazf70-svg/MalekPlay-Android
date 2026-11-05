@@ -71,6 +71,7 @@ import com.malekplay.network.NetworkProtocol
 import com.malekplay.network.SmbClient
 import com.malekplay.network.SftpClient
 import com.malekplay.network.WebDavClient
+import com.malekplay.player.NetworkPlaybackUriBuilder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -84,36 +85,34 @@ import java.util.UUID
 import javax.inject.Inject
 
 
-/** Builds credential-free media Uris resolved against the saved profile in PlaybackService. */
+/** Builds a validated, credential-free Uri for the selected network file. */
 private fun networkMediaUri(profile: NetworkProfile, remotePath: String): Uri {
-    val segments = remotePath.split('/').filter { it.isNotBlank() }
     return when (profile.protocol) {
         NetworkProtocol.WEBDAV -> {
             val host = profile.host.trim()
                 .removePrefix("https://")
                 .removePrefix("http://")
                 .trimEnd('/')
+            val urlHost = if (host.contains(':') && !host.startsWith('[')) "[$host]" else host
+            val configuredEndpoint = Uri.parse("https://$urlHost:${profile.port}")
             val candidate = Uri.parse(remotePath)
-            val configuredEndpoint = Uri.parse("https://$host:${profile.port}")
             val candidatePort = if (candidate.port == -1) 443 else candidate.port
-            if (candidate.scheme.equals("https", ignoreCase = true) &&
-                candidate.host.equals(configuredEndpoint.host, ignoreCase = true) &&
-                candidatePort == configuredEndpoint.port &&
-                candidate.userInfo == null
-            ) {
-                candidate
-            } else {
-                Uri.parse("https://$host:${profile.port}").buildUpon().apply {
-                    segments.forEach(::appendPath)
-                }.build()
-            }
+            require(
+                candidate.scheme.equals("https", ignoreCase = true) &&
+                    candidate.host.equals(configuredEndpoint.host, ignoreCase = true) &&
+                    candidatePort == configuredEndpoint.port &&
+                    candidate.userInfo == null
+            ) { "رابط WebDAV لا يطابق الخادم المحفوظ" }
+            candidate
         }
-        NetworkProtocol.SMB -> Uri.Builder().scheme("maleksmb").authority(profile.id).apply {
-            segments.forEach(::appendPath)
-        }.build()
-        NetworkProtocol.SFTP -> Uri.Builder().scheme("maleksftp").authority(profile.id).apply {
-            segments.forEach(::appendPath)
-        }.build()
+        NetworkProtocol.SMB, NetworkProtocol.SFTP -> {
+            val fileName = remotePath.substringAfterLast('/').takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException("مسار ملف الشبكة فارغ")
+            NetworkPlaybackUriBuilder.build(
+                profile,
+                NetworkEntry(name = fileName, path = remotePath, isDirectory = false)
+            )
+        }
     }
 }
 
