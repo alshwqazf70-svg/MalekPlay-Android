@@ -15,7 +15,9 @@ fun normalizeNetworkHost(rawHost: String): String {
 
     require(host.isNotBlank() && host.length <= 253) { "اسم خادم الشبكة غير صالح" }
     require(host.none { it.isWhitespace() || it.isISOControl() }) { "اسم الخادم لا يجب أن يحتوي على مسافات أو محارف تحكم" }
-    require(host.none { it in "/\\\\@?#" }) { "أدخل اسم الخادم فقط دون مسار أو بيانات رابط" }
+    require(host.none {
+        it == '/' || it == '\\\\' || it == '@' || it == '?' || it == '#'
+    }) { "أدخل اسم الخادم فقط دون مسار أو بيانات رابط" }
     require(host.count { it == ':' } != 1) { "لا تضع المنفذ داخل اسم الخادم؛ أدخله في حقل المنفذ" }
     return host
 }
