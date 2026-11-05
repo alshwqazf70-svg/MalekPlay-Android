@@ -28,13 +28,13 @@ data class NetworkProfile(
         require(port in 1..65535) {
             "منفذ الاتصال يجب أن يكون بين 1 و65535"
         }
-        require(rootPath.length <= 2048 && rootPath.none(::isUnsafeControl)) {
+        require(rootPath.length <= 2048 && rootPath.none { it.isISOControl() }) {
             "مسار المصدر طويل جداً أو يحتوي على محارف تحكم غير مسموحة"
         }
-        require(username.length <= 512 && username.none(::isUnsafeControl)) {
+        require(username.length <= 512 && username.none { it.isISOControl() }) {
             "اسم المستخدم طويل جداً أو يحتوي على محارف تحكم غير مسموحة"
         }
-        require(displayName.length <= 128 && displayName.none(::isUnsafeControl)) {
+        require(displayName.length <= 128 && displayName.none { it.isISOControl() }) {
             "اسم العرض طويل جداً أو يحتوي على محارف تحكم غير مسموحة"
         }
     }
@@ -48,12 +48,9 @@ data class NetworkProfile(
         fun isValidHost(value: String): Boolean {
             if (value.isBlank() || value.length > 253) return false
             if (value != value.trim()) return false
-            if (value.any { it.isWhitespace() || isUnsafeControl(it) }) return false
+            if (value.any { it.isWhitespace() || it.isISOControl() }) return false
             if (value.any { it in "/\\\\@?#" }) return false
             return true
         }
-
-        fun isUnsafeControl(char: Char): Boolean =
-            char == '\u0000' || char == '\r' || char == '\n' || char.isISOControl()
     }
 }
