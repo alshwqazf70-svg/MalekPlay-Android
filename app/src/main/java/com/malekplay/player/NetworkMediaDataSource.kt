@@ -72,11 +72,7 @@ class NetworkMediaDataSource(
                 ?: throw IOException("مصدر الشبكة غير محدد")
             val profile = profileStore.load().firstOrNull { it.id == profileId }
                 ?: throw IOException("مصدر الشبكة لم يعد موجوداً")
-            val expectedProtocol = when (dataSpec.uri.scheme?.lowercase()) {
-                "maleksmb" -> NetworkProtocol.SMB
-                "maleksftp" -> NetworkProtocol.SFTP
-                else -> throw IOException("بروتوكول تشغيل الشبكة غير مدعوم")
-            }
+            val expectedProtocol = networkProtocolForScheme(dataSpec.uri.scheme)
             require(profile.protocol == expectedProtocol) { "نوع المصدر لا يطابق رابط التشغيل" }
             val credentials = credentialVault.load(profile.id)
             ?: throw IOException("بيانات اعتماد مصدر الشبكة غير متاحة؛ أعد حفظ بيانات الدخول")
@@ -216,8 +212,12 @@ class NetworkMediaDataSource(
         val profileId = uri.host ?: throw IOException("معرّف مصدر الشبكة مفقود")
         val profile = profileStore.load().firstOrNull { it.id == profileId }
             ?: throw IOException("مصدر الشبكة لم يعد موجوداً")
+        val expectedProtocol = networkProtocolForScheme(uri.scheme)
+        if (profile.protocol != expectedProtocol) {
+            throw IOException("نوع مصدر الشبكة لا يطابق رابط التشغيل أثناء إعادة الاتصال")
+        }
         val segments = uri.pathSegments
-        if (segments.isEmpty()) throw IOException("مسار الملف غير صالح لإعادة الاتصال")
+        NetworkPathPolicy.validateSegments(segments)
         val credentials = credentialVault.load(profile.id)
             ?: throw IOException("بيانات اعتماد مصدر الشبكة غير متاحة؛ أعد حفظ بيانات الدخول")
         closeRemoteConnections()
@@ -267,6 +267,13 @@ class NetworkMediaDataSource(
     private companion object {
         const val MAX_READ_BYTES = 256 * 1024
     }
+}
+
+/** Resolve only the two private playback schemes used by saved SMB/SFTP profiles. */
+internal fun networkProtocolForScheme(scheme: String?): NetworkProtocol = when (scheme?.lowercase()) {
+    "maleksmb" -> NetworkProtocol.SMB
+    "maleksftp" -> NetworkProtocol.SFTP
+    else -> throw IOException("بروتوكول تشغيل الشبكة غير مدعوم")
 }
 
 /**
