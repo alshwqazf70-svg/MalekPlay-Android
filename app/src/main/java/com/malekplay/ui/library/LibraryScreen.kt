@@ -57,6 +57,7 @@ import com.malekplay.domain.model.SortMode
 import com.malekplay.domain.model.ViewMode
 import com.malekplay.ui.components.MediaGridCard
 import com.malekplay.ui.components.MediaThumbnail
+import com.malekplay.ui.components.MediaDeleteButton
 import com.malekplay.ui.components.PlaylistPickerDialog
 import kotlinx.coroutines.flow.Flow
 
@@ -265,7 +266,7 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(9.dp)
                     ) {
                         items(visibleItems, key = { it.media.id }) { item ->
-                            PremiumVideoRow(item) { onVideoClick(item) }
+                            PremiumVideoRow(item, onClick = { onVideoClick(item) }, onDeleted = viewModel::refresh)
                         }
                     }
                 }
@@ -323,7 +324,7 @@ private fun FolderTile(folder: MediaFolder, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PremiumVideoRow(item: LibraryItem, onClick: () -> Unit) {
+private fun PremiumVideoRow(item: LibraryItem, onClick: () -> Unit, onDeleted: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().animateContentSize().clip(RoundedCornerShape(19.dp)).background(Glass)
             .border(1.dp, GlassStroke, RoundedCornerShape(19.dp))
@@ -353,6 +354,7 @@ private fun PremiumVideoRow(item: LibraryItem, onClick: () -> Unit) {
                 color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             else if (item.isCompleted) Text("تمت المشاهدة", color = MalekPlayColors.Emerald, style = MaterialTheme.typography.labelSmall)
         }
+        MediaDeleteButton(media = item.media, onDeleted = onDeleted)
     }
 }
 
