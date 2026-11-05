@@ -469,6 +469,19 @@ private val albumArtworkCache = object : LruCache<String, Bitmap>(16 * 1024 * 10
     override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
 }
 
+/** Keep aggregate album-art bitmaps bounded when Android reports memory pressure. */
+internal fun trimMusicArtworkCache(level: Int) {
+    when {
+        level >= android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE ->
+            albumArtworkCache.evictAll()
+        level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE ->
+            albumArtworkCache.trimToSize(albumArtworkCache.maxSize() / 4)
+        level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN ||
+            level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ->
+            albumArtworkCache.trimToSize(albumArtworkCache.maxSize() / 2)
+    }
+}
+
 @Composable
 private fun Artwork(uri: Uri?, modifier: Modifier = Modifier, mediaUri: Uri? = null) {
     val context = LocalContext.current
