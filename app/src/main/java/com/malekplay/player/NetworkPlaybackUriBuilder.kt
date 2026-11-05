@@ -37,7 +37,7 @@ object NetworkPlaybackUriBuilder {
         return Uri.Builder()
             .scheme(if (profile.protocol == NetworkProtocol.SMB) "maleksmb" else "maleksftp")
             .authority(profile.id)
-            .apply { rawSegments.forEach(::appendPath) }
+            .apply { rawSegments.forEach { appendPath(it) } }
             .build()
     }
 }
