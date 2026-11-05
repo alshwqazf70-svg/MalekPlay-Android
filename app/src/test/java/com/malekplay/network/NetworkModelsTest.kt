@@ -7,6 +7,17 @@ import org.junit.Test
 class NetworkModelsTest {
 
     @Test
+    fun credentialValuesRejectTheReservedSeparator() {
+        validateNetworkCredentials("viewer", "secret")
+        assertThrows(IllegalArgumentException::class.java) {
+            validateNetworkCredentials("view\u0000er", "secret")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validateNetworkCredentials("viewer", "sec\u0000ret")
+        }
+    }
+
+    @Test
     fun normalizesSchemesAndIpv6Brackets() {
         assertEquals("media.example.test", normalizeNetworkHost(" https://media.example.test/ "))
         assertEquals("2001:db8::1", normalizeNetworkHost("[2001:db8::1]"))
