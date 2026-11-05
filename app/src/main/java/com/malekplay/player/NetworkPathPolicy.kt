@@ -20,7 +20,7 @@ internal object NetworkPathPolicy {
                     segment == "." ||
                     segment == ".." ||
                     segment.contains('/') ||
-                    segment.contains('\\\\') ||
+                    segment.contains('\\') ||
                     segment.any { it.isISOControl() }
             }
         ) {
