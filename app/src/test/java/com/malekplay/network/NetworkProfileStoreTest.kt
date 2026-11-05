@@ -102,4 +102,20 @@ class NetworkProfileStoreTest {
         val loaded = NetworkProfileStore(context).load().single()
         assertEquals("Old NAS label", loaded.displayName)
     }
+
+    @Test
+    fun normalizesLegacyUrlHostAndUsesItAsDisplayFallback() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
+            .edit()
+            .putString(
+                "profiles",
+                "[{\\"id\\":\\"legacy-host\\",\\"protocol\\":\\"WEBDAV\\",\\"host\\":\\"https://media.example.test/\\",\\"port\\":443}]"
+            )
+            .commit()
+
+        val loaded = NetworkProfileStore(context).load().single()
+        assertEquals("media.example.test", loaded.host)
+        assertEquals("media.example.test", loaded.displayName)
+    }
 }
