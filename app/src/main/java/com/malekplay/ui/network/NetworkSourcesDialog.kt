@@ -95,7 +95,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                 entries = withContext(Dispatchers.IO) {
                     when (profile.protocol) {
                         NetworkProtocol.WEBDAV -> webDav.list(
-                            "https://${profile.host}:${profile.port}",
+                            httpsNetworkEndpoint(profile.host, profile.port),
                             path.ifBlank { profile.rootPath }, credentials.first, credentials.second
                         )
                         NetworkProtocol.SMB -> {
@@ -160,7 +160,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                         onClick = {
                             val id = "net_" + java.util.UUID.randomUUID().toString().replace("-", "")
                             runCatching {
-                                val profile = NetworkProfile(id, protocol, host.trim(), port.toInt(), username.trim(), rootPath.trim().ifBlank { "/" }, name.trim().ifBlank { host.trim() })
+                                val profile = NetworkProfile(id, protocol, normalizeNetworkHost(host), port.toInt(), username.trim(), rootPath.trim().ifBlank { "/" }, name.trim().ifBlank { host.trim() })
                                 if (protocol == NetworkProtocol.SFTP) {
                                     val importedHosts = knownHosts ?: error("استورد ملف known_hosts الموثوق أولاً")
                                     require(importedHosts.isFile && importedHosts.length() > 0L) { "ملف known_hosts فارغ" }
