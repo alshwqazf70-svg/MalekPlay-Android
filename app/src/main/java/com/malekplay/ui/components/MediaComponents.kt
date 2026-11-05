@@ -1,5 +1,7 @@
 package com.malekplay.ui.components
 
+import android.annotation.SuppressLint
+
 import kotlinx.coroutines.launch
 import androidx.core.content.ContextCompat
 import androidx.compose.runtime.setValue
@@ -549,6 +551,7 @@ fun EmptyState(
  * Android 6-9 use WRITE_EXTERNAL_STORAGE; Android 10 uses recoverable consent;
  * Android 11+ uses the system delete confirmation UI.
  */
+@SuppressLint("NewApi") // RecoverableSecurityException is handled only for Android 10; older versions use the legacy permission path.
 @Composable
 fun MediaDeleteButton(media: MediaItem, compact: Boolean = false, onDeleted: () -> Unit) {
     val context = LocalContext.current
