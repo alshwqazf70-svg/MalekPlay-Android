@@ -124,7 +124,7 @@ internal fun validateWebDavPath(path: String): List<String> {
     require(path.length <= 4096 && '?' !in path && '#' !in path && "://" !in path) {
         "مسار WebDAV غير صالح أو طويل جداً"
     }
-    require(path.none { it.isISOControl() || it == '\\\\' }) {
+    require(path.none { it.isISOControl() || it.code == 92 }) {
         "مسار WebDAV يحتوي على محارف غير مسموحة"
     }
     val rawSegments = path.split('/').filter { it.isNotEmpty() }
@@ -141,7 +141,7 @@ internal fun validateWebDavPath(path: String): List<String> {
                 decoded != "." &&
                 decoded != ".." &&
                 '/' !in decoded &&
-                '\\\\' !in decoded &&
+                decoded.none { it.code == 92 } &&
                 decoded.none { it.isISOControl() } &&
                 !Regex("%[0-9a-fA-F]{2}").containsMatchIn(decoded)
         ) { "مسار WebDAV يحتوي على مكوّن غير آمن" }
