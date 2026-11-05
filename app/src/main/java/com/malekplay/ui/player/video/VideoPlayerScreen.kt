@@ -194,6 +194,9 @@ fun VideoPlayerScreen(
     val onlineSubtitleResults by viewModel.onlineSubtitleResults.collectAsStateWithLifecycle()
     val onlineSubtitleLoading by viewModel.onlineSubtitleLoading.collectAsStateWithLifecycle()
     val onlineSubtitleError by viewModel.onlineSubtitleError.collectAsStateWithLifecycle()
+    val subtitleTranslationAvailable by viewModel.subtitleTranslationAvailable.collectAsStateWithLifecycle()
+    val subtitleTranslationLoading by viewModel.subtitleTranslationLoading.collectAsStateWithLifecycle()
+    val subtitleTranslationError by viewModel.subtitleTranslationError.collectAsStateWithLifecycle()
     val sleepEndsAt by viewModel.sleepTimerEndsAtMs.collectAsStateWithLifecycle()
     val inPip by viewModel.pipController.inPip.collectAsStateWithLifecycle()
 
@@ -301,6 +304,12 @@ fun VideoPlayerScreen(
     }
     var onlineEpisode by remember(title) {
         mutableStateOf(detectedEpisode?.let { it.groupValues[2].ifBlank { it.groupValues[4] } }.orEmpty())
+    }
+
+    LaunchedEffect(subtitleTranslationError) {
+        subtitleTranslationError?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+        }
     }
 
     LaunchedEffect(chromeVisible, isPlaying, locked) {
@@ -636,6 +645,21 @@ fun VideoPlayerScreen(
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.player_search_subtitle_online)) },
                     onClick = { showMenu = false; onlineQuery = title; showOnlineSubtitles = true }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(
+                                if (subtitleTranslationLoading) R.string.subtitle_translate_ar_loading
+                                else R.string.subtitle_translate_ar
+                            )
+                        )
+                    },
+                    enabled = subtitleTranslationAvailable && !subtitleTranslationLoading,
+                    onClick = {
+                        showMenu = false
+                        viewModel.translateCurrentSubtitleToArabic()
+                    }
                 )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.player_restart)) },
