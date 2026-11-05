@@ -11,12 +11,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class BackupViewModel @Inject constructor(
     private val backupManager: MalekPlayBackupManager
 ) : ViewModel() {
+    private val operationMutex = Mutex()
+
     private val _message = MutableStateFlow<String?>(null)
     val message = _message.asStateFlow()
 
@@ -35,6 +39,10 @@ class BackupViewModel @Inject constructor(
 
     private fun runBackup(startMessage: String, action: suspend () -> String) {
         viewModelScope.launch {
+            if (!operationMutex.tryLock()) {
+                _message.value = "توجد عملية نسخ احتياطي قيد التنفيذ؛ انتظر حتى تنتهي"
+                return@launch
+            }
             _busy.value = true
             _message.value = startMessage
             try {
@@ -45,6 +53,7 @@ class BackupViewModel @Inject constructor(
                 _message.value = "تعذرت العملية: " + (error.localizedMessage ?: "خطأ غير معروف")
             } finally {
                 _busy.value = false
+                operationMutex.unlock()
             }
         }
     }
