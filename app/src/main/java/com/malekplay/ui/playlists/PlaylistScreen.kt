@@ -63,6 +63,7 @@ import com.malekplay.data.repository.MediaRepository
 import com.malekplay.data.repository.PlaylistRepository
 import com.malekplay.domain.model.MediaItem
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -114,25 +115,41 @@ class PlaylistViewModel @Inject constructor(
 
     fun removeTrack(mediaId: String) {
         viewModelScope.launch {
-            runCatching { playlistRepository.removeMedia(playlistId.value, mediaId) }
-                .onSuccess { _operationError.value = null }
-                .onFailure { _operationError.value = it.localizedMessage ?: "Playlist operation failed" }
+            try {
+                playlistRepository.removeMedia(playlistId.value, mediaId)
+                _operationError.value = null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _operationError.value = error.localizedMessage ?: "Playlist operation failed"
+            }
         }
     }
 
     fun rename(name: String) {
         viewModelScope.launch {
-            runCatching { playlistRepository.rename(playlistId.value, name) }
-                .onSuccess { _operationError.value = null }
-                .onFailure { _operationError.value = it.localizedMessage ?: "Playlist operation failed" }
+            try {
+                playlistRepository.rename(playlistId.value, name)
+                _operationError.value = null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _operationError.value = error.localizedMessage ?: "Playlist operation failed"
+            }
         }
     }
 
     fun delete(onDeleted: () -> Unit) {
         viewModelScope.launch {
-            runCatching { playlistRepository.delete(playlistId.value) }
-                .onSuccess { _operationError.value = null; onDeleted() }
-                .onFailure { _operationError.value = it.localizedMessage ?: "Playlist operation failed" }
+            try {
+                playlistRepository.delete(playlistId.value)
+                _operationError.value = null
+                onDeleted()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _operationError.value = error.localizedMessage ?: "Playlist operation failed"
+            }
         }
     }
 }
