@@ -43,7 +43,9 @@ class NetworkProfileStore @Inject constructor(
                         port = item.optInt("port", defaultPort(protocol)),
                         username = item.optString("username"),
                         rootPath = item.optString("rootPath", "/"),
-                        displayName = item.optString("displayName").ifBlank { host }
+                        displayName = item.optString("displayName").ifBlank {
+                            item.optString("name").ifBlank { host }
+                        }
                     )
                     check(seenIds.add(profile.id)) { "Duplicate network profile id at index $i" }
                     add(profile)
