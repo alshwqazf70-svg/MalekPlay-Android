@@ -255,7 +255,9 @@ class PlayerViewModel @Inject constructor(
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             // The player already points at the new item here. Do not save its
             // position under the previous item's id.
-            currentMediaId = mediaItem?.mediaId
+            val nextMediaId = mediaItem?.mediaId
+            if (nextMediaId != currentMediaId) nextMediaId?.let(restoredTrackPreferenceIds::remove)
+            currentMediaId = nextMediaId
             translationSourceSubtitleUri = null
             _subtitleTranslationAvailable.value = false
             _subtitleTranslationError.value = null
@@ -437,8 +439,11 @@ class PlayerViewModel @Inject constructor(
             return
         }
         if (rememberAsTranslationSource) {
-            translationSourceSubtitleUri = uri
-            _subtitleTranslationAvailable.value = true
+            val subtitleExtension = uri.lastPathSegment.orEmpty()
+                .substringAfterLast('.', "").lowercase()
+            val canTranslate = subtitleExtension == "srt" || subtitleExtension == "vtt"
+            translationSourceSubtitleUri = uri.takeIf { canTranslate }
+            _subtitleTranslationAvailable.value = canTranslate
             _subtitleTranslationError.value = null
         }
         val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
@@ -632,7 +637,9 @@ class PlayerViewModel @Inject constructor(
                 TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
             )
             .build()
-        persistTrackPreferences(audioTrackId = descriptor.stableId, updateAudio = true)
+        descriptor.stableId?.let {
+            persistTrackPreferences(audioTrackId = it, updateAudio = true)
+        }
     }
 
     fun selectTextTrack(descriptor: TrackDescriptor) {
@@ -644,7 +651,9 @@ class PlayerViewModel @Inject constructor(
             )
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
             .build()
-        persistTrackPreferences(subtitleTrackId = descriptor.stableId, updateSubtitle = true, subtitlesEnabled = true)
+        descriptor.stableId?.let {
+            persistTrackPreferences(subtitleTrackId = it, updateSubtitle = true, subtitlesEnabled = true)
+        }
     }
 
     fun setSubtitlesEnabled(enabled: Boolean) {
