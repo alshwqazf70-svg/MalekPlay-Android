@@ -263,9 +263,8 @@ class PlayerViewModel @Inject constructor(
             currentMediaId = nextMediaId
             _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
             _queueSize.value = _controller.value?.mediaItemCount ?: 0
-            viewModelScope.launch {
-                mediaItem?.mediaId?.let { userDataRepository.isFavourite(it) }
-            }
+            // Favourite state is already observed as a single StateFlow above;
+            // querying the repository on every queue transition was unused work.
         }
 
         override fun onTracksChanged(tracks: Tracks) {
@@ -488,12 +487,22 @@ class PlayerViewModel @Inject constructor(
             return
         }
         if (_subtitleTranslationLoading.value) return
+        val targetMediaId = currentMediaId ?: run {
+            _subtitleTranslationError.value = "لا يوجد ملف نشط لإضافة الترجمة"
+            return
+        }
         viewModelScope.launch {
             _subtitleTranslationLoading.value = true
             _subtitleTranslationError.value = null
             try {
                 val translated = withContext(Dispatchers.IO) {
                     subtitleTranslationEngine.translateSrtToArabic(source)
+                }
+                // Translation can take several seconds. Never attach its result
+                // to a different item if the viewer changed the queue meanwhile.
+                if (currentMediaId != targetMediaId) {
+                    _subtitleTranslationError.value = "تغير الملف أثناء الترجمة؛ أعد المحاولة على الملف الحالي"
+                    return@launch
                 }
                 addExternalSubtitle(translated, rememberAsTranslationSource = false)
             } catch (cancelled: CancellationException) {
@@ -867,11 +876,21 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun downloadOnlineSubtitle(subtitle: OnlineSubtitle) {
+        val targetMediaId = currentMediaId ?: run {
+            _onlineSubtitleError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            return
+        }
         viewModelScope.launch {
             _onlineSubtitleLoading.value = true
             _onlineSubtitleError.value = null
             try {
                 val uri = withContext(Dispatchers.IO) { onlineSubtitleRepository.download(subtitle) }
+                // A subtitle download may finish after an automatic/manual
+                // queue transition. Keep it scoped to the item it was requested for.
+                if (currentMediaId != targetMediaId) {
+                    _onlineSubtitleError.value = "تغير الفيديو أثناء تنزيل الترجمة؛ أعد المحاولة على الفيديو الحالي"
+                    return@launch
+                }
                 addExternalSubtitle(uri)
             } catch (cancelled: CancellationException) {
                 throw cancelled
