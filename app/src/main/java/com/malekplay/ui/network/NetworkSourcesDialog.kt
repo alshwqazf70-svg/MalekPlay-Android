@@ -99,10 +99,15 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                             path.ifBlank { profile.rootPath }, credentials.first, credentials.second
                         )
                         NetworkProtocol.SMB -> {
-                            val parts = profile.rootPath.trim('/').split('/', limit = 2)
-                            require(parts.firstOrNull().orEmpty().isNotBlank()) { "أدخل اسم مشاركة SMB في المسار، مثل media/" }
-                            smb.list(profile.host, profile.port, parts[0], path.ifBlank { parts.getOrNull(1).orEmpty() },
-                                credentials.first, credentials.second)
+                            val (shareName, relativePath) = SmbPathPolicy.resolve(profile.rootPath, path)
+                            smb.list(
+                                profile.host,
+                                profile.port,
+                                shareName,
+                                relativePath,
+                                credentials.first,
+                                credentials.second
+                            )
                         }
                         NetworkProtocol.SFTP -> {
                             val trustedHosts = File(context.filesDir, "network/known_hosts/${profile.id}")
