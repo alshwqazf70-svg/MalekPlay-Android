@@ -69,12 +69,15 @@ import com.malekplay.network.NetworkProfile
 import com.malekplay.network.NetworkProfileStore
 import com.malekplay.network.NetworkProtocol
 import com.malekplay.network.SmbClient
+import com.malekplay.network.SmbPathPolicy
 import com.malekplay.network.SftpClient
 import com.malekplay.network.WebDavClient
 import com.malekplay.player.NetworkPlaybackUriBuilder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -143,6 +146,8 @@ class NetworkViewModel @Inject constructor(
 
     private val _sourceError = MutableStateFlow<String?>(null)
     val sourceError: StateFlow<String?> = _sourceError.asStateFlow()
+
+    private var browseJob: Job? = null
 
     init {
         reload()
@@ -264,20 +269,23 @@ class NetworkViewModel @Inject constructor(
 
     fun browse(profile: NetworkProfile, path: String) {
         val target = path.ifBlank { "/" }
-        viewModelScope.launch {
+        browseJob?.cancel()
+        browseJob = viewModelScope.launch {
             _browse.value = BrowseUiState(profileId = profile.id, path = target, loading = true)
-            val credentialsResult = withContext(Dispatchers.IO) {
-                runCatching { credentialVault.load(profile.id) }
-            }
-            if (credentialsResult.isFailure) {
+
+            val credentials = try {
+                withContext(Dispatchers.IO) { credentialVault.load(profile.id) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
                 _browse.value = BrowseUiState(
                     profileId = profile.id,
                     path = target,
-                    error = "تعذّر فك تشفير بيانات الدخول المحفوظة. أعد إدخال بيانات اعتماد هذا المصدر ثم حاول مجدداً."
+                    error = "تعذّر فك تشفير بيانات الدخول المحفوظة: ${error.localizedMessage ?: "خطأ غير معروف"}"
                 )
                 return@launch
             }
-            val credentials = credentialsResult.getOrNull()
+
             if (credentials == null) {
                 _browse.value = BrowseUiState(
                     profileId = profile.id,
@@ -286,59 +294,57 @@ class NetworkViewModel @Inject constructor(
                 )
                 return@launch
             }
-            val username = credentials.first
-            val password = credentials.second
-            val result = runCatching {
+
+            val entries = try {
                 when (profile.protocol) {
                     NetworkProtocol.WEBDAV -> webDavClient.list(
-                        endpointFor(profile), target, username, password
+                        endpointFor(profile), target, credentials.first, credentials.second
                     )
                     NetworkProtocol.SMB -> {
-                        val segments = target.trim('/').split('/').filter { it.isNotBlank() }
-                        val shareName = segments.firstOrNull() ?: error("مسار مشاركة SMB غير صالح")
-                        val remotePath = segments.drop(1).joinToString("/")
+                        val (shareName, remotePath) = SmbPathPolicy.resolve(profile.rootPath, target)
                         smbClient.list(
                             host = profile.host,
                             port = profile.port,
                             shareName = shareName,
                             path = remotePath,
-                            username = username,
-                            password = password
+                            username = credentials.first,
+                            password = credentials.second
                         )
                     }
                     NetworkProtocol.SFTP -> sftpClient.list(
                         host = profile.host,
                         port = profile.port,
-                        username = username,
-                        password = password,
+                        username = credentials.first,
+                        password = credentials.second,
                         remotePath = target,
                         knownHostsFile = File(context.filesDir, "network/known_hosts/${profile.id}")
                     )
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _browse.value = BrowseUiState(
+                    profileId = profile.id,
+                    path = target,
+                    error = error.localizedMessage ?: error.javaClass.simpleName
+                )
+                return@launch
             }
-            _browse.value = result.fold(
-                onSuccess = { entries ->
-                    BrowseUiState(
-                        profileId = profile.id,
-                        path = target,
-                        entries = entries.sortedWith(
-                            compareByDescending<NetworkEntry> { it.isDirectory }
-                                .thenBy { it.name.lowercase() }
-                        )
-                    )
-                },
-                onFailure = { throwable ->
-                    BrowseUiState(
-                        profileId = profile.id,
-                        path = target,
-                        error = throwable.localizedMessage ?: throwable.javaClass.simpleName
-                    )
-                }
+
+            _browse.value = BrowseUiState(
+                profileId = profile.id,
+                path = target,
+                entries = entries.sortedWith(
+                    compareByDescending<NetworkEntry> { it.isDirectory }
+                        .thenBy { it.name.lowercase() }
+                )
             )
         }
     }
 
     fun closeBrowse() {
+        browseJob?.cancel()
+        browseJob = null
         _browse.value = BrowseUiState()
     }
 
