@@ -267,6 +267,24 @@ fun MalekPlayNavHost(
     }
 }
 
+/** Navigate between primary tabs without restoring a stale saved back stack. */
+private fun NavHostController.navigateToTopLevel(destination: TopLevelDestination) {
+    val route = destination.screen.route
+    if (currentDestination?.hierarchy?.any { it.route == route } == true) return
+
+    // If this tab is already in the active stack, return to its existing entry.
+    if (popBackStack(route, inclusive = false)) return
+
+    // Otherwise replace the previous tab while keeping Home as the stable root.
+    navigate(route) {
+        popUpTo(Screen.Home.route) {
+            inclusive = false
+            saveState = false
+        }
+        launchSingleTop = true
+    }
+}
+
 /** Routes audio to the audio player and video to the video player. */
 private fun NavHostController.openMedia(item: MediaItem) {
     val route = if (item.isVideo) {
@@ -309,14 +327,7 @@ private fun MalekPlayBottomBar(
             NavigationBarItem(
                 selected = selected,
                 onClick = {
-                    navController.navigate(destination.screen.route) {
-                        // Keep one instance per tab and restore its state on reselect.
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            saveState = true
-                        }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
+                    navController.navigateToTopLevel(destination)
                 },
                 icon = {
                     Icon(
