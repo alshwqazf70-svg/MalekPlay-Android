@@ -74,6 +74,13 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        // Once playback is paused/stopped, immediately leave foreground mode so
+        // Android allows the user to swipe the media notification away. Active
+        // playback remains foreground and keeps its notification as expected.
+        setForegroundServiceTimeoutMs(0L)
+        setShowNotificationForIdlePlayer(
+            MediaSessionService.SHOW_NOTIFICATION_FOR_IDLE_PLAYER_NEVER
+        )
         profileStore = NetworkProfileStore(this)
         credentialVault = NetworkCredentialVault(this)
 
