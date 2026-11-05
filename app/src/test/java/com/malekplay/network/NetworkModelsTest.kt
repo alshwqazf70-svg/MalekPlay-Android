@@ -4,7 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class NetworkModelsTest {
