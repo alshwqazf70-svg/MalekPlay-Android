@@ -259,6 +259,8 @@ class NetworkViewModel @Inject constructor(
             }
             if (refreshedProfiles != null) _profiles.value = refreshedProfiles
             if (outcome.isSuccess && _browse.value.profileId == profile.id) {
+                browseJob?.cancel()
+                browseJob = null
                 _browse.value = BrowseUiState()
             }
         }
