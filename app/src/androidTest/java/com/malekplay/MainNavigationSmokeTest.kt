@@ -2,8 +2,9 @@ package com.malekplay
 
 import android.Manifest
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsSelected
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import org.junit.Rule
@@ -20,19 +21,27 @@ class MainNavigationSmokeTest {
     val composeRule = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun homeAndPrimaryNavigationAreVisibleAndReachable() {
-        composeRule.onNodeWithText("MalekPlay").assertExists()
-        composeRule.onNodeWithText("Movies").performClick()
-        composeRule.onNodeWithText("Series").performClick()
-        composeRule.onNodeWithText("Music").performClick()
-        composeRule.onNodeWithText("Home").performClick()
-        composeRule.onNodeWithText("MalekPlay").assertExists()
+    fun primaryTabsRemainReachableAcrossRepeatedSwitches() {
+        val home = composeRule.onNodeWithTag("bottom_nav_home")
+        val movies = composeRule.onNodeWithTag("bottom_nav_movies")
+        val series = composeRule.onNodeWithTag("bottom_nav_series")
+        val music = composeRule.onNodeWithTag("bottom_nav_music")
 
-        // Repeated tab changes must not leave a stale restored destination.
-        composeRule.onNodeWithText("Music").performClick()
-        composeRule.onNodeWithText("Home").performClick()
-        composeRule.onNodeWithText("Movies").performClick()
-        composeRule.onNodeWithText("Home").performClick()
-        composeRule.onNodeWithText("MalekPlay").assertExists()
+        home.assertIsSelected()
+        movies.performClick()
+        movies.assertIsSelected()
+        series.performClick()
+        series.assertIsSelected()
+        music.performClick()
+        music.assertIsSelected()
+        home.performClick()
+        home.assertIsSelected()
+
+        // Repeat fast tab changes to catch stale or duplicate back-stack entries.
+        music.performClick()
+        home.performClick()
+        movies.performClick()
+        home.performClick()
+        home.assertIsSelected()
     }
 }
