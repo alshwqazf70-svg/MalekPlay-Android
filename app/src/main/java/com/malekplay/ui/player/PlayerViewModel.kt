@@ -174,8 +174,10 @@ class PlayerViewModel @Inject constructor(
     /** Idempotent: repeated calls are safe and a failed attempt can be retried. */
     fun connect() {
         if (_controller.value != null) return
-        val pending = controllerFuture
-        if (pending != null && !pending.isDone) return
+        // Keep a completed future until its main-thread listener has published
+        // the controller or reported failure; otherwise a second connect can
+        // replace it before that callback runs and orphan its MediaController.
+        if (controllerFuture != null) return
 
         _connectionError.value = false
         val token = SessionToken(app, ComponentName(app, PlaybackService::class.java))
@@ -267,11 +269,10 @@ class PlayerViewModel @Inject constructor(
         override fun onPlayerError(error: PlaybackException) {
             // Keep the full codec/renderer cause in Logcat for diagnosis, but
             // never expose raw MediaCodec internals to the viewer.
-            Log.e(
-                LOG_TAG,
-                "Playback failed: code=${error.errorCodeName}",
-                error
-            )
+            // Media3 exceptions can include source Uris and local file paths.
+            // Keep diagnostics to the stable error code rather than logging raw
+            // exception messages or stack traces that may expose private paths.
+            Log.e(LOG_TAG, "Playback failed: code=${error.errorCodeName}")
             _playerError.value =
                 "تعذّر تشغيل هذا الفيديو. قد تكون الصيغة أو وحدة فك الترميز غير متوافقة؛ حاول تشغيله مرة أخرى."
         }
