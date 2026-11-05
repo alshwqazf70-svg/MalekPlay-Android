@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,11 +21,15 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +78,15 @@ fun FavouritesScreen(
 ) {
     val viewModel: FavouritesViewModel = hiltViewModel()
     val items by viewModel.favourites.collectAsStateWithLifecycle()
+    var query by remember { mutableStateOf("") }
+    val visibleItems = remember(items, query) {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isEmpty()) items else items.filter { item ->
+            item.media.displayTitle.contains(normalizedQuery, ignoreCase = true) ||
+                item.media.artist.orEmpty().contains(normalizedQuery, ignoreCase = true) ||
+                item.media.folderName.contains(normalizedQuery, ignoreCase = true)
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -90,25 +104,48 @@ fun FavouritesScreen(
                 Text(stringResource(R.string.favourites_empty), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(items, key = { it.media.id }) { item ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onOpenMedia(item.media) }.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    singleLine = true,
+                    label = { Text("بحث في المفضلة") }
+                )
+                if (visibleItems.isEmpty()) {
+                    Column(
+                        Modifier.fillMaxWidth().weight(1f).padding(24.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        MediaThumbnail(item.media, Modifier.size(76.dp, 58.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(item.media.displayTitle, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
-                            Text(item.media.artist.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                        }
-                        MediaDeleteButton(media = item.media, onDeleted = viewModel::refresh)
-                        IconButton(onClick = { viewModel.remove(item.media.id) }) {
-                            Icon(Icons.Filled.Favorite, contentDescription = stringResource(R.string.lib_remove_favourite), tint = MaterialTheme.colorScheme.primary)
+                        Text(
+                            "لا توجد نتائج مطابقة لبحثك",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(visibleItems, key = { it.media.id }) { item ->
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onOpenMedia(item.media) }.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                MediaThumbnail(item.media, Modifier.size(76.dp, 58.dp))
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(item.media.displayTitle, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                                    Text(item.media.artist.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                }
+                                MediaDeleteButton(media = item.media, onDeleted = viewModel::refresh)
+                                IconButton(onClick = { viewModel.remove(item.media.id) }) {
+                                    Icon(Icons.Filled.Favorite, contentDescription = stringResource(R.string.lib_remove_favourite), tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
                         }
                     }
                 }
