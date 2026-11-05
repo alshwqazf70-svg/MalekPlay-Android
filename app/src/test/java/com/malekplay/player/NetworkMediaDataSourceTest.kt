@@ -138,4 +138,14 @@ class NetworkMediaDataSourceTest {
         assertThrows(IOException::class.java) { networkProtocolForScheme("https") }
         assertThrows(IOException::class.java) { networkProtocolForScheme(null) }
     }
+
+    @Test
+    fun acceptsZeroLengthRemoteFiles() {
+        assertEquals(0L, validateRemoteFileLength(0L))
+    }
+
+    @Test
+    fun rejectsUnknownOrNegativeRemoteFileLengths() {
+        assertThrows(IOException::class.java) { validateRemoteFileLength(-1L) }
+    }
 }
