@@ -1,5 +1,21 @@
 package com.malekplay.ui.components
 
+import kotlinx.coroutines.launch
+import androidx.core.content.ContextCompat
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import android.widget.Toast
+import android.content.pm.PackageManager
+import android.app.RecoverableSecurityException
+import android.Manifest
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
@@ -241,6 +257,7 @@ fun MediaListRow(
 
             Spacer(Modifier.width(8.dp))
 
+            MediaDeleteButton(media = media, onDeleted = {})
             IconButton(onClick = onAddToPlaylist) {
                 Icon(Icons.Filled.PlaylistAdd, contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary)
@@ -314,6 +331,7 @@ fun MediaGridCard(
                     Icon(Icons.Filled.PlaylistAdd, contentDescription = "إضافة إلى قائمة التشغيل",
                         tint = Color.White, modifier = Modifier.size(18.dp))
                 }
+                MediaDeleteButton(media = item.media, compact = true, onDeleted = {})
                 Box(
                     Modifier.size(32.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.62f))
                         .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape).clickable(onClick = onFavourite),
@@ -522,4 +540,70 @@ fun EmptyState(
             actions()
         }
     }
+}
+
+/**
+ * Requests platform approval before deleting a MediaStore item.
+ * Android 6-9 use WRITE_EXTERNAL_STORAGE; Android 10 uses recoverable consent;
+ * Android 11+ uses the system delete confirmation UI.
+ */
+@Composable
+fun MediaDeleteButton(media: MediaItem, compact: Boolean = false, onDeleted: () -> Unit) {
+    val context = LocalContext.current
+    val resolver = context.contentResolver
+    val scope = rememberCoroutineScope()
+    var showConfirm by remember { mutableStateOf(false) }
+    val approvalLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            Toast.makeText(context, "تم حذف الملف", Toast.LENGTH_SHORT).show()
+            onDeleted()
+        }
+    }
+    fun requestApproval(sender: android.content.IntentSender) {
+        approvalLauncher.launch(IntentSenderRequest.Builder(sender).build())
+    }
+    fun deleteLegacyFile() {
+        scope.launch {
+            try {
+                val deleted = withContext(Dispatchers.IO) { resolver.delete(media.uri, null, null) }
+                if (deleted > 0) {
+                    Toast.makeText(context, "تم حذف الملف", Toast.LENGTH_SHORT).show()
+                    onDeleted()
+                } else Toast.makeText(context, "تعذر حذف الملف أو أنه غير موجود", Toast.LENGTH_LONG).show()
+            } catch (security: RecoverableSecurityException) {
+                if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) requestApproval(security.userAction.actionIntent.intentSender)
+                else Toast.makeText(context, "لا يملك التطبيق إذن حذف هذا الملف", Toast.LENGTH_LONG).show()
+            } catch (error: Exception) {
+                Toast.makeText(context, error.localizedMessage ?: "تعذر حذف الملف", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) deleteLegacyFile()
+        else Toast.makeText(context, "يلزم السماح بإدارة الملفات لحذفها", Toast.LENGTH_LONG).show()
+    }
+    IconButton(onClick = { showConfirm = true }) {
+        Icon(Icons.Filled.DeleteOutline, contentDescription = "حذف ${'$'}{media.displayTitle}",
+            tint = if (compact) Color.White else MaterialTheme.colorScheme.error,
+            modifier = Modifier.size(if (compact) 18.dp else 22.dp))
+    }
+    if (showConfirm) AlertDialog(
+        onDismissRequest = { showConfirm = false },
+        title = { Text("تأكيد حذف الملف") },
+        text = { Text("هل تريد حذف «${'$'}{media.displayTitle}» من الهاتف نهائيًا؟ سيطلب Android موافقتك قبل تنفيذ الحذف.") },
+        confirmButton = {
+            TextButton(onClick = {
+                showConfirm = false
+                if (media.uri.scheme != "content" || media.uri.authority != "media") {
+                    Toast.makeText(context, "الحذف المباشر متاح لملفات مكتبة الهاتف فقط", Toast.LENGTH_LONG).show()
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    try { requestApproval(MediaStore.createDeleteRequest(resolver, listOf(media.uri)).intentSender) }
+                    catch (error: Exception) { Toast.makeText(context, error.localizedMessage ?: "تعذر طلب إذن الحذف", Toast.LENGTH_LONG).show() }
+                } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) deleteLegacyFile()
+                else if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) deleteLegacyFile()
+                else permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }) { Text("حذف", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = { showConfirm = false }) { Text("إلغاء") } }
+    )
 }
