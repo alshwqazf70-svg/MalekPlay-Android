@@ -220,7 +220,15 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                                             onPlayNetworkMedia(mediaUri, entry.name)
                                         }
                                     } else {
-                                        message = "التصفح يعمل، لكن تشغيل SMB وSFTP داخل المشغل لم يُفعّل بعد. سنفعّلهما بعد إضافة موصل بث قابل للبحث والتنقل واختباره."
+                                        val mediaUri = runCatching {
+                                            com.malekplay.player.NetworkPlaybackUriBuilder.build(profile, entry)
+                                        }.getOrNull()
+                                        if (mediaUri == null) {
+                                            message = "تعذر تجهيز مسار تشغيل الشبكة؛ تحقق من المشاركة والمسار."
+                                        } else {
+                                            message = "جارٍ فتح ${entry.name} في المشغل..."
+                                            onPlayNetworkMedia(mediaUri, entry.name)
+                                        }
                                     }
                                 }
                             ) {
