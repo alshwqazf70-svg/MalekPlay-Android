@@ -214,7 +214,9 @@ class PlaybackService : MediaSessionService() {
                 delay(PROGRESS_SAVE_INTERVAL_MS)
                 val player = mediaSession?.player ?: break
                 if (!player.isPlaying) break
-                saveCurrentProgress()
+                // Wait for each checkpoint before scheduling another one. This
+                // prevents a slow database from accumulating periodic save jobs.
+                saveCurrentProgress()?.join()
             }
         }
     }
