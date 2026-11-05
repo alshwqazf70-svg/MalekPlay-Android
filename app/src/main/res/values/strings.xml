@@ -276,4 +276,6 @@
     <string name="subtitle_save_credentials">Save credentials securely</string>
     <string name="subtitle_search">Search</string>
     <string name="subtitle_downloads">downloads</string>
+    <string name="subtitle_translate_ar">Translate subtitle to Arabic (on device)</string>
+    <string name="subtitle_translate_ar_loading">Translating subtitle…</string>
 </resources>
