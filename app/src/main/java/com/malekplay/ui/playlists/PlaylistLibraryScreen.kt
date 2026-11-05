@@ -42,6 +42,7 @@ import androidx.lifecycle.viewModelScope
 import com.malekplay.data.local.model.PlaylistWithItems
 import com.malekplay.data.repository.PlaylistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -59,9 +60,13 @@ class PlaylistLibraryViewModel @Inject constructor(
 
     fun create(name: String, onCreated: (String) -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch {
-            runCatching { repository.create(name) }
-                .onSuccess(onCreated)
-                .onFailure { onError(it.localizedMessage ?: "تعذر إنشاء قائمة التشغيل") }
+            try {
+                onCreated(repository.create(name))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                onError(error.localizedMessage ?: "تعذر إنشاء قائمة التشغيل")
+            }
         }
     }
 }
