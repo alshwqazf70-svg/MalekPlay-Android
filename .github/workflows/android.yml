@@ -1,11 +1,8 @@
 name: Build MalekPlay Android APK
 
-# Run automatically when a complete fix is pushed to the maintained repair branch.
-# Manual dispatch remains available for deliberate rebuilds.
+# Builds are intentionally manual during the six development phases.
+# Run once after the user approves the final build.
 on:
-  push:
-    branches:
-      - backup/before-updated-2.0
   workflow_dispatch:
     inputs:
       run_emulator:
