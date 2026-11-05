@@ -200,7 +200,8 @@ fun MediaListRow(
     onPlay: () -> Unit,
     onFavourite: () -> Unit,
     onAddToPlaylist: () -> Unit,
-    showFolder: Boolean = false
+    showFolder: Boolean = false,
+    onDeleted: () -> Unit = {}
 ) {
     val media = item.media
     Card(
@@ -257,7 +258,7 @@ fun MediaListRow(
 
             Spacer(Modifier.width(8.dp))
 
-            MediaDeleteButton(media = media, onDeleted = {})
+            MediaDeleteButton(media = media, onDeleted = onDeleted)
             IconButton(onClick = onAddToPlaylist) {
                 Icon(Icons.Filled.PlaylistAdd, contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary)
@@ -296,7 +297,8 @@ fun MediaGridCard(
     modifier: Modifier = Modifier,
     onPlay: () -> Unit,
     onFavourite: () -> Unit,
-    onAddToPlaylist: () -> Unit
+    onAddToPlaylist: () -> Unit,
+    onDeleted: () -> Unit = {}
 ) {
     val shape = RoundedCornerShape(20.dp)
     Column(
@@ -331,7 +333,7 @@ fun MediaGridCard(
                     Icon(Icons.Filled.PlaylistAdd, contentDescription = "إضافة إلى قائمة التشغيل",
                         tint = Color.White, modifier = Modifier.size(18.dp))
                 }
-                MediaDeleteButton(media = item.media, compact = true, onDeleted = {})
+                MediaDeleteButton(media = item.media, compact = true, onDeleted = onDeleted)
                 Box(
                     Modifier.size(32.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.62f))
                         .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape).clickable(onClick = onFavourite),
