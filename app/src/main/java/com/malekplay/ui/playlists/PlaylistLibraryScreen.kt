@@ -15,9 +15,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -53,6 +55,8 @@ class PlaylistLibraryViewModel @Inject constructor(
     val playlists: StateFlow<List<PlaylistWithItems>> = repository.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    fun delete(playlistId: String) { viewModelScope.launch { repository.delete(playlistId) } }
+
     fun create(name: String, onCreated: (String) -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch {
             runCatching { repository.create(name) }
@@ -70,6 +74,7 @@ fun PlaylistLibraryScreen(onOpenPlaylist: (String) -> Unit) {
     var showCreate by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var createError by remember { mutableStateOf<String?>(null) }
+    var deleteTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
     Scaffold(
         topBar = { TopAppBar(title = { Text("قوائم التشغيل") }) },
         floatingActionButton = {
@@ -88,18 +93,37 @@ fun PlaylistLibraryScreen(onOpenPlaylist: (String) -> Unit) {
         } else {
             LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(playlists, key = { it.playlist.playlistId }) { entry ->
-                    Row(Modifier.fillMaxWidth().clickable { onOpenPlaylist(entry.playlist.playlistId) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp))
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(entry.playlist.name, style = MaterialTheme.typography.titleMedium)
-                            Text("${entry.items.size} عنصر", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f).clickable { onOpenPlaylist(entry.playlist.playlistId) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(entry.playlist.name, style = MaterialTheme.typography.titleMedium)
+                                Text("${entry.items.size} عنصر", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        IconButton(onClick = { deleteTarget = entry.playlist.playlistId to entry.playlist.name }) {
+                            Icon(Icons.Filled.DeleteOutline, contentDescription = "حذف قائمة التشغيل", tint = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
             }
         }
     }
+    deleteTarget?.let { (id, playlistName) ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("حذف قائمة التشغيل") },
+            text = { Text("هل تريد حذف قائمة «$playlistName»؟ لن تُحذف ملفات الصوت والفيديو الأصلية.") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.delete(id); deleteTarget = null }) {
+                    Text("حذف", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("إلغاء") } }
+        )
+    }
+
     if (showCreate) {
         AlertDialog(
             onDismissRequest = { showCreate = false },
