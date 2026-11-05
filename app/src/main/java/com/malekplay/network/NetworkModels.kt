@@ -44,6 +44,27 @@ data class NetworkEntry(
     val sizeBytes: Long = 0L
 )
 
+/** A remote directory entry must represent exactly one safe path component. */
+internal fun isSafeNetworkEntryName(name: String): Boolean =
+    name.isNotBlank() &&
+        name != "." &&
+        name != ".." &&
+        name.length <= 255 &&
+        '/' !in name &&
+        name.none { it.code == 92 || it.isISOControl() }
+
+/** SFTP paths are always absolute and may not escape through dot segments. */
+internal fun normalizeSftpRemotePath(rawPath: String): String {
+    require(rawPath.startsWith("/") && rawPath.length <= 4096) {
+        "مسار SFTP يجب أن يكون مطلقاً وألا يتجاوز الحد المسموح"
+    }
+    val segments = rawPath.split('/').filter { it.isNotEmpty() }
+    require(segments.size <= 128 && segments.all(::isSafeNetworkEntryName)) {
+        "مسار SFTP يحتوي على مكونات غير آمنة أو يتجاوز الحدود المسموحة"
+    }
+    return "/" + segments.joinToString("/")
+}
+
 enum class NetworkProtocol { WEBDAV, SMB, SFTP }
 
 data class NetworkProfile(
