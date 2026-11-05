@@ -585,14 +585,14 @@ fun MediaDeleteButton(media: MediaItem, compact: Boolean = false, onDeleted: () 
         else Toast.makeText(context, "يلزم السماح بإدارة الملفات لحذفها", Toast.LENGTH_LONG).show()
     }
     IconButton(onClick = { showConfirm = true }) {
-        Icon(Icons.Filled.DeleteOutline, contentDescription = "حذف ${'$'}{media.displayTitle}",
+        Icon(Icons.Filled.DeleteOutline, contentDescription = "حذف ${media.displayTitle}",
             tint = if (compact) Color.White else MaterialTheme.colorScheme.error,
             modifier = Modifier.size(if (compact) 18.dp else 22.dp))
     }
     if (showConfirm) AlertDialog(
         onDismissRequest = { showConfirm = false },
         title = { Text("تأكيد حذف الملف") },
-        text = { Text("هل تريد حذف «${'$'}{media.displayTitle}» من الهاتف نهائيًا؟ سيطلب Android موافقتك قبل تنفيذ الحذف.") },
+        text = { Text("هل تريد حذف «${media.displayTitle}» من الهاتف نهائيًا؟ سيطلب Android موافقتك قبل تنفيذ الحذف.") },
         confirmButton = {
             TextButton(onClick = {
                 showConfirm = false
