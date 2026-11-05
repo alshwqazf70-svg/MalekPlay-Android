@@ -37,6 +37,16 @@ class SmbPathPolicyTest {
     }
 
     @Test
+    fun rejectsOversizedSmbPathComponentsAndDepth() {
+        assertThrows(IllegalArgumentException::class.java) {
+            SmbPathPolicy.resolve("media", "media/" + "x".repeat(256))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            SmbPathPolicy.resolve("media", "media/" + (1..129).joinToString("/") { "x" })
+        }
+    }
+
+    @Test
     fun rejectsMissingShare() {
         assertThrows(IllegalArgumentException::class.java) {
             SmbPathPolicy.resolve("/", "")

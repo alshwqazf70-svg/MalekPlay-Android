@@ -19,11 +19,24 @@ object SmbPathPolicy {
     }
 
     private fun normalize(path: String): List<String> {
+        require(path.length <= MAX_PATH_LENGTH) { "مسار SMB طويل جداً" }
         val segments = path.split('/').filter { it.isNotBlank() }
-        require(segments.none { segment ->
-            segment == "." || segment == ".." ||
-                segment.contains('\\') || segment.any { it.isISOControl() }
-        }) { "مسار SMB غير صالح" }
+        val totalLength = segments.sumOf { it.length } + (segments.size - 1).coerceAtLeast(0)
+        require(
+            segments.size <= MAX_SEGMENTS &&
+                totalLength <= MAX_PATH_LENGTH &&
+                segments.all { segment ->
+                    segment.length <= MAX_SEGMENT_LENGTH &&
+                        segment != "." && segment != ".." &&
+                        '\\' !in segment &&
+                        segment.none { it.isISOControl() }
+                }
+        ) { "مسار SMB يحتوي على مكونات غير آمنة أو يتجاوز الحدود المسموحة" }
         return segments
     }
+
+    private const val MAX_SEGMENTS = 128
+    private const val MAX_SEGMENT_LENGTH = 255
+    private const val MAX_PATH_LENGTH = 4096
+
 }

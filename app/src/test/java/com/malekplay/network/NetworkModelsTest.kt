@@ -74,6 +74,14 @@ class NetworkModelsTest {
     }
 
     @Test
+    fun canonicalizesEncodedWebDavHrefPathsBeforeBoundaryChecks() {
+        assertEquals("/library/Film 1.mkv", canonicalWebDavHrefPath("/library/Film%201.mkv"))
+        assertEquals(null, canonicalWebDavHrefPath("/library/%2e%2e/private"))
+        assertEquals(null, canonicalWebDavHrefPath("/library/%2Fprivate"))
+        assertEquals(null, canonicalWebDavHrefPath("/library/%252e%252e/private"))
+    }
+
+    @Test
     fun normalizesSafeAbsoluteSftpPaths() {
         assertEquals("/media/videos", normalizeSftpRemotePath("//media/videos/"))
         assertEquals("/", normalizeSftpRemotePath("/"))

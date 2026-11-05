@@ -72,7 +72,8 @@ class WebDavClient {
             }
             val document = body.byteStream().use { factory.newDocumentBuilder().parse(it) }
             val responses = document.getElementsByTagNameNS("*", "response")
-            val collectionPath = target.toURI().normalize().path
+            val collectionPath = canonicalWebDavHrefPath(target.toURI().rawPath)
+                ?: throw IllegalArgumentException("مسار مجموعة WebDAV غير صالح")
             val targetPort = if (target.port == -1) 443 else target.port
             buildList {
                 for (i in 0 until responses.length) {
@@ -82,8 +83,10 @@ class WebDavClient {
                     if (href.isBlank()) continue
                     val resolved = runCatching { URL(target, href) }.getOrNull() ?: continue
                     val resolvedPort = if (resolved.port == -1) 443 else resolved.port
-                    val resolvedPath = runCatching { resolved.toURI().normalize().path }.getOrNull()
-                        ?: continue
+                    // URI.normalize() does not decode percent-encoded dot segments.
+                    val resolvedPath = runCatching {
+                        canonicalWebDavHrefPath(resolved.toURI().rawPath)
+                    }.getOrNull() ?: continue
                     if (!resolved.protocol.equals("https", true) ||
                         !resolved.host.equals(base.host, true) ||
                         resolvedPort != targetPort ||
@@ -92,14 +95,13 @@ class WebDavClient {
                         resolved.ref != null ||
                         !isWithinWebDavCollection(collectionPath, resolvedPath)
                     ) continue
-
                     val name = item.getElementsByTagNameNS("*", "displayname")
                         .item(0)?.textContent?.trim()?.takeIf { it.isNotBlank() }
                         ?: resolved.path.substringAfterLast('/').ifBlank { "/" }
                     val collection = item.getElementsByTagNameNS("*", "collection").length > 0
                     val size = item.getElementsByTagNameNS("*", "getcontentlength")
                         .item(0)?.textContent?.trim()?.toLongOrNull() ?: 0L
-                    if (resolved.toExternalForm().trimEnd('/') != target.toExternalForm().trimEnd('/')) {
+                    if (resolvedPath != collectionPath) {
                         add(NetworkEntry(name, resolved.toExternalForm(), collection, size.coerceAtLeast(0L)))
                     }
                 }
@@ -148,6 +150,30 @@ internal fun validateWebDavPath(path: String): List<String> {
         decoded
     }
 }
+
+/**
+ * Canonicalizes encoded href paths before collection-boundary checks.
+ * Encoded separators, traversal segments and double-encoded escapes are rejected.
+ */
+internal fun canonicalWebDavHrefPath(rawPath: String): String? = runCatching {
+    require(rawPath.startsWith("/") && rawPath.length <= 12_288)
+    val rawSegments = rawPath.split('/').filter { it.isNotEmpty() }
+    require(rawSegments.size <= 128)
+    val decoded = rawSegments.map { raw ->
+        val segment = URLDecoder.decode(raw.replace("+", "%2B"), StandardCharsets.UTF_8.name())
+        require(
+            segment.isNotEmpty() && segment.length <= 255 &&
+                segment != "." && segment != ".." &&
+                '/' !in segment && '\\' !in segment &&
+                segment.none { it.isISOControl() } &&
+                !Regex("%[0-9a-fA-F]{2}").containsMatchIn(segment)
+        )
+        segment
+    }
+    val canonical = "/" + decoded.joinToString("/")
+    require(canonical.length <= 4096)
+    canonical
+}.getOrNull()
 
 private fun isWithinWebDavCollection(collectionPath: String, candidatePath: String): Boolean {
     val root = collectionPath.trimEnd('/').ifBlank { "/" }
