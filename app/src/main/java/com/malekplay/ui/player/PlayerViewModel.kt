@@ -19,6 +19,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.malekplay.data.local.entity.BookmarkEntity
+import com.malekplay.data.local.entity.TrackPreferenceEntity
 import com.malekplay.data.repository.MediaRepository
 import com.malekplay.data.repository.UserDataRepository
 import com.malekplay.domain.model.LibraryItem
@@ -55,7 +56,8 @@ data class TrackDescriptor(
     val trackIndex: Int,
     val label: String,
     val mimeType: String?,
-    val selected: Boolean
+    val selected: Boolean,
+    val stableId: String?
 )
 
 /** Live codec/format telemetry shown in the "Playback info" sheet. */
@@ -164,6 +166,7 @@ class PlayerViewModel @Inject constructor(
     private var sleepTimerJob: Job? = null
     private var lastGroups: List<Tracks.Group> = emptyList()
     private var currentMediaId: String? = null
+    private val restoredTrackPreferenceIds = mutableSetOf<String>()
 
     // ---------------------------------------------------------- lifecycle
 
@@ -461,7 +464,8 @@ class PlayerViewModel @Inject constructor(
                     trackIndex = trackIndex,
                     label = buildTrackLabel(format, trackIndex),
                     mimeType = format.sampleMimeType,
-                    selected = selected
+                    selected = selected,
+                    stableId = stableTrackId(format)
                 )
                 if (type == C.TRACK_TYPE_AUDIO) audio += descriptor else text += descriptor
             }
@@ -470,6 +474,91 @@ class PlayerViewModel @Inject constructor(
         _textTracks.value = text
         _textTrackDisabled.value = player.trackSelectionParameters.disabledTrackTypes
             .contains(C.TRACK_TYPE_TEXT)
+        restoreTrackPreferencesForCurrentMedia()
+    }
+
+    /** Restores a file's remembered track choices once its current tracks are available. */
+    private fun restoreTrackPreferencesForCurrentMedia() {
+        val mediaId = currentMediaId?.takeIf(String::isNotBlank) ?: return
+        if (!restoredTrackPreferenceIds.add(mediaId)) return
+        viewModelScope.launch {
+            val preference = runCatchingCancellable {
+                mediaRepository.getTrackPreference(mediaId)
+            }.getOrNull() ?: return@launch
+            if (currentMediaId != mediaId) return@launch
+            val player = _controller.value ?: return@launch
+            val audio = _audioTracks.value.firstOrNull {
+                it.stableId != null && it.stableId == preference.audioTrackId
+            }
+            val subtitle = _textTracks.value.firstOrNull {
+                it.stableId != null && it.stableId == preference.subtitleTrackId
+            }
+            val builder = player.trackSelectionParameters.buildUpon()
+            audio?.let { descriptor ->
+                lastGroups.getOrNull(descriptor.groupIndex)?.let { group ->
+                    builder.setOverrideForType(
+                        TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
+                    )
+                }
+            }
+            subtitle?.let { descriptor ->
+                lastGroups.getOrNull(descriptor.groupIndex)?.let { group ->
+                    builder.setOverrideForType(
+                        TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
+                    )
+                }
+            }
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !preference.isSubtitleEnabled)
+            player.trackSelectionParameters = builder.build()
+            _textTrackDisabled.value = !preference.isSubtitleEnabled
+        }
+    }
+
+    /** Persists only stable track identities; transient Media3 group indexes are never stored. */
+    private fun persistTrackPreferences(
+        audioTrackId: String? = null,
+        updateAudio: Boolean = false,
+        subtitleTrackId: String? = null,
+        updateSubtitle: Boolean = false,
+        subtitlesEnabled: Boolean? = null
+    ) {
+        val mediaId = currentMediaId?.takeIf(String::isNotBlank) ?: return
+        viewModelScope.launch {
+            val existing = runCatchingCancellable {
+                mediaRepository.getTrackPreference(mediaId)
+            }.getOrNull()
+            if (currentMediaId != mediaId) return@launch
+            val selectedAudio = _audioTracks.value.firstOrNull { it.selected }?.stableId
+            val selectedSubtitle = _textTracks.value.firstOrNull { it.selected }?.stableId
+            val preference = TrackPreferenceEntity(
+                mediaId = mediaId,
+                audioTrackId = if (updateAudio) audioTrackId else existing?.audioTrackId ?: selectedAudio,
+                subtitleTrackId = if (updateSubtitle) subtitleTrackId else existing?.subtitleTrackId ?: selectedSubtitle,
+                subtitleDelayMs = existing?.subtitleDelayMs ?: 0L,
+                audioDelayMs = existing?.audioDelayMs ?: 0L,
+                isSubtitleEnabled = subtitlesEnabled ?: existing?.isSubtitleEnabled ?: !_textTrackDisabled.value,
+                externalSubtitleUri = existing?.externalSubtitleUri
+            )
+            runCatchingCancellable { mediaRepository.saveTrackPreference(preference) }
+        }
+    }
+
+    private fun stableTrackId(format: Format): String? {
+        val formatId = format.id?.trim()?.takeIf(String::isNotEmpty)
+        val parts = listOf(
+            format.label.orEmpty().trim(),
+            format.language.orEmpty().trim().lowercase(),
+            format.sampleMimeType.orEmpty().trim().lowercase(),
+            format.codecs.orEmpty().trim().lowercase(),
+            format.channelCount.toString(),
+            format.sampleRate.toString(),
+            format.bitrate.toString()
+        )
+        if (formatId == null && parts.all { it.isBlank() || it == "-1" || it == "0" }) return null
+        return buildString {
+            if (formatId != null) append("id:").append(formatId).append('|')
+            append(parts.joinToString("|"))
+        }.take(512)
     }
 
     private fun buildTrackLabel(format: Format, index: Int): String {
@@ -500,6 +589,7 @@ class PlayerViewModel @Inject constructor(
                 TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
             )
             .build()
+        persistTrackPreferences(audioTrackId = descriptor.stableId, updateAudio = true)
     }
 
     fun selectTextTrack(descriptor: TrackDescriptor) {
@@ -511,6 +601,7 @@ class PlayerViewModel @Inject constructor(
             )
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
             .build()
+        persistTrackPreferences(subtitleTrackId = descriptor.stableId, updateSubtitle = true, subtitlesEnabled = true)
     }
 
     fun setSubtitlesEnabled(enabled: Boolean) {
@@ -519,6 +610,7 @@ class PlayerViewModel @Inject constructor(
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !enabled)
             .build()
         _textTrackDisabled.value = !enabled
+        persistTrackPreferences(subtitlesEnabled = enabled)
     }
 
     // ----------------------------------------------------------------- stats
