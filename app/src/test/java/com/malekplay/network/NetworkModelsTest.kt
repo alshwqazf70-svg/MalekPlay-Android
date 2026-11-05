@@ -74,6 +74,36 @@ class NetworkModelsTest {
     }
 
     @Test
+    fun normalizesSafeAbsoluteSftpPaths() {
+        assertEquals("/media/videos", normalizeSftpRemotePath("//media/videos/"))
+        assertEquals("/", normalizeSftpRemotePath("/"))
+    }
+
+    @Test
+    fun rejectsSftpPathTraversalAndUnsafeComponents() {
+        listOf(
+            "relative/path",
+            "/media/../private",
+            "/media/./private",
+            "/media/bad\\\\name",
+            "/" + "x".repeat(256)
+        ).forEach { path ->
+            assertThrows(IllegalArgumentException::class.java) {
+                normalizeSftpRemotePath(path)
+            }
+        }
+    }
+
+    @Test
+    fun acceptsOnlySingleSafeRemoteEntryNames() {
+        assertEquals(true, isSafeNetworkEntryName("episode-01.mkv"))
+        listOf("", ".", "..", "folder/file", "folder\\\\file", "bad\\u0000name")
+            .forEach { name ->
+                assertEquals(false, isSafeNetworkEntryName(name))
+            }
+    }
+
+    @Test
     fun formatsIpv6HttpsEndpointsWithBrackets() {
         assertEquals(
             "https://[2001:db8::1]:8443",
