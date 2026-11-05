@@ -15,8 +15,11 @@ android {
         applicationId = "com.malekplay"
         minSdk = 23
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0.0"
+        // Allow release versioning to be supplied by CI without editing source files.
+        versionCode = providers.gradleProperty("malekplayVersionCode")
+            .orNull?.toIntOrNull() ?: 2
+        versionName = providers.gradleProperty("malekplayVersionName")
+            .orNull?.takeIf(String::isNotBlank) ?: "2.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -29,10 +32,35 @@ android {
         buildConfig = true
     }
 
+    // Release signing is optional for local analysis builds. Credentials are read
+    // only from environment variables and must never be committed to the repository.
+    val releaseStoreFile = providers.environmentVariable("MALEKPLAY_RELEASE_STORE_FILE").orNull
+    val releaseStorePassword = providers.environmentVariable("MALEKPLAY_RELEASE_STORE_PASSWORD").orNull
+    val releaseKeyAlias = providers.environmentVariable("MALEKPLAY_RELEASE_KEY_ALIAS").orNull
+    val releaseKeyPassword = providers.environmentVariable("MALEKPLAY_RELEASE_KEY_PASSWORD").orNull
+    val hasReleaseSigning = !releaseStoreFile.isNullOrBlank() &&
+        !releaseStorePassword.isNullOrBlank() &&
+        !releaseKeyAlias.isNullOrBlank() &&
+        !releaseKeyPassword.isNullOrBlank()
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseStoreFile))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
+        }
+    }
+
     buildTypes {
         getByName("release") {
-            // Keep the debug build unchanged for direct device testing.
-            // R8 and resource shrinking are applied only to production builds.
+            // Without all four signing environment variables this remains an
+            // unsigned analysis artifact; never silently use the debug key.
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
