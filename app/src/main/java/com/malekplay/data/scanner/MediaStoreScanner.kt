@@ -239,7 +239,8 @@ class MediaStoreScanner(context: Context) {
         onBatch: suspend (List<MediaItemEntity>) -> Unit,
         row: (android.database.Cursor, ColumnIndex) -> MediaItemEntity
     ): Set<String> {
-        val seenIds = LinkedHashSet<String>()
+        // Membership checks only; insertion order is never consumed.
+        val seenIds = HashSet<String>()
         val batch = ArrayList<MediaItemEntity>(SCAN_BATCH_SIZE)
         // Match MediaStore's visible-library semantics: ignore zero-byte,
         // pending writes and trashed rows so incomplete files never enter the cache.

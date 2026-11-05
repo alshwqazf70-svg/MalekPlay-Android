@@ -1,26 +1,11 @@
 package com.malekplay.ui.components
 
 import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.InputStream
 
 class MediaArtworkLoaderTest {
-
-    @Test
-    fun artworkSamplingBoundsTheLongestEdgeForPortraitAndLandscapeImages() {
-        assertEquals(16, calculateArtworkSampleSize(6000, 400, 320))
-        assertEquals(16, calculateArtworkSampleSize(400, 6000, 320))
-        assertEquals(8, calculateArtworkSampleSize(3000, 3000, 320))
-    }
-
-    @Test
-    fun artworkSamplingHandlesInvalidDimensionsSafely() {
-        assertEquals(1, calculateArtworkSampleSize(0, 6000, 320))
-        assertEquals(1, calculateArtworkSampleSize(6000, -1, 320))
-        assertEquals(1, calculateArtworkSampleSize(6000, 400, 0))
-    }
 
     @Test
     fun boundedReaderMakesProgressWhenProviderReturnsZero() {

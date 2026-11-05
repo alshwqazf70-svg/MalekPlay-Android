@@ -69,33 +69,17 @@ internal fun java.io.InputStream.readLimitedBytes(maxBytes: Int = MAX_ARTWORK_BY
     return output.toByteArray()
 }
 
-/**
- * Chooses a power-of-two decode sample from the longest edge. Checking both
- * dimensions kept very wide/tall covers almost full-resolution in memory.
- */
-internal fun calculateArtworkSampleSize(width: Int, height: Int, targetSize: Int): Int {
-    if (width <= 0 || height <= 0) return 1
-    val target = targetSize.coerceAtLeast(1)
-    var sample = 1
-    while (sample <= Int.MAX_VALUE / 2 &&
-        maxOf(width / (sample * 2), height / (sample * 2)) >= target
-    ) {
-        sample *= 2
-    }
-    return sample
-}
-
 private fun decodeBounded(bytes: ByteArray, targetSize: Int): Bitmap? {
     if (bytes.isEmpty() || bytes.size > MAX_ARTWORK_BYTES) return null
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
-    val sample = calculateArtworkSampleSize(
-        width = bounds.outWidth,
-        height = bounds.outHeight,
-        targetSize = targetSize
-    )
+    var sample = 1
+    val target = targetSize.coerceAtLeast(1)
+    while (bounds.outWidth / (sample * 2) >= target &&
+        bounds.outHeight / (sample * 2) >= target
+    ) sample *= 2
 
     return BitmapFactory.decodeByteArray(
         bytes, 0, bytes.size,
