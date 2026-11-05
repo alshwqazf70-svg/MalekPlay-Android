@@ -87,23 +87,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private fun calculateInSampleSize(
-    options: BitmapFactory.Options,
-    requestedWidth: Int,
-    requestedHeight: Int
-): Int {
-    val width = options.outWidth
-    val height = options.outHeight
-    if (width <= 0 || height <= 0) return 1
-    var sample = 1
-    while (width / (sample * 2) >= requestedWidth &&
-        height / (sample * 2) >= requestedHeight
-    ) {
-        sample *= 2
-    }
-    return sample.coerceAtLeast(1)
-}
-
 // --------------------------------------------------------------- thumbnails
 
 // A small, byte-bounded cache prevents scrolling back through the library from
@@ -198,7 +181,10 @@ fun MediaThumbnail(
 ) {
     val context = LocalContext.current
     val source = if (media.isVideo) media.uri else (media.artworkUri ?: media.uri)
-    val cacheKey = "${source}:${targetSize.width}x${targetSize.height}"
+    // Include inexpensive MediaStore metadata so a replaced file at the same
+    // content URI does not keep showing the previous decoded frame.
+    val cacheKey = "${source}:${media.sizeBytes}:${media.addedAtMs}:${media.durationMs}:" +
+        "${targetSize.width}x${targetSize.height}"
     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = cacheKey) {
         value = thumbnailCache.get(cacheKey) ?: withContext(Dispatchers.IO) {
             try {
