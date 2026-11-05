@@ -85,7 +85,7 @@ class NetworkModelsTest {
             "relative/path",
             "/media/../private",
             "/media/./private",
-            "/media/bad\\\\name",
+            "/media/bad\\name",
             "/" + "x".repeat(256)
         ).forEach { path ->
             assertThrows(IllegalArgumentException::class.java) {
@@ -97,7 +97,7 @@ class NetworkModelsTest {
     @Test
     fun acceptsOnlySingleSafeRemoteEntryNames() {
         assertEquals(true, isSafeNetworkEntryName("episode-01.mkv"))
-        listOf("", ".", "..", "folder/file", "folder\\\\file", "bad\\u0000name")
+        listOf("", ".", "..", "folder/file", "folder\\file", "bad\u0000name")
             .forEach { name ->
                 assertEquals(false, isSafeNetworkEntryName(name))
             }
