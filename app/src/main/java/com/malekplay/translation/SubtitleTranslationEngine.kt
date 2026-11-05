@@ -12,6 +12,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 import java.io.File
 import java.nio.charset.StandardCharsets
 import kotlin.coroutines.resume
@@ -21,7 +23,9 @@ import kotlin.coroutines.resumeWithException
  * Downloads language models on demand and translates SRT subtitle cues locally.
  * The first model download requires an internet connection; translation thereafter is on-device.
  */
-class SubtitleTranslationEngine(private val context: Context) {
+class SubtitleTranslationEngine @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
     suspend fun translateSrtToArabic(source: Uri): Uri {
         val sourceBytes = withContext(Dispatchers.IO) {
             val input = context.contentResolver.openInputStream(source)
