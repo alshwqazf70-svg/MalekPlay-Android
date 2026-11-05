@@ -44,7 +44,6 @@ class MediaRepository @Inject constructor(
 
     private companion object {
         const val MAX_SEARCH_QUERY_LENGTH = 256
-        const val MEDIA_UPSERT_BATCH_SIZE = 500
         const val DEFAULT_REFRESH_INTERVAL_MS = 5 * 60 * 1_000L
     }
 
@@ -173,21 +172,15 @@ class MediaRepository @Inject constructor(
         }
 
     private suspend fun refreshLocked() {
-        val scan = scanner.scan()
+        // Persist bounded batches as the cursor is read; retain only compact IDs
+        // for reconciliation after the complete scan has finished.
+        val scan = scanner.scan { batch ->
+            currentCoroutineContext().ensureActive()
+            mediaDao.upsertMedia(batch)
+        }
 
         // Selected-only access can add/update visible rows, but must never be
         // interpreted as a complete snapshot for deletion.
-        // Keep each Room write bounded: a very large library should not be sent
-        // to SQLite as one oversized batch. Cancellation between batches is safe;
-        // reconciliation is deliberately skipped unless every batch completes.
-        var start = 0
-        while (start < scan.items.size) {
-            currentCoroutineContext().ensureActive()
-            val end = minOf(start + MEDIA_UPSERT_BATCH_SIZE, scan.items.size)
-            mediaDao.upsertMedia(scan.items.subList(start, end))
-            start = end
-        }
-
         currentCoroutineContext().ensureActive()
         if (scan.videosComplete) {
             mediaDao.reconcileVideos(scan.videoIds)

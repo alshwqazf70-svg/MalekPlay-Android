@@ -19,21 +19,15 @@ private const val TAG = "MediaStoreScanner"
 
 /** Literal column name; MediaColumns does not expose this constant on all API levels. */
 private const val BUCKET_DISPLAY_NAME = "bucket_display_name"
+private const val SCAN_BATCH_SIZE = 250
 
 /** A scan explicitly records which media types were fully visible to the app. */
 data class MediaScanResult(
-    val items: List<MediaItemEntity>,
+    val videoIds: Set<String>,
+    val audioIds: Set<String>,
     val videosComplete: Boolean,
     val audioComplete: Boolean
-) {
-    /** Build only the compact reconciliation keys, not a second list of full media rows. */
-    val videoIds: List<String> by lazy(LazyThreadSafetyMode.NONE) {
-        items.asSequence().filter { it.isVideo }.map { it.mediaId }.toList()
-    }
-    val audioIds: List<String> by lazy(LazyThreadSafetyMode.NONE) {
-        items.asSequence().filterNot { it.isVideo }.map { it.mediaId }.toList()
-    }
-}
+)
 
 /**
  * Reads the device media library through MediaStore.
@@ -46,7 +40,10 @@ class MediaStoreScanner(context: Context) {
     private val appContext = context.applicationContext
     private val resolver: ContentResolver = appContext.contentResolver
 
-    suspend fun scan(): MediaScanResult = withContext(Dispatchers.IO) {
+    /** Emits bounded batches so full media entities are not retained in memory. */
+    suspend fun scan(
+        onBatch: suspend (List<MediaItemEntity>) -> Unit
+    ): MediaScanResult = withContext(Dispatchers.IO) {
         val videoPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             Manifest.permission.READ_MEDIA_VIDEO
         } else {
@@ -66,28 +63,15 @@ class MediaStoreScanner(context: Context) {
                 appContext, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
             ) == PackageManager.PERMISSION_GRANTED
 
-        // A partial visual grant permits reading selected videos, but never
-        // authorizes deleting rows that are simply outside the selected set.
-        // Build one result buffer to avoid the additional full-size list that
-        // the videos-plus-audio expression would allocate on large libraries.
-        val items = ArrayList<MediaItemEntity>()
-        if (videosComplete || videosPartial) {
-            items.addAll(scanVideos())
-        }
-        if (audioComplete) {
-            items.addAll(scanAudio(readGenreIndex()))
-        }
-
-        MediaScanResult(
-            items = items,
-            videosComplete = videosComplete,
-            audioComplete = audioComplete
-        )
+        // Partial visual access may update visible rows, but never authorizes deletion.
+        val videoIds = if (videosComplete || videosPartial) scanVideos(onBatch) else emptySet()
+        val audioIds = if (audioComplete) scanAudio(readGenreIndex(), onBatch) else emptySet()
+        MediaScanResult(videoIds, audioIds, videosComplete, audioComplete)
     }
 
     // ------------------------------------------------------------------ video
 
-    private suspend fun scanVideos(): List<MediaItemEntity> {
+    private suspend fun scanVideos(onBatch: suspend (List<MediaItemEntity>) -> Unit): Set<String> {
         val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         val projection = buildList {
             add(MediaStore.MediaColumns._ID)
@@ -104,7 +88,7 @@ class MediaStoreScanner(context: Context) {
             add(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
             add(MediaStore.Video.Media.RESOLUTION)
         }.toTypedArray()
-        return query(collection, projection, isVideo = true) { cursor, columns ->
+        return query(collection, projection, isVideo = true, onBatch = onBatch) { cursor, columns ->
             val rawResolution = columns.text(MediaStore.Video.Media.RESOLUTION)
             val (width, height) = parseResolution(rawResolution)
             val id = cursor.getLong(columns[MediaStore.MediaColumns._ID])
@@ -141,7 +125,10 @@ class MediaStoreScanner(context: Context) {
 
     // ------------------------------------------------------------------ audio
 
-    private suspend fun scanAudio(genres: Map<Long, String>): List<MediaItemEntity> {
+    private suspend fun scanAudio(
+        genres: Map<Long, String>,
+        onBatch: suspend (List<MediaItemEntity>) -> Unit
+    ): Set<String> {
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = buildList {
             add(MediaStore.MediaColumns._ID)
@@ -161,7 +148,7 @@ class MediaStoreScanner(context: Context) {
             add(MediaStore.Audio.Media.ALBUM_ID)
             add(MediaStore.Audio.Media.ARTIST_ID)
         }.toTypedArray()
-        return query(collection, projection, isVideo = false) { cursor, columns ->
+        return query(collection, projection, isVideo = false, onBatch = onBatch) { cursor, columns ->
             val id = cursor.getLong(columns[MediaStore.MediaColumns._ID])
             val display = columns.text(MediaStore.MediaColumns.DISPLAY_NAME)
             // Some downloaders write ID3 text using a legacy/invalid charset.
@@ -249,9 +236,11 @@ class MediaStoreScanner(context: Context) {
         collection: android.net.Uri,
         projection: Array<String>,
         isVideo: Boolean,
-        row: (android.database.Cursor, ColumnIndex) -> T
-    ): List<T> {
-        val out = mutableListOf<T>()
+        onBatch: suspend (List<MediaItemEntity>) -> Unit,
+        row: (android.database.Cursor, ColumnIndex) -> MediaItemEntity
+    ): Set<String> {
+        val seenIds = LinkedHashSet<String>()
+        val batch = ArrayList<MediaItemEntity>(SCAN_BATCH_SIZE)
         // Match MediaStore's visible-library semantics: ignore zero-byte,
         // pending writes and trashed rows so incomplete files never enter the cache.
         val selection = buildList {
@@ -279,10 +268,17 @@ class MediaStoreScanner(context: Context) {
                 currentCoroutineContext().ensureActive()
                 // Do not silently skip malformed rows: refresh must never treat a
                 // partial scan as a complete library snapshot and delete valid rows.
-                out += row(cursor, columns)
+                val item = row(cursor, columns)
+                seenIds += item.mediaId
+                batch += item
+                if (batch.size >= SCAN_BATCH_SIZE) {
+                    onBatch(batch.toList())
+                    batch.clear()
+                }
             }
         }
-        return out
+        if (batch.isNotEmpty()) onBatch(batch.toList())
+        return seenIds
     }
 
     /** Safe column lookup wrapper: columns vary by OEM and API level. */
