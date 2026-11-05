@@ -35,11 +35,11 @@ class NetworkProfileStore @Inject constructor(
                 try {
                     val protocol = NetworkProtocol.valueOf(item.optString("protocol", "WEBDAV"))
                     val id = item.getString("id")
-                    val host = item.getString("host")
+                    val host = normalizeNetworkHost(item.getString("host"))
                     val profile = NetworkProfile(
                         id = id,
                         protocol = protocol,
-                        host = normalizeNetworkHost(host),
+                        host = host,
                         port = item.optInt("port", defaultPort(protocol)),
                         username = item.optString("username"),
                         rootPath = item.optString("rootPath", "/"),
