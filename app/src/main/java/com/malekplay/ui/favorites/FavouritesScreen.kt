@@ -40,6 +40,7 @@ import com.malekplay.data.repository.UserDataRepository
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.components.MediaThumbnail
+import com.malekplay.ui.components.MediaDeleteButton
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -50,12 +51,14 @@ import javax.inject.Inject
 
 @HiltViewModel
 class FavouritesViewModel @Inject constructor(
-    mediaRepository: MediaRepository,
+    private val mediaRepository: MediaRepository,
     private val userDataRepository: UserDataRepository
 ) : ViewModel() {
     val favourites: StateFlow<List<LibraryItem>> = mediaRepository.observeAll()
         .map { items -> items.filter { it.isFavourite } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun refresh() { viewModelScope.launch { mediaRepository.refresh() } }
 
     fun remove(mediaId: String) {
         viewModelScope.launch { userDataRepository.setFavourite(mediaId, false) }
@@ -103,6 +106,7 @@ fun FavouritesScreen(
                             Text(item.media.displayTitle, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
                             Text(item.media.artist.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         }
+                        MediaDeleteButton(media = item.media, onDeleted = viewModel::refresh)
                         IconButton(onClick = { viewModel.remove(item.media.id) }) {
                             Icon(Icons.Filled.Favorite, contentDescription = stringResource(R.string.lib_remove_favourite), tint = MaterialTheme.colorScheme.primary)
                         }
