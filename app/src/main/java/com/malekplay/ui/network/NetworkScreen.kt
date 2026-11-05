@@ -67,6 +67,8 @@ import com.malekplay.network.NetworkCredentialVault
 import com.malekplay.network.NetworkEntry
 import com.malekplay.network.NetworkProfile
 import com.malekplay.network.NetworkProfileStore
+import com.malekplay.network.normalizeNetworkHost
+import com.malekplay.network.httpsNetworkEndpoint
 import com.malekplay.network.NetworkProtocol
 import com.malekplay.network.SmbClient
 import com.malekplay.network.SmbPathPolicy
@@ -92,12 +94,7 @@ import javax.inject.Inject
 private fun networkMediaUri(profile: NetworkProfile, remotePath: String): Uri {
     return when (profile.protocol) {
         NetworkProtocol.WEBDAV -> {
-            val host = profile.host.trim()
-                .removePrefix("https://")
-                .removePrefix("http://")
-                .trimEnd('/')
-            val urlHost = if (host.contains(':') && !host.startsWith('[')) "[$host]" else host
-            val configuredEndpoint = Uri.parse("https://$urlHost:${profile.port}")
+            val configuredEndpoint = Uri.parse(httpsNetworkEndpoint(profile.host, profile.port))
             val candidate = Uri.parse(remotePath)
             val candidatePort = if (candidate.port == -1) 443 else candidate.port
             require(
@@ -182,7 +179,7 @@ class NetworkViewModel @Inject constructor(
                 var destination: File? = null
                 var temporary: File? = null
                 runCatching {
-                    val cleanHost = host.trim()
+                    val cleanHost = normalizeNetworkHost(host)
                     require(cleanHost.isNotBlank()) { "يجب إدخال اسم الخادم" }
                     require(port in 1..65535) { "رقم المنفذ غير صالح" }
                     val cleanPath = path.trim().trim('/')
@@ -348,13 +345,8 @@ class NetworkViewModel @Inject constructor(
         _browse.value = BrowseUiState()
     }
 
-    private fun endpointFor(profile: NetworkProfile): String {
-        val host = profile.host.trim()
-            .removePrefix("https://")
-            .removePrefix("http://")
-            .trimEnd('/')
-        return "https://$host:${profile.port}"
-    }
+    private fun endpointFor(profile: NetworkProfile): String =
+        httpsNetworkEndpoint(profile.host, profile.port)
 
     companion object {
         /** Marker shown when the protocol has no browse implementation yet. */
