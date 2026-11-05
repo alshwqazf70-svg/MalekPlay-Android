@@ -254,7 +254,8 @@ fun LibraryScreen(
                                 item = item,
                                 onPlay = { onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
-                                onAddToPlaylist = { playlistTarget = item.media }
+                                onAddToPlaylist = { playlistTarget = item.media },
+                                onDeleted = viewModel::refresh
                             )
                         }
                     }
