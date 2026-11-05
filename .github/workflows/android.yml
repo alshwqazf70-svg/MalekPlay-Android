@@ -1,10 +1,8 @@
 name: Build MalekPlay Android APK
 
+# Builds are started manually after a complete batch of saved improvements.
+# This prevents every per-file commit from triggering a long Android build.
 on:
-  push:
-    branches: [ "main", "backup/before-updated-2.0" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
     inputs:
       run_emulator:
