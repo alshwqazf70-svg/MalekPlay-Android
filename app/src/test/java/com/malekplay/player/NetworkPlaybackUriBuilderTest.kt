@@ -87,4 +87,21 @@ class NetworkPlaybackUriBuilderTest {
         assertEquals(listOf("media", "clip #1.mp4"), uri.pathSegments)
         assertFalse(uri.toString().contains("#1.mp4"))
     }
+
+    @Test
+    fun rejectsOverlongOrExcessivelyDeepPathsBeforePlayback() {
+        val profile = profile(NetworkProtocol.SFTP, "/")
+        assertThrows(IllegalArgumentException::class.java) {
+            NetworkPlaybackUriBuilder.build(
+                profile,
+                NetworkEntry("large.mkv", "/${"x".repeat(256)}/large.mkv", false)
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            NetworkPlaybackUriBuilder.build(
+                profile,
+                NetworkEntry("deep.mkv", "/" + List(129) { "x" }.joinToString("/") + "/deep.mkv", false)
+            )
+        }
+    }
 }
