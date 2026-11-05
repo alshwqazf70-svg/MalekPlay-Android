@@ -28,8 +28,13 @@ class NetworkCredentialVault(context: Context) {
             validateNetworkCredentials(username, password)
             val plain = (username + "\u0000" + password).toByteArray(StandardCharsets.UTF_8)
             val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
-            val encrypted = cipher.doFinal(plain)
+            val encrypted = try {
+                cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+                cipher.doFinal(plain)
+            } finally {
+                // Clear the temporary plaintext buffer as soon as encryption finishes.
+                plain.fill(0)
+            }
             val packed = cipher.iv + encrypted
             check(
                 preferences.edit()
@@ -59,7 +64,13 @@ class NetworkCredentialVault(context: Context) {
         val ciphertext = packed.copyOfRange(IV_LENGTH, packed.size)
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
-        val decoded = String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
+        val decodedBytes = cipher.doFinal(ciphertext)
+        val decoded = try {
+            String(decodedBytes, StandardCharsets.UTF_8)
+        } finally {
+            // The returned Strings are required by callers; clear the temporary byte buffer.
+            decodedBytes.fill(0)
+        }
         val separator = decoded.indexOf('\u0000')
         check(separator >= 0) { "Stored network credentials have an invalid format" }
         decoded.substring(0, separator) to decoded.substring(separator + 1)
