@@ -21,24 +21,35 @@ class NetworkCredentialVault(context: Context) {
     )
 
     fun save(profileId: String, username: String, password: String) {
-        require(profileId.matches(Regex("[A-Za-z0-9_-]{1,64}")))
-        val plain = (username + "\u0000" + password).toByteArray(StandardCharsets.UTF_8)
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
-        val encrypted = cipher.doFinal(plain)
-        val packed = cipher.iv + encrypted
-        check(preferences.edit().putString(profileId, Base64.encodeToString(packed, Base64.NO_WRAP)).commit())
+        synchronized(STORAGE_LOCK) {
+            require(profileId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
+                "Invalid network profile id"
+            }
+            require('\u0000' !in username && '\u0000' !in password) {
+                "Network credentials must not contain the reserved separator"
+            }
+            val plain = (username + "\u0000" + password).toByteArray(StandardCharsets.UTF_8)
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+            val encrypted = cipher.doFinal(plain)
+            val packed = cipher.iv + encrypted
+            check(
+                preferences.edit()
+                    .putString(profileId, Base64.encodeToString(packed, Base64.NO_WRAP))
+                    .commit()
+            ) { "Could not save network credentials" }
+        }
     }
 
     /**
      * Returns null only when no credentials were saved. Corrupt ciphertext,
      * invalidated Keystore keys and authentication failures are surfaced to callers.
      */
-    fun load(profileId: String): Pair<String, String>? {
+    fun load(profileId: String): Pair<String, String>? = synchronized(STORAGE_LOCK) {
         require(profileId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
             "Invalid network profile id"
         }
-        val encoded = preferences.getString(profileId, null) ?: return null
+        val encoded = preferences.getString(profileId, null) ?: return@synchronized null
         val packed = try {
             Base64.decode(encoded, Base64.NO_WRAP)
         } catch (error: IllegalArgumentException) {
@@ -53,13 +64,17 @@ class NetworkCredentialVault(context: Context) {
         val decoded = String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
         val separator = decoded.indexOf('\u0000')
         check(separator >= 0) { "Stored network credentials have an invalid format" }
-        return decoded.substring(0, separator) to decoded.substring(separator + 1)
+        decoded.substring(0, separator) to decoded.substring(separator + 1)
     }
 
     fun remove(profileId: String) {
-        require(profileId.matches(Regex("[A-Za-z0-9_-]{1,64}")))
-        check(preferences.edit().remove(profileId).commit()) {
-            "Could not remove stored network credentials"
+        synchronized(STORAGE_LOCK) {
+            require(profileId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
+                "Invalid network profile id"
+            }
+            check(preferences.edit().remove(profileId).commit()) {
+                "Could not remove stored network credentials"
+            }
         }
     }
 
@@ -82,6 +97,9 @@ class NetworkCredentialVault(context: Context) {
     }
 
     private companion object {
+        // Multiple vault instances share the same preferences and Keystore alias.
+        // A process-wide lock prevents concurrent key creation and credential writes.
+        val STORAGE_LOCK = Any()
         const val KEY_ALIAS = "malekplay.network.credentials.v1"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val IV_LENGTH = 12
