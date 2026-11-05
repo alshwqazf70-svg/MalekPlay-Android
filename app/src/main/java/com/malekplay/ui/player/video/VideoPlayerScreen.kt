@@ -210,12 +210,14 @@ fun VideoPlayerScreen(
     val bandCount by viewModel.audioEffects.bandCount.collectAsStateWithLifecycle()
     val levelRange by viewModel.audioEffects.levelRange.collectAsStateWithLifecycle()
 
-    val bookmarkFlow = remember(mediaId) { viewModel.observeBookmarks(mediaId) }
-    val bookmarks by bookmarkFlow.collectAsStateWithLifecycle(initialValue = emptyList<com.malekplay.data.local.entity.BookmarkEntity>())
-
     // ------------------------------------------------------------ media load
     var media by remember { mutableStateOf<DomainMedia?>(null) }
     var title by remember { mutableStateOf("") }
+    val currentVideo = if (queue.any { it.id == mediaId }) queue.getOrNull(currentIndex) else media
+    val currentVideoId = currentVideo?.id ?: mediaId
+    val currentVideoTitle = currentVideo?.displayTitle ?: title
+    val bookmarkFlow = remember(currentVideoId) { viewModel.observeBookmarks(currentVideoId) }
+    val bookmarks by bookmarkFlow.collectAsStateWithLifecycle(initialValue = emptyList<com.malekplay.data.local.entity.BookmarkEntity>())
     var resolved by remember(mediaId) { mutableStateOf(false) }
     var resumeMs by remember(mediaId) { mutableLongStateOf(0L) }
     var resumeSpeed by remember(mediaId) { mutableFloatStateOf(settings.defaultSpeed) }
@@ -467,7 +469,7 @@ fun VideoPlayerScreen(
     fun takeScreenshot() {
         val view = playerView ?: return
         scope.launch {
-            val saved = captureAndSave(context, view, title)
+            val saved = captureAndSave(context, view, currentVideoTitle)
             val message = if (saved) {
                 context.getString(R.string.player_screenshot_saved)
             } else {
@@ -567,9 +569,7 @@ fun VideoPlayerScreen(
             Column(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 PlayerTopBar(
-                    title = if (queue.any { it.id == mediaId }) {
-                        queue.getOrNull(currentIndex)?.displayTitle ?: title
-                    } else title,
+                    title = currentVideoTitle,
                     decoderBadge = if (stats.videoMimeType != null) {
                         if (DecoderInfo.isHardwareAccelerated(stats.videoMimeType)) {
                             stringResource(R.string.player_hw)
@@ -724,7 +724,7 @@ fun VideoPlayerScreen(
                     text = { Text(stringResource(R.string.player_add_bookmark)) },
                     onClick = {
                         showMenu = false
-                        viewModel.addBookmark(mediaId, positionMs, formatDuration(positionMs))
+                        viewModel.addBookmark(currentVideoId, positionMs, formatDuration(positionMs))
                     }
                 )
                 DropdownMenuItem(
