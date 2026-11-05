@@ -6,6 +6,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
+import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -30,12 +31,14 @@ class NetworkCredentialVault(context: Context) {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             val encrypted = try {
                 cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+                cipher.updateAAD(profileId.toByteArray(StandardCharsets.UTF_8))
                 cipher.doFinal(plain)
             } finally {
                 // Clear the temporary plaintext buffer as soon as encryption finishes.
                 plain.fill(0)
             }
-            val packed = cipher.iv + encrypted
+            // Bind ciphertext to its profile so encrypted records cannot be swapped.
+            val packed = FORMAT_MARKER + cipher.iv + encrypted
             check(
                 preferences.edit()
                     .putString(profileId, Base64.encodeToString(packed, Base64.NO_WRAP))
@@ -58,22 +61,29 @@ class NetworkCredentialVault(context: Context) {
         } catch (error: IllegalArgumentException) {
             throw IllegalStateException("Stored network credentials are corrupted", error)
         }
-        require(packed.size > IV_LENGTH + 16) { "Stored network credentials are incomplete" }
+        val hasMarker = packed.size >= FORMAT_MARKER.size &&
+            MessageDigest.isEqual(packed.copyOfRange(0, FORMAT_MARKER.size), FORMAT_MARKER)
+        val offset = if (hasMarker) FORMAT_MARKER.size else 0
+        require(packed.size > offset + IV_LENGTH + 16) {
+            "Stored network credentials are incomplete"
+        }
 
-        val iv = packed.copyOfRange(0, IV_LENGTH)
-        val ciphertext = packed.copyOfRange(IV_LENGTH, packed.size)
+        val iv = packed.copyOfRange(offset, offset + IV_LENGTH)
+        val ciphertext = packed.copyOfRange(offset + IV_LENGTH, packed.size)
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
+        if (hasMarker) cipher.updateAAD(profileId.toByteArray(StandardCharsets.UTF_8))
         val decodedBytes = cipher.doFinal(ciphertext)
         val decoded = try {
             String(decodedBytes, StandardCharsets.UTF_8)
         } finally {
-            // The returned Strings are required by callers; clear the temporary byte buffer.
             decodedBytes.fill(0)
         }
         val separator = decoded.indexOf('\u0000')
         check(separator >= 0) { "Stored network credentials have an invalid format" }
-        decoded.substring(0, separator) to decoded.substring(separator + 1)
+        val credentials = decoded.substring(0, separator) to decoded.substring(separator + 1)
+        if (!hasMarker) save(profileId, credentials.first, credentials.second)
+        credentials
     }
 
     fun remove(profileId: String) {
@@ -112,5 +122,6 @@ class NetworkCredentialVault(context: Context) {
         const val KEY_ALIAS = "malekplay.network.credentials.v1"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val IV_LENGTH = 12
+        val FORMAT_MARKER = byteArrayOf(0x4D, 0x50, 0x01)
     }
 }
