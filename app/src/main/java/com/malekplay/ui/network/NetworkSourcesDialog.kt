@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.malekplay.network.*
+import com.malekplay.player.NetworkPlaybackUriBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -221,24 +222,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                                         }
                                     } else {
                                         runCatching {
-                                            require(profile.protocol != NetworkProtocol.WEBDAV) {
-                                                "بروتوكول WebDAV يستخدم رابط HTTPS"
-                                            }
-                                            val segments = entry.path.split('/').filter { it.isNotBlank() }
-                                            require(segments.isNotEmpty() &&
-                                                segments.none { it == "." || it == ".." || it.contains('\u0000') }) {
-                                                "مسار الملف البعيد غير صالح"
-                                            }
-                                            val scheme = when (profile.protocol) {
-                                                NetworkProtocol.SMB -> "maleksmb"
-                                                NetworkProtocol.SFTP -> "maleksftp"
-                                                NetworkProtocol.WEBDAV -> error("بروتوكول غير مدعوم")
-                                            }
-                                            val mediaUri = Uri.Builder()
-                                                .scheme(scheme)
-                                                .authority(profile.id)
-                                                .apply { segments.forEach(::appendPath) }
-                                                .build()
+                                            val mediaUri = NetworkPlaybackUriBuilder.build(profile, entry)
                                             message = "جارٍ فتح ${entry.name} عبر ${profile.protocol}..."
                                             onPlayNetworkMedia(mediaUri, entry.name)
                                         }.onFailure {
