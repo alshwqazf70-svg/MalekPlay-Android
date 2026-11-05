@@ -38,6 +38,42 @@ class NetworkModelsTest {
     }
 
     @Test
+    fun validatesAndDecodesWebDavPathSegmentsSafely() {
+        assertEquals(
+            listOf("Movies", "Film 1.mkv", "a+b"),
+            validateWebDavPath("/Movies/Film%201.mkv/a+b")
+        )
+        assertEquals(emptyList<String>(), validateWebDavPath("/"))
+    }
+
+    @Test
+    fun rejectsWebDavTraversalAndEncodedSeparators() {
+        listOf(
+            "../private",
+            "/safe/%2e%2e/private",
+            "/safe/%2Fprivate",
+            "/safe/%5cprivate",
+            "/safe/%252e%252e/private",
+            "/safe/file?download=1",
+            "/safe/file#fragment"
+        ).forEach { path ->
+            assertThrows(IllegalArgumentException::class.java) {
+                validateWebDavPath(path)
+            }
+        }
+    }
+
+    @Test
+    fun rejectsOversizedWebDavPathsAndSegments() {
+        assertThrows(IllegalArgumentException::class.java) {
+            validateWebDavPath("/" + "a".repeat(256))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validateWebDavPath("/" + (1..129).joinToString("/") { "x" })
+        }
+    }
+
+    @Test
     fun formatsIpv6HttpsEndpointsWithBrackets() {
         assertEquals(
             "https://[2001:db8::1]:8443",
