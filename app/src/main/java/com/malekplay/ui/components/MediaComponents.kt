@@ -115,6 +115,19 @@ private val thumbnailCache = object : LruCache<String, Bitmap>(
     override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
 }
 
+/** Releases decoded artwork promptly when Android reports memory pressure. */
+internal fun trimMediaThumbnailCache(level: Int) {
+    when {
+        level >= android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> thumbnailCache.evictAll()
+        level >= android.content.ComponentCallbacks2.TRIM_MEMORY_MODERATE ->
+            thumbnailCache.trimToSize(thumbnailCache.maxSize() / 4)
+        level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN ->
+            thumbnailCache.trimToSize(thumbnailCache.maxSize() / 2)
+        level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ->
+            thumbnailCache.trimToSize(thumbnailCache.maxSize() / 2)
+    }
+}
+
 /**
  * Loads a MediaStore thumbnail off the main thread.
  * Falls back to a genre icon when the frame cannot be read.
