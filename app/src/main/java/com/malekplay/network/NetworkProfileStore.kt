@@ -39,7 +39,7 @@ class NetworkProfileStore @Inject constructor(
                     val profile = NetworkProfile(
                         id = id,
                         protocol = protocol,
-                        host = host,
+                        host = normalizeNetworkHost(host),
                         port = item.optInt("port", defaultPort(protocol)),
                         username = item.optString("username"),
                         rootPath = item.optString("rootPath", "/"),
