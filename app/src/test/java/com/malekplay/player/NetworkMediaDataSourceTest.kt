@@ -148,4 +148,23 @@ class NetworkMediaDataSourceTest {
     fun rejectsUnknownOrNegativeRemoteFileLengths() {
         assertThrows(IOException::class.java) { validateRemoteFileLength(-1L) }
     }
+
+    @Test
+    fun acceptsReconnectWhenRemoteFileLengthIsUnchanged() {
+        assertEquals(8192L, validateReconnectedFileLength(8192L, 8192L))
+    }
+
+    @Test
+    fun rejectsReconnectWhenRemoteFileLengthHasChanged() {
+        assertThrows(IOException::class.java) {
+            validateReconnectedFileLength(8192L, 9216L)
+        }
+    }
+
+    @Test
+    fun rejectsUnknownLengthAfterReconnect() {
+        assertThrows(IOException::class.java) {
+            validateReconnectedFileLength(8192L, -1L)
+        }
+    }
 }
