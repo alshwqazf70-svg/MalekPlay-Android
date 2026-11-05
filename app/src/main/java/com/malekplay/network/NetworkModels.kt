@@ -1,5 +1,33 @@
 package com.malekplay.network
 
+/** Canonicalizes a server host before it is stored or passed to network clients. */
+fun normalizeNetworkHost(rawHost: String): String {
+    var host = rawHost.trim()
+    if (host.startsWith("https://", ignoreCase = true)) {
+        host = host.substring(8)
+    } else if (host.startsWith("http://", ignoreCase = true)) {
+        host = host.substring(7)
+    }
+    host = host.trimEnd('/')
+    if (host.startsWith("[") && host.endsWith("]")) {
+        host = host.substring(1, host.length - 1)
+    }
+
+    require(host.isNotBlank() && host.length <= 253) { "اسم خادم الشبكة غير صالح" }
+    require(host.none { it.isWhitespace() || it.isISOControl() }) { "اسم الخادم لا يجب أن يحتوي على مسافات أو محارف تحكم" }
+    require(host.none { it in "/\\\\@?#" }) { "أدخل اسم الخادم فقط دون مسار أو بيانات رابط" }
+    require(host.count { it == ':' } != 1) { "لا تضع المنفذ داخل اسم الخادم؛ أدخله في حقل المنفذ" }
+    return host
+}
+
+/** Formats an HTTPS endpoint correctly for DNS names, IPv4 and IPv6 literals. */
+fun httpsNetworkEndpoint(host: String, port: Int): String {
+    require(port in 1..65535) { "منفذ الشبكة غير صالح" }
+    val normalized = normalizeNetworkHost(host)
+    val authorityHost = if (normalized.contains(':')) "[$normalized]" else normalized
+    return "https://$authorityHost:$port"
+}
+
 data class NetworkEntry(
     val name: String,
     val path: String,
@@ -20,7 +48,7 @@ data class NetworkProfile(
 ) {
     init {
         require(id.matches(Regex("[A-Za-z0-9_-]{1,64}")))
-        require(host.isNotBlank() && host.length <= 253)
+        require(host == normalizeNetworkHost(host)) { "Host must be normalized before storing a profile" }
         require(port in 1..65535)
         require(rootPath.length <= 2048 && !rootPath.contains('\u0000'))
     }
