@@ -101,7 +101,9 @@ private fun networkMediaUri(profile: NetworkProfile, remotePath: String): Uri {
                 candidate.scheme.equals("https", ignoreCase = true) &&
                     candidate.host.equals(configuredEndpoint.host, ignoreCase = true) &&
                     candidatePort == configuredEndpoint.port &&
-                    candidate.userInfo == null
+                    candidate.userInfo == null &&
+                    candidate.query == null &&
+                    candidate.fragment == null
             ) { "رابط WebDAV لا يطابق الخادم المحفوظ" }
             candidate
         }
