@@ -214,7 +214,9 @@ class NetworkViewModel @Inject constructor(
                         val input = context.contentResolver.openInputStream(sourceUri)
                             ?: error("تعذر قراءة ملف known_hosts")
                         input.use { stream ->
-                            temporary!!.outputStream().use { output -> stream.copyTo(output) }
+                            temporary!!.outputStream().use { output ->
+                                copyKnownHostsBounded(stream, output)
+                            }
                         }
                         require(temporary!!.length() in 1..1_000_000L) {
                             "ملف known_hosts فارغ أو أكبر من الحد المسموح"

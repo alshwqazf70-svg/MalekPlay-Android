@@ -1,5 +1,33 @@
 package com.malekplay.network
 
+import java.io.InputStream
+import java.io.OutputStream
+
+/**
+ * Copies an imported SFTP known_hosts file without ever writing more than 1 MB.
+ * The caller owns and closes both streams.
+ */
+internal fun copyKnownHostsBounded(
+    input: InputStream,
+    output: OutputStream,
+    maxBytes: Long = 1_000_000L
+): Long {
+    require(maxBytes > 0L) { "حد حجم ملف known_hosts غير صالح" }
+    val buffer = ByteArray(8 * 1024)
+    var total = 0L
+    while (true) {
+        val count = input.read(buffer)
+        if (count < 0) break
+        if (count == 0) continue
+        require(count.toLong() <= maxBytes - total) {
+            "ملف known_hosts أكبر من الحد المسموح (1 ميجابايت)"
+        }
+        output.write(buffer, 0, count)
+        total += count
+    }
+    return total
+}
+
 /** Rejects the reserved delimiter used by the encrypted credential record format. */
 internal fun validateNetworkCredentials(username: String, password: String) {
     require('\u0000' !in username && '\u0000' !in password) {

@@ -2,9 +2,31 @@ package com.malekplay.network
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class NetworkModelsTest {
+
+    @Test
+    fun knownHostsImportStopsBeforeWritingBeyondConfiguredLimit() {
+        val output = ByteArrayOutputStream()
+        assertThrows(IllegalArgumentException::class.java) {
+            copyKnownHostsBounded(ByteArrayInputStream(ByteArray(11)), output, maxBytes = 10L)
+        }
+        assertEquals(0, output.size())
+    }
+
+    @Test
+    fun knownHostsImportCopiesFilesWithinLimit() {
+        val source = "trusted-host-key".toByteArray()
+        val output = ByteArrayOutputStream()
+        assertEquals(source.size.toLong(), copyKnownHostsBounded(
+            ByteArrayInputStream(source), output, maxBytes = source.size.toLong()
+        ))
+        assertEquals(source.toList(), output.toByteArray().toList())
+    }
 
     @Test
     fun credentialValuesRejectTheReservedSeparator() {
