@@ -21,6 +21,9 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -61,6 +64,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -77,8 +81,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -233,7 +239,20 @@ fun VideoPlayerScreen(
         if (!resolved || controller == null) return@LaunchedEffect
         val item = media
         if (item != null) {
-            viewModel.playSingle(item, resumeMs, resumeSpeed)
+            // Keep the complete local video library in Media3's queue so
+            // next/previous controls and automatic transitions work.
+            val videoQueue = viewModel.loadVideoQueue()
+            val selectedIndex = videoQueue.indexOfFirst { it.id == item.id }
+            if (selectedIndex >= 0) {
+                viewModel.playQueue(
+                    items = videoQueue,
+                    startIndex = selectedIndex,
+                    startPositionMs = resumeMs,
+                    speed = resumeSpeed
+                )
+            } else {
+                viewModel.playSingle(item, resumeMs, resumeSpeed)
+            }
         } else {
             viewModel.playExternalUri(Uri.parse(mediaId), resumeMs, resumeSpeed)
         }
@@ -258,11 +277,18 @@ fun VideoPlayerScreen(
     }
 
     // -------------------------------------------------------- screen + power
-    DisposableEffect(Unit) {
-        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    DisposableEffect(activity) {
+        val window = activity?.window
+        val insetsController = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
+        insetsController?.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        insetsController?.hide(WindowInsetsCompat.Type.systemBars())
+        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
+            // Restore normal system bars when leaving the video player.
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
             if (!inPip) mainActivity?.setOrientation(false)
-            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             // Never leave the user with a dimmed or blown-out screen.
             activity?.window?.let { window ->
                 val params = window.attributes
@@ -539,8 +565,11 @@ fun VideoPlayerScreen(
             )
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 PlayerTopBar(
-                    title = title,
+                    title = if (queue.any { it.id == mediaId }) {
+                        queue.getOrNull(currentIndex)?.displayTitle ?: title
+                    } else title,
                     decoderBadge = if (stats.videoMimeType != null) {
                         if (DecoderInfo.isHardwareAccelerated(stats.videoMimeType)) {
                             stringResource(R.string.player_hw)
@@ -554,8 +583,11 @@ fun VideoPlayerScreen(
                     onMore = { showMenu = true },
                     modifier = Modifier.statusBarsPadding()
                 )
+                }
+
 
                 Box(modifier = Modifier.weight(1f)) {
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     PlayerCenterControls(
                         isPlaying = isPlaying,
                         onPlayPause = viewModel::togglePlayPause,
@@ -563,9 +595,12 @@ fun VideoPlayerScreen(
                         onForward = { viewModel.seekBy(settings.skipSeconds * 1_000L) },
                         modifier = Modifier.align(Alignment.Center)
                     )
+                    }
+
                 }
 
                 Column(modifier = Modifier.navigationBarsPadding()) {
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     PlayerControlRail(
                         speedLabel = formatSpeed(speed),
                         expanded = railExpanded,
@@ -589,6 +624,8 @@ fun VideoPlayerScreen(
                         onRepeat = viewModel::cycleRepeatMode,
                         repeatActive = repeatMode != Player.REPEAT_MODE_OFF
                     )
+                    }
+
 
                     PlayerSeekRow(
                         positionMs = positionMs,
@@ -597,6 +634,7 @@ fun VideoPlayerScreen(
                         onScrubFinished = viewModel::seekTo
                     )
 
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     PlayerMainControls(
                         isPlaying = isPlaying,
                         hasNext = currentIndex < queue.lastIndex,
@@ -608,6 +646,8 @@ fun VideoPlayerScreen(
                         onPip = { viewModel.pipController.request() },
                         onLock = { locked = true }
                     )
+                    }
+
                 }
             }
         }

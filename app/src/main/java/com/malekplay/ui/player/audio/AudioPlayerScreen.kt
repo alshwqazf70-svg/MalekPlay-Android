@@ -52,6 +52,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,8 +69,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -208,7 +211,11 @@ fun AudioPlayerScreen(
         }
     }
 
-    val item = media
+    // Media3 updates currentIndex on every automatic or manual track change.
+    // Resolve visible metadata from that queue item so title and artwork stay in sync.
+    val item = if (queue.any { it.id == mediaId }) queue.getOrNull(currentIndex) ?: media else media
+    val displayTitle = item?.displayTitle ?: title
+    val currentMediaId = item?.id ?: mediaId
     val accent = MaterialTheme.colorScheme.primary
     val subtitle = buildList {
         item?.artist?.takeIf { it.isNotBlank() }?.let { add(it) }
@@ -235,6 +242,7 @@ fun AudioPlayerScreen(
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
         ) {
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -256,6 +264,8 @@ fun AudioPlayerScreen(
                     Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.player_more))
                 }
             }
+            }
+
 
             Spacer(Modifier.height(12.dp))
 
@@ -275,7 +285,7 @@ fun AudioPlayerScreen(
                             .clip(RoundedCornerShape(26.dp)),
                         targetSize = Size(720, 720),
                         cornerRadius = 26.dp,
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Fit
                     )
                 } else {
                     Box(
@@ -315,7 +325,7 @@ fun AudioPlayerScreen(
             Spacer(Modifier.height(18.dp))
 
             Text(
-                text = title,
+                text = displayTitle,
                 style = MaterialTheme.typography.headlineSmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -362,6 +372,7 @@ fun AudioPlayerScreen(
 
             Spacer(Modifier.weight(1f))
 
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -412,16 +423,19 @@ fun AudioPlayerScreen(
                     )
                 }
             }
+            }
+
 
             Spacer(Modifier.height(14.dp))
 
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val favourite = mediaId in favouriteIds
-                IconButton(onClick = { viewModel.toggleFavourite(mediaId) }) {
+                val favourite = currentMediaId in favouriteIds
+                IconButton(onClick = { viewModel.toggleFavourite(currentMediaId) }) {
                     Icon(
                         imageVector = if (favourite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                         contentDescription = stringResource(
@@ -455,6 +469,8 @@ fun AudioPlayerScreen(
                     Icon(Icons.Filled.PlaylistAdd, contentDescription = stringResource(R.string.player_speed))
                 }
             }
+            }
+
 
             Spacer(Modifier.height(16.dp))
         }

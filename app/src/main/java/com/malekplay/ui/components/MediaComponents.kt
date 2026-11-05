@@ -20,6 +20,7 @@ import android.app.RecoverableSecurityException
 import android.Manifest
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Size
@@ -129,6 +130,61 @@ internal fun trimMediaThumbnailCache(level: Int) {
 }
 
 /**
+ * Uses MediaStore first, then MediaMetadataRetriever as a provider-independent
+ * fallback. This keeps thumbnails available in every library surface, including
+ * rows backed by cached database entries.
+ */
+private fun loadVideoThumbnail(
+    context: android.content.Context,
+    uri: android.net.Uri,
+    targetSize: Size
+): Bitmap? {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        runCatching {
+            context.contentResolver.loadThumbnail(uri, targetSize, null)
+        }.getOrNull()?.let { return it }
+    } else {
+        val mediaId = uri.lastPathSegment?.toLongOrNull()
+        if (uri.scheme == "content" && uri.authority == "media" && mediaId != null) {
+            @Suppress("DEPRECATION")
+            runCatching {
+                MediaStore.Video.Thumbnails.getThumbnail(
+                    context.contentResolver,
+                    mediaId,
+                    MediaStore.Video.Thumbnails.MINI_KIND,
+                    null
+                )
+            }.getOrNull()?.let { return it }
+        }
+    }
+
+    val retriever = MediaMetadataRetriever()
+    return try {
+        retriever.setDataSource(context, uri)
+        val width = targetSize.width.coerceAtLeast(1)
+        val height = targetSize.height.coerceAtLeast(1)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            retriever.getScaledFrameAtTime(
+                0L,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                width,
+                height
+            )
+        } else {
+            retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?.let { frame ->
+                    if (frame.width <= width && frame.height <= height) frame
+                    else Bitmap.createScaledBitmap(frame, width, height, true)
+                }
+        }
+    } catch (_: Exception) {
+        null
+    } finally {
+        runCatching { retriever.release() }
+    }
+}
+
+/**
  * Loads a MediaStore thumbnail off the main thread.
  * Falls back to a genre icon when the frame cannot be read.
  */
@@ -153,23 +209,8 @@ fun MediaThumbnail(
                         mediaUri = media.uri,
                         targetSize = maxOf(targetSize.width, targetSize.height)
                     )
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    context.contentResolver.loadThumbnail(source, targetSize, null)
                 } else {
-                    // Legacy MediaStore thumbnail API supports Android 6–9.
-                    // Only use it for MediaStore video URIs with a numeric media ID.
-                    val mediaId = source.lastPathSegment?.toLongOrNull()
-                    if (source.scheme == "content" && source.authority == "media" && mediaId != null) {
-                        @Suppress("DEPRECATION")
-                        MediaStore.Video.Thumbnails.getThumbnail(
-                            context.contentResolver,
-                            mediaId,
-                            MediaStore.Video.Thumbnails.MINI_KIND,
-                            null
-                        )
-                    } else {
-                        null
-                    }
+                    loadVideoThumbnail(context, source, targetSize)
                 }
                 loaded?.also { thumbnailCache.put(cacheKey, it) }
             } catch (cancelled: CancellationException) {
@@ -192,7 +233,8 @@ fun MediaThumbnail(
                 bitmap = bitmap!!.asImageBitmap(),
                 contentDescription = media.title,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = contentScale
+                // Album covers stay fully visible; video frames may fill/crop.
+                contentScale = if (media.isVideo) contentScale else ContentScale.Fit
             )
         } else {
             Icon(

@@ -508,7 +508,7 @@ private fun Artwork(uri: Uri?, modifier: Modifier = Modifier, mediaUri: Uri? = n
             bitmap = bitmap!!,
             contentDescription = null,
             modifier = modifier.clip(shape),
-            contentScale = ContentScale.Crop
+            contentScale = ContentScale.Fit
         )
     } else {
         Box(

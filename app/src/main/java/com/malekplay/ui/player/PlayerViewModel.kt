@@ -341,6 +341,8 @@ class PlayerViewModel @Inject constructor(
         if (items.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, items.lastIndex)
         _queue.value = items
+        _currentIndex.value = safeIndex
+        _queueSize.value = items.size
         val nextMediaId = items[safeIndex].id
         clearSubtitleTranslationSource()
         restoredTrackPreferenceIds.remove(nextMediaId)
@@ -824,6 +826,10 @@ class PlayerViewModel @Inject constructor(
      */
     suspend fun loadAudioQueue(): List<DomainMedia> =
         mediaRepository.observeAudio().first().map { it.media }
+
+    /** Builds the complete local video queue for in-player next/previous controls. */
+    suspend fun loadVideoQueue(): List<DomainMedia> =
+        mediaRepository.observeVideos().first().map { it.media }
 
     suspend fun toLibraryItems(uris: List<Uri>): List<LibraryItem> =
         runCatchingCancellable { mediaRepository.getMediaList(uris.map { it.toString() }) }
