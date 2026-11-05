@@ -1,7 +1,5 @@
 package com.malekplay.player
 
-import androidx.test.core.app.ApplicationProvider
-import android.net.Uri
 import com.malekplay.network.NetworkEntry
 import com.malekplay.network.NetworkProfile
 import com.malekplay.network.NetworkProtocol
