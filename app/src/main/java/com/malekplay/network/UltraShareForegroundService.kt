@@ -3,6 +3,7 @@ package com.malekplay.network
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -111,6 +112,7 @@ class UltraShareForegroundService : Service() {
                             )
                         )
                     } catch (cancelled: CancellationException) {
+                        publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = null, status = getString(R.string.ultra_share_stopped)))
                         throw cancelled
                     } catch (failure: Exception) {
                         publish(currentState().copy(receiving = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)))
@@ -153,6 +155,7 @@ class UltraShareForegroundService : Service() {
                         )
                         publish(currentState().copy(sending = false, progress = null, status = getString(R.string.ultra_share_sent, metadata.first), error = null))
                     } catch (cancelled: CancellationException) {
+                        publish(currentState().copy(sending = false, progress = null, status = getString(R.string.ultra_share_cancel_transfer)))
                         throw cancelled
                     } catch (failure: Exception) {
                         publish(currentState().copy(sending = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)))
@@ -198,8 +201,10 @@ class UltraShareForegroundService : Service() {
         val text = progress?.let {
             "${it.fileName} • ${(it.fraction * 100).toInt()}%"
         } ?: getString(R.string.ultra_share_notification_active)
+        val cancelIntent = PendingIntent.getService(this, 38742, Intent(this, UltraShareForegroundService::class.java).setAction(ACTION_CANCEL), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_ultra_share_notification)
+            .addAction(0, getString(R.string.ultra_share_cancel_transfer), cancelIntent)
             .setContentTitle(getString(R.string.ultra_share_title))
             .setContentText(text)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -211,7 +216,7 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun finishService(startId: Int) {
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopForeground(true)
         stopSelf(startId)
     }
 
