@@ -14,6 +14,7 @@ import android.provider.OpenableColumns
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -88,7 +89,7 @@ class UltraShareForegroundService : Service() {
                         status = getString(R.string.ultra_share_waiting)
                     )
                 )
-                transferJob = serviceScope.launch {
+                val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     advertisementJob = launch {
                         runCatching { UltraShareDiscovery.advertiseWhileReceiving() }
                     }
@@ -124,6 +125,8 @@ class UltraShareForegroundService : Service() {
                         finishService(startId)
                     }
                 }
+                transferJob = job
+                job.start()
             }
             ACTION_SEND -> {
                 val uri = intent.parcelableUri<Uri>(EXTRA_URI)
@@ -165,6 +168,8 @@ class UltraShareForegroundService : Service() {
                         finishService(startId)
                     }
                 }
+                transferJob = job
+                job.start()
             }
             else -> {
                 // A plain start keeps the service alive only long enough to establish its notification.
