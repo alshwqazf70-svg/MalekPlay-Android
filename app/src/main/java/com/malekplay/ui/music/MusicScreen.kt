@@ -352,7 +352,14 @@ private fun AlbumsTab(albums: List<AlbumSummary>) {
 @Composable
 private fun AlbumCard(album: AlbumSummary) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .border(
+                1.dp,
+                MalekPlayColors.NeonPurple.copy(alpha = 0.20f),
+                RoundedCornerShape(20.dp)
+            ),
         colors = CardDefaults.cardColors(
             containerColor = Color.White.copy(alpha = 0.055f)
         )
@@ -414,7 +421,7 @@ private fun ArtistsTab(artists: List<ArtistSummary>) {
                 Icon(
                     imageVector = Icons.Filled.Person,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = MalekPlayColors.PurpleSoft,
                     modifier = Modifier.size(32.dp)
                 )
                 Spacer(modifier = Modifier.width(16.dp))
