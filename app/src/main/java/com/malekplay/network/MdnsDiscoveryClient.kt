@@ -11,7 +11,7 @@ import java.net.SocketTimeoutException
 import java.util.Locale
 
 internal fun classifyMdnsService(service: String): NetworkDeviceKind = when {
-    service.contains("_smb._tcp", true) -> NetworkDeviceKind.WINDOWS_COMPUTER
+    service.contains("_smb._tcp", true) -> NetworkDeviceKind.NETWORK_DEVICE
     service.contains("_googlecast._tcp", true) ||
         service.contains("_androidtvremote2._tcp", true) ||
         service.contains("_mediaremotetv._tcp", true) ||
