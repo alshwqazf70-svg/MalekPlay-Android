@@ -44,7 +44,7 @@ interface MediaDao {
     suspend fun deleteMediaByIds(mediaIds: List<String>): Int
 
     @Transaction
-    suspend fun reconcileVideos(keepIds: Set<String>) {
+    suspend fun reconcileVideos(keepIds: Set<Long>) {
         var afterId = ""
         while (true) {
             // Reconciliation may span many pages on large libraries. Honor job
@@ -53,13 +53,13 @@ interface MediaDao {
             val page = getVideoMediaIdsAfter(afterId, RECONCILE_PAGE_SIZE)
             if (page.isEmpty()) break
             afterId = page.last()
-            val staleIds = page.filterNot(keepIds::contains)
+            val staleIds = page.filterNot { it.substringAfterLast('/').toLongOrNull() in keepIds }
             if (staleIds.isNotEmpty()) deleteMediaByIds(staleIds)
         }
     }
 
     @Transaction
-    suspend fun reconcileAudio(keepIds: Set<String>) {
+    suspend fun reconcileAudio(keepIds: Set<Long>) {
         var afterId = ""
         while (true) {
             // Keep cancellation behavior symmetric with video reconciliation.
