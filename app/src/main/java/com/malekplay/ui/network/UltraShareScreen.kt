@@ -1,6 +1,7 @@
 package com.malekplay.ui.network
 
 import android.content.Context
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -422,6 +423,17 @@ fun UltraShareScreen(
                             color = MalekPlayColors.TextSecondary,
                             style = MaterialTheme.typography.labelSmall
                         )
+                        OutlinedButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                clipboard?.setPrimaryClip(ClipData.newPlainText("MalekPlay Ultra Share", qrPayload))
+                                Toast.makeText(context, R.string.ultra_share_pairing_copied, Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Filled.ContentCopy, contentDescription = null)
+                            Text(stringResource(R.string.ultra_share_copy_pairing_link), modifier = Modifier.padding(start = 8.dp))
+                        }
                     }
                 }
                 Button(
