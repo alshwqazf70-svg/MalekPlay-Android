@@ -78,7 +78,7 @@ class DlnaContentDirectoryClient(
 
     private fun execute(request: Request): String {
         http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IllegalStateException("خادم DLNA أعاد HTTP \${response.code}")
+            if (!response.isSuccessful) throw IllegalStateException("خادم DLNA أعاد HTTP ${response.code}")
             val body = response.body ?: throw IllegalStateException("استجابة DLNA فارغة")
             if (body.contentLength() > MAX_XML_BYTES) throw IllegalStateException("استجابة DLNA أكبر من الحد المسموح")
             val source = body.source()
@@ -104,7 +104,7 @@ class DlnaContentDirectoryClient(
                 XmlPullParser.END_TAG -> if (localName(parser.name) == "service" && inService) {
                     if (serviceType.contains("ContentDirectory", true) && controlPath.isNotBlank()) {
                         val resolved = base.resolve(controlPath.trim())
-                        return validateDeviceUrl(resolved.toString(), deviceHost)
+                        return validateDlnaDeviceUrl(resolved.toString(), deviceHost)
                     }
                     inService = false
                 }
@@ -183,7 +183,7 @@ class DlnaContentDirectoryClient(
                     val entry = current
                     if (entry != null && entry.id.isNotBlank() && entry.id.length <= 512) {
                         val safeUrl = if (entry.isContainer) null else currentResource?.let {
-                            runCatching { validateDeviceUrl(it, deviceHost).toString() }.getOrNull()
+                            runCatching { validateDlnaDeviceUrl(it, deviceHost).toString() }.getOrNull()
                         }
                         if (entry.isContainer || safeUrl != null) {
                             entries += DlnaEntry(
@@ -221,7 +221,7 @@ class DlnaContentDirectoryClient(
         return """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
 <s:Body><u:Browse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
-<ObjectID>\${escape(objectId)}</ObjectID><BrowseFlag>BrowseDirectChildren</BrowseFlag><Filter>*</Filter>
+<ObjectID>${escape(objectId)}</ObjectID><BrowseFlag>BrowseDirectChildren</BrowseFlag><Filter>*</Filter>
 <StartingIndex>$start</StartingIndex><RequestedCount>$count</RequestedCount><SortCriteria></SortCriteria>
 </u:Browse></s:Body></s:Envelope>"""
     }
