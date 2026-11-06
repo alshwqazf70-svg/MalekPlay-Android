@@ -93,7 +93,7 @@ internal class MdnsDiscoveryClient {
         service.trimEnd('.').split('.').forEach { label ->
             val bytes = label.toByteArray(Charsets.US_ASCII)
             put(bytes.size)
-            bytes.forEach(out::add)
+            bytes.forEach { out.add(it) }
         }
         put(0)
         put(0); put(TYPE_PTR)
