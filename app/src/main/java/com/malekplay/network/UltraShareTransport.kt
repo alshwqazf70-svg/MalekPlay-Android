@@ -128,7 +128,8 @@ object UltraShareTransport {
             output.flush()
             check(input.readBoolean()) { "رفض الجهاز المستقبل رمز الاقتران." }
             val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(input::readFully)
-            val key = deriveSessionKey(secret, challenge)
+            val sendKey = deriveSessionKey(secret, challenge, "client-to-server")
+            val receiveKey = deriveSessionKey(secret, challenge, "server-to-client")
 
             val metadata = ByteArrayOutputStream().use { bytes ->
                 DataOutputStream(bytes).use { data ->
@@ -140,9 +141,9 @@ object UltraShareTransport {
                 }
                 bytes.toByteArray()
             }
-            writeEncryptedFrame(output, key, noncePrefix, 0L, metadata)
+            writeEncryptedFrame(output, sendKey, noncePrefix, 0L, metadata)
 
-            val offsetPayload = readEncryptedFrame(input, key, noncePrefix, 0L, 64)
+            val offsetPayload = readEncryptedFrame(input, receiveKey, noncePrefix, 0L, 64)
             val offset = DataInputStream(ByteArrayInputStream(offsetPayload)).use { it.readLong() }
             require(offset in 0..sizeBytes) { "موضع الاستئناف الذي أرسله المستقبل غير صالح." }
 
@@ -158,15 +159,15 @@ object UltraShareTransport {
                     val wanted = minOf(buffer.size.toLong(), sizeBytes - transferred).toInt()
                     read = readAtMost(source, buffer, wanted)
                     check(read > 0) { "انتهى الملف قبل اكتمال نقله." }
-                    writeEncryptedFrame(output, key, noncePrefix, sequence++, buffer.copyOf(read))
+                    writeEncryptedFrame(output, sendKey, noncePrefix, sequence++, buffer.copyOf(read))
                     transferred += read
                     onProgress(progress(safeName, transferred, sizeBytes, startedAt, false))
                 }
                 check(source.read() == -1) { "تغير حجم الملف أثناء الإرسال؛ أعد المحاولة." }
-                writeEncryptedFrame(output, key, noncePrefix, sequence, ByteArray(0))
+                writeEncryptedFrame(output, sendKey, noncePrefix, sequence, ByteArray(0))
             } ?: error("تعذر إعادة فتح الملف للإرسال.")
 
-            val acknowledgement = readEncryptedFrame(input, key, noncePrefix, 1L, 1024)
+            val acknowledgement = readEncryptedFrame(input, receiveKey, noncePrefix, 1L, 1024)
             DataInputStream(ByteArrayInputStream(acknowledgement)).use { data ->
                 val accepted = data.readBoolean()
                 val message = readUtf8(data, 512)
@@ -212,9 +213,10 @@ object UltraShareTransport {
                 val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(SecureRandom()::nextBytes)
                 output.write(noncePrefix)
                 output.flush()
-                val key = deriveSessionKey(secret, challenge)
+                val receiveKey = deriveSessionKey(secret, challenge, "client-to-server")
+                val sendKey = deriveSessionKey(secret, challenge, "server-to-client")
 
-                val metadataBytes = readEncryptedFrame(input, key, noncePrefix, 0L, 1024)
+                val metadataBytes = readEncryptedFrame(input, receiveKey, noncePrefix, 0L, 1024)
                 val metadata = DataInputStream(ByteArrayInputStream(metadataBytes))
                 require(metadata.readUnsignedShort() == VERSION) { "إصدار بروتوكول النقل غير مدعوم." }
                 val fileName = sanitizeFileName(readUtf8(metadata, 512))
@@ -233,7 +235,7 @@ object UltraShareTransport {
                     DataOutputStream(bytes).use { it.writeLong(offset) }
                     bytes.toByteArray()
                 }
-                writeEncryptedFrame(output, key, noncePrefix, 0L, offsetPayload)
+                writeEncryptedFrame(output, sendKey, noncePrefix, 0L, offsetPayload)
 
                 val startedAt = System.nanoTime()
                 var transferred = offset
@@ -241,7 +243,7 @@ object UltraShareTransport {
                     var sequence = 1L
                     while (transferred < size) {
                         currentCoroutineContext().ensureActive()
-                        val chunk = readEncryptedFrame(input, key, noncePrefix, sequence++, CHUNK_BYTES)
+                        val chunk = readEncryptedFrame(input, receiveKey, noncePrefix, sequence++, CHUNK_BYTES)
                         require(chunk.isNotEmpty() && chunk.size.toLong() <= size - transferred) {
                             "وصلت كتلة بيانات بحجم غير صالح."
                         }
@@ -250,7 +252,7 @@ object UltraShareTransport {
                         onProgress(progress(fileName, transferred, size, startedAt, true))
                     }
                     fileOutput.fd.sync()
-                    val end = readEncryptedFrame(input, key, noncePrefix, sequence, 64)
+                    val end = readEncryptedFrame(input, receiveKey, noncePrefix, sequence, 64)
                     require(end.isEmpty()) { "إشارة نهاية النقل غير صالحة." }
                 }
 
@@ -269,7 +271,7 @@ object UltraShareTransport {
                     }
                     bytes.toByteArray()
                 }
-                writeEncryptedFrame(output, key, noncePrefix, 1L, ack)
+                writeEncryptedFrame(output, sendKey, noncePrefix, 1L, ack)
                 check(verified) { resultMessage }
                 onProgress(progress(fileName, size, size, startedAt, true))
                 ReceivedFile(requireNotNull(finalFile), fileName, size, mime)
@@ -338,8 +340,8 @@ object UltraShareTransport {
             doFinal(message)
         }
 
-    private fun deriveSessionKey(secret: ByteArray, challenge: ByteArray): ByteArray {
-        val label = "MalekPlay Ultra Share v1".toByteArray(Charsets.UTF_8)
+    private fun deriveSessionKey(secret: ByteArray, challenge: ByteArray, direction: String): ByteArray {
+        val label = "MalekPlay Ultra Share v1/$direction".toByteArray(Charsets.UTF_8)
         return hmac(secret, challenge + label)
     }
 
