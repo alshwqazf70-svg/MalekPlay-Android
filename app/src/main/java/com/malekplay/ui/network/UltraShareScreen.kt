@@ -628,14 +628,14 @@ fun UltraShareScreen(
                 OutlinedButton(
                     onClick = ::requestWifiDirectScan,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending && !state.receiving && !state.scanning
+                    enabled = !state.sending && !state.scanning
                 ) {
                     Text(if (state.scanning) "جارٍ البحث عبر Wi-Fi Direct..." else "البحث عبر Wi-Fi Direct")
                 }
                 state.wifiDirectPeers.forEach { peer ->
                     TextButton(
                         onClick = { viewModel.connectWifiDirectPeer(peer) },
-                        enabled = !state.sending && !state.receiving
+                        enabled = !state.sending
                     ) {
                         Text(
                             "Wi-Fi Direct • " + peer.name + " • " + peer.status,
