@@ -15,6 +15,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.net.InetAddress
+import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -108,6 +110,7 @@ object UltraShareTransport {
         onProgress: (Progress) -> Unit = {}
     ) = withContext(Dispatchers.IO) {
         require(host.isNotBlank()) { "أدخل عنوان الجهاز المستقبل." }
+        val targetAddress = resolvePrivateLanAddress(host)
         require(port in 1..65535) { "منفذ الاتصال غير صالح." }
         require(sizeBytes in 1..MAX_FILE_BYTES) { "حجم الملف غير مدعوم أو الملف فارغ." }
         val safeName = sanitizeFileName(fileName)
@@ -117,7 +120,7 @@ object UltraShareTransport {
         } ?: error("تعذر فتح الملف المحدد.")
 
         Socket().use { socket ->
-            socket.connect(InetSocketAddress(host.trim(), port), SOCKET_TIMEOUT_MS)
+            socket.connect(InetSocketAddress(targetAddress, port), SOCKET_TIMEOUT_MS)
             socket.soTimeout = SOCKET_TIMEOUT_MS
             val input = DataInputStream(socket.getInputStream())
             val output = DataOutputStream(socket.getOutputStream())
@@ -205,6 +208,9 @@ object UltraShareTransport {
                 }
             }
             val clientSocket = requireNotNull(accepted)
+            require(isPrivateLanAddress(clientSocket.inetAddress)) {
+                "تم رفض اتصال وارد من خارج نطاق الشبكة المحلية."
+            }
             clientSocket.use { socket ->
                 socket.soTimeout = SOCKET_TIMEOUT_MS
                 val input = DataInputStream(socket.getInputStream())
@@ -309,6 +315,23 @@ object UltraShareTransport {
             ?: File(context.filesDir, "downloads")
         return File(base, "MalekPlay/Received")
     }
+
+    private fun resolvePrivateLanAddress(host: String): InetAddress {
+        require(host.matches(Regex("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}"))) {
+            "أدخل عنوان IPv4 المحلي الظاهر على جهاز الاستقبال."
+        }
+        val address = InetAddress.getByName(host)
+        require(address is Inet4Address && isPrivateLanAddress(address)) {
+            "عنوان الاستقبال يجب أن يكون عنواناً خاصاً أو محلياً على الشبكة."
+        }
+        return address
+    }
+
+    private fun isPrivateLanAddress(address: InetAddress): Boolean =
+        !address.isAnyLocalAddress &&
+            !address.isLoopbackAddress &&
+            !address.isMulticastAddress &&
+            (address.isSiteLocalAddress || address.isLinkLocalAddress)
 
     private fun uniqueDestination(directory: File, fileName: String): File {
         val original = File(directory, fileName)
