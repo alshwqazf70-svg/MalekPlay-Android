@@ -36,4 +36,29 @@ class UltraShareQrCodeTest {
             "malekplay://ultra-share?v=99&host=192.168.1.25&port=${UltraShareTransport.DEFAULT_PORT}&secret=$secret"
         )
     }
+    @Test(expected = IllegalArgumentException::class)
+    fun pairingPayloadRejectsPublicInternetHosts() {
+        UltraShareQrCode.createPayload(
+            host = "example.com",
+            port = UltraShareTransport.DEFAULT_PORT,
+            pairingSecret = UltraShareTransport.createPairingSecret()
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun pairingParserRejectsLoopbackHosts() {
+        val secret = UltraShareTransport.createPairingSecret()
+        UltraShareQrCode.parsePayload(
+            "malekplay://ultra-share?v=1&host=127.0.0.1&port=${UltraShareTransport.DEFAULT_PORT}&secret=$secret"
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun pairingParserRejectsMalformedIpv4Hosts() {
+        val secret = UltraShareTransport.createPairingSecret()
+        UltraShareQrCode.parsePayload(
+            "malekplay://ultra-share?v=1&host=192.168.1.999&port=${UltraShareTransport.DEFAULT_PORT}&secret=$secret"
+        )
+    }
+
 }
