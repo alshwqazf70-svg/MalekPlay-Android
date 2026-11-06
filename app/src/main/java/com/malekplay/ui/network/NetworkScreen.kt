@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -514,7 +515,8 @@ class NetworkViewModel @Inject constructor(
 @Composable
 fun NetworkScreen(
     onOpenMedia: (String) -> Unit,
-    contentPadding: PaddingValues
+    contentPadding: PaddingValues,
+    onOpenUltraShare: () -> Unit
 ) {
     val viewModel: NetworkViewModel = hiltViewModel()
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
@@ -549,6 +551,13 @@ fun NetworkScreen(
                 fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
                 modifier = Modifier.weight(1f)
             )
+            OutlinedButton(
+                onClick = onOpenUltraShare,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(stringResource(R.string.ultra_share_title), modifier = Modifier.padding(start = 5.dp), maxLines = 1)
+            }
             IconButton(onClick = { showAddDialog = true }) {
                 Icon(
                     imageVector = Icons.Filled.Add,
