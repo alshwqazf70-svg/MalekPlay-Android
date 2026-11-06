@@ -9,6 +9,14 @@ import org.junit.Test
 class NetworkModelsTest {
 
     @Test
+    fun dlnaHostMustBePrivateOrLinkLocal() {
+        assertEquals(true, isPrivateLanHost("192.168.1.20"))
+        assertEquals(true, isPrivateLanHost("10.0.0.12"))
+        assertEquals(true, isPrivateLanHost("172.16.0.8"))
+        assertEquals(false, isPrivateLanHost("8.8.8.8"))
+    }
+
+    @Test
     fun dlnaUrlsMustRemainOnTheDiscoveredDeviceHost() {
         assertEquals(
             "192.168.1.20",
