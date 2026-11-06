@@ -204,6 +204,16 @@ class UltraShareForegroundService : Service() {
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
                 startSendingQueue(uris, host, secret)
             }
+            ACTION_RETRY_FILE -> {
+                val uri = intent.parcelableUri<Uri>(EXTRA_URI)
+                val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
+                val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
+                if (uri == null) {
+                    publish(currentState().copy(error = getString(R.string.ultra_share_transfer_failed)))
+                } else {
+                    startSendingQueue(listOf(uri), host, secret, replaceQueue = false)
+                }
+            }
             else -> {
                 // A plain start keeps the service alive only long enough to establish its notification.
                 startForegroundCompat()
@@ -290,7 +300,12 @@ class UltraShareForegroundService : Service() {
 
     private fun currentState(): UltraShareServiceState = mutableState.value
 
-    private fun startSendingQueue(uris: List<Uri>, host: String, secret: String) {
+    private fun startSendingQueue(
+        uris: List<Uri>,
+        host: String,
+        secret: String,
+        replaceQueue: Boolean = true
+    ) {
         if (uris.isEmpty() || host.isBlank() || !UltraShareTransport.isValidPrivateLanHost(host) || !UltraShareTransport.isValidPairingSecret(secret)) {
             publish(UltraShareServiceState(error = getString(R.string.ultra_share_transfer_failed)))
             finishService()
@@ -307,7 +322,9 @@ class UltraShareForegroundService : Service() {
             var lastError: String? = null
             val queue = uris.distinctBy { it.toString() }
             try {
-                UltraShareQueueStore.replace(this@UltraShareForegroundService, queue)
+                if (replaceQueue) {
+                    UltraShareQueueStore.replace(this@UltraShareForegroundService, queue)
+                }
                 queue.forEachIndexed { index, uri ->
                     activeUri = uri
                     val metadata = try {
@@ -409,6 +426,7 @@ class UltraShareForegroundService : Service() {
         const val ACTION_RECEIVE = "com.malekplay.ultrashare.RECEIVE"
         const val ACTION_SEND = "com.malekplay.ultrashare.SEND"
         const val ACTION_SEND_BATCH = "com.malekplay.ultrashare.SEND_BATCH"
+        const val ACTION_RETRY_FILE = "com.malekplay.ultrashare.RETRY_FILE"
 
         private val mutableState = MutableStateFlow(UltraShareServiceState())
         val state = mutableState.asStateFlow()
@@ -433,6 +451,15 @@ class UltraShareForegroundService : Service() {
             val intent = Intent(context, UltraShareForegroundService::class.java)
                 .setAction(ACTION_SEND_BATCH)
                 .putParcelableArrayListExtra(EXTRA_URIS, ArrayList(uris))
+                .putExtra(EXTRA_HOST, host)
+                .putExtra(EXTRA_SECRET, secret)
+            start(context, intent)
+        }
+
+        fun retryFile(context: Context, uri: Uri, host: String, secret: String) {
+            val intent = Intent(context, UltraShareForegroundService::class.java)
+                .setAction(ACTION_RETRY_FILE)
+                .putExtra(EXTRA_URI, uri)
                 .putExtra(EXTRA_HOST, host)
                 .putExtra(EXTRA_SECRET, secret)
             start(context, intent)
