@@ -1,6 +1,8 @@
 package com.malekplay.ui.network
 
 import android.content.Context
+import android.content.Intent
+import android.os.Build
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.net.Uri
@@ -64,6 +66,7 @@ import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareTransport
 import com.malekplay.network.UltraShareDiscovery
+import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraShareQrCode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -113,6 +116,7 @@ class UltraShareViewModel @Inject constructor(
             receiving = true,
             status = context.getString(R.string.ultra_share_waiting)
         )
+        startTransferService()
         advertisementJob = viewModelScope.launch {
             try {
                 UltraShareDiscovery.advertiseWhileReceiving()
@@ -150,6 +154,7 @@ class UltraShareViewModel @Inject constructor(
                 advertisementJob?.cancel()
                 advertisementJob = null
                 receiveJob = null
+                stopTransferService()
                 _state.value = _state.value.copy(receiving = false)
             }
         }
@@ -192,6 +197,7 @@ class UltraShareViewModel @Inject constructor(
         if (sendJob != null) return
         sendJob = viewModelScope.launch {
             _state.value = _state.value.copy(sending = true, error = null, status = null, progress = null)
+            startTransferService()
             try {
                 val metadata = withContext(Dispatchers.IO) { readDocumentMetadata(context, uri) }
                 UltraShareTransport.send(
@@ -219,6 +225,7 @@ class UltraShareViewModel @Inject constructor(
                 )
             } finally {
                 sendJob = null
+                stopTransferService()
                 _state.value = _state.value.copy(sending = false)
             }
         }
@@ -262,7 +269,26 @@ class UltraShareViewModel @Inject constructor(
         advertisementJob?.cancel()
         scanJob?.cancel()
         sendJob?.cancel()
+        stopTransferService()
         super.onCleared()
+    }
+
+    private fun startTransferService() {
+        val intent = Intent(context, UltraShareForegroundService::class.java)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+            else context.startService(intent)
+        }.onFailure {
+            _state.value = _state.value.copy(
+                error = context.getString(R.string.ultra_share_background_unavailable)
+            )
+        }
+    }
+
+    private fun stopTransferService() {
+        runCatching {
+            context.stopService(Intent(context, UltraShareForegroundService::class.java))
+        }
     }
 
     private fun findLocalIpv4Addresses(): List<String> = runCatching {
