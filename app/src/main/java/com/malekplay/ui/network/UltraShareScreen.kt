@@ -559,6 +559,11 @@ fun UltraShareScreen(
                         state.localAddresses.forEach { address ->
                             Text(address, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
                         }
+                        TextButton(
+                            onClick = { UltraShareForegroundService.refreshLocalAddresses(context) }
+                        ) {
+                            Text("تحديث عناوين الشبكة")
+                        }
                         Text(
                             stringResource(R.string.ultra_share_port, UltraShareTransport.DEFAULT_PORT),
                             color = MalekPlayColors.TextSecondary,
