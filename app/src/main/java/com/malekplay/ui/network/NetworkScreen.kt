@@ -145,6 +145,7 @@ data class DlnaBrowseUiState(
     val entries: List<DlnaEntry> = emptyList(),
     val totalMatches: Int = 0,
     val loading: Boolean = false,
+    val loadingMore: Boolean = false,
     val error: String? = null
 )
 
@@ -443,10 +444,18 @@ class NetworkViewModel @Inject constructor(
         }
     }
 
-    fun browseDlna(device: DiscoveredNetworkDevice, objectId: String = "0", parentId: String? = null) {
+    fun browseDlna(
+        device: DiscoveredNetworkDevice,
+        objectId: String = "0",
+        parentId: String? = null,
+        startingIndex: Int = 0,
+        append: Boolean = false
+    ) {
         dlnaBrowseJob?.cancel()
+        val previous = _dlnaBrowse.value
+        _dlnaBrowse.value = if (append) previous.copy(loadingMore = true, error = null)
+            else DlnaBrowseUiState(device = device, objectId = objectId, parentId = parentId, loading = true)
         dlnaBrowseJob = viewModelScope.launch {
-            _dlnaBrowse.value = DlnaBrowseUiState(device = device, objectId = objectId, parentId = parentId, loading = true)
             try {
                 val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
                 val wifiNetwork = connectivity.allNetworks.firstOrNull { candidate ->
@@ -455,16 +464,24 @@ class NetworkViewModel @Inject constructor(
                 } ?: throw IllegalStateException("اتصل بشبكة Wi-Fi نفسها التي يوجد عليها خادم الوسائط.")
                 val page = dlnaClient.browse(device, wifiNetwork, objectId)
                 _dlnaBrowse.value = DlnaBrowseUiState(
-                    device = device, objectId = objectId, parentId = parentId,
-                    entries = page.entries, totalMatches = page.totalMatches
+                    device = device,
+                    objectId = objectId,
+                    parentId = parentId,
+                    entries = if (append) previous.entries + page.entries else page.entries,
+                    totalMatches = page.totalMatches,
+                    loadingMore = false
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                _dlnaBrowse.value = DlnaBrowseUiState(
-                    device = device, objectId = objectId, parentId = parentId,
-                    error = error.localizedMessage ?: "تعذر تصفح مكتبة DLNA"
-                )
+                _dlnaBrowse.value = if (append) {
+                    previous.copy(loadingMore = false, error = error.localizedMessage ?: "تعذر تحميل المزيد")
+                } else {
+                    DlnaBrowseUiState(
+                        device = device, objectId = objectId, parentId = parentId,
+                        error = error.localizedMessage ?: "تعذر تصفح مكتبة DLNA"
+                    )
+                }
             }
         }
     }
@@ -576,6 +593,7 @@ fun NetworkScreen(
                 onNavigate = { id -> viewModel.browseDlna(requireNotNull(dlnaBrowse.device), id, dlnaBrowse.objectId) },
                 onParent = { viewModel.browseDlna(requireNotNull(dlnaBrowse.device), dlnaBrowse.parentId ?: "0") },
                 onRefresh = { viewModel.browseDlna(requireNotNull(dlnaBrowse.device), dlnaBrowse.objectId, dlnaBrowse.parentId) },
+                onLoadMore = { viewModel.browseDlna(requireNotNull(dlnaBrowse.device), dlnaBrowse.objectId, dlnaBrowse.parentId, dlnaBrowse.entries.size, append = true) },
                 onClose = viewModel::closeDlnaBrowse,
                 onOpenMedia = onOpenMedia
             )
@@ -680,6 +698,7 @@ private fun DlnaBrowsePanel(
     onNavigate: (String) -> Unit,
     onParent: () -> Unit,
     onRefresh: () -> Unit,
+    onLoadMore: () -> Unit,
     onClose: () -> Unit,
     onOpenMedia: (String) -> Unit
 ) {
@@ -752,6 +771,18 @@ private fun DlnaBrowsePanel(
                         }
                         if (!entry.isContainer && entry.sizeBytes > 0L) {
                             Text(formatBytes(entry.sizeBytes), color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+                if (state.entries.size < state.totalMatches) {
+                    item {
+                        TextButton(
+                            onClick = onLoadMore,
+                            enabled = !state.loadingMore,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                        ) {
+                            if (state.loadingMore) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            else Text(stringResource(R.string.net_dlna_load_more))
                         }
                     }
                 }
