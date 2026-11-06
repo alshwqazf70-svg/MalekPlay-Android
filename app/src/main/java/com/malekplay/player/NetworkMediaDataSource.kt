@@ -393,11 +393,11 @@ class NetworkRoutingDataSource(
 
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: throw IOException("خدمة اتصال الشبكة غير متاحة")
-        val lanNetwork = connectivity.allNetworks.firstOrNull { network ->
+        val candidateNetworks = (listOfNotNull(connectivity.activeNetwork) + connectivity.allNetworks).distinct()
+        val lanNetwork = candidateNetworks.firstOrNull { network ->
             val capabilities = connectivity.getNetworkCapabilities(network) ?: return@firstOrNull false
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
         } ?: throw IOException("اتصل بشبكة Wi-Fi أو Ethernet نفسها التي يوجد عليها خادم DLNA")
 
         val client = OkHttpClient.Builder()
