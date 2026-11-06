@@ -11,6 +11,7 @@ sealed class Screen(val route: String) {
     data object Local : Screen("local")
     data object Music : Screen("music")
     data object Network : Screen("network")
+    data object UltraShare : Screen("ultra-share")
     data object Profile : Screen("profile")
     data object Settings : Screen("settings")
     data object Favourites : Screen("favourites")
