@@ -72,16 +72,30 @@ jobs:
           ./gradlew --stacktrace --max-workers=2 :app:assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/MalekPlay-universal-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/MalekPlay-2.0-universal.apk
+          cat > dist/README_AR.txt <<'EOF'
+          MalekPlay 2.0 - نسخة Android للتثبيت
+          
+          طريقة التثبيت:
+          1) فك ضغط ملف MalekPlay-2.0-Android.zip.
+          2) افتح MalekPlay-2.0-universal.apk من هاتف Android.
+          3) إذا طلب الهاتف الإذن، اسمح بالتثبيت من هذا المصدر.
+          4) أكمل التثبيت ثم افتح MalekPlay.
+          
+          هذه حزمة APK شاملة لمعالجات Android الشائعة (ARM و x86).
+          EOF
           cd dist
-          zip -9 MalekPlay-universal-debug.zip MalekPlay-universal-debug.apk
-          unzip -t MalekPlay-universal-debug.zip
+          sha256sum MalekPlay-2.0-universal.apk > SHA256SUMS.txt
+          zip -9 MalekPlay-2.0-Android.zip MalekPlay-2.0-universal.apk README_AR.txt SHA256SUMS.txt
+          unzip -t MalekPlay-2.0-Android.zip
+          echo "### Universal APK and compressed package sizes" >> "$GITHUB_STEP_SUMMARY"
+          ls -lh MalekPlay-2.0-universal.apk MalekPlay-2.0-Android.zip >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload universal install package
         uses: actions/upload-artifact@v4
         with:
           name: MalekPlay-universal-install
-          path: dist/MalekPlay-universal-debug.zip
+          path: dist/MalekPlay-2.0-Android.zip
           if-no-files-found: error
           retention-days: 14
 
