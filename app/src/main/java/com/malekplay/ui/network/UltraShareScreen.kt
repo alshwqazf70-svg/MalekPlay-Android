@@ -102,74 +102,55 @@ class UltraShareViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(UltraShareUiState())
     val state = _state.asStateFlow()
-    private var receiveJob: Job? = null
-    private var advertisementJob: Job? = null
     private var scanJob: Job? = null
-    private var sendJob: Job? = null
 
-    fun startReceiving() {
-        if (receiveJob != null) return
-        val secret = UltraShareTransport.createPairingSecret()
-        _state.value = UltraShareUiState(
-            pairingSecret = secret,
-            localAddresses = findLocalIpv4Addresses(),
-            receiving = true,
-            status = context.getString(R.string.ultra_share_waiting)
-        )
-        startTransferService()
-        advertisementJob = viewModelScope.launch {
-            try {
-                UltraShareDiscovery.advertiseWhileReceiving()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                _state.value = _state.value.copy(
-                    status = context.getString(R.string.ultra_share_discovery_unavailable)
-                )
-            }
-        }
-        receiveJob = viewModelScope.launch {
-            try {
-                val received = UltraShareTransport.receiveOnce(
-                    pairingSecret = secret,
-                    destinationDirectory = UltraShareTransport.defaultReceiveDirectory(context),
-                    onProgress = { progress -> _state.value = _state.value.copy(progress = progress) }
-                )
-                _state.value = _state.value.copy(
-                    receiving = false,
-                    progress = null,
-                    receivedFile = received,
-                    status = context.getString(R.string.ultra_share_received, received.fileName),
-                    error = null
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                _state.value = _state.value.copy(
-                    receiving = false,
-                    error = failure.localizedMessage ?: context.getString(R.string.ultra_share_transfer_failed),
-                    status = null
-                )
-            } finally {
-                advertisementJob?.cancel()
-                advertisementJob = null
-                receiveJob = null
-                stopTransferService()
-                _state.value = _state.value.copy(
-                    receiving = false,
-                    pairingSecret = "",
-                    localAddresses = emptyList()
+    init {
+        viewModelScope.launch {
+            UltraShareForegroundService.state.collect { serviceState ->
+                val current = _state.value
+                _state.value = current.copy(
+                    pairingSecret = serviceState.pairingSecret,
+                    localAddresses = serviceState.localAddresses,
+                    receiving = serviceState.receiving,
+                    sending = serviceState.sending,
+                    progress = serviceState.progress,
+                    receivedFile = serviceState.receivedFile ?: current.receivedFile,
+                    status = serviceState.status ?: current.status,
+                    error = serviceState.error
                 )
             }
         }
     }
 
-    fun stopReceiving() {
-        advertisementJob?.cancel()
-        receiveJob?.cancel()
+    fun startReceiving() {
+        if (_state.value.receiving || _state.value.sending) return
+        val secret = UltraShareTransport.createPairingSecret()
         _state.value = _state.value.copy(
-            status = context.getString(R.string.ultra_share_stopped),
-            progress = null
+            pairingSecret = secret,
+            receiving = true,
+            sending = false,
+            progress = null,
+            error = null,
+            status = context.getString(R.string.ultra_share_waiting)
+        )
+        runCatching { UltraShareForegroundService.startReceiving(context, secret) }
+            .onFailure {
+                _state.value = _state.value.copy(
+                    receiving = false,
+                    pairingSecret = "",
+                    error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
+                )
+            }
+    }
+
+    fun stopReceiving() {
+        UltraShareForegroundService.cancel(context)
+        _state.value = _state.value.copy(
+            receiving = false,
+            pairingSecret = "",
+            localAddresses = emptyList(),
+            progress = null,
+            status = context.getString(R.string.ultra_share_stopped)
         )
     }
 
@@ -198,45 +179,25 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun send(uri: Uri, host: String, secret: String) {
-        if (sendJob != null) return
-        sendJob = viewModelScope.launch {
-            _state.value = _state.value.copy(sending = true, error = null, status = null, progress = null)
-            startTransferService()
-            try {
-                val metadata = withContext(Dispatchers.IO) { readDocumentMetadata(context, uri) }
-                UltraShareTransport.send(
-                    resolver = context.contentResolver,
-                    uri = uri,
-                    host = host,
-                    pairingSecret = secret,
-                    fileName = metadata.first,
-                    mimeType = metadata.second,
-                    sizeBytes = metadata.third,
-                    onProgress = { progress -> _state.value = _state.value.copy(progress = progress) }
-                )
-                _state.value = _state.value.copy(
-                    sending = false,
-                    progress = null,
-                    status = context.getString(R.string.ultra_share_sent, metadata.first),
-                    error = null
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                _state.value = _state.value.copy(
-                    sending = false,
-                    error = failure.localizedMessage ?: context.getString(R.string.ultra_share_transfer_failed)
-                )
-            } finally {
-                sendJob = null
-                stopTransferService()
-                _state.value = _state.value.copy(sending = false)
-            }
+        if (_state.value.sending || _state.value.receiving) return
+        runCatching {
+            UltraShareForegroundService.startSending(context, uri, host, secret)
+            _state.value = _state.value.copy(
+                sending = true,
+                progress = null,
+                error = null,
+                status = context.getString(R.string.ultra_share_sending)
+            )
+        }.onFailure {
+            _state.value = _state.value.copy(
+                sending = false,
+                error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
+            )
         }
     }
 
     fun exportReceived(destination: Uri) {
-        val received = _state.value.receivedFile ?: return
+        val received = _state.value.receivedFile ?: UltraShareForegroundService.state.value.receivedFile ?: return
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
@@ -257,7 +218,7 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun cancelSending() {
-        sendJob?.cancel()
+        UltraShareForegroundService.cancel(context)
         _state.value = _state.value.copy(
             progress = null,
             status = context.getString(R.string.ultra_share_send_cancelled)
@@ -269,63 +230,9 @@ class UltraShareViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        receiveJob?.cancel()
-        advertisementJob?.cancel()
         scanJob?.cancel()
-        sendJob?.cancel()
-        stopTransferService()
+        // Transfer jobs belong to the foreground service and deliberately outlive this ViewModel.
         super.onCleared()
-    }
-
-    private fun startTransferService() {
-        val intent = Intent(context, UltraShareForegroundService::class.java)
-        runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
-            else context.startService(intent)
-        }.onFailure {
-            _state.value = _state.value.copy(
-                error = context.getString(R.string.ultra_share_background_unavailable)
-            )
-        }
-    }
-
-    private fun stopTransferService() {
-        runCatching {
-            context.stopService(Intent(context, UltraShareForegroundService::class.java))
-        }
-    }
-
-    private fun findLocalIpv4Addresses(): List<String> = runCatching {
-        NetworkInterface.getNetworkInterfaces().toList()
-            .filter { network ->
-                val name = network.name.lowercase()
-                network.isUp && !network.isLoopback &&
-                    (name.startsWith("wlan") || name.startsWith("swlan") ||
-                        name.startsWith("ap") || name.startsWith("eth"))
-            }
-            .flatMap { network -> network.inetAddresses.toList() }
-            .filterIsInstance<Inet4Address>()
-            .filter { !it.isLoopbackAddress && it.isSiteLocalAddress }
-            .mapNotNull { it.hostAddress }
-            .distinct()
-            .sorted()
-    }.getOrDefault(emptyList())
-
-    private fun readDocumentMetadata(context: Context, uri: Uri): Triple<String, String, Long> {
-        var name = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "shared-file"
-        var size = -1L
-        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
-            ?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    val sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE)
-                    if (nameColumn >= 0) cursor.getString(nameColumn)?.takeIf { it.isNotBlank() }?.let { name = it }
-                    if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) size = cursor.getLong(sizeColumn)
-                }
-            }
-        require(size >= 0L) { "تعذر معرفة حجم الملف؛ اختر ملفاً من مدير الملفات يدعم عرض الحجم." }
-        val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
-        return Triple(name, mime, size)
     }
 }
 
