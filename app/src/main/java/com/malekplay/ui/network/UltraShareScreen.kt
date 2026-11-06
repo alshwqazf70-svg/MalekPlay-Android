@@ -293,7 +293,7 @@ class UltraShareViewModel @Inject constructor(
                     if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) size = cursor.getLong(sizeColumn)
                 }
             }
-        require(size > 0L) { "تعذر معرفة حجم الملف؛ اختر ملفاً من مدير الملفات يدعم عرض الحجم." }
+        require(size >= 0L) { "تعذر معرفة حجم الملف؛ اختر ملفاً من مدير الملفات يدعم عرض الحجم." }
         val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
         return Triple(name, mime, size)
     }
