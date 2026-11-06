@@ -114,7 +114,7 @@ class UltraShareViewModel @Inject constructor(
         )
         advertisementJob = viewModelScope.launch {
             try {
-                UltraShareDiscovery.advertiseWhileReceiving(context)
+                UltraShareDiscovery.advertiseWhileReceiving()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -168,7 +168,7 @@ class UltraShareViewModel @Inject constructor(
         _state.value = _state.value.copy(scanning = true, error = null, status = null)
         scanJob = viewModelScope.launch {
             try {
-                val peers = UltraShareDiscovery.discoverPeers(context)
+                val peers = UltraShareDiscovery.discoverPeers()
                 _state.value = _state.value.copy(
                     discoveredPeers = peers,
                     status = if (peers.isEmpty()) context.getString(R.string.ultra_share_no_devices)
