@@ -1,6 +1,7 @@
 name: Build MalekPlay Android APK
 
 # Build automatically for every update to the protected development branch.
+# Final verification: include [emulator] in the commit message to run the Android UI smoke suite.
 # Manual dispatch remains available for optional emulator runs.
 on:
   push:
