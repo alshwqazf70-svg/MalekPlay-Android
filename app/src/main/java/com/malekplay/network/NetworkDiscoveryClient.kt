@@ -12,6 +12,21 @@ import java.net.MulticastSocket
 import java.net.URI
 import java.util.Locale
 
+internal fun classifySsdpDevice(st: String, usn: String): NetworkDeviceKind = when {
+    st.contains("mediaserver", true) || usn.contains("mediaserver", true) ->
+        NetworkDeviceKind.MEDIA_SERVER
+    st.contains("mediarenderer", true) || usn.contains("mediarenderer", true) ->
+        NetworkDeviceKind.MEDIA_RENDERER
+    else -> NetworkDeviceKind.NETWORK_DEVICE
+}
+
+internal fun classifyWsDiscoveryDevice(types: String, scopes: String): NetworkDeviceKind {
+    val advertised = "$types $scopes"
+    return if (advertised.contains("computer", true) || advertised.contains("windows", true)) {
+        NetworkDeviceKind.WINDOWS_COMPUTER
+    } else NetworkDeviceKind.NETWORK_DEVICE
+}
+
 /** A service advertised on the current Wi-Fi LAN. It is a discovery hint, not proof of file access. */
 data class DiscoveredNetworkDevice(
     val id: String,
@@ -81,13 +96,7 @@ class NetworkDiscoveryClient {
                 val host = locationUri?.host ?: source.hostAddress ?: return@receiveUntilQuiet
                 val description = locationUri?.takeIf { it.scheme == "http" || it.scheme == "https" }?.toString()
                 val identity = (usn.ifBlank { location ?: host }).lowercase(Locale.ROOT)
-                val kind = when {
-                    st.contains("mediaserver", true) || usn.contains("mediaserver", true) ->
-                        NetworkDeviceKind.MEDIA_SERVER
-                    st.contains("mediarenderer", true) || usn.contains("mediarenderer", true) ->
-                        NetworkDeviceKind.MEDIA_RENDERER
-                    else -> NetworkDeviceKind.NETWORK_DEVICE
-                }
+                val kind = classifySsdpDevice(st, usn)
                 val label = when (kind) {
                     NetworkDeviceKind.MEDIA_SERVER -> "خادم وسائط UPnP"
                     NetworkDeviceKind.MEDIA_RENDERER -> "مشغل وسائط UPnP"
@@ -116,7 +125,7 @@ class NetworkDiscoveryClient {
                 val host = uri?.host ?: source.hostAddress ?: return@receiveUntilQuiet
                 val types = XML_TYPES.find(xml)?.groupValues?.getOrNull(1).orEmpty()
                 val scopes = XML_SCOPES.find(xml)?.groupValues?.getOrNull(1).orEmpty()
-                val computer = (types + " " + scopes).let { it.contains("computer", true) || it.contains("windows", true) }
+                val computer = classifyWsDiscoveryDevice(types, scopes) == NetworkDeviceKind.WINDOWS_COMPUTER
                 val identity = (XML_EPR.find(xml)?.groupValues?.getOrNull(1) ?: xaddr ?: host)
                     .lowercase(Locale.ROOT)
                 val label = if (computer) "كمبيوتر على الشبكة" else "جهاز WS-Discovery"
@@ -197,8 +206,8 @@ class NetworkDiscoveryClient {
         const val QUIET_WINDOW_MS = 650L
         const val MAX_RESPONSE_CHARS = 16_384
         val XML_XADDR = Regex("<(?:[\\w.-]+:)?XAddrs[^>]*>(.*?)</(?:[\\w.-]+:)?XAddrs>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val XML_TYPES = Regex("<(?:[\\w.-]+:)?Types[^>]*>(.*?)</(?:[\\w.-]+:)?Types>", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL)
-        val XML_SCOPES = Regex("<(?:[\\w.-]+:)?Scopes[^>]*>(.*?)</(?:[\\w.-]+:)?Scopes>", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL)
-        val XML_EPR = Regex("<(?:[\\w.-]+:)?Address[^>]*>(.*?)</(?:[\\w.-]+:)?Address>", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL)
+        val XML_TYPES = Regex("<(?:[\\w.-]+:)?Types[^>]*>(.*?)</(?:[\\w.-]+:)?Types>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val XML_SCOPES = Regex("<(?:[\\w.-]+:)?Scopes[^>]*>(.*?)</(?:[\\w.-]+:)?Scopes>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val XML_EPR = Regex("<(?:[\\w.-]+:)?Address[^>]*>(.*?)</(?:[\\w.-]+:)?Address>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
     }
 }
