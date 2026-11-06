@@ -77,6 +77,7 @@ import com.malekplay.ui.videos.VideoCategoryScreen
 import com.malekplay.ui.local.LocalScreen
 import com.malekplay.ui.music.MusicScreen
 import com.malekplay.ui.network.NetworkScreen
+import com.malekplay.ui.network.UltraShareScreen
 import com.malekplay.ui.player.audio.AudioPlayerScreen
 import com.malekplay.ui.player.video.VideoPlayerScreen
 import com.malekplay.ui.playlists.PlaylistScreen
@@ -217,7 +218,15 @@ fun MalekPlayNavHost(
             composable(Screen.Network.route) {
                 NetworkScreen(
                     onOpenMedia = navController::openNetworkMedia,
-                    contentPadding = padding
+                    contentPadding = padding,
+                    onOpenUltraShare = { navController.navigate(Screen.UltraShare.route) }
+                )
+            }
+
+            composable(Screen.UltraShare.route) {
+                UltraShareScreen(
+                    contentPadding = padding,
+                    onBack = { navController.popBackStack() }
                 )
             }
 
