@@ -1,5 +1,7 @@
 package com.malekplay.ui.favorites
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
@@ -103,7 +106,11 @@ fun FavouritesScreen(
                 Text(stringResource(R.string.favourites_empty), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            Column(Modifier.fillMaxSize().padding(padding)) {
+            Column(
+                Modifier.fillMaxSize().padding(padding).background(
+                    Brush.verticalGradient(listOf(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.background))
+                )
+            ) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -111,6 +118,20 @@ fun FavouritesScreen(
                     singleLine = true,
                     label = { Text("بحث في المفضلة") }
                 )
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f), RoundedCornerShape(18.dp))
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("مساحتك الموسيقية المفضلة", style = MaterialTheme.typography.titleSmall)
+                        Text("${visibleItems.size} عنصر محفوظ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Filled.Favorite, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(25.dp))
+                }
                 if (visibleItems.isEmpty()) {
                     Column(
                         Modifier.fillMaxWidth().weight(1f).padding(24.dp),
@@ -131,7 +152,10 @@ fun FavouritesScreen(
                     ) {
                         items(visibleItems, key = { it.media.id }) { item ->
                             Row(
-                                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onOpenMedia(item.media) }.padding(10.dp),
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.78f))
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f), RoundedCornerShape(18.dp))
+                                    .clickable { onOpenMedia(item.media) }.padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 MediaThumbnail(item.media, Modifier.size(76.dp, 58.dp))
