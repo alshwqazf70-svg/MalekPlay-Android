@@ -66,6 +66,8 @@ import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareTransport
 import com.malekplay.network.UltraShareDiscovery
+import com.malekplay.network.UltraShareQueueEntry
+import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraShareQrCode
 import dagger.hilt.android.lifecycle.HiltViewModel
