@@ -9,6 +9,26 @@ import org.junit.Test
 class NetworkModelsTest {
 
     @Test
+    fun classifiesCommonMdnsServicesWithoutClaimingEveryDeviceIsAFileServer() {
+        assertEquals(
+            NetworkDeviceKind.MEDIA_RENDERER,
+            classifyMdnsService("_googlecast._tcp.local")
+        )
+        assertEquals(
+            NetworkDeviceKind.MEDIA_RENDERER,
+            classifyMdnsService("_airplay._tcp.local")
+        )
+        assertEquals(
+            NetworkDeviceKind.WINDOWS_COMPUTER,
+            classifyMdnsService("_smb._tcp.local")
+        )
+        assertEquals(
+            NetworkDeviceKind.NETWORK_DEVICE,
+            classifyMdnsService("_companion-link._tcp.local")
+        )
+    }
+
+    @Test
     fun dlnaHostMustBePrivateOrLinkLocal() {
         assertEquals(true, isPrivateLanHost("192.168.1.20"))
         assertEquals(true, isPrivateLanHost("10.0.0.12"))
