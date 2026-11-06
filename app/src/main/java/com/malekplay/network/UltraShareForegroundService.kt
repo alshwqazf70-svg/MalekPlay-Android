@@ -24,6 +24,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.Inet4Address
@@ -50,6 +51,7 @@ data class UltraShareServiceState(
 class UltraShareForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var transferJob: Job? = null
+    @Volatile private var pauseRequested = false
     private var advertisementJob: Job? = null
     private lateinit var notificationManager: NotificationManager
     private var wifiLock: WifiManager.WifiLock? = null
@@ -73,6 +75,14 @@ class UltraShareForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_PAUSE -> {
+                if (currentState().sending && transferJob != null) {
+                    pauseRequested = true
+                    publish(currentState().copy(status = "جارٍ إيقاف طابور الإرسال مؤقتاً..."))
+                    transferJob?.cancel()
+                }
+                return START_NOT_STICKY
+            }
             ACTION_STOP, ACTION_CANCEL -> {
                 if (transferJob == null) startForegroundCompat()
                 transferJob?.cancel()
@@ -326,6 +336,12 @@ class UltraShareForegroundService : Service() {
                     UltraShareQueueStore.replace(this@UltraShareForegroundService, queue)
                 }
                 queue.forEachIndexed { index, uri ->
+                    val storedStatus = UltraShareQueueStore.observe(this@UltraShareForegroundService)
+                        .first().firstOrNull { it.uri == uri.toString() }?.status
+                    if (storedStatus == UltraShareQueueStore.STATUS_SKIPPED) {
+                        publish(currentState().copy(queueCompleted = index + 1, queueTotal = queue.size))
+                        return@forEachIndexed
+                    }
                     activeUri = uri
                     val metadata = try {
                         readDocumentMetadata(uri)
@@ -363,10 +379,17 @@ class UltraShareForegroundService : Service() {
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_PENDING, error = "أُوقف النقل؛ يمكن استئنافه.")
                     }
                 }
-                publish(currentState().copy(sending = false, progress = null, status = "أُوقف طابور الإرسال بعد إكمال " + sent + " ملفات"))
+                publish(currentState().copy(
+                    sending = false,
+                    progress = null,
+                    status = if (pauseRequested)
+                        "أُوقف الطابور مؤقتاً بعد إكمال " + sent + " ملفات؛ يمكنك استئناف المتبقي."
+                    else "أُوقف طابور الإرسال بعد إكمال " + sent + " ملفات"
+                ))
                 throw cancelled
             } finally {
                 transferJob = null
+                pauseRequested = false
                 publish(currentState().copy(sending = false, progress = null, queueCurrentName = null))
                 finishService()
             }
@@ -423,6 +446,7 @@ class UltraShareForegroundService : Service() {
         private const val EXTRA_URIS = "uris"
         const val ACTION_STOP = "com.malekplay.ultrashare.STOP"
         const val ACTION_CANCEL = "com.malekplay.ultrashare.CANCEL"
+        const val ACTION_PAUSE = "com.malekplay.ultrashare.PAUSE"
         const val ACTION_RECEIVE = "com.malekplay.ultrashare.RECEIVE"
         const val ACTION_SEND = "com.malekplay.ultrashare.SEND"
         const val ACTION_SEND_BATCH = "com.malekplay.ultrashare.SEND_BATCH"
@@ -463,6 +487,10 @@ class UltraShareForegroundService : Service() {
                 .putExtra(EXTRA_HOST, host)
                 .putExtra(EXTRA_SECRET, secret)
             start(context, intent)
+        }
+
+        fun pause(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_PAUSE))
         }
 
         fun cancel(context: Context) {
