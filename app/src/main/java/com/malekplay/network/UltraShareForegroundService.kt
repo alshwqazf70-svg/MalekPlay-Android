@@ -102,24 +102,38 @@ class UltraShareForegroundService : Service() {
                     }
                     try {
                         while (true) {
-                            val received = UltraShareTransport.receiveOnce(
-                                pairingSecret = secret,
-                                destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
-                                onProgress = { progress ->
-                                    val next = currentState().copy(progress = progress)
-                                    publish(next)
-                                    updateNotification(progress)
-                                }
-                            )
-                            publish(
-                                currentState().copy(
-                                    receiving = true,
-                                    progress = null,
-                                    receivedFile = received,
-                                    status = getString(R.string.ultra_share_received, received.fileName),
-                                    error = null
+                            try {
+                                val received = UltraShareTransport.receiveOnce(
+                                    pairingSecret = secret,
+                                    destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
+                                    onProgress = { progress ->
+                                        val nextState = currentState().copy(progress = progress, error = null)
+                                        publish(nextState)
+                                        updateNotification(progress)
+                                    }
                                 )
-                            )
+                                publish(
+                                    currentState().copy(
+                                        receiving = true,
+                                        progress = null,
+                                        receivedFile = received,
+                                        status = getString(R.string.ultra_share_received, received.fileName),
+                                        error = null
+                                    )
+                                )
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                // A rejected peer or a dropped connection must not disable the receiver.
+                                publish(
+                                    currentState().copy(
+                                        receiving = true,
+                                        progress = null,
+                                        error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)
+                                    )
+                                )
+                                kotlinx.coroutines.delay(500)
+                            }
                         }
                     } catch (cancelled: CancellationException) {
                         publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = null, status = getString(R.string.ultra_share_stopped)))
