@@ -422,6 +422,7 @@ class UltraShareForegroundService : Service() {
                         queueCompleted = index + 1,
                         queueTotal = queue.size,
                         progress = null,
+                        queueTotalBytes = totalBytes,
                         queueTransferredBytes = completedBytes
                     ))
                 }
