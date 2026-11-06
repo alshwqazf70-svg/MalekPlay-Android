@@ -8,6 +8,16 @@ import java.net.MulticastSocket
 import java.net.SocketTimeoutException
 import java.util.Locale
 
+internal fun classifyMdnsService(service: String): NetworkDeviceKind = when {
+    service.contains("_smb._tcp", true) -> NetworkDeviceKind.WINDOWS_COMPUTER
+    service.contains("_googlecast._tcp", true) ||
+        service.contains("_androidtvremote2._tcp", true) ||
+        service.contains("_mediaremotetv._tcp", true) ||
+        service.contains("_airplay._tcp", true) ||
+        service.contains("_raop._tcp", true) -> NetworkDeviceKind.MEDIA_RENDERER
+    else -> NetworkDeviceKind.NETWORK_DEVICE
+}
+
 /** Discovers devices advertising common TV, phone and file-sharing services over mDNS/DNS-SD. */
 internal class MdnsDiscoveryClient {
     suspend fun discover(): List<DiscoveredNetworkDevice> = withContext(Dispatchers.IO) {
@@ -58,7 +68,7 @@ internal class MdnsDiscoveryClient {
             val server = servers[instance]
             val hostName = server?.first
             val host = hostName?.let { addresses[it] } ?: fallbackHosts[instance] ?: return@mapNotNull null
-            val kind = classifyService(service)
+            val kind = classifyMdnsService(service)
             val serviceLabel = service.removeSuffix(".local")
             val label = friendlyNames[instance]
                 ?: instance.substringBefore("." + service.removeSuffix(".local"))
@@ -71,16 +81,6 @@ internal class MdnsDiscoveryClient {
                 services = setOf("mDNS/DNS-SD", serviceLabel, "Port " + (server?.second ?: 0))
             )
         }.distinctBy { it.host + ":" + it.services.elementAtOrNull(1) }
-    }
-
-    private fun classifyService(service: String): NetworkDeviceKind = when {
-        service.contains("_smb._tcp") -> NetworkDeviceKind.WINDOWS_COMPUTER
-        service.contains("_googlecast._tcp") ||
-            service.contains("_androidtvremote2._tcp") ||
-            service.contains("_mediaremotetv._tcp") ||
-            service.contains("_airplay._tcp") ||
-            service.contains("_raop._tcp") -> NetworkDeviceKind.MEDIA_RENDERER
-        else -> NetworkDeviceKind.NETWORK_DEVICE
     }
 
     private fun buildPtrQuery(service: String): ByteArray {
