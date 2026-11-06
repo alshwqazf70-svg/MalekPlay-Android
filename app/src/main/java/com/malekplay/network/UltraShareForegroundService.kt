@@ -86,6 +86,11 @@ class UltraShareForegroundService : Service() {
                 }
                 return START_NOT_STICKY
             }
+            ACTION_REFRESH_ADDRESSES -> {
+                if (currentState().receiving) {
+                    publish(currentState().copy(localAddresses = findLocalIpv4Addresses()))
+                }
+            }
             ACTION_STOP, ACTION_CANCEL -> {
                 if (transferJob == null) startForegroundCompat()
                 transferJob?.cancel()
@@ -530,6 +535,7 @@ class UltraShareForegroundService : Service() {
         const val ACTION_STOP = "com.malekplay.ultrashare.STOP"
         const val ACTION_CANCEL = "com.malekplay.ultrashare.CANCEL"
         const val ACTION_PAUSE = "com.malekplay.ultrashare.PAUSE"
+        const val ACTION_REFRESH_ADDRESSES = "com.malekplay.ultrashare.REFRESH_ADDRESSES"
         const val ACTION_RECEIVE = "com.malekplay.ultrashare.RECEIVE"
         const val ACTION_SEND = "com.malekplay.ultrashare.SEND"
         const val ACTION_SEND_BATCH = "com.malekplay.ultrashare.SEND_BATCH"
@@ -574,6 +580,10 @@ class UltraShareForegroundService : Service() {
 
         fun pause(context: Context) {
             context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_PAUSE))
+        }
+
+        fun refreshLocalAddresses(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_REFRESH_ADDRESSES))
         }
 
         fun cancel(context: Context) {
