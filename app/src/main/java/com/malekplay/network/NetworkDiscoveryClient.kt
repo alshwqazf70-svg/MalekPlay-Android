@@ -20,7 +20,8 @@ internal fun isSameDiscoveryHost(endpointHost: String?, packetHost: String): Boo
     !endpointHost.isNullOrBlank() && endpointHost.equals(packetHost, ignoreCase = true)
 
 internal fun classifySsdpDevice(st: String, usn: String): NetworkDeviceKind = when {
-    st.contains("mediaserver", true) || usn.contains("mediaserver", true) ->
+    st.contains("mediaserver", true) || usn.contains("mediaserver", true) ||
+        st.contains("contentdirectory", true) || usn.contains("contentdirectory", true) ->
         NetworkDeviceKind.MEDIA_SERVER
     st.contains("mediarenderer", true) || usn.contains("mediarenderer", true) ->
         NetworkDeviceKind.MEDIA_RENDERER
