@@ -654,7 +654,7 @@ private fun DlnaBrowsePanel(
             TextButton(onClick = onParent, modifier = Modifier.padding(horizontal = 12.dp)) {
                 Icon(Icons.Filled.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("المجلد السابق")
+                Text(stringResource(R.string.net_dlna_parent))
             }
         }
         when {
@@ -671,7 +671,7 @@ private fun DlnaBrowsePanel(
                 OutlinedButton(onClick = onRefresh) { Text(stringResource(R.string.common_retry)) }
             }
             state.entries.isEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                Text("لا توجد عناصر في هذا المجلد.", color = MalekPlayColors.TextSecondary, textAlign = TextAlign.Center)
+                Text(stringResource(R.string.net_dlna_empty), color = MalekPlayColors.TextSecondary, textAlign = TextAlign.Center)
             }
             else -> LazyColumn(
                 Modifier.fillMaxSize(),
@@ -695,7 +695,7 @@ private fun DlnaBrowsePanel(
                         Column(Modifier.weight(1f)) {
                             Text(entry.title, color = MalekPlayColors.TextPrimary, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                if (entry.isContainer) "مجلد وسائط" else entry.mimeType ?: "ملف وسائط",
+                                if (entry.isContainer) stringResource(R.string.net_dlna_folder) else entry.mimeType ?: stringResource(R.string.net_dlna_file),
                                 color = MalekPlayColors.TextSecondary,
                                 style = MaterialTheme.typography.bodySmall
                             )
