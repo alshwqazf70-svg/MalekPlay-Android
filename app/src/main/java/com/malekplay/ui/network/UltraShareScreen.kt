@@ -550,7 +550,16 @@ fun UltraShareScreen(
                     Text(progress.fileName, color = MalekPlayColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     LinearProgressIndicator(progress = { progress.fraction }, modifier = Modifier.fillMaxWidth())
                     Text(
-                        "${(progress.fraction * 100).toInt()}%  •  ${formatTransferBytes(progress.transferredBytes)} / ${formatTransferBytes(progress.totalBytes)}  •  ${formatTransferBytes(progress.bytesPerSecond)}/s",
+                        stringResource(
+                            R.string.ultra_share_progress,
+                            (progress.fraction * 100).toInt(),
+                            formatTransferBytes(progress.transferredBytes),
+                            formatTransferBytes(progress.totalBytes),
+                            formatTransferBytes(progress.bytesPerSecond),
+                            if (progress.bytesPerSecond > 0L) formatTransferEta(
+                                ((progress.totalBytes - progress.transferredBytes).coerceAtLeast(0L) / progress.bytesPerSecond)
+                            ) else stringResource(R.string.ultra_share_eta_calculating)
+                        ),
                         color = MalekPlayColors.TextSecondary,
                         style = MaterialTheme.typography.labelSmall
                     )
@@ -599,4 +608,15 @@ private fun formatTransferBytes(value: Long): String {
         index++
     } while (amount >= 1024.0 && index < units.lastIndex)
     return String.format(java.util.Locale.US, "%.1f %s", amount, units[index])
+}
+
+private fun formatTransferEta(seconds: Long): String {
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    val remainingSeconds = seconds % 60
+    return when {
+        hours > 0 -> String.format(java.util.Locale.US, "%d:%02d:%02d", hours, minutes, remainingSeconds)
+        minutes > 0 -> String.format(java.util.Locale.US, "%d:%02d", minutes, remainingSeconds)
+        else -> "${remainingSeconds}s"
+    }
 }
