@@ -6,6 +6,8 @@ import android.net.NetworkCapabilities
 import android.net.Network
 import android.net.wifi.WifiManager
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.DatagramPacket
@@ -68,26 +70,31 @@ class NetworkDiscoveryClient {
                 acquire()
             }
             try {
-                val found = LinkedHashMap<String, MutableDevice>()
-                // A failure in one discovery protocol must not hide devices found by the others.
-                try { discoverSsdp(found, wifiNetwork) }
-                catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { }
-                try { discoverWsDiscovery(found, wifiNetwork) }
-                catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { }
-                val mdnsDevices = try {
-                    MdnsDiscoveryClient().discover(wifiNetwork)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    emptyList()
+                // Run independent multicast protocols together to keep the initial scan responsive.
+                val (ssdpDevices, wsDiscoveryDevices, mdnsDevices) = coroutineScope {
+                    val ssdp = async(Dispatchers.IO) {
+                        collectProtocolResults { results -> discoverSsdp(results, wifiNetwork) }
+                    }
+                    val wsDiscovery = async(Dispatchers.IO) {
+                        collectProtocolResults { results -> discoverWsDiscovery(results, wifiNetwork) }
+                    }
+                    val mdns = async(Dispatchers.IO) {
+                        try {
+                            MdnsDiscoveryClient().discover(wifiNetwork)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    }
+                    Triple(ssdp.await(), wsDiscovery.await(), mdns.await())
                 }
-                mdnsDevices.forEach { device ->
+                val found = LinkedHashMap<String, MutableDevice>()
+                (ssdpDevices + wsDiscoveryDevices + mdnsDevices).forEach { device ->
                     merge(
                         found,
                         device.host.lowercase(Locale.ROOT),
-                        MutableDevice(device.name, device.host, device.kind, device.services.toMutableSet(), null)
+                        MutableDevice(device.name, device.host, device.kind, device.services.toMutableSet(), device.descriptionUrl)
                     )
                 }
                 found.values
@@ -98,6 +105,20 @@ class NetworkDiscoveryClient {
                 if (lock.isHeld) lock.release()
             }
         }
+
+    private fun collectProtocolResults(
+        discover: (MutableMap<String, MutableDevice>) -> Unit
+    ): List<DiscoveredNetworkDevice> {
+        val results = LinkedHashMap<String, MutableDevice>()
+        try {
+            discover(results)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        return results.values.map { it.toPublic() }
+    }
 
     private fun discoverSsdp(found: MutableMap<String, MutableDevice>, network: Network) {
         val requests = listOf("ssdp:all", "urn:schemas-upnp-org:device:MediaServer:1", "urn:schemas-upnp-org:device:MediaRenderer:1")
