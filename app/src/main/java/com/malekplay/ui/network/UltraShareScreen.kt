@@ -607,8 +607,10 @@ fun UltraShareScreen(
                     }
                 }
                 if (state.sending) {
-                    OutlinedButton(onClick = viewModel::pauseSending, modifier = Modifier.fillMaxWidth()) {
-                        Text("إيقاف مؤقت للطابور")
+                    if (state.queueTotal > 0) {
+                        OutlinedButton(onClick = viewModel::pauseSending, modifier = Modifier.fillMaxWidth()) {
+                            Text("إيقاف مؤقت للطابور")
+                        }
                     }
                     OutlinedButton(onClick = viewModel::cancelSending, modifier = Modifier.fillMaxWidth()) {
                         Text(stringResource(R.string.ultra_share_cancel_send))
