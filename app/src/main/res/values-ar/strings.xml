@@ -304,7 +304,8 @@
     <string name="ultra_share_receive">استلام الملفات</string>
     <string name="ultra_share_receive_hint">ابدأ الاستقبال على هذا الهاتف، ثم استخدم عنوانه ورمز الاقتران في الهاتف المرسل.</string>
     <string name="ultra_share_waiting">بانتظار اتصال جهاز آخر…</string>
-    <string name="ultra_share_receiver_address">عنوان هذا الهاتف على الشبكة</string>
+    <string name="ultra_share_receiver_address">عنوان IP لهذا الهاتف</string>
+    <string name="ultra_share_port">المنفذ: %1$d</string>
     <string name="ultra_share_no_address">لم نعثر على عنوان شبكة محلية. تأكد من اتصال Wi-Fi.</string>
     <string name="ultra_share_pairing_code">رمز الاقتران</string>
     <string name="ultra_share_code_warning">لا تشارك الرمز إلا مع الشخص الذي تريد استقبال ملفاته منه.</string>
