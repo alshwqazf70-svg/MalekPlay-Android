@@ -225,6 +225,7 @@
     <string name="net_dlna_empty">There are no items in this folder.</string>
     <string name="net_dlna_folder">Media folder</string>
     <string name="net_dlna_file">Media file</string>
+    <string name="net_dlna_load_more">Load more</string>
     <string name="net_discovery_configure_smb">Set up SMB</string>
     <string name="net_discovery_scanning">Searching for UPnP, Windows and mDNS devices on the current Wi-Fi…</string>
     <string name="net_discovery_subtitle">Computers • TVs • phones and media servers</string>
