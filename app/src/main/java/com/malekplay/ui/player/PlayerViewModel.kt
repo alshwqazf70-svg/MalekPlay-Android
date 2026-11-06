@@ -352,6 +352,7 @@ class PlayerViewModel @Inject constructor(
         clearSubtitleTranslationSource()
         restoredTrackPreferenceIds.remove(nextMediaId)
         currentMediaId = nextMediaId
+        _currentItemId.value = nextMediaId
         _playerError.value = null
         player.setMediaItems(items.map { it.toMedia3Item() }, safeIndex, startPositionMs.coerceAtLeast(0L))
         player.shuffleModeEnabled = shuffle
@@ -375,6 +376,7 @@ class PlayerViewModel @Inject constructor(
         val nextMediaId = uri.toString()
         clearSubtitleTranslationSource()
         currentMediaId = nextMediaId
+        _currentItemId.value = nextMediaId
         _playerError.value = null
         player.setMediaItem(mediaItemFromUri(uri))
         player.seekTo(startPositionMs.coerceAtLeast(0L))
