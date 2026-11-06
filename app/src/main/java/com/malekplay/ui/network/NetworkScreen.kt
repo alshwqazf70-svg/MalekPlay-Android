@@ -3,6 +3,8 @@
 package com.malekplay.ui.network
 
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -409,7 +411,12 @@ class NetworkViewModel @Inject constructor(
         dlnaBrowseJob = viewModelScope.launch {
             _dlnaBrowse.value = DlnaBrowseUiState(device = device, objectId = objectId, parentId = parentId, loading = true)
             try {
-                val page = dlnaClient.browse(device, objectId)
+                val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                val wifiNetwork = connectivity.allNetworks.firstOrNull { candidate ->
+                    connectivity.getNetworkCapabilities(candidate)
+                        ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+                } ?: throw IllegalStateException("اتصل بشبكة Wi-Fi نفسها التي يوجد عليها خادم الوسائط.")
+                val page = dlnaClient.browse(device, wifiNetwork, objectId)
                 _dlnaBrowse.value = DlnaBrowseUiState(
                     device = device, objectId = objectId, parentId = parentId,
                     entries = page.entries, totalMatches = page.totalMatches
