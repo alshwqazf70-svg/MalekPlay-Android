@@ -116,7 +116,7 @@ object UltraShareTransport {
         require(host.isNotBlank()) { "أدخل عنوان الجهاز المستقبل." }
         val targetAddress = resolvePrivateLanAddress(host)
         require(port in 1..65535) { "منفذ الاتصال غير صالح." }
-        require(sizeBytes in 1..MAX_FILE_BYTES) { "حجم الملف غير مدعوم أو الملف فارغ." }
+        require(sizeBytes in 0..MAX_FILE_BYTES) { "حجم الملف غير مدعوم أو الملف فارغ." }
         val safeName = sanitizeFileName(fileName)
         val secret = decodeSecret(pairingSecret)
         val digest = resolver.openInputStream(uri)?.use { stream ->
@@ -241,7 +241,7 @@ object UltraShareTransport {
                 require(metadata.readUnsignedShort() == VERSION) { "إصدار بروتوكول النقل غير مدعوم." }
                 val fileName = sanitizeFileName(readUtf8(metadata, 768))
                 val size = metadata.readLong()
-                require(size in 1..MAX_FILE_BYTES) { "حجم الملف المرسل غير مسموح." }
+                require(size in 0..MAX_FILE_BYTES) { "حجم الملف المرسل غير مسموح." }
                 val mime = readUtf8(metadata, 192).take(160)
                 val expectedDigest = ByteArray(32).also(metadata::readFully)
                 require(metadata.available() == 0) { "بيانات الملف المرسل غير مكتملة." }
