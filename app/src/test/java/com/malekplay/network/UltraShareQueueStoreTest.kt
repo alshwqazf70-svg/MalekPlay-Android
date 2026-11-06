@@ -16,7 +16,7 @@ class UltraShareQueueStoreTest {
 
     @Test
     fun queueClaimsAreExclusiveAndSkippedItemsCannotBeResumed() = runBlocking {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         val activeUri = Uri.parse("content://malekplay.test/document/active")
         val skippedUri = Uri.parse("content://malekplay.test/document/skipped")
 
