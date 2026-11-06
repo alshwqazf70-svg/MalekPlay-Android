@@ -82,9 +82,9 @@ object UltraShareTransport {
 
     fun sanitizeFileName(raw: String): String {
         val cleaned = raw
-            .replace('\\\\', '/')
+            .replace('\\', '/')
             .substringAfterLast('/')
-            .filter { it >= ' ' && it != '\\u007f' && it != ':' && it != '*' &&
+            .filter { it >= ' ' && it != '\u007f' && it != ':' && it != '*' &&
                 it != '?' && it != '"' && it != '<' && it != '>' && it != '|' }
             .trim()
             .trim('.')
