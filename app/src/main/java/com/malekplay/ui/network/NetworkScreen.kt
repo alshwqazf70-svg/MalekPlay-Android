@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -853,7 +854,7 @@ private fun AddSourceDialog(
     val protocols = NetworkProtocol.entries.toList()
     var protocolIndex by remember(initialProtocol) { mutableIntStateOf(protocols.indexOf(initialProtocol).takeIf { it >= 0 } ?: 0) }
     var host by remember(initialHost) { mutableStateOf(initialHost.orEmpty()) }
-    var port by remember { mutableStateOf("443") }
+    var port by remember(initialProtocol) { mutableStateOf(when (initialProtocol) { NetworkProtocol.SMB -> "445"; NetworkProtocol.SFTP -> "22"; else -> "443" }) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var share by remember { mutableStateOf("") }
