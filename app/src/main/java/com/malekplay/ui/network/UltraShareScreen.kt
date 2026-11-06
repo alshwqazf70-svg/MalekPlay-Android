@@ -244,6 +244,26 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
+    fun retryFile(entry: UltraShareQueueEntry, host: String, secret: String) {
+        if (_state.value.sending || _state.value.receiving ||
+            host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret) ||
+            entry.status != UltraShareQueueStore.STATUS_FAILED
+        ) return
+        runCatching {
+            UltraShareForegroundService.retryFile(context, entry.parsedUri, host, secret)
+            _state.value = _state.value.copy(
+                sending = true,
+                progress = null,
+                error = null,
+                status = "إعادة محاولة إرسال " + entry.displayName
+            )
+        }.onFailure {
+            _state.value = _state.value.copy(
+                error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
+            )
+        }
+    }
+
     fun clearQueue() {
         viewModelScope.launch {
             if (!_state.value.sending) UltraShareQueueStore.clear(context)
@@ -526,13 +546,29 @@ fun UltraShareScreen(
                                 UltraShareQueueStore.STATUS_FAILED -> "فشل — قابل لإعادة المحاولة"
                                 else -> "بانتظار الإرسال"
                             }
-                            Text(
-                                "• " + entry.displayName + " — " + label,
-                                color = if (entry.status == UltraShareQueueStore.STATUS_FAILED) MaterialTheme.colorScheme.error else MalekPlayColors.TextSecondary,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "• " + entry.displayName + " — " + label,
+                                    color = if (entry.status == UltraShareQueueStore.STATUS_FAILED) MaterialTheme.colorScheme.error else MalekPlayColors.TextSecondary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (entry.status == UltraShareQueueStore.STATUS_FAILED) {
+                                    TextButton(
+                                        onClick = { viewModel.retryFile(entry, host.trim(), secret.trim()) },
+                                        enabled = !state.sending && !state.receiving &&
+                                            host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
+                                    ) {
+                                        Text("إعادة المحاولة")
+                                    }
+                                }
+                            }
                         }
                         if (state.queueEntries.size > 12) {
                             Text("و " + (state.queueEntries.size - 12) + " ملفات أخرى", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
