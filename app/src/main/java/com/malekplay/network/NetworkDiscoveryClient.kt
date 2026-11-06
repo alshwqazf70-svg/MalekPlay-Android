@@ -3,6 +3,7 @@ package com.malekplay.network
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Network
 import android.net.wifi.WifiManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -55,11 +56,10 @@ class NetworkDiscoveryClient {
         withContext(Dispatchers.IO) {
             val app = context.applicationContext
             val connectivity = app.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val network = connectivity.activeNetwork
-            val capabilities = network?.let(connectivity::getNetworkCapabilities)
-            require(capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
-                "اتصل بشبكة Wi-Fi أولاً لاكتشاف الأجهزة المحلية."
-            }
+            val wifiNetwork = connectivity.allNetworks.firstOrNull { candidate ->
+                connectivity.getNetworkCapabilities(candidate)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            } ?: throw IllegalStateException("اتصل بشبكة Wi-Fi أولاً لاكتشاف الأجهزة المحلية.")
 
             val wifi = app.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             val lock = wifi.createMulticastLock("MalekPlay:LAN-discovery").apply {
@@ -68,9 +68,9 @@ class NetworkDiscoveryClient {
             }
             try {
                 val found = LinkedHashMap<String, MutableDevice>()
-                discoverSsdp(found)
-                discoverWsDiscovery(found)
-                MdnsDiscoveryClient().discover().forEach { device ->
+                discoverSsdp(found, wifiNetwork)
+                discoverWsDiscovery(found, wifiNetwork)
+                MdnsDiscoveryClient().discover(wifiNetwork).forEach { device ->
                     merge(
                         found,
                         device.host.lowercase(Locale.ROOT),
@@ -86,9 +86,10 @@ class NetworkDiscoveryClient {
             }
         }
 
-    private fun discoverSsdp(found: MutableMap<String, MutableDevice>) {
+    private fun discoverSsdp(found: MutableMap<String, MutableDevice>, network: Network) {
         val requests = listOf("ssdp:all", "urn:schemas-upnp-org:device:MediaServer:1", "urn:schemas-upnp-org:device:MediaRenderer:1")
         MulticastSocket().use { socket ->
+            network.bindSocket(socket)
             socket.soTimeout = RECEIVE_TIMEOUT_MS
             socket.timeToLive = 2
             val target = InetAddress.getByName(SSDP_GROUP)
@@ -122,12 +123,13 @@ class NetworkDiscoveryClient {
         }
     }
 
-    private fun discoverWsDiscovery(found: MutableMap<String, MutableDevice>) {
+    private fun discoverWsDiscovery(found: MutableMap<String, MutableDevice>, network: Network) {
         val probe = """<?xml version="1.0" encoding="UTF-8"?>
 <e:Envelope xmlns:e="http://www.w3.org/2003/05/soap-envelope" xmlns:w="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery">
 <e:Header><w:MessageID>urn:uuid:malekplay-discovery</w:MessageID><w:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</w:To><w:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</w:Action></e:Header>
 <e:Body><d:Probe/></e:Body></e:Envelope>"""
         MulticastSocket().use { socket ->
+            network.bindSocket(socket)
             socket.soTimeout = RECEIVE_TIMEOUT_MS
             socket.timeToLive = 2
             val bytes = probe.toByteArray(Charsets.UTF_8)
