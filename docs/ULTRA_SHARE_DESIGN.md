@@ -15,6 +15,7 @@
 - Interrupted transfers keep a partial file and a sidecar identity marker. A later send of the same filename, size and digest can resume at the existing byte offset.
 - The receiver rejects non-private IPv4 peers and the sender rejects non-private IPv4 destinations.
 - Files are staged under the app-specific Downloads directory and can be exported through Android's Storage Access Framework.
+- While a transfer is active, the service holds Wi-Fi and partial CPU wake locks to reduce interruptions when the display turns off; both locks are released on completion, cancellation, or service destruction. This increases battery use during transfers.
 - A data-sync foreground service owns the send/receive coroutine and socket work. The ViewModel only submits commands and observes a process-local StateFlow, so removing the Ultra Share destination no longer cancels an active transfer while Android keeps the app process/service alive. The ongoing notification shows progress and provides a stop action.
 - Pairing can be transferred through the generated QR payload, QR image import, or a copied pairing URI.
 
