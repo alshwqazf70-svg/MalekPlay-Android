@@ -34,7 +34,7 @@ object UltraShareQueueStore {
         context.applicationContext.ultraShareQueueDataStore.data.map { decode(it[QUEUE].orEmpty()) }
 
     suspend fun pending(context: Context): List<UltraShareQueueEntry> =
-        observe(context).first().filter { it.status != STATUS_COMPLETED }
+        observe(context).first().filter { it.status == STATUS_PENDING || it.status == STATUS_FAILED }
 
     suspend fun replace(context: Context, uris: List<Uri>) {
         val entries = uris.distinctBy { it.toString() }.map { uri ->
