@@ -25,6 +25,9 @@ object UltraShareQrCode {
 
     fun createPayload(host: String, port: Int, pairingSecret: String): String {
         require(port in 1..65535) { "منفذ الاقتران غير صالح." }
+        require(UltraShareTransport.isValidPrivateLanHost(host)) {
+            "عنوان QR يجب أن يكون IPv4 خاصاً بالشبكة المحلية."
+        }
         require(UltraShareTransport.isValidPairingSecret(pairingSecret)) {
             "رمز الاقتران غير صالح."
         }
@@ -54,6 +57,9 @@ object UltraShareQrCode {
             "إصدار رمز الاقتران غير مدعوم."
         }
         val host = requireNotNull(uri.getQueryParameter("host")) { "عنوان الجهاز غير موجود في رمز QR." }
+        require(UltraShareTransport.isValidPrivateLanHost(host)) {
+            "عنوان الجهاز في QR ليس عنوان IPv4 محلياً صالحاً."
+        }
         val port = requireNotNull(uri.getQueryParameter("port")) { "منفذ الجهاز غير موجود في رمز QR." }
             .toIntOrNull() ?: throw IllegalArgumentException("منفذ الاقتران غير صالح.")
         val secret = requireNotNull(uri.getQueryParameter("secret")) { "رمز الاقتران غير موجود في رمز QR." }
