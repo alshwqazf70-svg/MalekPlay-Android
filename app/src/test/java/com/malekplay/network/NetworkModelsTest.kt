@@ -33,7 +33,13 @@ class NetworkModelsTest {
         assertEquals(true, isPrivateLanHost("192.168.1.20"))
         assertEquals(true, isPrivateLanHost("10.0.0.12"))
         assertEquals(true, isPrivateLanHost("172.16.0.8"))
+        assertEquals(true, isPrivateLanHost("169.254.10.2"))
+        assertEquals(true, isPrivateLanHost("100.64.0.8"))
+        assertEquals(true, isPrivateLanHost("fc00::1"))
+        assertEquals(true, isPrivateLanHost("fe80::1"))
         assertEquals(false, isPrivateLanHost("8.8.8.8"))
+        assertEquals(false, isPrivateLanHost("127.0.0.1"))
+        assertEquals(false, isPrivateLanHost("2001:4860:4860::8888"))
     }
 
     @Test
