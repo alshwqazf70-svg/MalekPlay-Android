@@ -22,6 +22,18 @@ data class DlnaEntry(
     val mimeType: String? = null
 )
 
+internal fun validateDlnaDeviceUrl(raw: String, deviceHost: String): URI {
+    val uri = URI(raw).normalize()
+    require(uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) {
+        "خادم DLNA أعلن رابطاً غير آمن"
+    }
+    require(uri.userInfo == null && uri.fragment == null && uri.host.equals(deviceHost, true)) {
+        "رابط DLNA لا يطابق الجهاز الذي تم اكتشافه"
+    }
+    require(uri.toString().length <= 4096) { "رابط DLNA طويل جداً" }
+    return uri
+}
+
 data class DlnaDirectoryPage(
     val entries: List<DlnaEntry>,
     val totalMatches: Int,
@@ -48,7 +60,7 @@ class DlnaContentDirectoryClient(
         require(objectId.length <= 512 && objectId.none { it.isISOControl() }) { "معرّف مجلد DLNA غير صالح" }
         val descriptionUrl = device.descriptionUrl
             ?: throw IllegalStateException("لم يعلن الجهاز رابط وصف DLNA؛ لا يمكن فتح مكتبته")
-        val description = validateDeviceUrl(descriptionUrl, device.host)
+        val description = validateDlnaDeviceUrl(descriptionUrl, device.host)
         val descriptionXml = execute(
             Request.Builder().url(description.toString()).get().header("Accept", "application/xml,text/xml").build()
         )
@@ -201,18 +213,6 @@ class DlnaContentDirectoryClient(
             setInput(StringReader(xml))
             next()
         }
-    }
-
-    private fun validateDeviceUrl(raw: String, deviceHost: String): URI {
-        val uri = URI(raw).normalize()
-        require(uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) {
-            "خادم DLNA أعلن رابطاً غير آمن"
-        }
-        require(uri.userInfo == null && uri.fragment == null && uri.host.equals(deviceHost, true)) {
-            "رابط DLNA لا يطابق الجهاز الذي تم اكتشافه"
-        }
-        require(uri.toString().length <= 4096) { "رابط DLNA طويل جداً" }
-        return uri
     }
 
     private fun buildBrowseEnvelope(objectId: String, start: Int, count: Int): String {
