@@ -80,13 +80,13 @@ object UltraShareWifiDirect {
             }
         }
 
-        fun connect(deviceAddress: String) {
+        fun connect(deviceAddress: String, preferThisDeviceAsGroupOwner: Boolean) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             val config = WifiP2pConfig().apply {
                 this.deviceAddress = deviceAddress
-                // Prefer the remote receiver as group owner so its listening TCP server
-                // can be addressed through groupOwnerAddress on this sending device.
-                groupOwnerIntent = 0
+                // A receiving phone should own the group; a sending phone prefers
+                // the remote receiver so groupOwnerAddress identifies its TCP server.
+                groupOwnerIntent = if (preferThisDeviceAsGroupOwner) 15 else 0
                 wps.setup = WpsInfo.PBC
             }
             try {
