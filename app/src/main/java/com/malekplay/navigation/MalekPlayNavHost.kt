@@ -21,12 +21,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
@@ -39,7 +37,6 @@ import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Icon
@@ -73,7 +70,6 @@ import androidx.navigation.navArgument
 import com.malekplay.core.ui.util.stringResourceByName
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.core.ui.theme.MalekPlayColors
-import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.ui.player.PlayerViewModel
 import com.malekplay.ui.home.HomeScreen
 import com.malekplay.ui.videos.VideoCategoryScreen
