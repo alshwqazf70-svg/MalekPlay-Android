@@ -236,11 +236,22 @@ class NetworkDiscoveryClient {
             if ("mDNS/DNS-SD" in device.services && device.name.isNotBlank()) {
                 existing.name = device.name
             }
-            if (existing.kind == NetworkDeviceKind.NETWORK_DEVICE && device.kind != NetworkDeviceKind.NETWORK_DEVICE) {
+            val existingPriority = devicePriority(existing.kind)
+            val incomingPriority = devicePriority(device.kind)
+            if (incomingPriority > existingPriority) {
                 existing.kind = device.kind
-                if (existing.name.isBlank() || existing.name == "جهاز UPnP") existing.name = device.name
+                if (existing.name.isBlank() || existing.name == "جهاز UPnP" ||
+                    existing.name == "جهاز WS-Discovery" || existing.name == "كمبيوتر على الشبكة"
+                ) existing.name = device.name
             }
         }
+    }
+
+    private fun devicePriority(kind: NetworkDeviceKind): Int = when (kind) {
+        NetworkDeviceKind.MEDIA_SERVER -> 4
+        NetworkDeviceKind.WINDOWS_COMPUTER -> 3
+        NetworkDeviceKind.MEDIA_RENDERER -> 2
+        NetworkDeviceKind.NETWORK_DEVICE -> 1
     }
 
     private data class MutableDevice(
