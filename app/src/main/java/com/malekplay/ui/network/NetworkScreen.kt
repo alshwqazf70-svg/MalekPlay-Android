@@ -74,6 +74,8 @@ import com.malekplay.R
 import com.malekplay.core.ui.util.formatBytes
 import com.malekplay.network.NetworkCredentialVault
 import com.malekplay.network.NetworkDiscoveryClient
+import com.malekplay.network.DlnaContentDirectoryClient
+import com.malekplay.network.DlnaEntry
 import com.malekplay.network.DiscoveredNetworkDevice
 import com.malekplay.network.NetworkDeviceKind
 import com.malekplay.network.NetworkEntry
@@ -132,6 +134,16 @@ private fun networkMediaUri(profile: NetworkProfile, remotePath: String): Uri {
 }
 
 /** Snapshot of the directory currently being browsed. */
+data class DlnaBrowseUiState(
+    val device: DiscoveredNetworkDevice? = null,
+    val objectId: String = "0",
+    val parentId: String? = null,
+    val entries: List<DlnaEntry> = emptyList(),
+    val totalMatches: Int = 0,
+    val loading: Boolean = false,
+    val error: String? = null
+)
+
 data class BrowseUiState(
     val profileId: String? = null,
     val path: String = "/",
@@ -160,6 +172,10 @@ class NetworkViewModel @Inject constructor(
     val sourceError: StateFlow<String?> = _sourceError.asStateFlow()
 
     private var browseJob: Job? = null
+    private var dlnaBrowseJob: Job? = null
+    private val dlnaClient = DlnaContentDirectoryClient()
+    private val _dlnaBrowse = MutableStateFlow(DlnaBrowseUiState())
+    val dlnaBrowse: StateFlow<DlnaBrowseUiState> = _dlnaBrowse.asStateFlow()
     private var discoveryJob: Job? = null
     private val discoveryClient = NetworkDiscoveryClient()
     private val _discoveredDevices = MutableStateFlow<List<DiscoveredNetworkDevice>>(emptyList())
@@ -388,6 +404,33 @@ class NetworkViewModel @Inject constructor(
         }
     }
 
+    fun browseDlna(device: DiscoveredNetworkDevice, objectId: String = "0", parentId: String? = null) {
+        dlnaBrowseJob?.cancel()
+        dlnaBrowseJob = viewModelScope.launch {
+            _dlnaBrowse.value = DlnaBrowseUiState(device = device, objectId = objectId, parentId = parentId, loading = true)
+            try {
+                val page = dlnaClient.browse(device, objectId)
+                _dlnaBrowse.value = DlnaBrowseUiState(
+                    device = device, objectId = objectId, parentId = parentId,
+                    entries = page.entries, totalMatches = page.totalMatches
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _dlnaBrowse.value = DlnaBrowseUiState(
+                    device = device, objectId = objectId, parentId = parentId,
+                    error = error.localizedMessage ?: "تعذر تصفح مكتبة DLNA"
+                )
+            }
+        }
+    }
+
+    fun closeDlnaBrowse() {
+        dlnaBrowseJob?.cancel()
+        dlnaBrowseJob = null
+        _dlnaBrowse.value = DlnaBrowseUiState()
+    }
+
     fun closeBrowse() {
         browseJob?.cancel()
         browseJob = null
@@ -415,6 +458,7 @@ fun NetworkScreen(
     val discoveredDevices by viewModel.discoveredDevices.collectAsStateWithLifecycle()
     val discoveryRunning by viewModel.discoveryRunning.collectAsStateWithLifecycle()
     val discoveryMessage by viewModel.discoveryMessage.collectAsStateWithLifecycle()
+    val dlnaBrowse by viewModel.dlnaBrowse.collectAsStateWithLifecycle()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var selectedDevice by remember { mutableStateOf<DiscoveredNetworkDevice?>(null) }
@@ -458,12 +502,13 @@ fun NetworkScreen(
             )
         }
 
-        if (activeProfile == null) {
+        if (activeProfile == null && dlnaBrowse.device == null) {
             DiscoveryPanel(
                 devices = discoveredDevices,
                 running = discoveryRunning,
                 message = discoveryMessage,
                 onRefresh = viewModel::discoverDevices,
+                onOpenMediaServer = { device -> viewModel.browseDlna(device) },
                 onUseWindowsDevice = { device -> selectedDevice = device; showAddDialog = true }
             )
             SourcesList(
@@ -472,13 +517,22 @@ fun NetworkScreen(
                 onRemove = { profile -> viewModel.removeSource(profile) },
                 modifier = Modifier.weight(1f)
             )
-        } else {
+        } else if (activeProfile != null) {
             BrowsePanel(
                 profile = activeProfile,
                 state = browse,
                 onNavigate = { path -> viewModel.browse(activeProfile, path) },
                 onRefresh = { viewModel.browse(activeProfile, browse.path) },
                 onClose = { viewModel.closeBrowse() },
+                onOpenMedia = onOpenMedia
+            )
+        } else {
+            DlnaBrowsePanel(
+                state = dlnaBrowse,
+                onNavigate = { id -> viewModel.browseDlna(requireNotNull(dlnaBrowse.device), id, dlnaBrowse.objectId) },
+                onParent = { viewModel.browseDlna(requireNotNull(dlnaBrowse.device), dlnaBrowse.parentId ?: "0") },
+                onRefresh = { viewModel.browseDlna(requireNotNull(dlnaBrowse.device), dlnaBrowse.objectId, dlnaBrowse.parentId) },
+                onClose = viewModel::closeDlnaBrowse,
                 onOpenMedia = onOpenMedia
             )
         }
@@ -505,6 +559,7 @@ private fun DiscoveryPanel(
     running: Boolean,
     message: String?,
     onRefresh: () -> Unit,
+    onOpenMediaServer: (DiscoveredNetworkDevice) -> Unit,
     onUseWindowsDevice: (DiscoveredNetworkDevice) -> Unit
 ) {
     val shape = RoundedCornerShape(22.dp)
@@ -540,6 +595,7 @@ private fun DiscoveryPanel(
                 items(items = devices, key = { it.id }) { device ->
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
                         .background(Color.White.copy(alpha = 0.045f))
+                        .then(if (device.kind == NetworkDeviceKind.MEDIA_SERVER) Modifier.clickable { onOpenMediaServer(device) } else Modifier)
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -556,10 +612,96 @@ private fun DiscoveryPanel(
                             Text(device.name, style = MaterialTheme.typography.bodyMedium, color = MalekPlayColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(device.host + " • " + device.services.firstOrNull().orEmpty(), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        if (device.kind == NetworkDeviceKind.WINDOWS_COMPUTER) {
-                            TextButton(onClick = { onUseWindowsDevice(device) }) { Text(stringResource(R.string.net_discovery_configure_smb)) }
-                        } else {
-                            Text(stringResource(R.string.net_discovery_detected), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.PurpleSoft)
+                        when (device.kind) {
+                            NetworkDeviceKind.WINDOWS_COMPUTER -> TextButton(onClick = { onUseWindowsDevice(device) }) { Text(stringResource(R.string.net_discovery_configure_smb)) }
+                            NetworkDeviceKind.MEDIA_SERVER -> TextButton(onClick = { onOpenMediaServer(device) }) { Text(stringResource(R.string.net_discovery_open)) }
+                            else -> Text(stringResource(R.string.net_discovery_detected), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.PurpleSoft)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DlnaBrowsePanel(
+    state: DlnaBrowseUiState,
+    onNavigate: (String) -> Unit,
+    onParent: () -> Unit,
+    onRefresh: () -> Unit,
+    onClose: () -> Unit,
+    onOpenMedia: (String) -> Unit
+) {
+    val device = state.device ?: return
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onClose) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
+            }
+            Column(Modifier.weight(1f)) {
+                Text(device.name, style = MaterialTheme.typography.titleMedium, color = MalekPlayColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(device.host + " • DLNA", style = MaterialTheme.typography.bodySmall, color = MalekPlayColors.TextSecondary)
+            }
+            IconButton(onClick = onRefresh) {
+                Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.lib_refresh))
+            }
+        }
+        if (state.objectId != "0") {
+            TextButton(onClick = onParent, modifier = Modifier.padding(horizontal = 12.dp)) {
+                Icon(Icons.Filled.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("المجلد السابق")
+            }
+        }
+        when {
+            state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            state.error != null -> Column(
+                Modifier.fillMaxSize().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(state.error, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = onRefresh) { Text(stringResource(R.string.common_retry)) }
+            }
+            state.entries.isEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text("لا توجد عناصر في هذا المجلد.", color = MalekPlayColors.TextSecondary, textAlign = TextAlign.Center)
+            }
+            else -> LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 24.dp)
+            ) {
+                items(items = state.entries, key = { it.id }) { entry ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            if (entry.isContainer) onNavigate(entry.id)
+                            else entry.mediaUrl?.let(onOpenMedia)
+                        }.padding(horizontal = 16.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (entry.isContainer) Icons.Filled.Folder else Icons.Filled.Movie,
+                            contentDescription = null,
+                            tint = MalekPlayColors.PurpleBright,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(entry.title, color = MalekPlayColors.TextPrimary, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                if (entry.isContainer) "مجلد وسائط" else entry.mimeType ?: "ملف وسائط",
+                                color = MalekPlayColors.TextSecondary,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        if (!entry.isContainer && entry.sizeBytes > 0L) {
+                            Text(formatBytes(entry.sizeBytes), color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
