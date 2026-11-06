@@ -78,6 +78,15 @@ object UltraShareQueueStore {
         }
     }
 
+    suspend fun skip(context: Context, uri: Uri) {
+        update(
+            context = context,
+            uri = uri,
+            status = STATUS_SKIPPED,
+            error = "تخطّى المستخدم هذا الملف من الطابور."
+        )
+    }
+
     suspend fun clear(context: Context) {
         context.applicationContext.ultraShareQueueDataStore.edit { it.remove(QUEUE) }
     }
@@ -102,7 +111,7 @@ object UltraShareQueueStore {
                 uri = item.getString("uri"),
                 displayName = item.optString("name", "ملف"),
                 status = status.takeIf {
-                    it in setOf(STATUS_PENDING, STATUS_SENDING, STATUS_COMPLETED, STATUS_FAILED)
+                    it in setOf(STATUS_PENDING, STATUS_SENDING, STATUS_COMPLETED, STATUS_FAILED, STATUS_SKIPPED)
                 } ?: STATUS_PENDING,
                 error = item.optString("error").takeIf { it.isNotBlank() && it != "null" }
             )
@@ -113,4 +122,5 @@ object UltraShareQueueStore {
     const val STATUS_SENDING = "sending"
     const val STATUS_COMPLETED = "completed"
     const val STATUS_FAILED = "failed"
+    const val STATUS_SKIPPED = "skipped"
 }
