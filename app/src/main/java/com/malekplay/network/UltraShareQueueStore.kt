@@ -1,0 +1,116 @@
+package com.malekplay.network
+
+import android.content.Context
+import android.net.Uri
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import org.json.JSONArray
+import org.json.JSONObject
+
+private val Context.ultraShareQueueDataStore by preferencesDataStore(
+    name = "ultra_share_queue",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
+
+data class UltraShareQueueEntry(
+    val uri: String,
+    val displayName: String,
+    val status: String,
+    val error: String? = null
+) {
+    val parsedUri: Uri get() = Uri.parse(uri)
+}
+
+object UltraShareQueueStore {
+    private val QUEUE = stringPreferencesKey("queue_json")
+
+    fun observe(context: Context): Flow<List<UltraShareQueueEntry>> =
+        context.applicationContext.ultraShareQueueDataStore.data.map { decode(it[QUEUE].orEmpty()) }
+
+    suspend fun pending(context: Context): List<UltraShareQueueEntry> =
+        observe(context).first().filter { it.status != STATUS_COMPLETED }
+
+    suspend fun replace(context: Context, uris: List<Uri>) {
+        val entries = uris.distinctBy { it.toString() }.map { uri ->
+            UltraShareQueueEntry(
+                uri = uri.toString(),
+                displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "ملف",
+                status = STATUS_PENDING
+            )
+        }
+        context.applicationContext.ultraShareQueueDataStore.edit { it[QUEUE] = encode(entries) }
+    }
+
+    suspend fun update(
+        context: Context,
+        uri: Uri,
+        displayName: String? = null,
+        status: String,
+        error: String? = null
+    ) {
+        context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
+            val entries = decode(preferences[QUEUE].orEmpty()).map { entry ->
+                if (entry.uri == uri.toString()) entry.copy(
+                    displayName = displayName ?: entry.displayName,
+                    status = status,
+                    error = error
+                ) else entry
+            }
+            preferences[QUEUE] = encode(entries)
+        }
+    }
+
+    suspend fun recoverInterrupted(context: Context) {
+        context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
+            val entries = decode(preferences[QUEUE].orEmpty()).map { entry ->
+                if (entry.status == STATUS_SENDING) entry.copy(
+                    status = STATUS_PENDING,
+                    error = "انقطع التطبيق أثناء النقل؛ يمكنك استئناف الملف."
+                ) else entry
+            }
+            preferences[QUEUE] = encode(entries)
+        }
+    }
+
+    suspend fun clear(context: Context) {
+        context.applicationContext.ultraShareQueueDataStore.edit { it.remove(QUEUE) }
+    }
+
+    private fun encode(entries: List<UltraShareQueueEntry>): String = JSONArray().apply {
+        entries.forEach { entry ->
+            put(JSONObject().apply {
+                put("uri", entry.uri)
+                put("name", entry.displayName)
+                put("status", entry.status)
+                put("error", entry.error ?: JSONObject.NULL)
+            })
+        }
+    }.toString()
+
+    private fun decode(raw: String): List<UltraShareQueueEntry> = runCatching {
+        val array = JSONArray(raw)
+        List(array.length()) { index ->
+            val item = array.getJSONObject(index)
+            val status = item.optString("status", STATUS_PENDING)
+            UltraShareQueueEntry(
+                uri = item.getString("uri"),
+                displayName = item.optString("name", "ملف"),
+                status = status.takeIf {
+                    it in setOf(STATUS_PENDING, STATUS_SENDING, STATUS_COMPLETED, STATUS_FAILED)
+                } ?: STATUS_PENDING,
+                error = item.optString("error").takeIf { it.isNotBlank() && it != "null" }
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    const val STATUS_PENDING = "pending"
+    const val STATUS_SENDING = "sending"
+    const val STATUS_COMPLETED = "completed"
+    const val STATUS_FAILED = "failed"
+}

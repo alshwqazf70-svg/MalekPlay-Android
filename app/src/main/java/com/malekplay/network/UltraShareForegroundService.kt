@@ -19,11 +19,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
@@ -72,6 +74,7 @@ class UltraShareForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP, ACTION_CANCEL -> {
+                if (transferJob == null) startForegroundCompat()
                 transferJob?.cancel()
                 advertisementJob?.cancel()
                 if (transferJob == null) finishService()
@@ -298,34 +301,51 @@ class UltraShareForegroundService : Service() {
         acquireTransferLocks()
         publish(UltraShareServiceState(sending = true, queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال"))
         val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+            var activeUri: Uri? = null
             var sent = 0
             var failed = 0
             var lastError: String? = null
+            val queue = uris.distinctBy { it.toString() }
             try {
-                uris.forEachIndexed { index, uri ->
-                    val metadata = try { readDocumentMetadata(uri) } catch (failure: Exception) {
+                UltraShareQueueStore.replace(this@UltraShareForegroundService, queue)
+                queue.forEachIndexed { index, uri ->
+                    activeUri = uri
+                    val metadata = try {
+                        readDocumentMetadata(uri)
+                    } catch (failure: Exception) {
                         failed++
                         lastError = failure.localizedMessage ?: "تعذرت قراءة أحد الملفات."
-                        publish(currentState().copy(queueCompleted = index + 1, queueTotal = uris.size))
+                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_FAILED, error = lastError)
+                        activeUri = null
+                        publish(currentState().copy(queueCompleted = index + 1, queueTotal = queue.size))
                         return@forEachIndexed
                     }
-                    publish(currentState().copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = uris.size, progress = null))
+                    UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_SENDING)
+                    publish(currentState().copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = null))
                     try {
                         UltraShareTransport.send(resolver = contentResolver, uri = uri, host = host, pairingSecret = secret, fileName = metadata.first, mimeType = metadata.second, sizeBytes = metadata.third, onProgress = { progress ->
                             publish(currentState().copy(progress = progress, queueCurrentName = metadata.first))
                             updateNotification(progress)
                         })
                         sent++
+                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_COMPLETED)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (failure: Exception) {
                         failed++
                         lastError = metadata.first + ": " + (failure.localizedMessage ?: "فشل الإرسال.")
+                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
                     }
-                    publish(currentState().copy(queueCompleted = index + 1, queueTotal = uris.size, progress = null))
+                    activeUri = null
+                    publish(currentState().copy(queueCompleted = index + 1, queueTotal = queue.size, progress = null))
                 }
-                publish(currentState().copy(sending = false, status = "انتهى الطابور: أُرسل " + sent + " من " + uris.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null))
+                publish(currentState().copy(sending = false, status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null))
             } catch (cancelled: CancellationException) {
+                withContext(NonCancellable) {
+                    activeUri?.let { uri ->
+                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_PENDING, error = "أُوقف النقل؛ يمكن استئنافه.")
+                    }
+                }
                 publish(currentState().copy(sending = false, progress = null, status = "أُوقف طابور الإرسال بعد إكمال " + sent + " ملفات"))
                 throw cancelled
             } finally {

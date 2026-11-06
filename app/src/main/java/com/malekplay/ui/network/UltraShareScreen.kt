@@ -96,7 +96,8 @@ data class UltraShareUiState(
     val error: String? = null,
     val queueCompleted: Int = 0,
     val queueTotal: Int = 0,
-    val queueCurrentName: String? = null
+    val queueCurrentName: String? = null,
+    val queueEntries: List<UltraShareQueueEntry> = emptyList()
 )
 
 @HiltViewModel
@@ -108,6 +109,14 @@ class UltraShareViewModel @Inject constructor(
     private var scanJob: Job? = null
 
     init {
+        viewModelScope.launch {
+            if (!UltraShareForegroundService.state.value.sending) {
+                UltraShareQueueStore.recoverInterrupted(context)
+            }
+            UltraShareQueueStore.observe(context).collect { entries ->
+                _state.value = _state.value.copy(queueEntries = entries)
+            }
+        }
         viewModelScope.launch {
             UltraShareForegroundService.state.collect { serviceState ->
                 val current = _state.value
@@ -216,6 +225,26 @@ class UltraShareViewModel @Inject constructor(
                 sending = false,
                 error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
             )
+        }
+    }
+
+    fun resumePendingBatch(host: String, secret: String) {
+        if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret) ||
+            _state.value.sending || _state.value.receiving
+        ) return
+        viewModelScope.launch {
+            val pendingUris = UltraShareQueueStore.pending(context).map { it.parsedUri }
+            if (pendingUris.isEmpty()) {
+                _state.value = _state.value.copy(status = "لا توجد ملفات متبقية للاستئناف.")
+            } else {
+                sendBatch(pendingUris, host, secret)
+            }
+        }
+    }
+
+    fun clearQueue() {
+        viewModelScope.launch {
+            if (!_state.value.sending) UltraShareQueueStore.clear(context)
         }
     }
 
@@ -484,6 +513,39 @@ fun UltraShareScreen(
                         color = MalekPlayColors.TextSecondary,
                         style = MaterialTheme.typography.labelSmall
                     )
+                }
+                if (state.queueEntries.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("حالة الملفات المحفوظة", color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                        state.queueEntries.take(12).forEach { entry ->
+                            val label = when (entry.status) {
+                                UltraShareQueueStore.STATUS_COMPLETED -> "اكتمل"
+                                UltraShareQueueStore.STATUS_SENDING -> "جارٍ الإرسال"
+                                UltraShareQueueStore.STATUS_FAILED -> "فشل — قابل لإعادة المحاولة"
+                                else -> "بانتظار الإرسال"
+                            }
+                            Text(
+                                "• " + entry.displayName + " — " + label,
+                                color = if (entry.status == UltraShareQueueStore.STATUS_FAILED) MaterialTheme.colorScheme.error else MalekPlayColors.TextSecondary,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (state.queueEntries.size > 12) {
+                            Text("و " + (state.queueEntries.size - 12) + " ملفات أخرى", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    if (!state.sending && state.queueEntries.any { it.status != UltraShareQueueStore.STATUS_COMPLETED }) {
+                        OutlinedButton(
+                            onClick = { viewModel.resumePendingBatch(host.trim(), secret.trim()) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !state.receiving && host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
+                        ) { Text("استئناف الملفات المتبقية") }
+                    }
+                    if (!state.sending) {
+                        TextButton(onClick = viewModel::clearQueue) { Text("مسح سجل الطابور") }
+                    }
                 }
                 if (state.sending) {
                     OutlinedButton(onClick = viewModel::cancelSending, modifier = Modifier.fillMaxWidth()) {
