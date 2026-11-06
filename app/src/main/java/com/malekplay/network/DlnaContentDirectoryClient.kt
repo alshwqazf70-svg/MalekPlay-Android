@@ -176,6 +176,7 @@ class DlnaContentDirectoryClient(
         var currentResource: String? = null
         var currentResourceSize = 0L
         var currentMime: String? = null
+        var currentResourcePriority = -1
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT && entries.size < MAX_ENTRIES) {
             when (event) {
@@ -190,16 +191,27 @@ class DlnaContentDirectoryClient(
                         currentResource = null
                         currentResourceSize = 0L
                         currentMime = null
+                        currentResourcePriority = -1
                     }
                     "title" -> if (current != null) current!!.title = parser.nextText().take(300)
                     "res" -> if (current != null) {
                         val protocolInfo = parser.getAttributeValue(null, "protocolInfo").orEmpty()
                         val size = parser.getAttributeValue(null, "size")?.toLongOrNull() ?: 0L
                         val candidate = parser.nextText().trim()
-                        if (currentResource == null && candidate.length <= 4096) {
+                        val mime = protocolInfo.split(':').getOrNull(2)?.takeIf { it.length <= 128 }.orEmpty()
+                        val priority = when {
+                            mime.startsWith("audio/", true) || mime.startsWith("video/", true) -> 3
+                            mime.equals("application/octet-stream", true) ||
+                                mime.equals("application/ogg", true) -> 2
+                            mime.isBlank() -> 1
+                            else -> 0
+                        }
+                        // Servers may list a JPEG thumbnail before the actual audio/video resource.
+                        if (candidate.length <= 4096 && priority > currentResourcePriority) {
                             currentResource = candidate
                             currentResourceSize = size.coerceAtLeast(0L)
-                            currentMime = protocolInfo.split(':').getOrNull(2)?.takeIf { it.length <= 128 }
+                            currentMime = mime.takeIf { it.isNotBlank() }
+                            currentResourcePriority = priority
                         }
                     }
                 }
