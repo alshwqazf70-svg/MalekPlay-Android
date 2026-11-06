@@ -102,7 +102,7 @@ class NetworkDiscoveryClient {
         val probe = """<?xml version="1.0" encoding="UTF-8"?>
 <e:Envelope xmlns:e="http://www.w3.org/2003/05/soap-envelope" xmlns:w="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery">
 <e:Header><w:MessageID>urn:uuid:malekplay-discovery</w:MessageID><w:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</w:To><w:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</w:Action></e:Header>
-<e:Body><d:Probe><d:Types>wsdp:Device</d:Types></d:Probe></e:Body></e:Envelope>"""
+<e:Body><d:Probe/></e:Body></e:Envelope>"""
         MulticastSocket().use { socket ->
             socket.soTimeout = RECEIVE_TIMEOUT_MS
             socket.timeToLive = 2
@@ -116,8 +116,7 @@ class NetworkDiscoveryClient {
                 val host = uri?.host ?: source.hostAddress ?: return@receiveUntilQuiet
                 val types = XML_TYPES.find(xml)?.groupValues?.getOrNull(1).orEmpty()
                 val scopes = XML_SCOPES.find(xml)?.groupValues?.getOrNull(1).orEmpty()
-                val computer = (types + " " + scopes).contains("computer", true) ||
-                    (types + " " + scopes).contains("device", true)
+                val computer = (types + " " + scopes).let { it.contains("computer", true) || it.contains("windows", true) }
                 val identity = (XML_EPR.find(xml)?.groupValues?.getOrNull(1) ?: xaddr ?: host)
                     .lowercase(Locale.ROOT)
                 val label = if (computer) "كمبيوتر على الشبكة" else "جهاز WS-Discovery"
@@ -197,7 +196,7 @@ class NetworkDiscoveryClient {
         const val WSD_WINDOW_MS = 2_500L
         const val QUIET_WINDOW_MS = 650L
         const val MAX_RESPONSE_CHARS = 16_384
-        val XML_XADDR = Regex("<(?:[\\w.-]+:)?XAddrs[^>]*>(.*?)</(?:[\\w.-]+:)?XAddrs>", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL)
+        val XML_XADDR = Regex("<(?:[\\w.-]+:)?XAddrs[^>]*>(.*?)</(?:[\\w.-]+:)?XAddrs>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val XML_TYPES = Regex("<(?:[\\w.-]+:)?Types[^>]*>(.*?)</(?:[\\w.-]+:)?Types>", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL)
         val XML_SCOPES = Regex("<(?:[\\w.-]+:)?Scopes[^>]*>(.*?)</(?:[\\w.-]+:)?Scopes>", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL)
         val XML_EPR = Regex("<(?:[\\w.-]+:)?Address[^>]*>(.*?)</(?:[\\w.-]+:)?Address>", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL)
