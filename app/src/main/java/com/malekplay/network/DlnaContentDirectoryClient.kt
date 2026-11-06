@@ -82,13 +82,13 @@ class DlnaContentDirectoryClient(
         val descriptionXml = execute(networkClient,
             Request.Builder().url(description.toString()).get().header("Accept", "application/xml,text/xml").build()
         )
-        val controlUrl = findContentDirectoryControlUrl(descriptionXml, description, device.host)
+        val endpoint = findContentDirectoryEndpoint(descriptionXml, description, device.host)
             ?: throw IllegalStateException("الجهاز لا يوفر خدمة ContentDirectory لتصفح الوسائط")
         val soap = buildBrowseEnvelope(objectId, startingIndex, requestedCount)
         val request = Request.Builder()
-            .url(controlUrl.toString())
+            .url(endpoint.controlUrl.toString())
             .header("Content-Type", "text/xml; charset=utf-8")
-            .header("SOAPAction", "\"urn:schemas-upnp-org:service:ContentDirectory:1#Browse\"")
+            .header("SOAPAction", "\"${endpoint.serviceType}#Browse\"")
             .post(soap.toRequestBody("text/xml; charset=utf-8".toMediaType()))
             .build()
         parseBrowseResponse(execute(networkClient, request), device.host)
@@ -106,7 +106,7 @@ class DlnaContentDirectoryClient(
         }
     }
 
-    private fun findContentDirectoryControlUrl(descriptionXml: String, base: URI, deviceHost: String): URI? {
+    private fun findContentDirectoryEndpoint(descriptionXml: String, base: URI, deviceHost: String): ContentDirectoryEndpoint? {
         val parser = parser(descriptionXml)
         var inService = false
         var serviceType = ""
@@ -122,7 +122,7 @@ class DlnaContentDirectoryClient(
                 XmlPullParser.END_TAG -> if (localName(parser.name) == "service" && inService) {
                     if (serviceType.contains("ContentDirectory", true) && controlPath.isNotBlank()) {
                         val resolved = base.resolve(controlPath.trim())
-                        return validateDlnaDeviceUrl(resolved.toString(), deviceHost)
+                        return ContentDirectoryEndpoint(validateDlnaDeviceUrl(resolved.toString(), deviceHost), serviceType.trim())
                     }
                     inService = false
                 }
@@ -245,6 +245,8 @@ class DlnaContentDirectoryClient(
     }
 
     private fun localName(name: String): String = name.substringAfter(':').lowercase()
+
+    private data class ContentDirectoryEndpoint(val controlUrl: URI, val serviceType: String)
 
     private data class MutableDlnaEntry(
         val id: String,
