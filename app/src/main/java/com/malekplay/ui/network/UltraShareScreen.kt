@@ -283,7 +283,12 @@ class UltraShareViewModel @Inject constructor(
             error = null,
             status = "جارٍ الاتصال بـ " + peer.name + " عبر Wi-Fi Direct..."
         )
-        runCatching { session.connect(peer.deviceAddress) }
+        runCatching {
+            session.connect(
+                peer.deviceAddress,
+                preferThisDeviceAsGroupOwner = UltraShareForegroundService.state.value.receiving
+            )
+        }
             .onFailure {
                 _state.value = _state.value.copy(error = it.localizedMessage ?: "تعذر الاتصال بالجهاز.")
             }
