@@ -24,12 +24,15 @@ data class DlnaEntry(
 )
 
 internal fun isPrivateLanHost(host: String): Boolean = runCatching {
+    // Discovery supplies numeric packet-source addresses; never resolve arbitrary DNS names here.
+    require(host.contains(':') || host.matches(Regex("\\d{1,3}(\\.\\d{1,3}){3}")))
     val address = InetAddress.getByName(host)
     if (address.isSiteLocalAddress || address.isLinkLocalAddress) true
     else {
         val bytes = address.address
-        bytes.size == 4 && (bytes[0].toInt() and 0xFF) == 100 &&
-            (bytes[1].toInt() and 0xC0) == 0x40
+        (bytes.size == 4 && (bytes[0].toInt() and 0xFF) == 100 &&
+            (bytes[1].toInt() and 0xC0) == 0x40) ||
+            (bytes.size == 16 && (bytes[0].toInt() and 0xFE) == 0xFC)
     }
 }.getOrDefault(false)
 
@@ -39,7 +42,7 @@ internal fun validateDlnaDeviceUrl(raw: String, deviceHost: String): URI {
     require(uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) {
         "خادم DLNA أعلن رابطاً غير آمن"
     }
-    require(uri.userInfo == null && uri.fragment == null && uri.host.equals(deviceHost, true)) {
+    require(uri.userInfo == null && uri.fragment == null && uri.host?.equals(deviceHost, true) == true) {
         "رابط DLNA لا يطابق الجهاز الذي تم اكتشافه"
     }
     require(uri.toString().length <= 4096) { "رابط DLNA طويل جداً" }
