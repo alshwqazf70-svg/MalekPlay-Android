@@ -41,13 +41,20 @@ def get_secret(value: str | None) -> bytes:
     return bytes.fromhex(raw)
 
 
+def is_lan_ipv4(value: str) -> bool:
+    try:
+        address = ipaddress.ip_address(value)
+        return isinstance(address, ipaddress.IPv4Address) and (
+            address.is_private or address.is_link_local
+        )
+    except ValueError:
+        return False
+
+
 def private_ipv4(host: str) -> str:
-    address = ipaddress.ip_address(host)
-    if not isinstance(address, ipaddress.IPv4Address) or not (
-        address.is_private or address.is_link_local
-    ):
+    if not is_lan_ipv4(host):
         raise ValueError("Use the receiver's private IPv4 address on the same LAN.")
-    return str(address)
+    return str(ipaddress.ip_address(host))
 
 
 def recv_exact(sock: socket.socket, length: int) -> bytes:
@@ -134,6 +141,17 @@ def parse_metadata(data: bytes) -> tuple[str, int, str, bytes]:
     if size < 0 or size > MAX_FILE_BYTES:
         raise ValueError("The file size is outside the supported range.")
     return safe_name(name), size, mime[:160], digest
+
+
+def hash_file(path: Path) -> bytes:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while True:
+            block = stream.read(CHUNK_BYTES)
+            if not block:
+                break
+            digest.update(block)
+    return digest.digest()
 
 
 def unique_destination(directory: Path, filename: str) -> Path:
@@ -259,7 +277,7 @@ def receive_one(port: int, secret: bytes, directory: Path) -> Path:
                 continue
 
     with connection:
-        if not ipaddress.ip_address(address[0]).is_private:
+        if not is_lan_ipv4(address[0]):
             raise PermissionError("Rejected a connection outside the private LAN.")
         connection.settimeout(20)
         connection.sendall(struct.pack(">I", MAGIC))
@@ -311,7 +329,7 @@ def receive_one(port: int, secret: bytes, directory: Path) -> Path:
             if end:
                 raise ValueError("Invalid end-of-transfer frame.")
 
-        actual_digest = hashlib.sha256(partial.read_bytes()).digest()
+        actual_digest = hash_file(partial)
         verified = partial.stat().st_size == size and hmac.compare_digest(expected_digest, actual_digest)
         message = "File integrity verified." if verified else "File integrity verification failed."
         final_path: Path | None = None
@@ -338,7 +356,7 @@ def discovery_responder(port: int, transfer_port: int, device_name: str) -> None
         sock.bind(("0.0.0.0", port))
         while True:
             data, address = sock.recvfrom(512)
-            if data == PROBE and ipaddress.ip_address(address[0]).is_private:
+            if data == PROBE and is_lan_ipv4(address[0]):
                 sock.sendto(response, address)
 
 
@@ -355,7 +373,7 @@ def discover_devices(timeout: float, port: int) -> list[tuple[str, int, str]]:
                 data, address = sock.recvfrom(512)
             except socket.timeout:
                 continue
-            if not ipaddress.ip_address(address[0]).is_private:
+            if not is_lan_ipv4(address[0]):
                 continue
             try:
                 prefix, version, remote_port, name = data.decode("utf-8").split("|", 3)
