@@ -76,7 +76,7 @@ class UltraShareForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PAUSE -> {
-                if (currentState().sending && transferJob != null) {
+                if (currentState().sending && currentState().queueTotal > 0 && transferJob != null) {
                     pauseRequested = true
                     publish(currentState().copy(status = "جارٍ إيقاف طابور الإرسال مؤقتاً..."))
                     transferJob?.cancel()
