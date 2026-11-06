@@ -68,15 +68,18 @@ class NetworkDiscoveryClient {
             }
             try {
                 val found = LinkedHashMap<String, MutableDevice>()
-                discoverSsdp(found, wifiNetwork)
-                discoverWsDiscovery(found, wifiNetwork)
-                MdnsDiscoveryClient().discover(wifiNetwork).forEach { device ->
-                    merge(
-                        found,
-                        device.host.lowercase(Locale.ROOT),
-                        MutableDevice(device.name, device.host, device.kind, device.services.toMutableSet(), null)
-                    )
-                }
+                // A failure in one discovery protocol must not hide devices found by the others.
+                runCatching { discoverSsdp(found, wifiNetwork) }
+                runCatching { discoverWsDiscovery(found, wifiNetwork) }
+                runCatching { MdnsDiscoveryClient().discover(wifiNetwork) }
+                    .getOrDefault(emptyList())
+                    .forEach { device ->
+                        merge(
+                            found,
+                            device.host.lowercase(Locale.ROOT),
+                            MutableDevice(device.name, device.host, device.kind, device.services.toMutableSet(), null)
+                        )
+                    }
                 found.values
                     .filter { it.host.isNotBlank() }
                     .map { it.toPublic() }
