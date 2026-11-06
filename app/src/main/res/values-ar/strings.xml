@@ -341,4 +341,7 @@
     <string name="ultra_share_clipboard_invalid">النص المنسوخ ليس رابط اقتران صالحاً لـ MalekPlay.</string>
     <string name="ultra_share_copy_pairing_link">نسخ رابط الاقتران</string>
     <string name="ultra_share_pairing_copied">تم نسخ رابط الاقتران. أرسله إلى الجهاز المرسل.</string>
+    <string name="ultra_share_notification_channel">نقل ملفات MalekPlay</string>
+    <string name="ultra_share_notification_description">إشعار أثناء إرسال أو استقبال الملفات عبر الشبكة المحلية.</string>
+    <string name="ultra_share_notification_active">عملية نقل نشطة؛ يمكنك الانتقال مؤقتاً إلى تطبيق آخر.</string>
 </resources>
