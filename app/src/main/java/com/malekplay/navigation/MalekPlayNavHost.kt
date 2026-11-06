@@ -95,7 +95,8 @@ private val BOTTOM_DESTINATIONS = listOf(
     TopLevelDestination.MOVIES,
     TopLevelDestination.SERIES,
     TopLevelDestination.MUSIC,
-    TopLevelDestination.LOCAL
+    TopLevelDestination.LOCAL,
+    TopLevelDestination.ULTRA_SHARE
 )
 
 @UnstableApi
@@ -587,4 +588,5 @@ private fun TopLevelDestination.icon() = when (this) {
     TopLevelDestination.LOCAL -> Icons.Filled.Folder
     TopLevelDestination.FAVOURITES -> Icons.Filled.Favorite
     TopLevelDestination.PLAYLISTS -> Icons.Filled.QueueMusic
+    TopLevelDestination.ULTRA_SHARE -> Icons.Filled.SwapHoriz
 }
