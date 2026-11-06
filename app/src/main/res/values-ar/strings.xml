@@ -345,4 +345,6 @@
     <string name="ultra_share_notification_description">إشعار أثناء إرسال أو استقبال الملفات عبر الشبكة المحلية.</string>
     <string name="ultra_share_notification_active">عملية نقل نشطة؛ يمكنك الانتقال مؤقتاً إلى تطبيق آخر.</string>
     <string name="ultra_share_background_unavailable">تعذر تشغيل إشعار النقل في الخلفية؛ أبقِ التطبيق مفتوحاً أثناء النقل.</string>
+    <string name="ultra_share_progress">%1$d%% • %2$s / %3$s • %4$s/ث • المتبقي %5$s</string>
+    <string name="ultra_share_eta_calculating">جارٍ الحساب</string>
 </resources>
