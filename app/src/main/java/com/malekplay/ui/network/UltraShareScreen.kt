@@ -241,7 +241,11 @@ class UltraShareViewModel @Inject constructor(
                     }
                 },
                 onError = { message ->
-                    _state.value = _state.value.copy(scanning = false, error = message)
+                    _state.value = _state.value.copy(
+                        scanning = false,
+                        wifiDirectHost = null,
+                        error = message
+                    )
                 }
             ).also { wifiDirectSession = it }
             _state.value = _state.value.copy(
@@ -493,7 +497,7 @@ fun UltraShareScreen(
         else wifiDirectPermissionLauncher.launch(missing.toTypedArray())
     }
     LaunchedEffect(state.wifiDirectHost) {
-        state.wifiDirectHost?.let { host = it }
+        host = state.wifiDirectHost.orEmpty()
     }
     val scanQrImage = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
