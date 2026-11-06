@@ -1210,6 +1210,11 @@ private fun AddSourceDialog(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Text(
+                        text = stringResource(R.string.net_smb_share_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
