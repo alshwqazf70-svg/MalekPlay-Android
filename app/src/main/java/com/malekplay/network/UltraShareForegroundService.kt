@@ -44,7 +44,7 @@ class UltraShareForegroundService : Service() {
 
     private fun buildNotification(): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_ultra_share_notification)
             .setContentTitle(getString(R.string.ultra_share_title))
             .setContentText(getString(R.string.ultra_share_notification_active))
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
