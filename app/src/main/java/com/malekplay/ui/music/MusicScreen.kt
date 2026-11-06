@@ -5,6 +5,7 @@ import android.util.LruCache
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,11 +50,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -129,10 +133,63 @@ fun MusicScreen(
         R.string.music_genres
     )
 
-    Column(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.surfaceContainerHigh,
+                        MaterialTheme.colorScheme.surface,
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            )
+            .padding(contentPadding)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.nav_music),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = stringResource(R.string.music_track_count, songs.size),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                    .border(
+                        1.dp,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.32f),
+                        RoundedCornerShape(18.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.GraphicEq,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(27.dp)
+                )
+            }
+        }
+
         TabRow(
             selectedTabIndex = tabIndex,
-            containerColor = MaterialTheme.colorScheme.surface,
+            containerColor = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.primary
         ) {
             tabLabels.forEachIndexed { index, labelRes ->
@@ -214,6 +271,11 @@ private fun SongRow(
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f),
+                RoundedCornerShape(16.dp)
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
