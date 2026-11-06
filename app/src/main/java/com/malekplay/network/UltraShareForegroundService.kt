@@ -22,7 +22,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
@@ -68,14 +67,14 @@ class UltraShareForegroundService : Service() {
             ACTION_STOP, ACTION_CANCEL -> {
                 transferJob?.cancel()
                 advertisementJob?.cancel()
-                if (transferJob == null) finishService(startId)
+                if (transferJob == null) finishService()
                 return START_NOT_STICKY
             }
             ACTION_RECEIVE -> {
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
                 if (!UltraShareTransport.isValidPairingSecret(secret)) {
                     publish(UltraShareServiceState(error = getString(R.string.ultra_share_transfer_failed)))
-                    finishService(startId)
+                    finishService()
                     return START_NOT_STICKY
                 }
                 if (transferJob != null) return START_NOT_STICKY
@@ -122,7 +121,7 @@ class UltraShareForegroundService : Service() {
                         advertisementJob = null
                         transferJob = null
                         publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = null))
-                        finishService(startId)
+                        finishService()
                     }
                 }
                 transferJob = job
@@ -134,7 +133,7 @@ class UltraShareForegroundService : Service() {
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
                 if (uri == null || host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
                     publish(UltraShareServiceState(error = getString(R.string.ultra_share_transfer_failed)))
-                    finishService(startId)
+                    finishService()
                     return START_NOT_STICKY
                 }
                 if (transferJob != null) return START_NOT_STICKY
@@ -165,7 +164,7 @@ class UltraShareForegroundService : Service() {
                     } finally {
                         transferJob = null
                         publish(currentState().copy(sending = false, progress = null))
-                        finishService(startId)
+                        finishService()
                     }
                 }
                 transferJob = job
@@ -220,7 +219,7 @@ class UltraShareForegroundService : Service() {
             .build()
     }
 
-    private fun finishService(startId: Int) {
+    private fun finishService() {
         stopForeground(true)
         stopSelf()
     }
@@ -262,8 +261,9 @@ class UltraShareForegroundService : Service() {
             .sorted()
     }.getOrDefault(emptyList())
 
+    @Suppress("DEPRECATION")
     private inline fun <reified T : android.os.Parcelable> Intent.parcelableUri(key: String): T? =
-        if (Build.VERSION.SDK_INT >= 33) getParcelableExtra(key, T::class.java) else @Suppress("DEPRECATION") (getParcelableExtra(key) as? T)
+        if (Build.VERSION.SDK_INT >= 33) getParcelableExtra(key, T::class.java) else getParcelableExtra(key) as? T
 
     companion object {
         private const val CHANNEL_ID = "malekplay_ultra_share"
