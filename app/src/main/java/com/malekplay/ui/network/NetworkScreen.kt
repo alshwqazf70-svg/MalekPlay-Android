@@ -211,9 +211,8 @@ class NetworkViewModel @Inject constructor(
 
     fun discoverDevices() {
         if (_discoveryRunning.value) return
-        discoveryJob?.cancel()
+        _discoveryRunning.value = true
         discoveryJob = viewModelScope.launch {
-            _discoveryRunning.value = true
             _discoveryMessage.value = null
             try {
                 val results = discoveryClient.discover(context)
