@@ -199,7 +199,7 @@ class DlnaContentDirectoryClient(
                 }
                 XmlPullParser.END_TAG -> if (localName(parser.name) == "container" || localName(parser.name) == "item") {
                     val entry = current
-                    if (entry != null && entry.id.isNotBlank() && entry.id.length <= 512) {
+                    if (entry != null && entry.id.isNotBlank() && entry.id.length <= 512 && entry.id.none { it.isISOControl() }) {
                         val safeUrl = if (entry.isContainer) null else currentResource?.let {
                             runCatching { validateDlnaDeviceUrl(it, deviceHost).toString() }.getOrNull()
                         }
@@ -207,11 +207,11 @@ class DlnaContentDirectoryClient(
                             entries += DlnaEntry(
                                 id = entry.id,
                                 parentId = entry.parentId,
-                                title = entry.title.ifBlank { "وسيط بدون اسم" },
+                                title = entry.title.filterNot { it.isISOControl() }.trim().take(300).ifBlank { "وسيط بدون اسم" },
                                 isContainer = entry.isContainer,
                                 mediaUrl = safeUrl,
                                 sizeBytes = currentResourceSize,
-                                mimeType = currentMime
+                                mimeType = currentMime?.filterNot { it.isISOControl() }?.take(128)
                             )
                         }
                     }
