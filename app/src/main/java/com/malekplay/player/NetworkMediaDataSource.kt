@@ -3,7 +3,6 @@ package com.malekplay.player
 import android.content.Context
 import android.net.Uri
 import android.net.ConnectivityManager
-import android.net.Network
 import android.net.NetworkCapabilities
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.malekplay.network.isPrivateLanHost
@@ -356,10 +355,20 @@ class NetworkRoutingDataSource(
         if (delegate != null || opened || currentUri != null) close()
         transferInitializing(dataSpec)
         currentUri = dataSpec.uri
-        val source = when (dataSpec.uri.scheme?.lowercase()) {
-            "maleksmb", "maleksftp" -> NetworkMediaDataSource(context, profileStore, credentialVault)
-            "http" -> createLanDlnaDataSource(dataSpec.uri)
-            else -> httpFactory.createDataSource()
+        val source = try {
+            when (dataSpec.uri.scheme?.lowercase()) {
+                "maleksmb", "maleksftp" -> NetworkMediaDataSource(context, profileStore, credentialVault)
+                "http" -> createLanDlnaDataSource(dataSpec.uri)
+                "https" -> if (dataSpec.uri.host?.let(::isPrivateLanHost) == true) {
+                    createLanDlnaDataSource(dataSpec.uri)
+                } else {
+                    httpFactory.createDataSource()
+                }
+                else -> httpFactory.createDataSource()
+            }
+        } catch (error: Throwable) {
+            currentUri = null
+            throw error
         }
         delegate = source
         return try {
