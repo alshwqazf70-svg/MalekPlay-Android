@@ -64,8 +64,8 @@ class MediaDaoReconciliationTest {
 
         val keepVideos = rows.filter { it.isVideo }.take(375).map { it.mediaId }
         val keepAudio = rows.filterNot { it.isVideo }.take(125).map { it.mediaId }
-        database.mediaDao().reconcileVideos(keepVideos)
-        database.mediaDao().reconcileAudio(keepAudio)
+        database.mediaDao().reconcileVideos(keepVideos.toSet())
+        database.mediaDao().reconcileAudio(keepAudio.toSet())
 
         val remaining = database.mediaDao().getMediaList(keepVideos + keepAudio)
         assertEquals(keepVideos.size + keepAudio.size, remaining.size)
