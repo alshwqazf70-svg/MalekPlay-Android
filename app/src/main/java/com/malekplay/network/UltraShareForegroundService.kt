@@ -35,7 +35,10 @@ data class UltraShareServiceState(
     val progress: UltraShareTransport.Progress? = null,
     val receivedFile: UltraShareTransport.ReceivedFile? = null,
     val status: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val queueCompleted: Int = 0,
+    val queueTotal: Int = 0,
+    val queueCurrentName: String? = null
 )
 
 /**
@@ -98,24 +101,26 @@ class UltraShareForegroundService : Service() {
                         runCatching { UltraShareDiscovery.advertiseWhileReceiving() }
                     }
                     try {
-                        val received = UltraShareTransport.receiveOnce(
-                            pairingSecret = secret,
-                            destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
-                            onProgress = { progress ->
-                                val next = currentState().copy(progress = progress)
-                                publish(next)
-                                updateNotification(progress)
-                            }
-                        )
-                        publish(
-                            currentState().copy(
-                                receiving = false,
-                                progress = null,
-                                receivedFile = received,
-                                status = getString(R.string.ultra_share_received, received.fileName),
-                                error = null
+                        while (true) {
+                            val received = UltraShareTransport.receiveOnce(
+                                pairingSecret = secret,
+                                destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
+                                onProgress = { progress ->
+                                    val next = currentState().copy(progress = progress)
+                                    publish(next)
+                                    updateNotification(progress)
+                                }
                             )
-                        )
+                            publish(
+                                currentState().copy(
+                                    receiving = true,
+                                    progress = null,
+                                    receivedFile = received,
+                                    status = getString(R.string.ultra_share_received, received.fileName),
+                                    error = null
+                                )
+                            )
+                        }
                     } catch (cancelled: CancellationException) {
                         publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = null, status = getString(R.string.ultra_share_stopped)))
                         throw cancelled
@@ -175,6 +180,12 @@ class UltraShareForegroundService : Service() {
                 }
                 transferJob = job
                 job.start()
+            }
+            ACTION_SEND_BATCH -> {
+                val uris = intent.parcelableUriList(EXTRA_URIS).orEmpty()
+                val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
+                val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
+                startSendingQueue(uris, host, secret)
             }
             else -> {
                 // A plain start keeps the service alive only long enough to establish its notification.
@@ -262,6 +273,56 @@ class UltraShareForegroundService : Service() {
 
     private fun currentState(): UltraShareServiceState = mutableState.value
 
+    private fun startSendingQueue(uris: List<Uri>, host: String, secret: String) {
+        if (uris.isEmpty() || host.isBlank() || !UltraShareTransport.isValidPrivateLanHost(host) || !UltraShareTransport.isValidPairingSecret(secret)) {
+            publish(UltraShareServiceState(error = getString(R.string.ultra_share_transfer_failed)))
+            finishService()
+            return
+        }
+        if (transferJob != null) return
+        startForegroundCompat()
+        acquireTransferLocks()
+        publish(UltraShareServiceState(sending = true, queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال"))
+        val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+            var sent = 0
+            var failed = 0
+            var lastError: String? = null
+            try {
+                uris.forEachIndexed { index, uri ->
+                    val metadata = try { readDocumentMetadata(uri) } catch (failure: Exception) {
+                        failed++
+                        lastError = failure.localizedMessage ?: "تعذرت قراءة أحد الملفات."
+                        publish(currentState().copy(queueCompleted = index + 1, queueTotal = uris.size))
+                        return@forEachIndexed
+                    }
+                    publish(currentState().copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = uris.size, progress = null))
+                    try {
+                        UltraShareTransport.send(resolver = contentResolver, uri = uri, host = host, pairingSecret = secret, fileName = metadata.first, mimeType = metadata.second, sizeBytes = metadata.third, onProgress = { progress ->
+                            publish(currentState().copy(progress = progress, queueCurrentName = metadata.first))
+                            updateNotification(progress)
+                        })
+                        sent++
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        failed++
+                        lastError = metadata.first + ": " + (failure.localizedMessage ?: "فشل الإرسال.")
+                    }
+                    publish(currentState().copy(queueCompleted = index + 1, queueTotal = uris.size, progress = null))
+                }
+                publish(currentState().copy(sending = false, status = "انتهى الطابور: أُرسل " + sent + " من " + uris.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null))
+            } catch (cancelled: CancellationException) {
+                publish(currentState().copy(sending = false, progress = null, status = "أُوقف طابور الإرسال بعد إكمال " + sent + " ملفات"))
+                throw cancelled
+            } finally {
+                transferJob = null
+                publish(currentState().copy(sending = false, progress = null, queueCurrentName = null))
+                finishService()
+            }
+        }
+        transferJob = job
+        job.start()
+    }
     private fun readDocumentMetadata(uri: Uri): Triple<String, String, Long> {
         var name = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "shared-file"
         var size = -1L
@@ -297,16 +358,23 @@ class UltraShareForegroundService : Service() {
     private inline fun <reified T : android.os.Parcelable> Intent.parcelableUri(key: String): T? =
         if (Build.VERSION.SDK_INT >= 33) getParcelableExtra(key, T::class.java) else getParcelableExtra(key) as? T
 
+    @Suppress("DEPRECATION")
+    private fun Intent.parcelableUriList(key: String): ArrayList<Uri>? =
+        if (Build.VERSION.SDK_INT >= 33) getParcelableArrayListExtra(key, Uri::class.java)
+        else getParcelableArrayListExtra(key)
+
     companion object {
         private const val CHANNEL_ID = "malekplay_ultra_share"
         private const val NOTIFICATION_ID = 38741
         private const val EXTRA_SECRET = "secret"
         private const val EXTRA_HOST = "host"
         private const val EXTRA_URI = "uri"
+        private const val EXTRA_URIS = "uris"
         const val ACTION_STOP = "com.malekplay.ultrashare.STOP"
         const val ACTION_CANCEL = "com.malekplay.ultrashare.CANCEL"
         const val ACTION_RECEIVE = "com.malekplay.ultrashare.RECEIVE"
         const val ACTION_SEND = "com.malekplay.ultrashare.SEND"
+        const val ACTION_SEND_BATCH = "com.malekplay.ultrashare.SEND_BATCH"
 
         private val mutableState = MutableStateFlow(UltraShareServiceState())
         val state = mutableState.asStateFlow()
@@ -322,6 +390,15 @@ class UltraShareForegroundService : Service() {
             val intent = Intent(context, UltraShareForegroundService::class.java)
                 .setAction(ACTION_SEND)
                 .putExtra(EXTRA_URI, uri)
+                .putExtra(EXTRA_HOST, host)
+                .putExtra(EXTRA_SECRET, secret)
+            start(context, intent)
+        }
+
+        fun startSendingBatch(context: Context, uris: List<Uri>, host: String, secret: String) {
+            val intent = Intent(context, UltraShareForegroundService::class.java)
+                .setAction(ACTION_SEND_BATCH)
+                .putParcelableArrayListExtra(EXTRA_URIS, ArrayList(uris))
                 .putExtra(EXTRA_HOST, host)
                 .putExtra(EXTRA_SECRET, secret)
             start(context, intent)

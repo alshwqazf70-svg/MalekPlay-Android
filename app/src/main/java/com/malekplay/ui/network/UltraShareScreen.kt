@@ -93,7 +93,10 @@ data class UltraShareUiState(
     val progress: UltraShareTransport.Progress? = null,
     val receivedFile: UltraShareTransport.ReceivedFile? = null,
     val status: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val queueCompleted: Int = 0,
+    val queueTotal: Int = 0,
+    val queueCurrentName: String? = null
 )
 
 @HiltViewModel
@@ -116,7 +119,10 @@ class UltraShareViewModel @Inject constructor(
                     progress = serviceState.progress,
                     receivedFile = serviceState.receivedFile ?: current.receivedFile,
                     status = serviceState.status ?: current.status,
-                    error = serviceState.error
+                    error = serviceState.error,
+                    queueCompleted = serviceState.queueCompleted,
+                    queueTotal = serviceState.queueTotal,
+                    queueCurrentName = serviceState.queueCurrentName
                 )
             }
         }
@@ -187,6 +193,23 @@ class UltraShareViewModel @Inject constructor(
                 progress = null,
                 error = null,
                 status = context.getString(R.string.ultra_share_sending)
+            )
+        }.onFailure {
+            _state.value = _state.value.copy(
+                sending = false,
+                error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
+            )
+        }
+    }
+
+    fun sendBatch(uris: List<Uri>, host: String, secret: String) {
+        if (uris.isEmpty() || _state.value.sending || _state.value.receiving) return
+        runCatching {
+            UltraShareForegroundService.startSendingBatch(context, uris, host, secret)
+            _state.value = _state.value.copy(
+                sending = true, progress = null, queueCompleted = 0,
+                queueTotal = uris.size, queueCurrentName = null, error = null,
+                status = "بدأ إرسال " + uris.size + " ملفات بالتتابع"
             )
         }.onFailure {
             _state.value = _state.value.copy(
@@ -272,12 +295,14 @@ fun UltraShareScreen(
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
     }
 
-    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            uris.forEach { uri ->
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
             }
-            viewModel.send(uri, host.trim(), secret.trim())
+            viewModel.sendBatch(uris, host.trim(), secret.trim())
         }
     }
     val exportFile = rememberLauncherForActivityResult(
@@ -444,13 +469,21 @@ fun UltraShareScreen(
                     Text(stringResource(R.string.ultra_share_paste_pairing), modifier = Modifier.padding(start = 8.dp))
                 }
                 Button(
-                    onClick = { pickFile.launch(arrayOf("*/*")) },
+                    onClick = { pickFiles.launch(arrayOf("*/*")) },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.sending && !state.receiving &&
                         host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
                 ) {
                     Icon(Icons.Filled.Send, contentDescription = null)
                     Text(stringResource(R.string.ultra_share_choose_send), modifier = Modifier.padding(start = 8.dp))
+                }
+                if (state.sending && state.queueTotal > 0) {
+                    Text(
+                        "طابور الإرسال: " + state.queueCompleted + " / " + state.queueTotal +
+                            (state.queueCurrentName?.let { " • " + it } ?: ""),
+                        color = MalekPlayColors.TextSecondary,
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
                 if (state.sending) {
                     OutlinedButton(onClick = viewModel::cancelSending, modifier = Modifier.fillMaxWidth()) {
