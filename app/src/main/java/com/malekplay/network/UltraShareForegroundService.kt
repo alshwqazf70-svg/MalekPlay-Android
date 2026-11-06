@@ -41,7 +41,9 @@ data class UltraShareServiceState(
     val error: String? = null,
     val queueCompleted: Int = 0,
     val queueTotal: Int = 0,
-    val queueCurrentName: String? = null
+    val queueCurrentName: String? = null,
+    val queueTotalBytes: Long = 0L,
+    val queueTransferredBytes: Long = 0L
 )
 
 /**
@@ -329,8 +331,14 @@ class UltraShareForegroundService : Service() {
             var activeUri: Uri? = null
             var sent = 0
             var failed = 0
+            var completedBytes = 0L
             var lastError: String? = null
             val queue = uris.distinctBy { it.toString() }
+            val totalBytes = queue.fold(0L) { total, item ->
+                val size = runCatching { readDocumentMetadata(item).third }.getOrDefault(0L)
+                if (Long.MAX_VALUE - total < size) Long.MAX_VALUE else total + size
+            }
+            publish(currentState().copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L))
             try {
                 if (replaceQueue) {
                     UltraShareQueueStore.replace(this@UltraShareForegroundService, queue)
@@ -357,10 +365,15 @@ class UltraShareForegroundService : Service() {
                     publish(currentState().copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = null))
                     try {
                         UltraShareTransport.send(resolver = contentResolver, uri = uri, host = host, pairingSecret = secret, fileName = metadata.first, mimeType = metadata.second, sizeBytes = metadata.third, onProgress = { progress ->
-                            publish(currentState().copy(progress = progress, queueCurrentName = metadata.first))
+                            publish(currentState().copy(
+                                progress = progress,
+                                queueCurrentName = metadata.first,
+                                queueTransferredBytes = minOf(totalBytes, completedBytes + progress.transferredBytes)
+                            ))
                             updateNotification(progress)
                         })
                         sent++
+                        completedBytes = if (Long.MAX_VALUE - completedBytes < metadata.third) Long.MAX_VALUE else completedBytes + metadata.third
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_COMPLETED)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -370,7 +383,12 @@ class UltraShareForegroundService : Service() {
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
                     }
                     activeUri = null
-                    publish(currentState().copy(queueCompleted = index + 1, queueTotal = queue.size, progress = null))
+                    publish(currentState().copy(
+                        queueCompleted = index + 1,
+                        queueTotal = queue.size,
+                        progress = null,
+                        queueTransferredBytes = completedBytes
+                    ))
                 }
                 publish(currentState().copy(sending = false, status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null))
             } catch (cancelled: CancellationException) {
@@ -382,6 +400,7 @@ class UltraShareForegroundService : Service() {
                 publish(currentState().copy(
                     sending = false,
                     progress = null,
+                    queueTransferredBytes = completedBytes,
                     status = if (pauseRequested)
                         "أُوقف الطابور مؤقتاً بعد إكمال " + sent + " ملفات؛ يمكنك استئناف المتبقي."
                     else "أُوقف طابور الإرسال بعد إكمال " + sent + " ملفات"
