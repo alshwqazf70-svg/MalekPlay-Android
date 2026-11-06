@@ -139,10 +139,16 @@ internal class MdnsDiscoveryClient {
             var port = 0
             var text: String? = null
             when (type) {
-                TYPE_PTR -> target = decodeName(data, rdata).first
+                TYPE_PTR -> {
+                    val decoded = decodeName(data, rdata)
+                    require(decoded.second <= rdata + length)
+                    target = decoded.first
+                }
                 TYPE_SRV -> if (length >= 7) {
                     port = u16(rdata + 4)
-                    target = decodeName(data, rdata + 6).first
+                    val decoded = decodeName(data, rdata + 6)
+                    require(decoded.second <= rdata + length)
+                    target = decoded.first
                 }
                 TYPE_A -> if (length == 4) {
                     address = InetAddress.getByAddress(data.copyOfRange(rdata, rdata + 4)).hostAddress
