@@ -2,6 +2,7 @@ package com.malekplay.network
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import android.net.Network
 import java.net.DatagramPacket
 import java.net.InetAddress
 import java.net.MulticastSocket
@@ -21,7 +22,7 @@ internal fun classifyMdnsService(service: String): NetworkDeviceKind = when {
 
 /** Discovers devices advertising common TV, phone and file-sharing services over mDNS/DNS-SD. */
 internal class MdnsDiscoveryClient {
-    suspend fun discover(): List<DiscoveredNetworkDevice> = withContext(Dispatchers.IO) {
+    suspend fun discover(network: Network): List<DiscoveredNetworkDevice> = withContext(Dispatchers.IO) {
         val instances = LinkedHashMap<String, String>()
         val servers = LinkedHashMap<String, Pair<String, Int>>()
         val addresses = LinkedHashMap<String, String>()
@@ -29,6 +30,7 @@ internal class MdnsDiscoveryClient {
         val friendlyNames = LinkedHashMap<String, String>()
         val supportedServices = SERVICE_TYPES.toSet()
         MulticastSocket(null).use { socket ->
+            network.bindSocket(socket)
             socket.reuseAddress = true
             socket.bind(InetSocketAddress(MDNS_PORT))
             socket.soTimeout = RECEIVE_TIMEOUT_MS
