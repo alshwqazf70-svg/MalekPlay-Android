@@ -479,10 +479,20 @@ fun FolderRow(
     fileLabel: String,
     onClick: () -> Unit
 ) {
+    val folderShape = RoundedCornerShape(18.dp)
     Card(
-        modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        modifier = modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                Brush.linearGradient(
+                    listOf(Color(0x77C084FC), Color(0x22FFFFFF), Color(0x557E22CE))
+                ),
+                folderShape
+            )
+            .clickable(onClick = onClick),
+        shape = folderShape,
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF17131F))
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -579,27 +589,62 @@ fun EmptyState(
     modifier: Modifier = Modifier,
     actions: (@Composable () -> Unit)? = null
 ) {
+    val emptyShape = RoundedCornerShape(26.dp)
     Column(
-        modifier = modifier.fillMaxWidth().padding(32.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(20.dp)
+            .clip(emptyShape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF21192D), Color(0xFF17131F), Color(0xFF100E16))
+                )
+            )
+            .border(
+                1.dp,
+                Brush.linearGradient(
+                    listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))
+                ),
+                emptyShape
+            )
+            .padding(horizontal = 24.dp, vertical = 30.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(56.dp)
+        Box(
+            modifier = Modifier
+                .size(76.dp)
+                .shadow(14.dp, CircleShape, ambientColor = Color(0x55A855F7))
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(Color(0x667E22CE), Color(0x2215101F))
+                    )
+                )
+                .border(1.dp, Color(0x66C084FC), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = Color(0xFFE9D5FF),
+                modifier = Modifier.size(34.dp)
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            color = Color(0xFFF8F5FF)
         )
-        Spacer(Modifier.height(12.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(6.dp))
         Text(
             body,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = Color(0xFFB9B1C8)
         )
         if (actions != null) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
             actions()
         }
     }
