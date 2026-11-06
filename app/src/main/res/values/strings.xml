@@ -304,7 +304,8 @@
     <string name="ultra_share_receive">Receive files</string>
     <string name="ultra_share_receive_hint">Start receiving on this phone, then use its address and pairing code on the sending phone.</string>
     <string name="ultra_share_waiting">Waiting for another device…</string>
-    <string name="ultra_share_receiver_address">This phone's network address</string>
+    <string name="ultra_share_receiver_address">This phone's IP address</string>
+    <string name="ultra_share_port">Port: %1$d</string>
     <string name="ultra_share_no_address">No local network address found. Connect to Wi-Fi and try again.</string>
     <string name="ultra_share_pairing_code">Pairing code</string>
     <string name="ultra_share_code_warning">Share this code only with the person you expect to send you a file.</string>
