@@ -48,6 +48,7 @@ import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.core.ui.util.formatResolution
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
+import com.malekplay.ui.components.EmptyState
 
 @Composable
 fun LocalFolderScreen(
@@ -110,35 +111,15 @@ fun LocalFolderScreen(
         }
     ) { padding ->
         if (items.isEmpty()) {
-            Column(
+            EmptyState(
+                title = stringResource(R.string.lib_empty_title),
+                body = stringResource(R.string.lib_empty_body),
+                icon = Icons.Filled.Movie,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
                     .padding(contentPadding)
-                    .padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Movie,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(64.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = stringResource(R.string.lib_empty_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = stringResource(R.string.lib_empty_body),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-            }
+            )
             return@Scaffold
         }
 
