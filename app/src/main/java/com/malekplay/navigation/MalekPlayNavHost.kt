@@ -188,6 +188,8 @@ fun MalekPlayNavHost(
                     onOpenMusic = { navController.navigate(Screen.Music.route) },
                     onOpenFavourites = { navController.navigate(Screen.Favourites.route) },
                     onOpenPlaylists = { navController.navigate(Screen.Playlists.route) },
+                    onOpenNetwork = { navController.navigate(Screen.Network.route) },
+                    onOpenUltraShare = { navController.navigate(Screen.UltraShare.route) },
                     contentPadding = padding
                 )
             }
