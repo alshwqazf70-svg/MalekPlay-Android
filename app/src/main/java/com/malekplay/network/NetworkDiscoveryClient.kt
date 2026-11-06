@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Network
 import android.net.wifi.WifiManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.DatagramPacket
@@ -69,17 +70,26 @@ class NetworkDiscoveryClient {
             try {
                 val found = LinkedHashMap<String, MutableDevice>()
                 // A failure in one discovery protocol must not hide devices found by the others.
-                runCatching { discoverSsdp(found, wifiNetwork) }
-                runCatching { discoverWsDiscovery(found, wifiNetwork) }
-                runCatching { MdnsDiscoveryClient().discover(wifiNetwork) }
-                    .getOrDefault(emptyList())
-                    .forEach { device ->
-                        merge(
-                            found,
-                            device.host.lowercase(Locale.ROOT),
-                            MutableDevice(device.name, device.host, device.kind, device.services.toMutableSet(), null)
-                        )
-                    }
+                try { discoverSsdp(found, wifiNetwork) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { }
+                try { discoverWsDiscovery(found, wifiNetwork) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { }
+                val mdnsDevices = try {
+                    MdnsDiscoveryClient().discover(wifiNetwork)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                mdnsDevices.forEach { device ->
+                    merge(
+                        found,
+                        device.host.lowercase(Locale.ROOT),
+                        MutableDevice(device.name, device.host, device.kind, device.services.toMutableSet(), null)
+                    )
+                }
                 found.values
                     .filter { it.host.isNotBlank() }
                     .map { it.toPublic() }
