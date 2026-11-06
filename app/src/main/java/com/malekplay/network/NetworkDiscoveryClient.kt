@@ -212,7 +212,7 @@ class NetworkDiscoveryClient {
         const val RECEIVE_TIMEOUT_MS = 700
         const val SSDP_WINDOW_MS = 3_500L
         const val WSD_WINDOW_MS = 2_500L
-        const val QUIET_WINDOW_MS = 650L
+        const val QUIET_WINDOW_MS = 2_200L
         const val MAX_RESPONSE_CHARS = 16_384
         val XML_XADDR = Regex("<(?:[\\w.-]+:)?XAddrs[^>]*>(.*?)</(?:[\\w.-]+:)?XAddrs>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val XML_TYPES = Regex("<(?:[\\w.-]+:)?Types[^>]*>(.*?)</(?:[\\w.-]+:)?Types>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
