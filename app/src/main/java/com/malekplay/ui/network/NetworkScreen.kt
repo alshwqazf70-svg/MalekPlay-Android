@@ -7,6 +7,7 @@ import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +51,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,6 +60,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.malekplay.core.ui.theme.MalekPlayColors
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -374,7 +378,12 @@ fun NetworkScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     val activeProfile = profiles.firstOrNull { it.id == browse.profileId }
 
-    Column(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF191323), MalekPlayColors.Background, Color(0xFF07060C))))
+            .padding(contentPadding)
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -384,12 +393,15 @@ fun NetworkScreen(
             Text(
                 text = stringResource(R.string.net_title),
                 style = MaterialTheme.typography.headlineSmall,
+                color = MalekPlayColors.TextPrimary,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
                 modifier = Modifier.weight(1f)
             )
             IconButton(onClick = { showAddDialog = true }) {
                 Icon(
                     imageVector = Icons.Filled.Add,
-                    contentDescription = stringResource(R.string.net_add)
+                    contentDescription = stringResource(R.string.net_add),
+                    tint = MalekPlayColors.PurpleBright
                 )
             }
         }

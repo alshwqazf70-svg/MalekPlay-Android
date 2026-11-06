@@ -48,6 +48,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,6 +59,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.malekplay.R
+import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.data.local.model.PlaylistWithItems
 import com.malekplay.data.repository.MediaRepository
@@ -173,6 +176,7 @@ fun PlaylistScreen(
     var showDeleteConfirmation by remember { mutableStateOf(false) }
 
     Scaffold(
+        containerColor = MalekPlayColors.Background,
         topBar = {
             TopAppBar(
                 title = {
@@ -226,6 +230,7 @@ fun PlaylistScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(Color(0xFF191323), MalekPlayColors.Background, Color(0xFF07060C))))
                 .padding(padding)
                 .padding(contentPadding)
         ) {

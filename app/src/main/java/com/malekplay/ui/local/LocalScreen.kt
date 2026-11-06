@@ -182,6 +182,11 @@ fun LocalScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF191323), MalekPlayColors.Background, Color(0xFF07060C))
+                )
+            )
             .padding(contentPadding)
     ) {
         // ----------------------------------------------------- branded library header

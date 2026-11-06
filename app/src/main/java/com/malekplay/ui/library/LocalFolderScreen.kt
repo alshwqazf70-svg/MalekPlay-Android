@@ -3,6 +3,7 @@
 package com.malekplay.ui.library
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -35,6 +36,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.malekplay.R
+import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.core.ui.util.formatBytes
 import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.core.ui.util.formatResolution
@@ -66,6 +70,7 @@ fun LocalFolderScreen(
     }
 
     Scaffold(
+        containerColor = MalekPlayColors.Background,
         topBar = {
             TopAppBar(
                 title = {
