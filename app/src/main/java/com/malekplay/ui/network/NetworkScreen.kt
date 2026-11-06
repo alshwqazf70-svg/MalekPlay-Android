@@ -610,7 +610,7 @@ private fun DiscoveryPanel(
                         Spacer(Modifier.width(9.dp))
                         Column(Modifier.weight(1f)) {
                             Text(device.name, style = MaterialTheme.typography.bodyMedium, color = MalekPlayColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(device.host + " • " + device.services.firstOrNull().orEmpty(), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(device.host + " • " + (device.services.firstOrNull { it.startsWith("_") } ?: device.services.drop(1).firstOrNull().orEmpty()), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         when (device.kind) {
                             NetworkDeviceKind.WINDOWS_COMPUTER -> TextButton(onClick = { onUseWindowsDevice(device) }) { Text(stringResource(R.string.net_discovery_configure_smb)) }
