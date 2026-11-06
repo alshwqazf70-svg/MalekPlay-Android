@@ -13,6 +13,7 @@ import org.xmlpull.v1.XmlPullParser
 import java.io.StringReader
 import java.net.URI
 import java.net.InetAddress
+import java.net.Proxy
 import java.util.concurrent.TimeUnit
 
 data class DlnaEntry(
@@ -83,6 +84,7 @@ class DlnaContentDirectoryClient(
         val description = validateDlnaDeviceUrl(descriptionUrl, device.host)
         val networkClient = http.newBuilder()
             .socketFactory(network.socketFactory)
+            .proxy(Proxy.NO_PROXY)
             .connectionPool(ConnectionPool())
             .build()
         val descriptionXml = execute(networkClient,
