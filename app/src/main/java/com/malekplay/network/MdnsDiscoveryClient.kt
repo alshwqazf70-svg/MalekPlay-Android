@@ -80,15 +80,20 @@ internal class MdnsDiscoveryClient {
             val host = hostName?.let { addresses[it] } ?: fallbackHosts[instance] ?: return@mapNotNull null
             val kind = classifyMdnsService(service)
             val serviceLabel = service.removeSuffix(".local")
-            val label = friendlyNames[instance]
+            val rawLabel = friendlyNames[instance]
                 ?: instance.substringBefore("." + service.removeSuffix(".local"))
-                    .replace("\\032", " ").take(70).ifBlank { "جهاز شبكة" }
+                    .replace("\\032", " ")
+            val label = rawLabel.filterNot { it.isISOControl() }.trim().take(70).ifBlank { "جهاز شبكة" }
             DiscoveredNetworkDevice(
                 id = "$host:MDNS:$serviceLabel",
                 name = label,
                 host = host,
                 kind = kind,
-                services = setOf("mDNS/DNS-SD", serviceLabel, "Port " + (server?.second ?: 0))
+                services = listOfNotNull(
+                    "mDNS/DNS-SD",
+                    serviceLabel,
+                    server?.second?.takeIf { it in 1..65535 }?.let { "Port " + it }
+                ).toSet()
             )
         }.distinctBy { it.host + ":" + it.services.elementAtOrNull(1) }
     }
