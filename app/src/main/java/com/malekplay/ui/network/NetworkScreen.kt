@@ -462,12 +462,12 @@ class NetworkViewModel @Inject constructor(
                     connectivity.getNetworkCapabilities(candidate)
                         ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
                 } ?: throw IllegalStateException("اتصل بشبكة Wi-Fi نفسها التي يوجد عليها خادم الوسائط.")
-                val page = dlnaClient.browse(device, wifiNetwork, objectId)
+                val page = dlnaClient.browse(device, wifiNetwork, objectId, startingIndex)
                 _dlnaBrowse.value = DlnaBrowseUiState(
                     device = device,
                     objectId = objectId,
                     parentId = parentId,
-                    entries = if (append) previous.entries + page.entries else page.entries,
+                    entries = if (append) (previous.entries + page.entries).distinctBy { it.id } else page.entries,
                     totalMatches = page.totalMatches,
                     loadingMore = false
                 )
@@ -730,7 +730,7 @@ private fun DlnaBrowsePanel(
             state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-            state.error != null -> Column(
+            state.error != null && state.entries.isEmpty() -> Column(
                 Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
@@ -772,6 +772,11 @@ private fun DlnaBrowsePanel(
                         if (!entry.isContainer && entry.sizeBytes > 0L) {
                             Text(formatBytes(entry.sizeBytes), color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
                         }
+                    }
+                }
+                state.error?.takeIf { state.entries.isNotEmpty() }?.let { message ->
+                    item {
+                        Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().padding(12.dp))
                     }
                 }
                 if (state.entries.size < state.totalMatches) {
