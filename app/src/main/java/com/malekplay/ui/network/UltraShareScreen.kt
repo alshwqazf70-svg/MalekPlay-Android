@@ -592,7 +592,10 @@ fun UltraShareScreen(
                             Text("و " + (state.queueEntries.size - 12) + " ملفات أخرى", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
                         }
                     }
-                    if (!state.sending && state.queueEntries.any { it.status != UltraShareQueueStore.STATUS_COMPLETED }) {
+                    if (!state.sending && state.queueEntries.any {
+                            it.status == UltraShareQueueStore.STATUS_PENDING ||
+                                it.status == UltraShareQueueStore.STATUS_FAILED
+                        }) {
                         OutlinedButton(
                             onClick = { viewModel.resumePendingBatch(host.trim(), secret.trim()) },
                             modifier = Modifier.fillMaxWidth(),
