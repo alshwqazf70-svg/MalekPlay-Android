@@ -8,7 +8,7 @@ import android.content.IntentFilter
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pManager
-import android.net.wifi.p2p.WpsInfo
+import android.net.wifi.WpsInfo
 import android.os.Looper
 import androidx.core.content.ContextCompat
 import java.io.Closeable
