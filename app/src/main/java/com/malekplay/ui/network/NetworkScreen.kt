@@ -86,9 +86,32 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.UUID
 import javax.inject.Inject
 
+
+private const val MAX_KNOWN_HOSTS_BYTES = 1_000_000L
+
+/**
+ * Copies a trusted SSH known_hosts file without allowing unbounded disk writes.
+ * The limit is enforced while streaming, before any oversized chunk is written.
+ */
+private fun copyKnownHostsBounded(input: InputStream, output: OutputStream) {
+    val buffer = ByteArray(8 * 1024)
+    var totalBytes = 0L
+    while (true) {
+        val count = input.read(buffer)
+        if (count < 0) break
+        if (count == 0) continue
+        totalBytes += count
+        require(totalBytes <= MAX_KNOWN_HOSTS_BYTES) {
+            "ملف known_hosts أكبر من الحد المسموح (1 MB)"
+        }
+        output.write(buffer, 0, count)
+    }
+}
 
 /** Builds a validated, credential-free Uri for the selected network file. */
 private fun networkMediaUri(profile: NetworkProfile, remotePath: String): Uri {
