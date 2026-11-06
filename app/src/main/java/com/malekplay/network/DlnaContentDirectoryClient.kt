@@ -10,6 +10,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.xmlpull.v1.XmlPullParser
 import java.io.StringReader
 import java.net.URI
+import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 data class DlnaEntry(
@@ -22,7 +23,18 @@ data class DlnaEntry(
     val mimeType: String? = null
 )
 
+internal fun isPrivateLanHost(host: String): Boolean = runCatching {
+    val address = InetAddress.getByName(host)
+    if (address.isSiteLocalAddress || address.isLinkLocalAddress) true
+    else {
+        val bytes = address.address
+        bytes.size == 4 && (bytes[0].toInt() and 0xFF) == 100 &&
+            (bytes[1].toInt() and 0xC0) == 0x40
+    }
+}.getOrDefault(false)
+
 internal fun validateDlnaDeviceUrl(raw: String, deviceHost: String): URI {
+    require(isPrivateLanHost(deviceHost)) { "يُسمح بتصفح DLNA على عناوين الشبكة المحلية فقط" }
     val uri = URI(raw).normalize()
     require(uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) {
         "خادم DLNA أعلن رابطاً غير آمن"
