@@ -1,5 +1,6 @@
 package com.malekplay.network
 
+import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -66,6 +67,7 @@ object UltraShareWifiDirect {
             )
         }
 
+        @SuppressLint("MissingPermission")
         fun discover() {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             try {
@@ -80,6 +82,7 @@ object UltraShareWifiDirect {
             }
         }
 
+        @SuppressLint("MissingPermission")
         fun connect(deviceAddress: String, preferThisDeviceAsGroupOwner: Boolean) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             val config = WifiP2pConfig().apply {
@@ -103,6 +106,7 @@ object UltraShareWifiDirect {
             }
         }
 
+        @SuppressLint("MissingPermission")
         private fun requestPeers() {
             try {
                 manager.requestPeers(channel) { list ->
@@ -120,6 +124,7 @@ object UltraShareWifiDirect {
             }
         }
 
+        @SuppressLint("MissingPermission")
         private fun requestConnectionInfo() {
             try {
                 manager.requestConnectionInfo(channel) { info ->
