@@ -19,7 +19,7 @@ class NetworkModelsTest {
             classifyMdnsService("_airplay._tcp.local")
         )
         assertEquals(
-            NetworkDeviceKind.WINDOWS_COMPUTER,
+            NetworkDeviceKind.NETWORK_DEVICE,
             classifyMdnsService("_smb._tcp.local")
         )
         assertEquals(
