@@ -322,4 +322,6 @@
     <string name="ultra_share_save_to_device">حفظ في مجلد على الهاتف</string>
     <string name="ultra_share_lan_note">يعمل الإصدار الأول عبر شبكة Wi-Fi المحلية نفسها. لا يحتاج إلى إنترنت أو خادم سحابي. يجب إبقاء شاشة الاستقبال مفتوحة أثناء النقل. دعم Wi-Fi Direct والاقتران عبر QR سيأتي في مراحل لاحقة.</string>
 
+    <string name="ultra_share_cancel_send">إلغاء الإرسال</string>
+    <string name="ultra_share_send_cancelled">تم إلغاء الإرسال. يمكنك إعادة المحاولة وسيستأنف المستقبل من الجزء المكتمل.</string>
 </resources>
