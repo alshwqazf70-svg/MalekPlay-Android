@@ -220,6 +220,11 @@
     <string name="net_discovery_search">Scan</string>
     <string name="net_discovery_searching">Scanning</string>
     <string name="net_discovery_detected">Discovered</string>
+    <string name="net_discovery_open">Open library</string>
+    <string name="net_dlna_parent">Parent folder</string>
+    <string name="net_dlna_empty">There are no items in this folder.</string>
+    <string name="net_dlna_folder">Media folder</string>
+    <string name="net_dlna_file">Media file</string>
     <string name="net_discovery_configure_smb">Set up SMB</string>
     <string name="net_discovery_scanning">Searching for media services and Windows devices on the current Wi-Fi…</string>
     <string name="net_discovery_subtitle">Computer • TV • Media server</string>
