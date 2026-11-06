@@ -1,8 +1,11 @@
 name: Build MalekPlay Android APK
 
-# Builds are intentionally manual during the six development phases.
-# Run once after the user approves the final build.
+# Build automatically for every update to the protected development branch.
+# Manual dispatch remains available for optional emulator runs.
 on:
+  push:
+    branches:
+      - backup/before-updated-2.0
   workflow_dispatch:
     inputs:
       run_emulator:
