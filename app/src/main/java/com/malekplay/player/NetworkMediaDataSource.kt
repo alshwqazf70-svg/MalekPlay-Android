@@ -361,6 +361,7 @@ class NetworkRoutingDataSource(
                     NetworkMediaDataSource(context, profileStore, credentialVault) to dataSpec
                 "malekdlna-http" -> createLanDlnaDataSource(dataSpec, "http")
                 "malekdlna-https" -> createLanDlnaDataSource(dataSpec, "https")
+                "http" -> throw IOException("روابط HTTP العادية غير مدعومة؛ استخدم HTTPS أو تشغيل DLNA المحلي")
                 else -> httpFactory.createDataSource() to dataSpec
             }
         } catch (error: Throwable) {
