@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
@@ -372,14 +373,14 @@ class UltraShareForegroundService : Service() {
                     UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_SENDING)
                     publish(currentState().copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = null))
                     try {
-                        UltraShareTransport.send(resolver = contentResolver, uri = uri, host = host, pairingSecret = secret, fileName = metadata.first, mimeType = metadata.second, sizeBytes = metadata.third, onProgress = { progress ->
+                        sendWithRetry(uri, host, secret, metadata) { progress ->
                             publish(currentState().copy(
                                 progress = progress,
                                 queueCurrentName = metadata.first,
                                 queueTransferredBytes = minOf(totalBytes, completedBytes + progress.transferredBytes)
                             ))
                             updateNotification(progress)
-                        })
+                        }
                         sent++
                         completedBytes = if (Long.MAX_VALUE - completedBytes < metadata.third) Long.MAX_VALUE else completedBytes + metadata.third
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_COMPLETED)
@@ -425,6 +426,40 @@ class UltraShareForegroundService : Service() {
         transferJob = job
         job.start()
     }
+    private suspend fun sendWithRetry(
+        uri: Uri,
+        host: String,
+        secret: String,
+        metadata: Triple<String, String, Long>,
+        onProgress: (UltraShareTransport.Progress) -> Unit
+    ) {
+        var retry = 0
+        while (true) {
+            try {
+                UltraShareTransport.send(
+                    resolver = contentResolver,
+                    uri = uri,
+                    host = host,
+                    pairingSecret = secret,
+                    fileName = metadata.first,
+                    mimeType = metadata.second,
+                    sizeBytes = metadata.third,
+                    onProgress = onProgress
+                )
+                return
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: IOException) {
+                if (retry >= 2) throw failure
+                retry++
+                publish(currentState().copy(
+                    status = "انقطع الاتصال؛ إعادة المحاولة تلقائياً " + retry + " من 2"
+                ))
+                kotlinx.coroutines.delay(retry * 1_000L)
+            }
+        }
+    }
+
     private fun readDocumentMetadata(uri: Uri): Triple<String, String, Long> {
         var name = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "shared-file"
         var size = -1L
