@@ -376,7 +376,21 @@ class UltraShareForegroundService : Service() {
                         ))
                         return@forEachIndexed
                     }
-                    UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_SENDING)
+                    val claimed = UltraShareQueueStore.claimForSending(
+                        this@UltraShareForegroundService,
+                        uri,
+                        metadata.first
+                    )
+                    if (!claimed) {
+                        activeUri = null
+                        publish(currentState().copy(
+                            queueCompleted = index + 1,
+                            queueTotal = queue.size,
+                            queueTotalBytes = totalBytes,
+                            queueTransferredBytes = completedBytes
+                        ))
+                        return@forEachIndexed
+                    }
                     publish(currentState().copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = null))
                     try {
                         sendWithRetry(uri, host, secret, metadata) { progress ->
