@@ -1,6 +1,7 @@
 package com.malekplay.ui.network
 
 import android.content.Context
+import android.content.ClipboardManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -308,6 +309,24 @@ fun UltraShareScreen(
     val state by viewModel.state.collectAsState()
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
+    fun pastePairingDetails() {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val raw = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
+            ?.getItemAt(0)?.coerceToText(context)?.toString()?.trim()
+        if (raw.isNullOrBlank()) {
+            Toast.makeText(context, R.string.ultra_share_clipboard_empty, Toast.LENGTH_SHORT).show()
+        } else {
+            runCatching { UltraShareQrCode.parsePayload(raw) }
+                .onSuccess { pairing ->
+                    host = pairing.host
+                    secret = pairing.pairingSecret
+                    Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
+                }
+                .onFailure {
+                    Toast.makeText(context, R.string.ultra_share_clipboard_invalid, Toast.LENGTH_LONG).show()
+                }
+        }
+    }
     val qrPayload = state.localAddresses.firstOrNull()?.takeIf { state.receiving }?.let { address ->
         UltraShareQrCode.createPayload(address, UltraShareTransport.DEFAULT_PORT, state.pairingSecret)
     }
@@ -460,6 +479,14 @@ fun UltraShareScreen(
                 ) {
                     Icon(Icons.Filled.QrCode, contentDescription = null)
                     Text(stringResource(R.string.ultra_share_scan_qr), modifier = Modifier.padding(start = 8.dp))
+                }
+                OutlinedButton(
+                    onClick = ::pastePairingDetails,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.sending && !state.receiving
+                ) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = null)
+                    Text(stringResource(R.string.ultra_share_paste_pairing), modifier = Modifier.padding(start = 8.dp))
                 }
                 Button(
                     onClick = { pickFile.launch(arrayOf("*/*")) },
