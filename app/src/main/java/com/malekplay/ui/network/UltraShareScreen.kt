@@ -1,13 +1,16 @@
 package com.malekplay.ui.network
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.content.pm.PackageManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.core.content.ContextCompat
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -44,6 +47,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +74,7 @@ import com.malekplay.network.UltraShareQueueEntry
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraShareQrCode
+import com.malekplay.network.UltraShareWifiDirect
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.widget.Toast
@@ -101,7 +106,9 @@ data class UltraShareUiState(
     val queueCurrentName: String? = null,
     val queueTotalBytes: Long = 0L,
     val queueTransferredBytes: Long = 0L,
-    val queueEntries: List<UltraShareQueueEntry> = emptyList()
+    val queueEntries: List<UltraShareQueueEntry> = emptyList(),
+    val wifiDirectPeers: List<UltraShareWifiDirect.Peer> = emptyList(),
+    val wifiDirectHost: String? = null
 )
 
 @HiltViewModel
@@ -111,6 +118,7 @@ class UltraShareViewModel @Inject constructor(
     private val _state = MutableStateFlow(UltraShareUiState())
     val state = _state.asStateFlow()
     private var scanJob: Job? = null
+    private var wifiDirectSession: UltraShareWifiDirect.Session? = null
 
     init {
         viewModelScope.launch {
@@ -197,6 +205,63 @@ class UltraShareViewModel @Inject constructor(
                 _state.value = _state.value.copy(scanning = false)
             }
         }
+    }
+
+    fun scanWifiDirectPeers() {
+        try {
+            val session = wifiDirectSession ?: UltraShareWifiDirect.open(
+                context = context,
+                onPeers = { peers ->
+                    _state.value = _state.value.copy(
+                        wifiDirectPeers = peers,
+                        scanning = false,
+                        status = if (peers.isEmpty()) "لم يتم العثور على أجهزة Wi-Fi Direct."
+                        else "تم العثور على " + peers.size + " أجهزة عبر Wi-Fi Direct."
+                    )
+                },
+                onConnected = { remoteHost, isGroupOwner ->
+                    if (isGroupOwner) {
+                        _state.value = _state.value.copy(
+                            status = "اتصل Wi-Fi Direct، لكن هذا الهاتف أصبح مالك المجموعة. اجعل جهاز الاستقبال هو مالك المجموعة ثم أعد الاتصال."
+                        )
+                    } else if (!remoteHost.isNullOrBlank()) {
+                        _state.value = _state.value.copy(
+                            wifiDirectHost = remoteHost,
+                            status = "تم اتصال Wi-Fi Direct. أدخل رمز الاقتران الظاهر على جهاز الاستقبال."
+                        )
+                    }
+                },
+                onError = { message ->
+                    _state.value = _state.value.copy(scanning = false, error = message)
+                }
+            ).also { wifiDirectSession = it }
+            _state.value = _state.value.copy(scanning = true, error = null, status = "جارٍ البحث عن أجهزة Wi-Fi Direct...")
+            session.discover()
+        } catch (failure: Exception) {
+            _state.value = _state.value.copy(
+                scanning = false,
+                error = failure.localizedMessage ?: "تعذر بدء Wi-Fi Direct على هذا الجهاز."
+            )
+        }
+    }
+
+    fun connectWifiDirectPeer(peer: UltraShareWifiDirect.Peer) {
+        val session = wifiDirectSession ?: run {
+            scanWifiDirectPeers()
+            wifiDirectSession
+        }
+        if (session == null) {
+            _state.value = _state.value.copy(error = "تعذر تهيئة اتصال Wi-Fi Direct.")
+            return
+        }
+        _state.value = _state.value.copy(
+            error = null,
+            status = "جارٍ الاتصال بـ " + peer.name + " عبر Wi-Fi Direct..."
+        )
+        runCatching { session.connect(peer.deviceAddress) }
+            .onFailure {
+                _state.value = _state.value.copy(error = it.localizedMessage ?: "تعذر الاتصال بالجهاز.")
+            }
     }
 
     fun send(uri: Uri, host: String, secret: String) {
@@ -320,6 +385,8 @@ class UltraShareViewModel @Inject constructor(
 
     override fun onCleared() {
         scanJob?.cancel()
+        wifiDirectSession?.close()
+        wifiDirectSession = null
         // Transfer jobs belong to the foreground service and deliberately outlive this ViewModel.
         super.onCleared()
     }
