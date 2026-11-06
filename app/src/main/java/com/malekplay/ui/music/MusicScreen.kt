@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -450,36 +451,14 @@ private fun ArtistsTab(artists: List<ArtistSummary>) {
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp)
+        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
     ) {
         items(items = artists, key = { it.name }) { artist ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Person,
-                    contentDescription = null,
-                    tint = MalekPlayColors.PurpleSoft,
-                    modifier = Modifier.size(32.dp)
-                )
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = artist.name,
-                        style = MaterialTheme.typography.bodyLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = stringResource(R.string.music_track_count, artist.trackCount),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
+            ArtistGenreRow(
+                name = artist.name,
+                trackCount = artist.trackCount,
+                icon = Icons.Filled.Person
+            )
         }
     }
 }
@@ -498,36 +477,96 @@ private fun GenresTab(genres: List<GenreSummary>) {
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp)
+        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
     ) {
         items(items = genres, key = { it.name }) { genre ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.GraphicEq,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(32.dp)
+            ArtistGenreRow(
+                name = genre.name,
+                trackCount = genre.trackCount,
+                icon = Icons.Filled.GraphicEq
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArtistGenreRow(
+    name: String,
+    trackCount: Int,
+    icon: ImageVector
+) {
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(shape)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Color(0xFF241A32), Color(0xFF17131F), Color(0xFF121019))
                 )
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = genre.name,
-                        style = MaterialTheme.typography.bodyLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+            )
+            .border(
+                1.dp,
+                Brush.linearGradient(
+                    listOf(
+                        MalekPlayColors.PurpleBright.copy(alpha = 0.42f),
+                        Color.White.copy(alpha = 0.07f),
+                        MalekPlayColors.PurpleDeep.copy(alpha = 0.30f)
                     )
-                    Text(
-                        text = stringResource(R.string.music_track_count, genre.trackCount),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                shape
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(46.dp)
+                .clip(RoundedCornerShape(15.dp))
+                .background(
+                    Brush.radialGradient(
+                        listOf(MalekPlayColors.NeonPurple.copy(alpha = 0.34f), MalekPlayColors.PurpleDeep.copy(alpha = 0.12f))
                     )
-                }
-            }
+                )
+                .border(1.dp, MalekPlayColors.NeonPurple.copy(alpha = 0.35f), RoundedCornerShape(15.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MalekPlayColors.PurpleSoft,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MalekPlayColors.TextPrimary,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = stringResource(R.string.music_track_count, trackCount),
+                style = MaterialTheme.typography.bodySmall,
+                color = MalekPlayColors.TextMuted
+            )
+        }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(MalekPlayColors.PurpleDeep.copy(alpha = 0.24f))
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+        ) {
+            Text(
+                text = trackCount.toString(),
+                color = MalekPlayColors.PurpleBright,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
