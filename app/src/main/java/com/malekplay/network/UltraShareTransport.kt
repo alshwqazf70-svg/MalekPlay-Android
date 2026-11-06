@@ -448,13 +448,17 @@ object UltraShareTransport {
 
     private suspend fun skipFully(input: InputStream, count: Long) {
         var remaining = count
+        val discard = ByteArray(64 * 1024)
         while (remaining > 0L) {
             currentCoroutineContext().ensureActive()
             val skipped = input.skip(remaining)
-            if (skipped > 0L) remaining -= skipped
-            else {
-                require(input.read() >= 0) { "تعذر استئناف قراءة الملف من الموضع المطلوب." }
-                remaining--
+            if (skipped > 0L) {
+                remaining -= skipped
+            } else {
+                val wanted = minOf(discard.size.toLong(), remaining).toInt()
+                val read = input.read(discard, 0, wanted)
+                require(read > 0) { "تعذر استئناف قراءة الملف من الموضع المطلوب." }
+                remaining -= read
             }
         }
     }
