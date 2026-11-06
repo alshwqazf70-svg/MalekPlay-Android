@@ -69,9 +69,10 @@ class DlnaContentDirectoryClient(
             if (!response.isSuccessful) throw IllegalStateException("خادم DLNA أعاد HTTP \${response.code}")
             val body = response.body ?: throw IllegalStateException("استجابة DLNA فارغة")
             if (body.contentLength() > MAX_XML_BYTES) throw IllegalStateException("استجابة DLNA أكبر من الحد المسموح")
-            val value = body.string()
-            require(value.length <= MAX_XML_BYTES) { "استجابة DLNA أكبر من الحد المسموح" }
-            return value
+            val source = body.source()
+            source.request(MAX_XML_BYTES.toLong() + 1L)
+            require(source.buffer.size <= MAX_XML_BYTES) { "استجابة DLNA أكبر من الحد المسموح" }
+            return source.readUtf8()
         }
     }
 
@@ -196,6 +197,7 @@ class DlnaContentDirectoryClient(
         require(xml.length <= MAX_XML_BYTES) { "ملف XML أكبر من الحد المسموح" }
         return Xml.newPullParser().apply {
             setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
+            setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false)
             setInput(StringReader(xml))
             next()
         }
