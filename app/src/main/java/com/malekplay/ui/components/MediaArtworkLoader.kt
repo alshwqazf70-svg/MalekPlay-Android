@@ -74,8 +74,8 @@ internal fun java.io.InputStream.readLimitedBytes(maxBytes: Int = MAX_ARTWORK_BY
  * dimensions kept very wide/tall covers almost full-resolution in memory.
  */
 internal fun calculateArtworkSampleSize(width: Int, height: Int, targetSize: Int): Int {
-    if (width <= 0 || height <= 0) return 1
-    val target = targetSize.coerceAtLeast(1)
+    if (width <= 0 || height <= 0 || targetSize <= 0) return 1
+    val target = targetSize
     var sample = 1
     while (sample <= Int.MAX_VALUE / 2 &&
         maxOf(width / (sample * 2), height / (sample * 2)) >= target
