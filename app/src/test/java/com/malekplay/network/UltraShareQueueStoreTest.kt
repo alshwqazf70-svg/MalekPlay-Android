@@ -57,6 +57,21 @@ class UltraShareQueueStoreTest {
             )
             assertTrue(UltraShareQueueStore.pending(context).isEmpty())
 
+            UltraShareQueueStore.update(
+                context,
+                activeUri,
+                displayName = "active.bin",
+                status = UltraShareQueueStore.STATUS_FAILED,
+                error = "temporary network error"
+            )
+            assertTrue(
+                UltraShareQueueStore.claimForSending(
+                    context,
+                    activeUri,
+                    "active.bin"
+                )
+            )
+
             UltraShareQueueStore.recoverInterrupted(context)
             assertEquals(
                 UltraShareQueueStore.STATUS_PENDING,
