@@ -15,13 +15,14 @@
 - Interrupted transfers keep a partial file and a sidecar identity marker. A later send of the same filename, size and digest can resume at the existing byte offset.
 - The receiver rejects non-private IPv4 peers and the sender rejects non-private IPv4 destinations.
 - Files are staged under the app-specific Downloads directory and can be exported through Android's Storage Access Framework.
+- A data-sync foreground service displays an ongoing notification while a send or receive session is active, allowing the user to briefly switch apps.
 - Pairing can be transferred through the generated QR payload, QR image import, or a copied pairing URI.
 
 ## Current limitations — do not advertise these as completed
 
 - One file is transferred per receiver session.
 - Both devices must be on a reachable local network; access-point client isolation can prevent communication.
-- The receiver screen must remain active. A dedicated foreground transfer service is not implemented yet.
+- The Ultra Share destination must remain in the navigation back stack. The foreground service is intended to keep a transfer alive during brief app switching, but process-death recovery and extended background behavior still require device verification.
 - Live camera QR scanning is not part of this stage; the app can import a QR image or pairing URI.
 - Wi-Fi Direct, automatic hotspot creation, internet relay, desktop/browser receiver, and multi-file queues are not implemented.
 - No speed benchmark has been run. Throughput depends on both radios, Wi-Fi generation, channel congestion, distance, device storage and CPU.
