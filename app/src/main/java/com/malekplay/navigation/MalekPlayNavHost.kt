@@ -216,9 +216,7 @@ fun MalekPlayNavHost(
 
             composable(Screen.Network.route) {
                 NetworkScreen(
-                    onOpenMedia = { uri ->
-                        navController.navigate(Screen.VideoPlayer.create(uri.toString()))
-                    },
+                    onOpenMedia = navController::openNetworkMedia,
                     contentPadding = padding
                 )
             }
@@ -347,6 +345,22 @@ private fun NavHostController.navigateToTopLevel(destination: TopLevelDestinatio
         launchSingleTop = true
         restoreState = false
     }
+}
+
+/** Routes network media by its remote file extension instead of opening every item as video. */
+private fun NavHostController.openNetworkMedia(rawUri: String) {
+    val extension = Uri.parse(rawUri).lastPathSegment
+        ?.substringAfterLast('.', "")
+        ?.lowercase()
+        .orEmpty()
+    val audioExtensions = setOf(
+        "mp3", "m4a", "m4b", "aac", "flac", "wav", "ogg", "oga", "opus",
+        "wma", "aiff", "aif", "alac", "amr", "mid", "midi", "3ga"
+    )
+    navigate(
+        if (extension in audioExtensions) Screen.AudioPlayer.create(rawUri)
+        else Screen.VideoPlayer.create(rawUri)
+    )
 }
 
 /** Routes audio to the audio player and video to the video player. */
