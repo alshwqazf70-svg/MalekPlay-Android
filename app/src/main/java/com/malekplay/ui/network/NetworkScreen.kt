@@ -542,7 +542,7 @@ fun NetworkScreen(
         AddSourceDialog(
             initialHost = selectedDevice?.host,
             initialName = selectedDevice?.name,
-            initialProtocol = selectedDevice?.let { if (it.kind == NetworkDeviceKind.WINDOWS_COMPUTER) NetworkProtocol.SMB else null },
+            initialProtocol = selectedDevice?.let { if (it.kind == NetworkDeviceKind.WINDOWS_COMPUTER || it.services.any { service -> service.contains("_smb._tcp") }) NetworkProtocol.SMB else null },
             onDismiss = { showAddDialog = false; selectedDevice = null },
             onSave = { protocol, host, port, username, password, share, path, name, knownHostsUri ->
                 showAddDialog = false
@@ -614,7 +614,7 @@ private fun DiscoveryPanel(
                         }
                         when (device.kind) {
                             NetworkDeviceKind.WINDOWS_COMPUTER -> TextButton(onClick = { onUseWindowsDevice(device) }) { Text(stringResource(R.string.net_discovery_configure_smb)) }
-                            NetworkDeviceKind.MEDIA_SERVER -> TextButton(onClick = { onOpenMediaServer(device) }) { Text(stringResource(R.string.net_discovery_open)) }
+                            NetworkDeviceKind.MEDIA_SERVER -> if (device.services.any { it.contains("_smb._tcp") }) { TextButton(onClick = { onUseWindowsDevice(device) }) { Text(stringResource(R.string.net_discovery_configure_smb)) } } else { TextButton(onClick = { onOpenMediaServer(device) }) { Text(stringResource(R.string.net_discovery_open)) } }
                             else -> Text(stringResource(R.string.net_discovery_detected), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.PurpleSoft)
                         }
                     }
