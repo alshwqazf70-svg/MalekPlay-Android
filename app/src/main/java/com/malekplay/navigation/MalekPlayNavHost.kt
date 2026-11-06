@@ -13,7 +13,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
@@ -37,6 +39,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -309,11 +316,32 @@ private fun MalekPlayBottomBar(
     navController: NavHostController,
     currentRoute: String?
 ) {
+    val barShape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)
+    val barBorder = Brush.horizontalGradient(
+        listOf(
+            Color.Transparent,
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.42f),
+            Color.White.copy(alpha = 0.10f),
+            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.24f),
+            Color.Transparent
+        )
+    )
     NavigationBar(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background),
-        containerColor = MaterialTheme.colorScheme.surface,
+            .clip(barShape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.99f),
+                        MaterialTheme.colorScheme.background
+                    )
+                ),
+                barShape
+            )
+            .border(BorderStroke(1.dp, barBorder), barShape),
+        containerColor = Color.Transparent,
         tonalElevation = 0.dp,
     ) {
         BOTTOM_DESTINATIONS.forEach { destination ->
@@ -357,7 +385,7 @@ private fun MalekPlayBottomBar(
                     selectedTextColor = MaterialTheme.colorScheme.primary,
                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
                 )
             )
         }
