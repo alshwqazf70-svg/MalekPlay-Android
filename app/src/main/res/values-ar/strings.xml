@@ -83,6 +83,10 @@
     <string name="player_locked_hint">عناصر التحكم مقفلة — اضغط القفل للفتح</string>
     <string name="player_play">تشغيل</string>
     <string name="player_pause">إيقاف مؤقت</string>
+    <string name="mini_player_audio_now_playing">يتم تشغيل الموسيقى الآن</string>
+    <string name="mini_player_video_now_playing">يتم تشغيل الفيديو الآن</string>
+    <string name="mini_player_play">تشغيل</string>
+    <string name="mini_player_pause">إيقاف مؤقت</string>
     <string name="player_next">التالي</string>
     <string name="player_previous">السابق</string>
     <string name="player_speed">السرعة</string>

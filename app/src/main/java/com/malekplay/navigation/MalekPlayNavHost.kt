@@ -126,12 +126,12 @@ fun MalekPlayNavHost(
                         val mediaId = currentItemId.orEmpty()
                         val title = mediaItem.mediaMetadata.title?.toString()
                             ?.takeIf { it.isNotBlank() }
-                            ?: mediaId.substringAfterLast('/').ifBlank { "MalekPlay" }
+                            ?: mediaId.substringAfterLast('/').ifBlank { stringResource(R.string.app_name) }
                         val artist = mediaItem.mediaMetadata.artist?.toString().orEmpty()
                         MiniPlayerBar(
                             title = title,
                             subtitle = artist.ifBlank {
-                                if (isVideo) "يتم تشغيل الفيديو الآن" else "يتم تشغيل الموسيقى الآن"
+                                stringResource(if (isVideo) R.string.mini_player_video_now_playing else R.string.mini_player_audio_now_playing)
                             },
                             isVideo = isVideo,
                             isPlaying = playerIsPlaying,
@@ -448,7 +448,7 @@ private fun MiniPlayerBar(
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "إيقاف مؤقت" else "تشغيل",
+                    contentDescription = stringResource(if (isPlaying) R.string.mini_player_pause else R.string.mini_player_play),
                     tint = Color.White,
                     modifier = Modifier.size(22.dp)
                 )

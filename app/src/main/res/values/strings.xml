@@ -83,6 +83,10 @@
     <string name="player_locked_hint">Controls locked — tap the lock to unlock</string>
     <string name="player_play">Play</string>
     <string name="player_pause">Pause</string>
+    <string name="mini_player_audio_now_playing">Now playing</string>
+    <string name="mini_player_video_now_playing">Now playing video</string>
+    <string name="mini_player_play">Play</string>
+    <string name="mini_player_pause">Pause</string>
     <string name="player_next">Next</string>
     <string name="player_previous">Previous</string>
     <string name="player_speed">Speed</string>
