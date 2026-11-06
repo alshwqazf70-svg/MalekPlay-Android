@@ -77,6 +77,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
@@ -566,6 +567,23 @@ fun VideoPlayerScreen(
                 targetOffsetY = { height -> height / 24 }
             )
         ) {
+            // Cinematic chrome: soft top/bottom vignettes keep controls legible
+            // without changing the video surface, gestures, or Media3 controller.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.0f to Color(0xCC05030A),
+                                0.20f to Color(0x2605030A),
+                                0.52f to Color.Transparent,
+                                0.76f to Color(0x3305030A),
+                                1.0f to Color(0xE605030A)
+                            )
+                        )
+                    )
+            )
             Column(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 PlayerTopBar(
