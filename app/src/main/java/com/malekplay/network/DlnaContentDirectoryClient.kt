@@ -88,7 +88,7 @@ class DlnaContentDirectoryClient(
         )
         val endpoint = findContentDirectoryEndpoint(descriptionXml, description, device.host)
             ?: throw IllegalStateException("الجهاز لا يوفر خدمة ContentDirectory لتصفح الوسائط")
-        val soap = buildBrowseEnvelope(objectId, startingIndex, requestedCount)
+        val soap = buildBrowseEnvelope(objectId, startingIndex, requestedCount, endpoint.serviceType)
         val request = Request.Builder()
             .url(endpoint.controlUrl.toString())
             .header("Content-Type", "text/xml; charset=utf-8")
@@ -237,12 +237,12 @@ class DlnaContentDirectoryClient(
         }
     }
 
-    private fun buildBrowseEnvelope(objectId: String, start: Int, count: Int): String {
+    private fun buildBrowseEnvelope(objectId: String, start: Int, count: Int, serviceType: String): String {
         fun escape(value: String) = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             .replace("\"", "&quot;").replace("'", "&apos;")
         return """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-<s:Body><u:Browse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
+<s:Body><u:Browse xmlns:u="${escape(serviceType)}">
 <ObjectID>${escape(objectId)}</ObjectID><BrowseFlag>BrowseDirectChildren</BrowseFlag><Filter>*</Filter>
 <StartingIndex>$start</StartingIndex><RequestedCount>$count</RequestedCount><SortCriteria></SortCriteria>
 </u:Browse></s:Body></s:Envelope>"""
