@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size as CanvasSize
@@ -272,7 +274,24 @@ fun AudioPlayerScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f),
+                    .aspectRatio(1f)
+                    .shadow(
+                        elevation = 24.dp,
+                        shape = RoundedCornerShape(26.dp),
+                        ambientColor = accent.copy(alpha = 0.28f),
+                        spotColor = accent.copy(alpha = 0.18f)
+                    )
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.linearGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.48f),
+                                accent.copy(alpha = 0.62f),
+                                Color.White.copy(alpha = 0.10f)
+                            )
+                        ),
+                        shape = RoundedCornerShape(26.dp)
+                    ),
                 shape = RoundedCornerShape(26.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHighest,
                 tonalElevation = 4.dp
@@ -400,7 +419,14 @@ fun AudioPlayerScreen(
                     onClick = viewModel::togglePlayPause,
                     shape = RoundedCornerShape(50),
                     color = accent,
-                    modifier = Modifier.size(74.dp)
+                    modifier = Modifier
+                        .size(74.dp)
+                        .shadow(
+                            elevation = 18.dp,
+                            shape = RoundedCornerShape(50),
+                            ambientColor = accent.copy(alpha = 0.42f),
+                            spotColor = accent.copy(alpha = 0.26f)
+                        )
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
