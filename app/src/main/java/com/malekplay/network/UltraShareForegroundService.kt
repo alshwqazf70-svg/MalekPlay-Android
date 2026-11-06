@@ -124,7 +124,7 @@ class UltraShareForegroundService : Service() {
                 }
             }
             ACTION_SEND -> {
-                val uri = intent.parcelableUri(EXTRA_URI)
+                val uri = intent.parcelableUri<Uri>(EXTRA_URI)
                 val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
                 if (uri == null || host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
