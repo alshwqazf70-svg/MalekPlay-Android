@@ -297,4 +297,29 @@
     <string name="subtitle_downloads">تنزيل</string>
     <string name="subtitle_translate_ar">ترجمة الترجمة الإنجليزية إلى العربية (على الجهاز)</string>
     <string name="subtitle_translate_ar_loading">جارٍ ترجمة ملف الترجمة…</string>
+
+    <!-- MalekPlay Ultra Share -->
+    <string name="ultra_share_title">MalekPlay Ultra Share</string>
+    <string name="ultra_share_subtitle">إرسال واستلام سريع وآمن عبر الشبكة المحلية</string>
+    <string name="ultra_share_receive">استلام الملفات</string>
+    <string name="ultra_share_receive_hint">ابدأ الاستقبال على هذا الهاتف، ثم استخدم عنوانه ورمز الاقتران في الهاتف المرسل.</string>
+    <string name="ultra_share_waiting">بانتظار اتصال جهاز آخر…</string>
+    <string name="ultra_share_receiver_address">عنوان هذا الهاتف على الشبكة</string>
+    <string name="ultra_share_no_address">لم نعثر على عنوان شبكة محلية. تأكد من اتصال Wi-Fi.</string>
+    <string name="ultra_share_pairing_code">رمز الاقتران</string>
+    <string name="ultra_share_code_warning">لا تشارك الرمز إلا مع الشخص الذي تريد استقبال ملفاته منه.</string>
+    <string name="ultra_share_stop_receiving">إيقاف الاستقبال</string>
+    <string name="ultra_share_start_receiving">ابدأ استقبال الملفات</string>
+    <string name="ultra_share_send">إرسال الملفات</string>
+    <string name="ultra_share_host">عنوان IP للجهاز المستقبل</string>
+    <string name="ultra_share_choose_send">اختيار ملف وإرساله</string>
+    <string name="ultra_share_transfer_failed">تعذر إكمال عملية النقل.</string>
+    <string name="ultra_share_received">تم استلام %1$s والتحقق منه</string>
+    <string name="ultra_share_sent">تم إرسال %1$s والتحقق منه</string>
+    <string name="ultra_share_stopped">تم إيقاف الاستقبال.</string>
+    <string name="ultra_share_exported">تم حفظ نسخة من %1$s في المكان المحدد.</string>
+    <string name="ultra_share_receive_complete">اكتمل الاستلام بنجاح</string>
+    <string name="ultra_share_save_to_device">حفظ في مجلد على الهاتف</string>
+    <string name="ultra_share_lan_note">يعمل الإصدار الأول عبر شبكة Wi-Fi المحلية نفسها. لا يحتاج إلى إنترنت أو خادم سحابي. يجب إبقاء شاشة الاستقبال مفتوحة أثناء النقل. دعم Wi-Fi Direct والاقتران عبر QR سيأتي في مراحل لاحقة.</string>
+
 </resources>
