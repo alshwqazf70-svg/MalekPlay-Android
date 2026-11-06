@@ -217,7 +217,7 @@ class UltraShareForegroundService : Service() {
 
     private fun finishService(startId: Int) {
         stopForeground(true)
-        stopSelf(startId)
+        stopSelf()
     }
 
     private fun publish(state: UltraShareServiceState) {
