@@ -1,6 +1,5 @@
 package com.malekplay.network
 
-import android.content.Context
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
@@ -29,7 +28,6 @@ object UltraShareDiscovery {
     )
 
     suspend fun advertiseWhileReceiving(
-        context: Context,
         transferPort: Int = UltraShareTransport.DEFAULT_PORT
     ) = withContext(Dispatchers.IO) {
         DatagramSocket(null).use { socket ->
@@ -57,7 +55,6 @@ object UltraShareDiscovery {
     }
 
     suspend fun discoverPeers(
-        context: Context,
         scanWindowMs: Long = SCAN_WINDOW_MS
     ): List<Peer> = withContext(Dispatchers.IO) {
         require(scanWindowMs in 500L..15_000L)
