@@ -9,6 +9,39 @@ import org.junit.Test
 class NetworkModelsTest {
 
     @Test
+    fun classifiesUpnpMediaServersAndRenderersFromAdvertisedServiceTypes() {
+        assertEquals(
+            NetworkDeviceKind.MEDIA_SERVER,
+            classifySsdpDevice("urn:schemas-upnp-org:device:MediaServer:1", "")
+        )
+        assertEquals(
+            NetworkDeviceKind.MEDIA_RENDERER,
+            classifySsdpDevice("urn:schemas-upnp-org:device:MediaRenderer:1", "")
+        )
+        assertEquals(
+            NetworkDeviceKind.NETWORK_DEVICE,
+            classifySsdpDevice("upnp:rootdevice", "uuid:device-123")
+        )
+    }
+
+    @Test
+    fun identifiesWindowsComputersOnlyFromExplicitDiscoveryHints() {
+        assertEquals(
+            NetworkDeviceKind.WINDOWS_COMPUTER,
+            classifyWsDiscoveryDevice("pub:Computer", "")
+        )
+        assertEquals(
+            NetworkDeviceKind.WINDOWS_COMPUTER,
+            classifyWsDiscoveryDevice("", "computer")
+        )
+        assertEquals(
+            NetworkDeviceKind.NETWORK_DEVICE,
+            classifyWsDiscoveryDevice("wsdp:Device", "network-device")
+        )
+    }
+
+
+    @Test
     fun knownHostsImportStopsBeforeWritingBeyondConfiguredLimit() {
         val output = ByteArrayOutputStream()
         assertThrows(IllegalArgumentException::class.java) {
