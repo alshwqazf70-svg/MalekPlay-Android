@@ -65,6 +65,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.malekplay.R
+import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.data.repository.MediaRepository
 import com.malekplay.domain.model.AlbumSummary
@@ -139,9 +140,9 @@ fun MusicScreen(
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        MaterialTheme.colorScheme.surfaceContainerHigh,
-                        MaterialTheme.colorScheme.surface,
-                        MaterialTheme.colorScheme.background
+                        MalekPlayColors.BackgroundElevated,
+                        MalekPlayColors.Background,
+                        Color(0xFF07060C)
                     )
                 )
             )
@@ -158,22 +159,22 @@ fun MusicScreen(
                     text = stringResource(R.string.nav_music),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onBackground
+                    color = MalekPlayColors.TextPrimary
                 )
                 Text(
                     text = stringResource(R.string.music_track_count, songs.size),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MalekPlayColors.TextMuted
                 )
             }
             Box(
                 modifier = Modifier
                     .size(52.dp)
                     .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                    .background(MalekPlayColors.PurpleDeep.copy(alpha = 0.30f))
                     .border(
                         1.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.32f),
+                        MalekPlayColors.NeonPurple.copy(alpha = 0.42f),
                         RoundedCornerShape(18.dp)
                     ),
                 contentAlignment = Alignment.Center
@@ -181,7 +182,7 @@ fun MusicScreen(
                 Icon(
                     imageVector = Icons.Filled.GraphicEq,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = MalekPlayColors.PurpleSoft,
                     modifier = Modifier.size(27.dp)
                 )
             }
@@ -190,7 +191,7 @@ fun MusicScreen(
         TabRow(
             selectedTabIndex = tabIndex,
             containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.primary
+            contentColor = MalekPlayColors.NeonPurple
         ) {
             tabLabels.forEachIndexed { index, labelRes ->
                 Tab(
@@ -270,10 +271,10 @@ private fun SongRow(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .background(Color.White.copy(alpha = 0.045f))
             .border(
                 1.dp,
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f),
+                MalekPlayColors.NeonPurple.copy(alpha = 0.18f),
                 RoundedCornerShape(16.dp)
             )
             .clickable(onClick = onClick)
@@ -353,7 +354,7 @@ private fun AlbumCard(album: AlbumSummary) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
+            containerColor = Color.White.copy(alpha = 0.055f)
         )
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
