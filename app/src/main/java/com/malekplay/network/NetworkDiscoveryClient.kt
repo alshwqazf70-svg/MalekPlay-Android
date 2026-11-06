@@ -93,9 +93,13 @@ class NetworkDiscoveryClient {
                 val st = headers["st"].orEmpty()
                 val server = headers["server"].orEmpty()
                 val locationUri = location?.let { runCatching { URI(it) }.getOrNull() }
-                val host = locationUri?.host ?: source.hostAddress ?: return@receiveUntilQuiet
-                val description = locationUri?.takeIf { it.scheme == "http" || it.scheme == "https" }?.toString()
-                val identity = (usn.ifBlank { location ?: host }).lowercase(Locale.ROOT)
+                val host = source.hostAddress ?: return@receiveUntilQuiet
+                // Never trust a LOCATION host that differs from the actual LAN packet sender.
+                val description = locationUri?.takeIf {
+                    (it.scheme == "http" || it.scheme == "https") &&
+                        it.host.equals(host, ignoreCase = true)
+                }?.toString()
+                val identity = host.lowercase(Locale.ROOT)
                 val kind = classifySsdpDevice(st, usn)
                 val label = when (kind) {
                     NetworkDeviceKind.MEDIA_SERVER -> "خادم وسائط UPnP"
@@ -122,16 +126,20 @@ class NetworkDiscoveryClient {
                 if (!xml.contains("ProbeMatch", true)) return@receiveUntilQuiet
                 val xaddr = XML_XADDR.find(xml)?.groupValues?.getOrNull(1)?.trim()
                 val uri = xaddr?.split(Regex("\\s+"))?.firstOrNull()?.let { runCatching { URI(it) }.getOrNull() }
-                val host = uri?.host ?: source.hostAddress ?: return@receiveUntilQuiet
+                val host = source.hostAddress ?: return@receiveUntilQuiet
+                // Accept service endpoints only when they point back to the responding LAN host.
+                val safeXAddr = uri?.takeIf {
+                    (it.scheme == "http" || it.scheme == "https") &&
+                        it.host.equals(host, ignoreCase = true)
+                }?.toString()
                 val types = XML_TYPES.find(xml)?.groupValues?.getOrNull(1).orEmpty()
                 val scopes = XML_SCOPES.find(xml)?.groupValues?.getOrNull(1).orEmpty()
                 val computer = classifyWsDiscoveryDevice(types, scopes) == NetworkDeviceKind.WINDOWS_COMPUTER
-                val identity = (XML_EPR.find(xml)?.groupValues?.getOrNull(1) ?: xaddr ?: host)
-                    .lowercase(Locale.ROOT)
+                val identity = host.lowercase(Locale.ROOT)
                 val label = if (computer) "كمبيوتر على الشبكة" else "جهاز WS-Discovery"
                 merge(found, identity, MutableDevice(label, host,
                     if (computer) NetworkDeviceKind.WINDOWS_COMPUTER else NetworkDeviceKind.NETWORK_DEVICE,
-                    mutableSetOf("WS-Discovery"), xaddr))
+                    mutableSetOf("WS-Discovery"), safeXAddr))
             }
         }
     }
