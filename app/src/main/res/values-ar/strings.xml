@@ -225,6 +225,7 @@
     <string name="net_dlna_empty">لا توجد عناصر في هذا المجلد.</string>
     <string name="net_dlna_folder">مجلد وسائط</string>
     <string name="net_dlna_file">ملف وسائط</string>
+    <string name="net_dlna_load_more">تحميل المزيد</string>
     <string name="net_discovery_configure_smb">إعداد SMB</string>
     <string name="net_discovery_scanning">نبحث عن أجهزة UPnP وWindows وmDNS على شبكة Wi-Fi الحالية…</string>
     <string name="net_discovery_subtitle">كمبيوتر • تلفزيون • هواتف وخوادم وسائط</string>
