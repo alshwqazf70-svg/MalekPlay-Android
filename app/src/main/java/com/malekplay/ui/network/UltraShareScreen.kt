@@ -441,6 +441,30 @@ fun UltraShareScreen(
     val exportFile = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("*/*")
     ) { uri -> if (uri != null) viewModel.exportReceived(uri) }
+    val wifiDirectPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.all { it }) {
+            viewModel.scanWifiDirectPeers()
+        } else {
+            Toast.makeText(context, "يلزم منح إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
+        }
+    }
+    fun requestWifiDirectScan() {
+        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        val missing = required.filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) viewModel.scanWifiDirectPeers()
+        else wifiDirectPermissionLauncher.launch(missing.toTypedArray())
+    }
+    LaunchedEffect(state.wifiDirectHost) {
+        state.wifiDirectHost?.let { host = it }
+    }
     val scanQrImage = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             scope.launch {
@@ -567,6 +591,24 @@ fun UltraShareScreen(
                     TextButton(onClick = { host = peer.host }) {
                         Text(
                             stringResource(R.string.ultra_share_peer_select, peer.name, peer.host),
+                            color = MalekPlayColors.PurpleBright
+                        )
+                    }
+                }
+                OutlinedButton(
+                    onClick = ::requestWifiDirectScan,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.sending && !state.receiving && !state.scanning
+                ) {
+                    Text(if (state.scanning) "جارٍ البحث عبر Wi-Fi Direct..." else "البحث عبر Wi-Fi Direct")
+                }
+                state.wifiDirectPeers.forEach { peer ->
+                    TextButton(
+                        onClick = { viewModel.connectWifiDirectPeer(peer) },
+                        enabled = !state.sending && !state.receiving
+                    ) {
+                        Text(
+                            "Wi-Fi Direct • " + peer.name + " • " + peer.status,
                             color = MalekPlayColors.PurpleBright
                         )
                     }
