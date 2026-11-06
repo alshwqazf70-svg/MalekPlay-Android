@@ -8,8 +8,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.provider.OpenableColumns
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CancellationException
@@ -45,6 +47,8 @@ class UltraShareForegroundService : Service() {
     private var transferJob: Job? = null
     private var advertisementJob: Job? = null
     private lateinit var notificationManager: NotificationManager
+    private var wifiLock: WifiManager.WifiLock? = null
+    private var cpuWakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -79,6 +83,7 @@ class UltraShareForegroundService : Service() {
                 }
                 if (transferJob != null) return START_NOT_STICKY
                 startForegroundCompat()
+                acquireTransferLocks()
                 val addresses = findLocalIpv4Addresses()
                 publish(
                     UltraShareServiceState(
@@ -138,6 +143,7 @@ class UltraShareForegroundService : Service() {
                 }
                 if (transferJob != null) return START_NOT_STICKY
                 startForegroundCompat()
+                acquireTransferLocks()
                 publish(UltraShareServiceState(sending = true, status = getString(R.string.ultra_share_sending)))
                 transferJob = serviceScope.launch {
                     try {
@@ -184,6 +190,7 @@ class UltraShareForegroundService : Service() {
         transferJob?.cancel()
         advertisementJob?.cancel()
         serviceScope.cancel()
+        releaseTransferLocks()
         if (::notificationManager.isInitialized) notificationManager.cancel(NOTIFICATION_ID)
         super.onDestroy()
     }
@@ -220,8 +227,33 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun finishService() {
+        releaseTransferLocks()
         stopForeground(true)
         stopSelf()
+    }
+
+    private fun acquireTransferLocks() {
+        runCatching {
+            val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            wifiLock = manager.createWifiLock(WifiManager.WIFI_MODE_FULL, "MalekPlay:UltraShare").apply {
+                setReferenceCounted(false)
+                if (!isHeld) acquire()
+            }
+        }
+        runCatching {
+            val manager = getSystemService(POWER_SERVICE) as PowerManager
+            cpuWakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MalekPlay:UltraShare").apply {
+                setReferenceCounted(false)
+                if (!isHeld) acquire()
+            }
+        }
+    }
+
+    private fun releaseTransferLocks() {
+        runCatching { wifiLock?.takeIf { it.isHeld }?.release() }
+        runCatching { cpuWakeLock?.takeIf { it.isHeld }?.release() }
+        wifiLock = null
+        cpuWakeLock = null
     }
 
     private fun publish(state: UltraShareServiceState) {
