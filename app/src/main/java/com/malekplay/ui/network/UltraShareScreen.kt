@@ -61,6 +61,7 @@ import androidx.lifecycle.viewModelScope
 import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareTransport
+import com.malekplay.network.UltraShareDiscovery
 import com.malekplay.network.UltraShareQrCode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -82,6 +83,8 @@ data class UltraShareUiState(
     val localAddresses: List<String> = emptyList(),
     val receiving: Boolean = false,
     val sending: Boolean = false,
+    val scanning: Boolean = false,
+    val discoveredPeers: List<UltraShareDiscovery.Peer> = emptyList(),
     val progress: UltraShareTransport.Progress? = null,
     val receivedFile: UltraShareTransport.ReceivedFile? = null,
     val status: String? = null,
@@ -95,6 +98,8 @@ class UltraShareViewModel @Inject constructor(
     private val _state = MutableStateFlow(UltraShareUiState())
     val state = _state.asStateFlow()
     private var receiveJob: Job? = null
+    private var advertisementJob: Job? = null
+    private var scanJob: Job? = null
     private var sendJob: Job? = null
 
     fun startReceiving() {
@@ -106,6 +111,17 @@ class UltraShareViewModel @Inject constructor(
             receiving = true,
             status = context.getString(R.string.ultra_share_waiting)
         )
+        advertisementJob = viewModelScope.launch {
+            try {
+                UltraShareDiscovery.advertiseWhileReceiving(context)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _state.value = _state.value.copy(
+                    status = context.getString(R.string.ultra_share_discovery_unavailable)
+                )
+            }
+        }
         receiveJob = viewModelScope.launch {
             try {
                 val received = UltraShareTransport.receiveOnce(
@@ -129,6 +145,8 @@ class UltraShareViewModel @Inject constructor(
                     status = null
                 )
             } finally {
+                advertisementJob?.cancel()
+                advertisementJob = null
                 receiveJob = null
                 _state.value = _state.value.copy(receiving = false)
             }
@@ -136,11 +154,36 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun stopReceiving() {
+        advertisementJob?.cancel()
         receiveJob?.cancel()
         _state.value = _state.value.copy(
             status = context.getString(R.string.ultra_share_stopped),
             progress = null
         )
+    }
+
+    fun scanNearbyDevices() {
+        if (scanJob != null) return
+        _state.value = _state.value.copy(scanning = true, error = null, status = null)
+        scanJob = viewModelScope.launch {
+            try {
+                val peers = UltraShareDiscovery.discoverPeers(context)
+                _state.value = _state.value.copy(
+                    discoveredPeers = peers,
+                    status = if (peers.isEmpty()) context.getString(R.string.ultra_share_no_devices)
+                    else context.getString(R.string.ultra_share_devices_found, peers.size)
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _state.value = _state.value.copy(
+                    error = failure.localizedMessage ?: context.getString(R.string.ultra_share_discovery_unavailable)
+                )
+            } finally {
+                scanJob = null
+                _state.value = _state.value.copy(scanning = false)
+            }
+        }
     }
 
     fun send(uri: Uri, host: String, secret: String) {
@@ -214,6 +257,8 @@ class UltraShareViewModel @Inject constructor(
 
     override fun onCleared() {
         receiveJob?.cancel()
+        advertisementJob?.cancel()
+        scanJob?.cancel()
         sendJob?.cancel()
         super.onCleared()
     }
@@ -376,6 +421,23 @@ fun UltraShareScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Send, contentDescription = null, tint = MalekPlayColors.PurpleBright)
                     Text(stringResource(R.string.ultra_share_send), color = MalekPlayColors.TextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                }
+                OutlinedButton(
+                    onClick = viewModel::scanNearbyDevices,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.sending && !state.receiving && !state.scanning
+                ) {
+                    if (state.scanning) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Filled.Wifi, contentDescription = null)
+                    Text(stringResource(if (state.scanning) R.string.ultra_share_searching else R.string.ultra_share_find_devices), modifier = Modifier.padding(start = 8.dp))
+                }
+                state.discoveredPeers.forEach { peer ->
+                    TextButton(onClick = { host = peer.host }) {
+                        Text(
+                            stringResource(R.string.ultra_share_peer_select, peer.name, peer.host),
+                            color = MalekPlayColors.PurpleBright
+                        )
+                    }
                 }
                 OutlinedTextField(
                     value = host,
