@@ -12,6 +12,9 @@ import java.net.MulticastSocket
 import java.net.URI
 import java.util.Locale
 
+internal fun isSameDiscoveryHost(endpointHost: String?, packetHost: String): Boolean =
+    !endpointHost.isNullOrBlank() && endpointHost.equals(packetHost, ignoreCase = true)
+
 internal fun classifySsdpDevice(st: String, usn: String): NetworkDeviceKind = when {
     st.contains("mediaserver", true) || usn.contains("mediaserver", true) ->
         NetworkDeviceKind.MEDIA_SERVER
@@ -97,7 +100,7 @@ class NetworkDiscoveryClient {
                 // Never trust a LOCATION host that differs from the actual LAN packet sender.
                 val description = locationUri?.takeIf {
                     (it.scheme == "http" || it.scheme == "https") &&
-                        it.host.equals(host, ignoreCase = true)
+                        isSameDiscoveryHost(it.host, host)
                 }?.toString()
                 val identity = host.lowercase(Locale.ROOT)
                 val kind = classifySsdpDevice(st, usn)
