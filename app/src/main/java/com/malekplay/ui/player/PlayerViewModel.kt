@@ -123,6 +123,10 @@ class PlayerViewModel @Inject constructor(
     private val _queueSize = MutableStateFlow(0)
     val queueSize: StateFlow<Int> = _queueSize.asStateFlow()
 
+    /** Current media identity exposed for lightweight UI surfaces such as the mini player. */
+    private val _currentItemId = MutableStateFlow<String?>(null)
+    val currentItemId: StateFlow<String?> = _currentItemId.asStateFlow()
+
     private val _audioTracks = MutableStateFlow<List<TrackDescriptor>>(emptyList())
     val audioTracks: StateFlow<List<TrackDescriptor>> = _audioTracks.asStateFlow()
 
@@ -261,6 +265,7 @@ class PlayerViewModel @Inject constructor(
                 clearSubtitleTranslationSource()
             }
             currentMediaId = nextMediaId
+            _currentItemId.value = nextMediaId
             _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
             _queueSize.value = _controller.value?.mediaItemCount ?: 0
             // Favourite state is already observed as a single StateFlow above;
@@ -305,6 +310,7 @@ class PlayerViewModel @Inject constructor(
         _bufferedMs.value = player.bufferedPosition
         _currentIndex.value = player.currentMediaItemIndex
         _queueSize.value = player.mediaItemCount
+        _currentItemId.value = player.currentMediaItem?.mediaId
     }
 
     /** The UI ticker exists only during active playback, never while paused or idle. */
