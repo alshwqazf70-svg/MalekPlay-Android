@@ -5,6 +5,8 @@ package com.malekplay.ui.network
 import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.Network
 import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -187,6 +189,26 @@ class NetworkViewModel @Inject constructor(
     private val _discoveryMessage = MutableStateFlow<String?>(null)
     val discoveryMessage: StateFlow<String?> = _discoveryMessage.asStateFlow()
 
+    private val connectivityManager =
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val wifiCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            discoverDevices()
+        }
+
+        override fun onLost(network: Network) {
+            val wifiStillAvailable = connectivityManager.allNetworks.any { candidate ->
+                connectivityManager.getNetworkCapabilities(candidate)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            }
+            if (!wifiStillAvailable) {
+                discoveryJob?.cancel()
+                _discoveredDevices.value = emptyList()
+                _discoveryMessage.value = "انقطع اتصال Wi-Fi؛ أعد الاتصال للبحث عن الأجهزة."
+            }
+        }
+    }
+
     fun discoverDevices() {
         if (_discoveryRunning.value) return
         discoveryJob?.cancel()
@@ -210,7 +232,23 @@ class NetworkViewModel @Inject constructor(
     }
 
     init {
+        runCatching {
+            connectivityManager.registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .build(),
+                wifiCallback
+            )
+        }
         reload()
+    }
+
+    override fun onCleared() {
+        runCatching { connectivityManager.unregisterNetworkCallback(wifiCallback) }
+        discoveryJob?.cancel()
+        dlnaBrowseJob?.cancel()
+        browseJob?.cancel()
+        super.onCleared()
     }
 
     fun reload() {
