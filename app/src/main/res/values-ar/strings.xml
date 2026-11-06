@@ -344,4 +344,5 @@
     <string name="ultra_share_notification_channel">نقل ملفات MalekPlay</string>
     <string name="ultra_share_notification_description">إشعار أثناء إرسال أو استقبال الملفات عبر الشبكة المحلية.</string>
     <string name="ultra_share_notification_active">عملية نقل نشطة؛ يمكنك الانتقال مؤقتاً إلى تطبيق آخر.</string>
+    <string name="ultra_share_background_unavailable">تعذر تشغيل إشعار النقل في الخلفية؛ أبقِ التطبيق مفتوحاً أثناء النقل.</string>
 </resources>
