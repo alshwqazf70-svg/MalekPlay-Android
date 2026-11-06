@@ -1,7 +1,8 @@
 # ==========================================
-# 1. Media3 & ExoPlayer (مشغل الفيديو والصوت)
+# 1. Media3 & ExoPlayer
 # ==========================================
--keep class androidx.media3.** { *; }
+# Media3 AARs provide their own consumer rules. Do not keep the entire
+# namespace: that prevents R8 from shrinking unused player/UI classes.
 -dontwarn androidx.media3.**
 
 # ==========================================
@@ -16,10 +17,9 @@
 # ==========================================
 # 3. Google ML Kit (ترجمة الذكاء الاصطناعي الفورية)
 # ==========================================
--keep class com.google.mlkit.** { *; }
--keep interface com.google.mlkit.** { *; }
+# ML Kit / Play Services AARs ship consumer rules for reflective entry points.
+# Keeping every class in these namespaces retains unused SDK implementation.
 -dontwarn com.google.mlkit.**
--keep class com.google.android.gms.** { *; }
 -dontwarn com.google.android.gms.**
 
 # ==========================================
