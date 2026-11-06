@@ -99,6 +99,8 @@ data class UltraShareUiState(
     val queueCompleted: Int = 0,
     val queueTotal: Int = 0,
     val queueCurrentName: String? = null,
+    val queueTotalBytes: Long = 0L,
+    val queueTransferredBytes: Long = 0L,
     val queueEntries: List<UltraShareQueueEntry> = emptyList()
 )
 
@@ -133,7 +135,9 @@ class UltraShareViewModel @Inject constructor(
                     error = serviceState.error,
                     queueCompleted = serviceState.queueCompleted,
                     queueTotal = serviceState.queueTotal,
-                    queueCurrentName = serviceState.queueCurrentName
+                    queueCurrentName = serviceState.queueCurrentName,
+                    queueTotalBytes = serviceState.queueTotalBytes,
+                    queueTransferredBytes = serviceState.queueTransferredBytes
                 )
             }
         }
@@ -539,13 +543,27 @@ fun UltraShareScreen(
                     Icon(Icons.Filled.Send, contentDescription = null)
                     Text(stringResource(R.string.ultra_share_choose_send), modifier = Modifier.padding(start = 8.dp))
                 }
-                if (state.sending && state.queueTotal > 0) {
+                if (state.queueTotal > 0) {
                     Text(
                         "طابور الإرسال: " + state.queueCompleted + " / " + state.queueTotal +
                             (state.queueCurrentName?.let { " • " + it } ?: ""),
                         color = MalekPlayColors.TextSecondary,
                         style = MaterialTheme.typography.labelSmall
                     )
+                    if (state.queueTotalBytes > 0L) {
+                        val overallFraction = (state.queueTransferredBytes.toDouble() / state.queueTotalBytes.toDouble())
+                            .toFloat().coerceIn(0f, 1f)
+                        LinearProgressIndicator(
+                            progress = { overallFraction },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            "الإجمالي: " + formatTransferBytes(state.queueTransferredBytes) +
+                                " / " + formatTransferBytes(state.queueTotalBytes),
+                            color = MalekPlayColors.TextSecondary,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
                 if (state.queueEntries.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
