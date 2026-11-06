@@ -83,6 +83,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -240,6 +241,17 @@ class UltraShareViewModel @Inject constructor(
             ).also { wifiDirectSession = it }
             _state.value = _state.value.copy(scanning = true, error = null, status = "جارٍ البحث عن أجهزة Wi-Fi Direct...")
             session.discover()
+            viewModelScope.launch {
+                delay(15_000)
+                if (_state.value.scanning) {
+                    _state.value = _state.value.copy(
+                        scanning = false,
+                        status = if (_state.value.wifiDirectPeers.isEmpty())
+                            "انتهى البحث عبر Wi-Fi Direct دون العثور على أجهزة."
+                        else _state.value.status
+                    )
+                }
+            }
         } catch (failure: Exception) {
             _state.value = _state.value.copy(
                 scanning = false,
