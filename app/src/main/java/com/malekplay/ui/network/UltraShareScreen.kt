@@ -264,6 +264,17 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
+    fun skipQueuedFile(entry: UltraShareQueueEntry) {
+        if (entry.status != UltraShareQueueStore.STATUS_PENDING) return
+        viewModelScope.launch {
+            UltraShareQueueStore.skip(context, entry.parsedUri)
+        }
+    }
+
+    fun pauseSending() {
+        if (_state.value.sending) UltraShareForegroundService.pause(context)
+    }
+
     fun clearQueue() {
         viewModelScope.launch {
             if (!_state.value.sending) UltraShareQueueStore.clear(context)
@@ -544,6 +555,7 @@ fun UltraShareScreen(
                                 UltraShareQueueStore.STATUS_COMPLETED -> "اكتمل"
                                 UltraShareQueueStore.STATUS_SENDING -> "جارٍ الإرسال"
                                 UltraShareQueueStore.STATUS_FAILED -> "فشل — قابل لإعادة المحاولة"
+                                UltraShareQueueStore.STATUS_SKIPPED -> "تم التخطي"
                                 else -> "بانتظار الإرسال"
                             }
                             Row(
@@ -559,6 +571,12 @@ fun UltraShareScreen(
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f)
                                 )
+                                if (entry.status == UltraShareQueueStore.STATUS_PENDING) {
+                                    TextButton(
+                                        onClick = { viewModel.skipQueuedFile(entry) },
+                                        enabled = true
+                                    ) { Text("تخطّي") }
+                                }
                                 if (entry.status == UltraShareQueueStore.STATUS_FAILED) {
                                     TextButton(
                                         onClick = { viewModel.retryFile(entry, host.trim(), secret.trim()) },
@@ -586,6 +604,9 @@ fun UltraShareScreen(
                     }
                 }
                 if (state.sending) {
+                    OutlinedButton(onClick = viewModel::pauseSending, modifier = Modifier.fillMaxWidth()) {
+                        Text("إيقاف مؤقت للطابور")
+                    }
                     OutlinedButton(onClick = viewModel::cancelSending, modifier = Modifier.fillMaxWidth()) {
                         Text(stringResource(R.string.ultra_share_cancel_send))
                     }
