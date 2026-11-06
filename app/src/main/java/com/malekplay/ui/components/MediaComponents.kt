@@ -211,7 +211,11 @@ fun MediaThumbnail(
     Box(
         modifier = modifier
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF241A32), Color(0xFF17131F), Color(0xFF100E16))
+                )
+            ),
         contentAlignment = Alignment.Center
     ) {
         if (bitmap != null) {
@@ -223,12 +227,26 @@ fun MediaThumbnail(
                 contentScale = if (media.isVideo) contentScale else ContentScale.Fit
             )
         } else {
-            Icon(
-                imageVector = if (media.isVideo) Icons.Filled.Movie else Icons.Filled.MusicNote,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(26.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(62.dp)
+                    .shadow(10.dp, CircleShape, ambientColor = Color(0x55A855F7))
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(Color(0x667E22CE), Color(0x2215101F))
+                        )
+                    )
+                    .border(1.dp, Color(0x66C084FC), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (media.isVideo) Icons.Filled.Movie else Icons.Filled.MusicNote,
+                    contentDescription = null,
+                    tint = Color(0xFFE9D5FF),
+                    modifier = Modifier.size(29.dp)
+                )
+            }
         }
     }
 }
