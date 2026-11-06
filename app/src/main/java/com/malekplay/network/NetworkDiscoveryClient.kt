@@ -44,7 +44,8 @@ enum class NetworkDeviceKind { MEDIA_SERVER, MEDIA_RENDERER, WINDOWS_COMPUTER, N
 
 /**
  * Passive-scope LAN discovery using standard multicast advertisements:
- * SSDP/UPnP for media devices and WS-Discovery for Windows devices.
+ * SSDP/UPnP for media devices, WS-Discovery for Windows, and mDNS/DNS-SD for
+ * common TV, Apple-device and SMB-sharing advertisements.
  *
  * No subnet-wide port scan is performed. Only devices answering the multicast
  * discovery requests are returned.
@@ -69,6 +70,13 @@ class NetworkDiscoveryClient {
                 val found = LinkedHashMap<String, MutableDevice>()
                 discoverSsdp(found)
                 discoverWsDiscovery(found)
+                MdnsDiscoveryClient().discover().forEach { device ->
+                    merge(
+                        found,
+                        device.host.lowercase(Locale.ROOT),
+                        MutableDevice(device.name, device.host, device.kind, device.services.toMutableSet(), null)
+                    )
+                }
                 found.values
                     .filter { it.host.isNotBlank() }
                     .map { it.toPublic() }
