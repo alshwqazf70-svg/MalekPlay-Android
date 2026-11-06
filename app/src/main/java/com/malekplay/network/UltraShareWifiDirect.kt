@@ -123,7 +123,11 @@ object UltraShareWifiDirect {
         private fun requestConnectionInfo() {
             try {
                 manager.requestConnectionInfo(channel) { info ->
-                    if (closed || !info.groupFormed) return@requestConnectionInfo
+                    if (closed) return@requestConnectionInfo
+                    if (!info.groupFormed) {
+                        onError("انقطع اتصال Wi-Fi Direct.")
+                        return@requestConnectionInfo
+                    }
                     if (info.isGroupOwner) {
                         onConnected(null, true)
                     } else {
