@@ -330,4 +330,5 @@
     <string name="ultra_share_scan_qr">Read QR code from image</string>
     <string name="ultra_share_scan_success">Pairing details imported.</string>
     <string name="ultra_share_scan_failed">Could not read pairing details from the image.</string>
+    <string name="ultra_share_scan_camera">Scan QR with camera</string>
 </resources>
