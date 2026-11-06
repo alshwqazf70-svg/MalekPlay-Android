@@ -7,6 +7,9 @@ import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -451,23 +454,38 @@ private fun SourcesList(
     onRemove: (NetworkProfile) -> Unit
 ) {
     if (profiles.isEmpty()) {
+        val emptyShape = RoundedCornerShape(26.dp)
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .padding(20.dp)
+                .clip(emptyShape)
+                .background(Brush.verticalGradient(listOf(Color(0xFF21192D), Color(0xFF17131F), Color(0xFF100E16))))
+                .border(1.dp, Brush.linearGradient(listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))), emptyShape)
+                .padding(28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(
-                imageVector = Icons.Filled.Storage,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(64.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(76.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(MalekPlayColors.PurpleDeep.copy(alpha = 0.28f))
+                    .border(1.dp, MalekPlayColors.NeonPurple.copy(alpha = 0.38f), RoundedCornerShape(24.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Storage,
+                    contentDescription = null,
+                    tint = MalekPlayColors.PurpleSoft,
+                    modifier = Modifier.size(38.dp)
+                )
+            }
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = stringResource(R.string.net_empty),
                 style = MaterialTheme.typography.titleMedium,
+                color = MalekPlayColors.TextPrimary,
                 textAlign = TextAlign.Center
             )
         }
@@ -479,16 +497,21 @@ private fun SourcesList(
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         items(items = profiles, key = { it.id }) { profile ->
+            val rowShape = RoundedCornerShape(18.dp)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .clip(rowShape)
+                    .background(Brush.horizontalGradient(listOf(Color(0xFF241A32), Color(0xFF17131F), Color(0xFF121019))))
+                    .border(1.dp, Brush.linearGradient(listOf(Color(0x77C084FC), Color(0x22FFFFFF), Color(0x557E22CE))), rowShape)
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Filled.Storage,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = MalekPlayColors.PurpleBright,
                     modifier = Modifier.size(36.dp)
                 )
                 Spacer(modifier = Modifier.width(16.dp))
