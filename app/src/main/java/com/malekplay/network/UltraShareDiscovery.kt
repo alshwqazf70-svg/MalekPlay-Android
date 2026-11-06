@@ -32,7 +32,6 @@ object UltraShareDiscovery {
         context: Context,
         transferPort: Int = UltraShareTransport.DEFAULT_PORT
     ) = withContext(Dispatchers.IO) {
-        val appContext = context.applicationContext
         DatagramSocket(null).use { socket ->
             socket.reuseAddress = true
             socket.broadcast = true
