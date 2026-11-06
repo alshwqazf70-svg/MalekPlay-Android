@@ -3,6 +3,7 @@
 package com.malekplay.ui.profile
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +43,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,6 +54,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.malekplay.R
+import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.core.ui.util.formatBytes
 import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.data.repository.UserDataRepository
@@ -95,15 +99,28 @@ fun ProfileScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF191323), MalekPlayColors.Background, Color(0xFF07060C))
+                )
+            )
             .padding(contentPadding)
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         ElevatedCard(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    1.dp,
+                    Brush.linearGradient(
+                        listOf(MalekPlayColors.PurpleBright.copy(alpha = 0.55f), Color.White.copy(alpha = 0.08f), MalekPlayColors.PurpleDeep.copy(alpha = 0.35f))
+                    ),
+                    RoundedCornerShape(22.dp)
+                ),
             colors = CardDefaults.elevatedCardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                containerColor = Color(0xD91B1425)
             ),
             shape = RoundedCornerShape(22.dp)
         ) {
@@ -117,13 +134,13 @@ fun ProfileScreen(
                     modifier = Modifier
                         .size(54.dp)
                         .clip(RoundedCornerShape(17.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+                        .background(MalekPlayColors.NeonPurple.copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Movie,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = MalekPlayColors.PurpleBright,
                         modifier = Modifier.size(30.dp)
                     )
                 }
