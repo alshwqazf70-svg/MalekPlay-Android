@@ -228,9 +228,12 @@ class NetworkDiscoveryClient {
         else {
             existing.services.addAll(device.services)
             if (existing.descriptionUrl == null) existing.descriptionUrl = device.descriptionUrl
+            if ("mDNS/DNS-SD" in device.services && device.name.isNotBlank()) {
+                existing.name = device.name
+            }
             if (existing.kind == NetworkDeviceKind.NETWORK_DEVICE && device.kind != NetworkDeviceKind.NETWORK_DEVICE) {
                 existing.kind = device.kind
-                existing.name = device.name
+                if (existing.name.isBlank() || existing.name == "جهاز UPnP") existing.name = device.name
             }
         }
     }
