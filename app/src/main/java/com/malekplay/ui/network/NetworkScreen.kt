@@ -622,6 +622,7 @@ private fun DiscoveryPanel(
             Column(Modifier.weight(1f)) {
                 Text(stringResource(R.string.net_discovery_title), style = MaterialTheme.typography.titleMedium, color = MalekPlayColors.TextPrimary, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Text(stringResource(R.string.net_discovery_subtitle), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.TextSecondary)
+                Text(stringResource(R.string.net_discovery_privacy), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             OutlinedButton(onClick = onRefresh, enabled = !running, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
                 if (running) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
