@@ -105,6 +105,18 @@ jobs:
       - name: Assemble Google Play Android App Bundle
         run: ./gradlew --stacktrace --max-workers=2 :app:bundleRelease
 
+      - name: Measure optimized release APK and AAB sizes
+        shell: bash
+        run: |
+          {
+            echo "## Optimized Release size measurements"
+            echo 'All values below are exact artifact file sizes in bytes; no ABI or codec is excluded.'
+            echo '```text'
+            find app/build/outputs/apk/release app/build/outputs/bundle/release -type f \
+              \( -name '*.apk' -o -name '*.aab' \) -printf '%p %s bytes\n' | sort
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload release size-analysis outputs
         uses: actions/upload-artifact@v4
         with:
