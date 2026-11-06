@@ -162,7 +162,8 @@ class NetworkDiscoveryClient {
                 val payload = String(packet.data, packet.offset, packet.length, Charsets.UTF_8)
                 runCatching { onPacket(payload, packet.address) }
             } catch (_: java.net.SocketTimeoutException) {
-                break
+                // Keep listening until the full discovery window expires; SSDP MX responses may be delayed.
+                continue
             }
         }
     }
