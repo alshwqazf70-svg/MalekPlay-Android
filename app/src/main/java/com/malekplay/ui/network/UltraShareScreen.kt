@@ -62,6 +62,8 @@ import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareTransport
 import com.malekplay.network.UltraShareQrCode
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.widget.Toast
@@ -300,6 +302,24 @@ fun UltraShareScreen(
             }
         }
     }
+    val scanQrCamera = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val rawPayload = result.contents
+        if (rawPayload != null) {
+            runCatching { UltraShareQrCode.parsePayload(rawPayload) }
+                .onSuccess { pairing ->
+                    host = pairing.host
+                    secret = pairing.pairingSecret
+                    Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
+                }
+                .onFailure {
+                    Toast.makeText(
+                        context,
+                        it.localizedMessage ?: context.getString(R.string.ultra_share_scan_failed),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -391,6 +411,23 @@ fun UltraShareScreen(
                     label = { Text(stringResource(R.string.ultra_share_pairing_code)) },
                     singleLine = true
                 )
+                OutlinedButton(
+                    onClick = {
+                        scanQrCamera.launch(
+                            ScanOptions().apply {
+                                setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                setPrompt(context.getString(R.string.ultra_share_scan_camera))
+                                setBeepEnabled(false)
+                                setOrientationLocked(false)
+                            }
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.sending && !state.receiving
+                ) {
+                    Icon(Icons.Filled.QrCode, contentDescription = null)
+                    Text(stringResource(R.string.ultra_share_scan_camera), modifier = Modifier.padding(start = 8.dp))
+                }
                 OutlinedButton(
                     onClick = { scanQrImage.launch(arrayOf("image/*")) },
                     modifier = Modifier.fillMaxWidth(),
