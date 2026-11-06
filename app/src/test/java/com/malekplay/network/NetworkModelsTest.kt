@@ -9,6 +9,26 @@ import org.junit.Test
 class NetworkModelsTest {
 
     @Test
+    fun dlnaUrlsMustRemainOnTheDiscoveredDeviceHost() {
+        assertEquals(
+            "192.168.1.20",
+            validateDlnaDeviceUrl("http://192.168.1.20:8200/media/movie.mp4", "192.168.1.20").host
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            validateDlnaDeviceUrl("http://192.168.1.99:8200/media/movie.mp4", "192.168.1.20")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validateDlnaDeviceUrl("file:///sdcard/movie.mp4", "192.168.1.20")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validateDlnaDeviceUrl("http://user@192.168.1.20/movie.mp4", "192.168.1.20")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validateDlnaDeviceUrl("http://192.168.1.20/movie.mp4#fragment", "192.168.1.20")
+        }
+    }
+
+    @Test
     fun discoveredServiceEndpointsMustMatchTheRespondingLanHost() {
         assertEquals(true, isSameDiscoveryHost("192.168.1.20", "192.168.1.20"))
         assertEquals(false, isSameDiscoveryHost("203.0.113.8", "192.168.1.20"))
