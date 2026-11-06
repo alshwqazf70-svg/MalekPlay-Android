@@ -336,4 +336,7 @@
     <string name="ultra_share_devices_found">Found %1$d device(s)</string>
     <string name="ultra_share_peer_select">%1$s — %2$s (tap to select)</string>
     <string name="ultra_share_discovery_unavailable">Automatic discovery is unavailable. Enter the IP address or use the QR code.</string>
+    <string name="ultra_share_paste_pairing">Paste pairing link from clipboard</string>
+    <string name="ultra_share_clipboard_empty">The clipboard does not contain a pairing link.</string>
+    <string name="ultra_share_clipboard_invalid">The copied text is not a valid MalekPlay pairing link.</string>
 </resources>
