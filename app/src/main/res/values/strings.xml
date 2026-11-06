@@ -297,4 +297,29 @@
     <string name="subtitle_downloads">downloads</string>
     <string name="subtitle_translate_ar">Translate English subtitle to Arabic (on device)</string>
     <string name="subtitle_translate_ar_loading">Translating subtitle…</string>
+
+    <!-- MalekPlay Ultra Share -->
+    <string name="ultra_share_title">MalekPlay Ultra Share</string>
+    <string name="ultra_share_subtitle">Fast, secure transfers over your local network</string>
+    <string name="ultra_share_receive">Receive files</string>
+    <string name="ultra_share_receive_hint">Start receiving on this phone, then use its address and pairing code on the sending phone.</string>
+    <string name="ultra_share_waiting">Waiting for another device…</string>
+    <string name="ultra_share_receiver_address">This phone's network address</string>
+    <string name="ultra_share_no_address">No local network address found. Connect to Wi-Fi and try again.</string>
+    <string name="ultra_share_pairing_code">Pairing code</string>
+    <string name="ultra_share_code_warning">Share this code only with the person you expect to send you a file.</string>
+    <string name="ultra_share_stop_receiving">Stop receiving</string>
+    <string name="ultra_share_start_receiving">Start receiving files</string>
+    <string name="ultra_share_send">Send files</string>
+    <string name="ultra_share_host">Receiver IP address</string>
+    <string name="ultra_share_choose_send">Choose a file and send</string>
+    <string name="ultra_share_transfer_failed">The transfer could not be completed.</string>
+    <string name="ultra_share_received">Received and verified %1$s</string>
+    <string name="ultra_share_sent">Sent and verified %1$s</string>
+    <string name="ultra_share_stopped">Receiving stopped.</string>
+    <string name="ultra_share_exported">A copy of %1$s was saved to the selected location.</string>
+    <string name="ultra_share_receive_complete">Transfer completed successfully</string>
+    <string name="ultra_share_save_to_device">Save to a folder on this phone</string>
+    <string name="ultra_share_lan_note">The first release uses the same local Wi-Fi network. No internet or cloud server is required. Keep the receiving screen open during transfer. Wi-Fi Direct and QR pairing will be added in later stages.</string>
+
 </resources>
