@@ -69,6 +69,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.malekplay.core.ui.util.stringResourceByName
 import com.malekplay.domain.model.MediaItem
+import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.ui.player.PlayerViewModel
 import com.malekplay.ui.home.HomeScreen
