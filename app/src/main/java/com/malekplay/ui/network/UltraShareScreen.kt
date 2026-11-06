@@ -91,7 +91,7 @@ class UltraShareViewModel @Inject constructor(
     private var sendJob: Job? = null
 
     fun startReceiving() {
-        if (receiveJob?.isActive == true) return
+        if (receiveJob != null) return
         val secret = UltraShareTransport.createPairingSecret()
         _state.value = UltraShareUiState(
             pairingSecret = secret,
@@ -122,6 +122,7 @@ class UltraShareViewModel @Inject constructor(
                     status = null
                 )
             } finally {
+                receiveJob = null
                 _state.value = _state.value.copy(receiving = false)
             }
         }
@@ -129,16 +130,14 @@ class UltraShareViewModel @Inject constructor(
 
     fun stopReceiving() {
         receiveJob?.cancel()
-        receiveJob = null
         _state.value = _state.value.copy(
-            receiving = false,
             status = context.getString(R.string.ultra_share_stopped),
             progress = null
         )
     }
 
     fun send(uri: Uri, host: String, secret: String) {
-        if (sendJob?.isActive == true) return
+        if (sendJob != null) return
         sendJob = viewModelScope.launch {
             _state.value = _state.value.copy(sending = true, error = null, status = null, progress = null)
             try {
@@ -167,6 +166,7 @@ class UltraShareViewModel @Inject constructor(
                     error = failure.localizedMessage ?: context.getString(R.string.ultra_share_transfer_failed)
                 )
             } finally {
+                sendJob = null
                 _state.value = _state.value.copy(sending = false)
             }
         }
@@ -195,9 +195,7 @@ class UltraShareViewModel @Inject constructor(
 
     fun cancelSending() {
         sendJob?.cancel()
-        sendJob = null
         _state.value = _state.value.copy(
-            sending = false,
             progress = null,
             status = context.getString(R.string.ultra_share_send_cancelled)
         )
