@@ -355,24 +355,23 @@ class NetworkRoutingDataSource(
         if (delegate != null || opened || currentUri != null) close()
         transferInitializing(dataSpec)
         currentUri = dataSpec.uri
-        val source = try {
+        val sourceAndSpec = try {
             when (dataSpec.uri.scheme?.lowercase()) {
-                "maleksmb", "maleksftp" -> NetworkMediaDataSource(context, profileStore, credentialVault)
-                "http" -> createLanDlnaDataSource(dataSpec.uri)
-                "https" -> if (dataSpec.uri.host?.let(::isPrivateLanHost) == true) {
-                    createLanDlnaDataSource(dataSpec.uri)
-                } else {
-                    httpFactory.createDataSource()
-                }
-                else -> httpFactory.createDataSource()
+                "maleksmb", "maleksftp" ->
+                    NetworkMediaDataSource(context, profileStore, credentialVault) to dataSpec
+                "malekdlna-http" -> createLanDlnaDataSource(dataSpec, "http")
+                "malekdlna-https" -> createLanDlnaDataSource(dataSpec, "https")
+                else -> httpFactory.createDataSource() to dataSpec
             }
         } catch (error: Throwable) {
             currentUri = null
             throw error
         }
+        val source = sourceAndSpec.first
+        val sourceDataSpec = sourceAndSpec.second
         delegate = source
         return try {
-            val length = source.open(dataSpec)
+            val length = source.open(sourceDataSpec)
             opened = true
             transferStarted(dataSpec)
             length
@@ -389,10 +388,12 @@ class NetworkRoutingDataSource(
      * Bind its HTTP socket to Wi-Fi/Ethernet explicitly; never let a private-LAN
      * media URL escape through a cellular route or an HTTP proxy.
      */
-    private fun createLanDlnaDataSource(uri: Uri): DataSource {
+    private fun createLanDlnaDataSource(dataSpec: DataSpec, transportScheme: String): Pair<DataSource, DataSpec> {
+        val originalUri = dataSpec.uri
+        val uri = originalUri.buildUpon().scheme(transportScheme).build()
         val host = uri.host ?: throw IOException("عنوان خادم DLNA غير صالح")
         if (uri.userInfo != null || !isPrivateLanHost(host)) {
-            throw IOException("يُسمح بتشغيل DLNA عبر HTTP من أجهزة الشبكة المحلية فقط")
+            throw IOException("يُسمح بتشغيل DLNA من أجهزة الشبكة المحلية فقط")
         }
         try {
             validateDlnaDeviceUrl(uri.toString(), host)
@@ -417,7 +418,8 @@ class NetworkRoutingDataSource(
             .connectTimeout(8, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
-        return OkHttpDataSource.Factory(client).createDataSource()
+        val source = OkHttpDataSource.Factory(client).createDataSource()
+        return source to dataSpec.buildUpon().setUri(uri).build()
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
