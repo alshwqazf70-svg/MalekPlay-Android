@@ -334,9 +334,11 @@ class UltraShareForegroundService : Service() {
             var completedBytes = 0L
             var lastError: String? = null
             val queue = uris.distinctBy { it.toString() }
-            val totalBytes = queue.fold(0L) { total, item ->
-                val size = runCatching { readDocumentMetadata(item).third }.getOrDefault(0L)
-                if (Long.MAX_VALUE - total < size) Long.MAX_VALUE else total + size
+            val metadataByUri = queue.mapNotNull { item ->
+                runCatching { item to readDocumentMetadata(item) }.getOrNull()
+            }.toMap()
+            var totalBytes = metadataByUri.values.fold(0L) { total, metadata ->
+                if (Long.MAX_VALUE - total < metadata.third) Long.MAX_VALUE else total + metadata.third
             }
             publish(currentState().copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L))
             try {
@@ -347,13 +349,19 @@ class UltraShareForegroundService : Service() {
                     val storedStatus = UltraShareQueueStore.observe(this@UltraShareForegroundService)
                         .first().firstOrNull { it.uri == uri.toString() }?.status
                     if (storedStatus == UltraShareQueueStore.STATUS_SKIPPED) {
-                        publish(currentState().copy(queueCompleted = index + 1, queueTotal = queue.size))
+                        totalBytes = (totalBytes - (metadataByUri[uri]?.third ?: 0L)).coerceAtLeast(completedBytes)
+                        publish(currentState().copy(
+                            queueCompleted = index + 1,
+                            queueTotal = queue.size,
+                            queueTotalBytes = totalBytes
+                        ))
                         return@forEachIndexed
                     }
                     activeUri = uri
                     val metadata = try {
-                        readDocumentMetadata(uri)
+                        metadataByUri[uri] ?: readDocumentMetadata(uri)
                     } catch (failure: Exception) {
+                        totalBytes = (totalBytes - (metadataByUri[uri]?.third ?: 0L)).coerceAtLeast(completedBytes)
                         failed++
                         lastError = failure.localizedMessage ?: "تعذرت قراءة أحد الملفات."
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_FAILED, error = lastError)
@@ -379,6 +387,7 @@ class UltraShareForegroundService : Service() {
                         throw cancelled
                     } catch (failure: Exception) {
                         failed++
+                        totalBytes = (totalBytes - metadata.third).coerceAtLeast(completedBytes)
                         lastError = metadata.first + ": " + (failure.localizedMessage ?: "فشل الإرسال.")
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
                     }
