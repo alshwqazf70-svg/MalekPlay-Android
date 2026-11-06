@@ -46,7 +46,6 @@ object UltraShareTransport {
     private const val CHALLENGE_BYTES = 32
     private const val NONCE_PREFIX_BYTES = 4
     private const val GCM_TAG_BYTES = 16
-    private const val MAX_FRAME_BYTES = CHUNK_BYTES + GCM_TAG_BYTES
     private const val SOCKET_TIMEOUT_MS = 20_000
 
     data class Progress(
@@ -116,7 +115,7 @@ object UltraShareTransport {
         val safeName = sanitizeFileName(fileName)
         val secret = decodeSecret(pairingSecret)
         val digest = resolver.openInputStream(uri)?.use { stream ->
-            digestStream(stream, sizeBytes, safeName, onProgress, receiving = false, reportProgress = false)
+            digestStream(stream, sizeBytes)
         } ?: error("تعذر فتح الملف المحدد.")
 
         Socket().use { socket ->
@@ -138,7 +137,7 @@ object UltraShareTransport {
             val metadata = ByteArrayOutputStream().use { bytes ->
                 DataOutputStream(bytes).use { data ->
                     data.writeShort(VERSION)
-                    writeUtf8(data, safeName, 512)
+                    writeUtf8(data, safeName, 768)
                     data.writeLong(sizeBytes)
                     writeUtf8(data, mimeType.take(160), 192)
                     data.write(digest)
@@ -235,7 +234,7 @@ object UltraShareTransport {
                 val metadataBytes = readEncryptedFrame(input, receiveKey, noncePrefix, 0L, 1024)
                 val metadata = DataInputStream(ByteArrayInputStream(metadataBytes))
                 require(metadata.readUnsignedShort() == VERSION) { "إصدار بروتوكول النقل غير مدعوم." }
-                val fileName = sanitizeFileName(readUtf8(metadata, 512))
+                val fileName = sanitizeFileName(readUtf8(metadata, 768))
                 val size = metadata.readLong()
                 require(size in 1..MAX_FILE_BYTES) { "حجم الملف المرسل غير مسموح." }
                 val mime = readUtf8(metadata, 192).take(160)
@@ -349,11 +348,7 @@ object UltraShareTransport {
 
     private suspend fun digestStream(
         stream: InputStream,
-        expectedSize: Long,
-        fileName: String,
-        onProgress: (Progress) -> Unit,
-        receiving: Boolean,
-        reportProgress: Boolean
+        expectedSize: Long
     ): ByteArray {
         val digest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(CHUNK_BYTES)
@@ -362,10 +357,10 @@ object UltraShareTransport {
             currentCoroutineContext().ensureActive()
             val count = stream.read(buffer)
             if (count < 0) break
+            if (count == 0) continue
             total += count
             require(total <= expectedSize) { "تغير حجم الملف أثناء قراءة المصدر." }
             digest.update(buffer, 0, count)
-            if (reportProgress) onProgress(Progress(fileName, total, expectedSize, 0L, receiving))
         }
         require(total == expectedSize) { "حجم الملف لا يطابق الحجم المعلن." }
         return digest.digest()
@@ -378,6 +373,7 @@ object UltraShareTransport {
             currentCoroutineContext().ensureActive()
             val count = stream.read(buffer)
             if (count < 0) break
+            if (count == 0) continue
             digest.update(buffer, 0, count)
         }
         return digest.digest()
@@ -468,7 +464,13 @@ object UltraShareTransport {
         while (total < wanted) {
             val count = input.read(buffer, total, wanted - total)
             if (count < 0) break
-            total += count
+            if (count == 0) {
+                val single = input.read()
+                if (single < 0) break
+                buffer[total++] = single.toByte()
+            } else {
+                total += count
+            }
         }
         return total
     }
