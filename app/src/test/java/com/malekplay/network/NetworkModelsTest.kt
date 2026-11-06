@@ -54,6 +54,12 @@ class NetworkModelsTest {
         assertThrows(IllegalArgumentException::class.java) {
             validateDlnaDeviceUrl("http://192.168.1.20/movie.mp4#fragment", "192.168.1.20")
         }
+        assertThrows(IllegalArgumentException::class.java) {
+            validateDlnaDeviceUrl("http://192.168.1.20:70000/movie.mp4", "192.168.1.20")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validateDlnaDeviceUrl("http://8.8.8.8/movie.mp4", "8.8.8.8")
+        }
     }
 
     @Test
