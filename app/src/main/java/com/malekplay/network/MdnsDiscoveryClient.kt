@@ -100,7 +100,7 @@ internal class MdnsDiscoveryClient {
 
     private fun buildPtrQuery(service: String): ByteArray {
         val out = ArrayList<Byte>()
-        fun put(value: Int) { out += value.toByte() }
+        fun put(value: Int) { out.add(value.toByte()) }
         repeat(2) { put(0) }
         put(0); put(0)
         put(0); put(1)
