@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -42,12 +44,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,14 +61,17 @@ import androidx.lifecycle.viewModelScope
 import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareTransport
+import com.malekplay.network.UltraShareQrCode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import android.widget.Toast
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.Inet4Address
@@ -250,10 +258,18 @@ fun UltraShareScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val viewModel: UltraShareViewModel = androidx.hilt.navigation.compose.hiltViewModel()
     val state by viewModel.state.collectAsState()
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
+    val qrPayload = state.localAddresses.firstOrNull()?.takeIf { state.receiving }?.let { address ->
+        UltraShareQrCode.createPayload(address, UltraShareTransport.DEFAULT_PORT, state.pairingSecret)
+    }
+    val qrBitmap = remember(qrPayload) {
+        qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
+    }
 
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.send(uri, host.trim(), secret.trim())
@@ -261,6 +277,30 @@ fun UltraShareScreen(
     val exportFile = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("*/*")
     ) { uri -> if (uri != null) viewModel.exportReceived(uri) }
+    val scanQrImage = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val result = runCatching {
+                    withContext(Dispatchers.IO) {
+                        UltraShareQrCode.parsePayload(
+                            UltraShareQrCode.decodeImage(context.contentResolver, uri)
+                        )
+                    }
+                }
+                result.onSuccess { pairing ->
+                    host = pairing.host
+                    secret = pairing.pairingSecret
+                    Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
+                }.onFailure {
+                    Toast.makeText(
+                        context,
+                        it.localizedMessage ?: context.getString(R.string.ultra_share_scan_failed),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -306,6 +346,20 @@ fun UltraShareScreen(
                     Text(stringResource(R.string.ultra_share_pairing_code), color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelMedium)
                     Text(state.pairingSecret.chunked(4).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
                     Text(stringResource(R.string.ultra_share_code_warning), color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.bodySmall)
+                    qrBitmap?.let { bitmap ->
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = stringResource(R.string.ultra_share_qr_description),
+                            modifier = Modifier
+                                .size(220.dp)
+                                .align(Alignment.CenterHorizontally)
+                        )
+                        Text(
+                            stringResource(R.string.ultra_share_qr_hint),
+                            color = MalekPlayColors.TextSecondary,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
                 Button(
                     onClick = { if (state.receiving) viewModel.stopReceiving() else viewModel.startReceiving() },
@@ -338,6 +392,14 @@ fun UltraShareScreen(
                     label = { Text(stringResource(R.string.ultra_share_pairing_code)) },
                     singleLine = true
                 )
+                OutlinedButton(
+                    onClick = { scanQrImage.launch(arrayOf("image/*")) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.sending && !state.receiving
+                ) {
+                    Icon(Icons.Filled.QrCode, contentDescription = null)
+                    Text(stringResource(R.string.ultra_share_scan_qr), modifier = Modifier.padding(start = 8.dp))
+                }
                 Button(
                     onClick = { pickFile.launch(arrayOf("*/*")) },
                     modifier = Modifier.fillMaxWidth(),
