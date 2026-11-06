@@ -44,8 +44,10 @@ def get_secret(value: str | None) -> bytes:
 def is_lan_ipv4(value: str) -> bool:
     try:
         address = ipaddress.ip_address(value)
-        return isinstance(address, ipaddress.IPv4Address) and (
-            address.is_private or address.is_link_local
+        return (
+            isinstance(address, ipaddress.IPv4Address)
+            and not (address.is_loopback or address.is_multicast or address.is_unspecified)
+            and (address.is_private or address.is_link_local)
         )
     except ValueError:
         return False
