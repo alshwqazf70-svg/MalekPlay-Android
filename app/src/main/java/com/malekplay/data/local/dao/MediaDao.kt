@@ -67,7 +67,7 @@ interface MediaDao {
             val page = getAudioMediaIdsAfter(afterId, RECONCILE_PAGE_SIZE)
             if (page.isEmpty()) break
             afterId = page.last()
-            val staleIds = page.filterNot(keepIds::contains)
+            val staleIds = page.filterNot { it.substringAfterLast('/').toLongOrNull() in keepIds }
             if (staleIds.isNotEmpty()) deleteMediaByIds(staleIds)
         }
     }
