@@ -216,6 +216,9 @@
     <string name="kids_blocked_summary">مجلدات مخفية أثناء وضع الأطفال</string>
 
     <!-- Network -->
+    <string name="net_discovery_title">اكتشاف أجهزة الشبكة</string>
+    <string name="net_discovery_search">بحث</string>
+    <string name="net_discovery_searching">جارٍ البحث</string>
     <string name="net_title">مصادر الشبكة</string>
     <string name="net_add">إضافة مصدر</string>
     <string name="net_protocol">البروتوكول</string>
