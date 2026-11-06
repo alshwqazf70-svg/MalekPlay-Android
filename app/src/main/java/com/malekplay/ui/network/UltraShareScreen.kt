@@ -206,7 +206,12 @@ class UltraShareViewModel @Inject constructor(
 
     private fun findLocalIpv4Addresses(): List<String> = runCatching {
         NetworkInterface.getNetworkInterfaces().toList()
-            .filter { it.isUp && !it.isLoopback }
+            .filter { network ->
+                val name = network.name.lowercase()
+                network.isUp && !network.isLoopback &&
+                    (name.startsWith("wlan") || name.startsWith("swlan") ||
+                        name.startsWith("ap") || name.startsWith("eth"))
+            }
             .flatMap { network -> network.inetAddresses.toList() }
             .filterIsInstance<Inet4Address>()
             .filter { !it.isLoopbackAddress && it.isSiteLocalAddress }
