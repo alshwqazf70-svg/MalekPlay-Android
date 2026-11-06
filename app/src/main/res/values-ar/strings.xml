@@ -303,6 +303,8 @@
     <string name="ultra_share_subtitle">إرسال واستلام سريع وآمن عبر الشبكة المحلية</string>
     <string name="ultra_share_receive">استلام الملفات</string>
     <string name="ultra_share_receive_hint">ابدأ الاستقبال على هذا الهاتف، ثم استخدم عنوانه ورمز الاقتران في الهاتف المرسل.</string>
+    <string name="ultra_share_sending">جارٍ تجهيز الإرسال…</string>
+    <string name="ultra_share_cancel_transfer">إيقاف النقل</string>
     <string name="ultra_share_waiting">بانتظار اتصال جهاز آخر…</string>
     <string name="ultra_share_receiver_address">عنوان IP لهذا الهاتف</string>
     <string name="ultra_share_port">المنفذ: %1$d</string>
