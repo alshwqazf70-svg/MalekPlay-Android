@@ -467,9 +467,10 @@ private fun SettingsSection(
     content: @Composable () -> Unit
 ) {
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        modifier = Modifier.fillMaxWidth().animateContentSize()
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.16f), androidx.compose.foundation.shape.RoundedCornerShape(22.dp)),
         colors = androidx.compose.material3.CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
+            containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f)
         )
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
