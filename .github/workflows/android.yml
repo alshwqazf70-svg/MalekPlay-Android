@@ -16,7 +16,7 @@ on:
         default: false
 
 concurrency:
-  group: malekplay-android-${{ github.ref }}
+  group: malekplay-android-v2-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -154,7 +154,7 @@ jobs:
         run: ./gradlew --stacktrace --max-workers=2 :app:testDebugUnitTest
 
       - name: Run Android lint
-        if: always()
+        if: success()
         run: ./gradlew --stacktrace --max-workers=2 :app:lintDebug
 
       - name: Print Android lint diagnostics
