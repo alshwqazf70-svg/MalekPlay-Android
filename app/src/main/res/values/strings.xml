@@ -325,4 +325,9 @@
 
     <string name="ultra_share_cancel_send">Cancel sending</string>
     <string name="ultra_share_send_cancelled">Sending cancelled. Retry to resume from the completed portion on the receiver.</string>
+    <string name="ultra_share_qr_description">MalekPlay Ultra Share pairing QR code</string>
+    <string name="ultra_share_qr_hint">Scan this code or select a QR image on the sending phone.</string>
+    <string name="ultra_share_scan_qr">Read QR code from image</string>
+    <string name="ultra_share_scan_success">Pairing details imported.</string>
+    <string name="ultra_share_scan_failed">Could not read pairing details from the image.</string>
 </resources>
