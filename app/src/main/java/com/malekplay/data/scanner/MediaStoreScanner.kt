@@ -88,7 +88,7 @@ class MediaStoreScanner(context: Context) {
             add(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
             add(MediaStore.Video.Media.RESOLUTION)
         }.toTypedArray()
-        return query(collection, projection, isVideo = true, onBatch = onBatch) { cursor, columns ->
+        return query(collection, projection, isVideo = true, onBatch = onBatch) { cursor: android.database.Cursor, columns: ColumnIndex ->
             val rawResolution = columns.text(MediaStore.Video.Media.RESOLUTION)
             val (width, height) = parseResolution(rawResolution)
             val id = cursor.getLong(columns[MediaStore.MediaColumns._ID])
@@ -148,7 +148,7 @@ class MediaStoreScanner(context: Context) {
             add(MediaStore.Audio.Media.ALBUM_ID)
             add(MediaStore.Audio.Media.ARTIST_ID)
         }.toTypedArray()
-        return query(collection, projection, isVideo = false, onBatch = onBatch) { cursor, columns ->
+        return query(collection, projection, isVideo = false, onBatch = onBatch) { cursor: android.database.Cursor, columns: ColumnIndex ->
             val id = cursor.getLong(columns[MediaStore.MediaColumns._ID])
             val display = columns.text(MediaStore.MediaColumns.DISPLAY_NAME)
             // Some downloaders write ID3 text using a legacy/invalid charset.
