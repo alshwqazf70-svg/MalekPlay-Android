@@ -339,4 +339,6 @@
     <string name="ultra_share_paste_pairing">لصق رابط الاقتران من الحافظة</string>
     <string name="ultra_share_clipboard_empty">الحافظة لا تحتوي على رابط اقتران.</string>
     <string name="ultra_share_clipboard_invalid">النص المنسوخ ليس رابط اقتران صالحاً لـ MalekPlay.</string>
+    <string name="ultra_share_copy_pairing_link">نسخ رابط الاقتران</string>
+    <string name="ultra_share_pairing_copied">تم نسخ رابط الاقتران. أرسله إلى الجهاز المرسل.</string>
 </resources>
