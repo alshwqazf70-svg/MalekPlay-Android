@@ -155,10 +155,11 @@ object UltraShareTransport {
             val offset = DataInputStream(ByteArrayInputStream(offsetPayload)).use { it.readLong() }
             require(offset in 0..sizeBytes) { "موضع الاستئناف الذي أرسله المستقبل غير صالح." }
 
-            val startedAt = System.nanoTime()
+            var startedAt = System.nanoTime()
             var transferred = offset
             resolver.openInputStream(uri)?.use { source ->
                 skipFully(source, offset)
+                startedAt = System.nanoTime()
                 val buffer = ByteArray(CHUNK_BYTES)
                 var read: Int
                 var sequence = 1L
