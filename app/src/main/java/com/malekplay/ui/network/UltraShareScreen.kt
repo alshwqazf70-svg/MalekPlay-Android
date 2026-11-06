@@ -47,7 +47,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -194,6 +193,16 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
+    fun cancelSending() {
+        sendJob?.cancel()
+        sendJob = null
+        _state.value = _state.value.copy(
+            sending = false,
+            progress = null,
+            status = context.getString(R.string.ultra_share_send_cancelled)
+        )
+    }
+
     fun clearMessages() {
         _state.value = _state.value.copy(error = null, status = null)
     }
@@ -243,7 +252,6 @@ fun UltraShareScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit
 ) {
-    val context = LocalContext.current
     val viewModel: UltraShareViewModel = androidx.hilt.navigation.compose.hiltViewModel()
     val state by viewModel.state.collectAsState()
     var host by remember { mutableStateOf("") }
@@ -333,9 +341,13 @@ fun UltraShareScreen(
                     enabled = !state.sending && !state.receiving &&
                         host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
                 ) {
-                    if (state.sending) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Filled.Send, contentDescription = null)
+                    Icon(Icons.Filled.Send, contentDescription = null)
                     Text(stringResource(R.string.ultra_share_choose_send), modifier = Modifier.padding(start = 8.dp))
+                }
+                if (state.sending) {
+                    OutlinedButton(onClick = viewModel::cancelSending, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.ultra_share_cancel_send))
+                    }
                 }
             }
         }
