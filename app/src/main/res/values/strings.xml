@@ -216,6 +216,9 @@
     <string name="kids_blocked_summary">Folders hidden while kids mode is on</string>
 
     <!-- Network -->
+    <string name="net_discovery_title">Discover network devices</string>
+    <string name="net_discovery_search">Scan</string>
+    <string name="net_discovery_searching">Scanning</string>
     <string name="net_title">Network sources</string>
     <string name="net_add">Add source</string>
     <string name="net_protocol">Protocol</string>
