@@ -66,8 +66,8 @@ object UltraShareQrCode {
         require(dimension in 256..1024) { "أبعاد رمز QR خارج النطاق المسموح." }
         val hints = EnumMap<EncodeHintType, Any>(EncodeHintType::class.java).apply {
             put(EncodeHintType.CHARACTER_SET, "UTF-8")
-            put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.M)
-            put(EncodeHintType.MARGIN, 2)
+            put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.Q)
+            put(EncodeHintType.MARGIN, 4)
         }
         val matrix = QRCodeWriter().encode(
             payload,
