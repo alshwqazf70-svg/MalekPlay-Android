@@ -1,6 +1,7 @@
 package com.malekplay.network
 
 import android.util.Xml
+import android.net.Network
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -66,6 +67,7 @@ class DlnaContentDirectoryClient(
 ) {
     suspend fun browse(
         device: DiscoveredNetworkDevice,
+        network: Network,
         objectId: String = "0",
         startingIndex: Int = 0,
         requestedCount: Int = 100
@@ -76,7 +78,8 @@ class DlnaContentDirectoryClient(
         val descriptionUrl = device.descriptionUrl
             ?: throw IllegalStateException("لم يعلن الجهاز رابط وصف DLNA؛ لا يمكن فتح مكتبته")
         val description = validateDlnaDeviceUrl(descriptionUrl, device.host)
-        val descriptionXml = execute(
+        val networkClient = http.newBuilder().socketFactory(network.socketFactory).build()
+        val descriptionXml = execute(networkClient,
             Request.Builder().url(description.toString()).get().header("Accept", "application/xml,text/xml").build()
         )
         val controlUrl = findContentDirectoryControlUrl(descriptionXml, description, device.host)
@@ -88,11 +91,11 @@ class DlnaContentDirectoryClient(
             .header("SOAPAction", "\"urn:schemas-upnp-org:service:ContentDirectory:1#Browse\"")
             .post(soap.toRequestBody("text/xml; charset=utf-8".toMediaType()))
             .build()
-        parseBrowseResponse(execute(request), device.host)
+        parseBrowseResponse(execute(networkClient, request), device.host)
     }
 
-    private fun execute(request: Request): String {
-        http.newCall(request).execute().use { response ->
+    private fun execute(client: OkHttpClient, request: Request): String {
+        client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IllegalStateException("خادم DLNA أعاد HTTP ${response.code}")
             val body = response.body ?: throw IllegalStateException("استجابة DLNA فارغة")
             if (body.contentLength() > MAX_XML_BYTES) throw IllegalStateException("استجابة DLNA أكبر من الحد المسموح")
