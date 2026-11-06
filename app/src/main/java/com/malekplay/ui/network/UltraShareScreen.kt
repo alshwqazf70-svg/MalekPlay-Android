@@ -411,6 +411,7 @@ fun UltraShareScreen(
                     Text(state.pairingSecret.chunked(4).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
                     Text(stringResource(R.string.ultra_share_code_warning), color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.bodySmall)
                     qrBitmap?.let { bitmap ->
+                        val activeQrPayload = qrPayload ?: return@let
                         Image(
                             bitmap = bitmap.asImageBitmap(),
                             contentDescription = stringResource(R.string.ultra_share_qr_description),
@@ -426,7 +427,7 @@ fun UltraShareScreen(
                         OutlinedButton(
                             onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                clipboard?.setPrimaryClip(ClipData.newPlainText("MalekPlay Ultra Share", qrPayload))
+                                clipboard?.setPrimaryClip(ClipData.newPlainText("MalekPlay Ultra Share", activeQrPayload))
                                 Toast.makeText(context, R.string.ultra_share_pairing_copied, Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.fillMaxWidth()
