@@ -49,5 +49,6 @@ enum class TopLevelDestination(
     MUSIC(Screen.Music, "nav_music"),
     LOCAL(Screen.Local, "nav_local"),
     FAVOURITES(Screen.Favourites, "nav_favourites"),
-    PLAYLISTS(Screen.Playlists, "nav_playlists")
+    PLAYLISTS(Screen.Playlists, "nav_playlists"),
+    ULTRA_SHARE(Screen.UltraShare, "nav_network")
 }
