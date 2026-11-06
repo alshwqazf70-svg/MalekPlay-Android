@@ -35,12 +35,12 @@ class MediaDaoReconciliationTest {
     fun reconcilesLargeVideoAndAudioLibrariesInBoundedPages() = runBlocking {
         val rows = buildList {
             repeat(2_500) { index ->
-                val id = "media-${index.toString().padStart(5, '0')}"
+                val id = "content://media/external/${index + 1}"
                 add(
                     MediaItemEntity(
                         mediaId = id,
                         title = id,
-                        uri = "content://media/$id",
+                        uri = id,
                         mimeType = if (index % 2 == 0) "video/mp4" else "audio/mpeg",
                         sizeBytes = 1_024L,
                         durationMs = 60_000L,
@@ -62,12 +62,12 @@ class MediaDaoReconciliationTest {
         }
         database.mediaDao().upsertMedia(rows)
 
-        val keepVideos = rows.filter { it.isVideo }.take(375).map { it.mediaId }
-        val keepAudio = rows.filterNot { it.isVideo }.take(125).map { it.mediaId }
+        val keepVideos = rows.filter { it.isVideo }.take(375).map { it.mediaId.substringAfterLast('/').toLong() }
+        val keepAudio = rows.filterNot { it.isVideo }.take(125).map { it.mediaId.substringAfterLast('/').toLong() }
         database.mediaDao().reconcileVideos(keepVideos.toSet())
         database.mediaDao().reconcileAudio(keepAudio.toSet())
 
-        val remaining = database.mediaDao().getMediaList(keepVideos + keepAudio)
+        val remaining = database.mediaDao().getMediaList((keepVideos + keepAudio).map { "content://media/external/$it" })
         assertEquals(keepVideos.size + keepAudio.size, remaining.size)
         database.openHelper.writableDatabase.query("SELECT COUNT(*) FROM media_items").use { cursor ->
             assertTrue(cursor.moveToFirst())
