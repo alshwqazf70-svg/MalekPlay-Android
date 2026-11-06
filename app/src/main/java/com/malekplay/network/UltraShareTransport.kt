@@ -347,7 +347,7 @@ object UltraShareTransport {
         error("تعذر إنشاء اسم فريد للملف المستلم.")
     }
 
-    private fun digestStream(
+    private suspend fun digestStream(
         stream: InputStream,
         expectedSize: Long,
         fileName: String,
@@ -359,6 +359,7 @@ object UltraShareTransport {
         val buffer = ByteArray(CHUNK_BYTES)
         var total = 0L
         while (true) {
+            currentCoroutineContext().ensureActive()
             val count = stream.read(buffer)
             if (count < 0) break
             total += count
@@ -370,10 +371,11 @@ object UltraShareTransport {
         return digest.digest()
     }
 
-    private fun digestStreamRaw(stream: InputStream): ByteArray {
+    private suspend fun digestStreamRaw(stream: InputStream): ByteArray {
         val digest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(CHUNK_BYTES)
         while (true) {
+            currentCoroutineContext().ensureActive()
             val count = stream.read(buffer)
             if (count < 0) break
             digest.update(buffer, 0, count)
@@ -448,9 +450,10 @@ object UltraShareTransport {
         return bytes.toString(Charsets.UTF_8)
     }
 
-    private fun skipFully(input: InputStream, count: Long) {
+    private suspend fun skipFully(input: InputStream, count: Long) {
         var remaining = count
         while (remaining > 0L) {
+            currentCoroutineContext().ensureActive()
             val skipped = input.skip(remaining)
             if (skipped > 0L) remaining -= skipped
             else {
