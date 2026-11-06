@@ -23,8 +23,8 @@ private const val SCAN_BATCH_SIZE = 250
 
 /** A scan explicitly records which media types were fully visible to the app. */
 data class MediaScanResult(
-    val videoIds: Set<String>,
-    val audioIds: Set<String>,
+    val videoIds: Set<Long>,
+    val audioIds: Set<Long>,
     val videosComplete: Boolean,
     val audioComplete: Boolean
 )
@@ -71,7 +71,7 @@ class MediaStoreScanner(context: Context) {
 
     // ------------------------------------------------------------------ video
 
-    private suspend fun scanVideos(onBatch: suspend (List<MediaItemEntity>) -> Unit): Set<String> {
+    private suspend fun scanVideos(onBatch: suspend (List<MediaItemEntity>) -> Unit): Set<Long> {
         val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         val projection = buildList {
             add(MediaStore.MediaColumns._ID)
@@ -128,7 +128,7 @@ class MediaStoreScanner(context: Context) {
     private suspend fun scanAudio(
         genres: Map<Long, String>,
         onBatch: suspend (List<MediaItemEntity>) -> Unit
-    ): Set<String> {
+    ): Set<Long> {
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = buildList {
             add(MediaStore.MediaColumns._ID)
@@ -238,9 +238,9 @@ class MediaStoreScanner(context: Context) {
         isVideo: Boolean,
         onBatch: suspend (List<MediaItemEntity>) -> Unit,
         row: (android.database.Cursor, ColumnIndex) -> MediaItemEntity
-    ): Set<String> {
+    ): Set<Long> {
         // Membership checks only; insertion order is never consumed.
-        val seenIds = HashSet<String>()
+        val seenIds = HashSet<Long>()
         val batch = ArrayList<MediaItemEntity>(SCAN_BATCH_SIZE)
         // Match MediaStore's visible-library semantics: ignore zero-byte,
         // pending writes and trashed rows so incomplete files never enter the cache.
@@ -272,7 +272,8 @@ class MediaStoreScanner(context: Context) {
                 // Do not silently skip malformed rows: refresh must never treat a
                 // partial scan as a complete library snapshot and delete valid rows.
                 val item = row(cursor, columns)
-                seenIds += item.mediaId
+                seenIds += item.mediaId.substringAfterLast('/').toLongOrNull()
+                    ?: throw IllegalStateException("Invalid MediaStore id: ${item.mediaId}")
                 batch += item
                 if (batch.size >= SCAN_BATCH_SIZE) {
                     onBatch(batch.toList())
