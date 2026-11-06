@@ -4,6 +4,7 @@ import android.util.Xml
 import android.net.Network
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -73,12 +74,15 @@ class DlnaContentDirectoryClient(
         requestedCount: Int = 100
     ): DlnaDirectoryPage = withContext(Dispatchers.IO) {
         require(device.kind == NetworkDeviceKind.MEDIA_SERVER) { "الجهاز لا يعلن خدمة خادم وسائط DLNA" }
-        require(startingIndex >= 0 && requestedCount in 1..200) { "حدود تصفح DLNA غير صالحة" }
+        require(startingIndex in 0..1_000_000 && requestedCount in 1..200) { "حدود تصفح DLNA غير صالحة" }
         require(objectId.length <= 512 && objectId.none { it.isISOControl() }) { "معرّف مجلد DLNA غير صالح" }
         val descriptionUrl = device.descriptionUrl
             ?: throw IllegalStateException("لم يعلن الجهاز رابط وصف DLNA؛ لا يمكن فتح مكتبته")
         val description = validateDlnaDeviceUrl(descriptionUrl, device.host)
-        val networkClient = http.newBuilder().socketFactory(network.socketFactory).build()
+        val networkClient = http.newBuilder()
+            .socketFactory(network.socketFactory)
+            .connectionPool(ConnectionPool())
+            .build()
         val descriptionXml = execute(networkClient,
             Request.Builder().url(description.toString()).get().header("Accept", "application/xml,text/xml").build()
         )
@@ -120,7 +124,7 @@ class DlnaContentDirectoryClient(
                     controlPath = ""
                 }
                 XmlPullParser.END_TAG -> if (localName(parser.name) == "service" && inService) {
-                    if (serviceType.contains("ContentDirectory", true) && controlPath.isNotBlank()) {
+                    if (serviceType.trim().matches(Regex("urn:schemas-upnp-org:service:ContentDirectory:[0-9]{1,2}")) && controlPath.isNotBlank()) {
                         val resolved = base.resolve(controlPath.trim())
                         return ContentDirectoryEndpoint(validateDlnaDeviceUrl(resolved.toString(), deviceHost), serviceType.trim())
                     }
