@@ -50,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -270,11 +271,18 @@ private fun SongRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
+            .shadow(7.dp, RoundedCornerShape(16.dp), ambientColor = MalekPlayColors.NeonGlow)
             .clip(RoundedCornerShape(16.dp))
-            .background(Color.White.copy(alpha = 0.045f))
+            .background(Brush.linearGradient(listOf(Color(0xFF21192D), Color(0xFF15121C), Color(0xFF111019))))
             .border(
                 1.dp,
-                MalekPlayColors.NeonPurple.copy(alpha = 0.18f),
+                Brush.linearGradient(
+                    listOf(
+                        MalekPlayColors.PurpleBright.copy(alpha = 0.42f),
+                        Color.White.copy(alpha = 0.07f),
+                        MalekPlayColors.PurpleDeep.copy(alpha = 0.30f)
+                    )
+                ),
                 RoundedCornerShape(16.dp)
             )
             .clickable(onClick = onClick)
@@ -287,6 +295,8 @@ private fun SongRow(
             Text(
                 text = item.media.displayTitle,
                 style = MaterialTheme.typography.bodyLarge,
+                color = MalekPlayColors.TextPrimary,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -296,7 +306,14 @@ private fun SongRow(
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MalekPlayColors.TextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = item.media.album?.takeIf { it.isNotBlank() } ?: formatDuration(item.media.durationMs),
+                style = MaterialTheme.typography.labelSmall,
+                color = MalekPlayColors.PurpleBright,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -305,7 +322,7 @@ private fun SongRow(
         Text(
             text = formatDuration(item.media.durationMs),
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MalekPlayColors.TextSecondary
         )
         MediaDeleteButton(media = item.media, onDeleted = onDeleted)
         IconButton(onClick = onToggleFavourite) {
@@ -351,45 +368,69 @@ private fun AlbumsTab(albums: List<AlbumSummary>) {
 
 @Composable
 private fun AlbumCard(album: AlbumSummary) {
+    val shape = RoundedCornerShape(20.dp)
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .shadow(10.dp, shape, ambientColor = MalekPlayColors.NeonGlow)
+            .clip(shape)
             .border(
                 1.dp,
-                MalekPlayColors.NeonPurple.copy(alpha = 0.20f),
-                RoundedCornerShape(20.dp)
+                Brush.linearGradient(
+                    listOf(
+                        MalekPlayColors.PurpleBright.copy(alpha = 0.48f),
+                        Color.White.copy(alpha = 0.08f),
+                        MalekPlayColors.PurpleDeep.copy(alpha = 0.34f)
+                    )
+                ),
+                shape
             ),
+        shape = shape,
         colors = CardDefaults.cardColors(
-            containerColor = Color.White.copy(alpha = 0.055f)
+            containerColor = Color(0xFF17131F)
         )
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Artwork(
-                uri = albumArtUri(album.albumId),
-                mediaUri = album.sampleUri,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+        Column(modifier = Modifier.padding(11.dp)) {
+            Box {
+                Artwork(
+                    uri = albumArtUri(album.albumId),
+                    mediaUri = album.sampleUri,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(Color(0xD9000000))
+                        .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(9.dp))
+                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.music_track_count, album.trackCount),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MalekPlayColors.PurpleSoft,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = album.name,
                 style = MaterialTheme.typography.titleSmall,
+                color = MalekPlayColors.TextPrimary,
+                fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = album.artist,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MalekPlayColors.TextSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = stringResource(R.string.music_track_count, album.trackCount),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
