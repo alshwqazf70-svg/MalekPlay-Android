@@ -59,7 +59,11 @@ class NetworkDiscoveryClient {
         withContext(Dispatchers.IO) {
             val app = context.applicationContext
             val connectivity = app.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val wifiNetwork = connectivity.allNetworks.firstOrNull { candidate ->
+            val activeNetwork = connectivity.activeNetwork
+            val wifiNetwork = activeNetwork?.takeIf { candidate ->
+                connectivity.getNetworkCapabilities(candidate)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            } ?: connectivity.allNetworks.firstOrNull { candidate ->
                 connectivity.getNetworkCapabilities(candidate)
                     ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
             } ?: throw IllegalStateException("اتصل بشبكة Wi-Fi أولاً لاكتشاف الأجهزة المحلية.")
