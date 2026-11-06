@@ -36,4 +36,14 @@ class UltraShareTransportTest {
     fun fileNameSanitizerRejectsBlankNames() {
         UltraShareTransport.sanitizeFileName("...")
     }
+    @Test
+    fun privateLanHostValidationRejectsNonLocalTargets() {
+        assertTrue(UltraShareTransport.isValidPrivateLanHost("192.168.1.25"))
+        assertTrue(UltraShareTransport.isValidPrivateLanHost("10.0.0.8"))
+        assertFalse(UltraShareTransport.isValidPrivateLanHost("127.0.0.1"))
+        assertFalse(UltraShareTransport.isValidPrivateLanHost("8.8.8.8"))
+        assertFalse(UltraShareTransport.isValidPrivateLanHost("example.com"))
+        assertFalse(UltraShareTransport.isValidPrivateLanHost("192.168.1.999"))
+    }
+
 }
