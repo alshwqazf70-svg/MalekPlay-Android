@@ -1,5 +1,11 @@
 package com.malekplay.ui.videos
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
@@ -31,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.malekplay.R
+import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.components.EmptyState
 import com.malekplay.ui.components.MediaGridCard
@@ -69,14 +76,25 @@ fun VideoCategoryScreen(
     }
 
     Scaffold(
+        containerColor = MalekPlayColors.Background,
         topBar = {
             TopAppBar(
-                title = { Text(title, fontWeight = FontWeight.Bold) },
+                title = {
+                    Column {
+                        Text(title, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            text = if (series) "عالم الحلقات والمواسم" else "تجربتك السينمائية",
+                            color = MalekPlayColors.TextMuted,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.cd_back)
+                            contentDescription = stringResource(R.string.cd_back),
+                            tint = MalekPlayColors.PurpleBright
                         )
                     }
                 }
@@ -91,13 +109,32 @@ fun VideoCategoryScreen(
                 modifier = Modifier.fillMaxSize().padding(padding)
             )
         } else {
-            Column(Modifier.fillMaxSize().padding(padding)) {
-                Text(
-                    text = stringResource(R.string.video_category_count, filtered.size),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelLarge
-                )
+            Column(
+                Modifier.fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(MalekPlayColors.BackgroundElevated, MalekPlayColors.Background, Color(0xFF08070C))))
+                    .padding(padding)
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Brush.linearGradient(listOf(Color(0xFF292039), Color(0xFF17131F), Color(0xFF111019))))
+                        .border(1.dp, Brush.linearGradient(listOf(MalekPlayColors.PurpleBright.copy(alpha = 0.55f), Color.White.copy(alpha = 0.08f), MalekPlayColors.PurpleDeep.copy(alpha = 0.35f))), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 16.dp, vertical = 13.dp)
+                ) {
+                    Text(
+                        text = if (series) "مكتبة المسلسلات" else "مكتبة الأفلام",
+                        color = MalekPlayColors.TextPrimary,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = stringResource(R.string.video_category_count, filtered.size),
+                        modifier = Modifier.padding(top = 3.dp),
+                        color = MalekPlayColors.PurpleBright,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 if (!series && unclassifiedCount > 0) {
                     Text(
                         text = stringResource(R.string.video_category_unclassified_notice, unclassifiedCount),
