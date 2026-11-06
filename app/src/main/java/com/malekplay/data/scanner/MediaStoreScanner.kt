@@ -232,7 +232,7 @@ class MediaStoreScanner(context: Context) {
 
     // ----------------------------------------------------------------- shared
 
-    private suspend fun <T> query(
+    private suspend fun query(
         collection: android.net.Uri,
         projection: Array<String>,
         isVideo: Boolean,
