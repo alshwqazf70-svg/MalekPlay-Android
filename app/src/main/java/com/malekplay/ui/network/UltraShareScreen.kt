@@ -222,12 +222,17 @@ class UltraShareViewModel @Inject constructor(
                 },
                 onConnected = { remoteHost, isGroupOwner ->
                     if (isGroupOwner) {
-                        if (UltraShareForegroundService.state.value.receiving) {
+                        val receiving = UltraShareForegroundService.state.value.receiving
+                        if (receiving) {
                             UltraShareForegroundService.refreshLocalAddresses(context)
+                            _state.value = _state.value.copy(
+                                status = "اتصل Wi-Fi Direct بنجاح؛ هذا الهاتف جاهز للاستقبال."
+                            )
+                        } else {
+                            _state.value = _state.value.copy(
+                                status = "أصبح هذا الهاتف مالك مجموعة Wi-Fi Direct. أعد الاتصال مع جعل جهاز الاستقبال هو مالك المجموعة."
+                            )
                         }
-                        _state.value = _state.value.copy(
-                            status = "اتصل Wi-Fi Direct، لكن هذا الهاتف أصبح مالك المجموعة. اجعل جهاز الاستقبال هو مالك المجموعة ثم أعد الاتصال."
-                        )
                     } else if (!remoteHost.isNullOrBlank()) {
                         _state.value = _state.value.copy(
                             wifiDirectHost = remoteHost,
@@ -239,7 +244,12 @@ class UltraShareViewModel @Inject constructor(
                     _state.value = _state.value.copy(scanning = false, error = message)
                 }
             ).also { wifiDirectSession = it }
-            _state.value = _state.value.copy(scanning = true, error = null, status = "جارٍ البحث عن أجهزة Wi-Fi Direct...")
+            _state.value = _state.value.copy(
+                scanning = true,
+                wifiDirectHost = null,
+                error = null,
+                status = "جارٍ البحث عن أجهزة Wi-Fi Direct..."
+            )
             session.discover()
             viewModelScope.launch {
                 delay(15_000)
