@@ -176,4 +176,5 @@ dependencies {
     implementation(libs.sshj)
     implementation(libs.okhttp)
     implementation(libs.zxing.core)
+    implementation(libs.zxing.embedded)
 }
