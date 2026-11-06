@@ -760,13 +760,25 @@ private fun DlnaBrowsePanel(
                             .border(1.dp, Brush.linearGradient(listOf(Color(0x66C084FC), Color(0x18FFFFFF), Color(0x557E22CE))), entryShape)
                             .clickable {
                                 if (entry.isContainer) onNavigate(entry.id)
-                                else entry.mediaUrl?.let(onOpenMedia)
+                                else entry.mediaUrl?.let { mediaUrl ->
+                                    val mediaUri = Uri.parse(mediaUrl)
+                                    val localScheme = if (mediaUri.scheme.equals("https", true)) {
+                                        "malekdlna-https"
+                                    } else {
+                                        "malekdlna-http"
+                                    }
+                                    onOpenMedia(mediaUri.buildUpon().scheme(localScheme).build().toString())
+                                }
                             }
                             .padding(horizontal = 13.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            if (entry.isContainer) Icons.Filled.Folder else Icons.Filled.Movie,
+                            when {
+                                entry.isContainer -> Icons.Filled.Folder
+                                entry.mimeType?.startsWith("audio/", ignoreCase = true) == true -> Icons.Filled.MusicNote
+                                else -> Icons.Filled.Movie
+                            },
                             contentDescription = null,
                             tint = MalekPlayColors.PurpleBright,
                             modifier = Modifier.size(32.dp)
