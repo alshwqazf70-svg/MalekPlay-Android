@@ -221,6 +221,9 @@ class UltraShareViewModel @Inject constructor(
                 },
                 onConnected = { remoteHost, isGroupOwner ->
                     if (isGroupOwner) {
+                        if (UltraShareForegroundService.state.value.receiving) {
+                            UltraShareForegroundService.refreshLocalAddresses(context)
+                        }
                         _state.value = _state.value.copy(
                             status = "اتصل Wi-Fi Direct، لكن هذا الهاتف أصبح مالك المجموعة. اجعل جهاز الاستقبال هو مالك المجموعة ثم أعد الاتصال."
                         )
