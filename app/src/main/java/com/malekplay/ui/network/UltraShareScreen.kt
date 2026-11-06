@@ -273,7 +273,12 @@ fun UltraShareScreen(
     }
 
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) viewModel.send(uri, host.trim(), secret.trim())
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            viewModel.send(uri, host.trim(), secret.trim())
+        }
     }
     val exportFile = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("*/*")
