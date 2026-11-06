@@ -507,14 +507,28 @@ class UltraShareForegroundService : Service() {
             .filter { network ->
                 val name = network.name.lowercase()
                 network.isUp && !network.isLoopback &&
-                    (name.startsWith("wlan") || name.startsWith("swlan") || name.startsWith("ap") || name.startsWith("eth") || name.startsWith("p2p"))
+                    (name.startsWith("wlan") || name.startsWith("swlan") ||
+                        name.startsWith("ap") || name.startsWith("eth") || name.startsWith("p2p"))
             }
-            .flatMap { it.inetAddresses.toList() }
-            .filterIsInstance<Inet4Address>()
-            .filter { !it.isLoopbackAddress && it.isSiteLocalAddress }
-            .mapNotNull { it.hostAddress }
+            .flatMap { network ->
+                network.inetAddresses.toList()
+                    .filterIsInstance<Inet4Address>()
+                    .filter { !it.isLoopbackAddress && (it.isSiteLocalAddress || it.isLinkLocalAddress) }
+                    .map { network.name.lowercase() to it }
+            }
+            .sortedWith(compareBy<Pair<String, Inet4Address>>(
+                { (name, _) ->
+                    when {
+                        name.startsWith("p2p") -> 0
+                        name.startsWith("ap") -> 1
+                        name.startsWith("wlan") || name.startsWith("swlan") -> 2
+                        else -> 3
+                    }
+                },
+                { (_, address) -> address.hostAddress.orEmpty() }
+            ))
+            .mapNotNull { (_, address) -> address.hostAddress }
             .distinct()
-            .sorted()
     }.getOrDefault(emptyList())
 
     @Suppress("DEPRECATION")
