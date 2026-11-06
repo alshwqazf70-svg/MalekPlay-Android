@@ -102,6 +102,8 @@ fun HomeScreen(
     onOpenMusic: (() -> Unit)? = null,
     onOpenFavourites: (() -> Unit)? = null,
     onOpenPlaylists: (() -> Unit)? = null,
+    onOpenNetwork: (() -> Unit)? = null,
+    onOpenUltraShare: (() -> Unit)? = null,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val stats by viewModel.stats.collectAsStateWithLifecycle()
@@ -200,6 +202,25 @@ fun HomeScreen(
                         modifier = Modifier.padding(horizontal = 18.dp)
                     )
                     ActionRail(actions)
+                }
+            }
+
+            if (onOpenNetwork != null && onOpenUltraShare != null) {
+                item(key = "connection-sharing") {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SectionHeading(
+                            title = "الاتصال والمشاركة",
+                            subtitle = "انقل وسائطك واربط MalekPlay بالأجهزة القريبة",
+                            modifier = Modifier.padding(horizontal = 18.dp)
+                        )
+                        ActionRail(
+                            listOf(
+                                HomeAction("إرسال واستلام", Icons.Filled.PlayArrow, onOpenUltraShare),
+                                HomeAction("الاتصال بالكمبيوتر", Icons.Filled.Folder, onOpenNetwork),
+                                HomeAction("البث إلى التلفزيون", Icons.Filled.Tv, onOpenNetwork)
+                            )
+                        )
+                    }
                 }
             }
 
