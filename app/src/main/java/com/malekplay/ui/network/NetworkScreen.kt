@@ -612,9 +612,14 @@ private fun DiscoveryPanel(
                             Text(device.name, style = MaterialTheme.typography.bodyMedium, color = MalekPlayColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(device.host + " • " + (device.services.firstOrNull { it.startsWith("_") } ?: device.services.drop(1).firstOrNull().orEmpty()), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        when (device.kind) {
-                            NetworkDeviceKind.WINDOWS_COMPUTER -> TextButton(onClick = { onUseWindowsDevice(device) }) { Text(stringResource(R.string.net_discovery_configure_smb)) }
-                            NetworkDeviceKind.MEDIA_SERVER -> if (device.services.any { it.contains("_smb._tcp") }) { TextButton(onClick = { onUseWindowsDevice(device) }) { Text(stringResource(R.string.net_discovery_configure_smb)) } } else { TextButton(onClick = { onOpenMediaServer(device) }) { Text(stringResource(R.string.net_discovery_open)) } }
+                        if (device.kind == NetworkDeviceKind.WINDOWS_COMPUTER || device.services.any { it.contains("_smb._tcp") }) {
+                            TextButton(onClick = { onUseWindowsDevice(device) }) {
+                                Text(stringResource(R.string.net_discovery_configure_smb))
+                            }
+                        } else when (device.kind) {
+                            NetworkDeviceKind.MEDIA_SERVER -> TextButton(onClick = { onOpenMediaServer(device) }) {
+                                Text(stringResource(R.string.net_discovery_open))
+                            }
                             else -> Text(stringResource(R.string.net_discovery_detected), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.PurpleSoft)
                         }
                     }
