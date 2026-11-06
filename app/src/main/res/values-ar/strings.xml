@@ -336,4 +336,7 @@
     <string name="ultra_share_devices_found">تم العثور على %1$d جهاز</string>
     <string name="ultra_share_peer_select">%1$s — %2$s (اضغط للاختيار)</string>
     <string name="ultra_share_discovery_unavailable">تعذر اكتشاف الأجهزة تلقائياً؛ يمكنك إدخال عنوان IP أو استخدام رمز QR.</string>
+    <string name="ultra_share_paste_pairing">لصق رابط الاقتران من الحافظة</string>
+    <string name="ultra_share_clipboard_empty">الحافظة لا تحتوي على رابط اقتران.</string>
+    <string name="ultra_share_clipboard_invalid">النص المنسوخ ليس رابط اقتران صالحاً لـ MalekPlay.</string>
 </resources>
