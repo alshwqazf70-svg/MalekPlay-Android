@@ -176,7 +176,7 @@ jobs:
 
   emulator-ui-tests:
     name: Android emulator UI tests
-    if: github.event_name == 'workflow_dispatch' && inputs.run_emulator == true
+    if: (github.event_name == 'workflow_dispatch' && inputs.run_emulator == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[emulator]'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
