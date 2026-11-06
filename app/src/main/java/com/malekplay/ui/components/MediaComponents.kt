@@ -422,7 +422,7 @@ fun MediaGridCard(
         }
         Column(
             modifier = Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(horizontal = 11.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text = item.media.displayTitle,
@@ -432,14 +432,32 @@ fun MediaGridCard(
                 overflow = TextOverflow.Ellipsis,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(formatDuration(item.media.durationMs), style = MaterialTheme.typography.labelSmall, color = Color(0xFFB9B1C8))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Text(
+                    formatDuration(item.media.durationMs),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFC084FC),
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                )
+                Text("•", color = Color(0xFF81788F), style = MaterialTheme.typography.labelSmall)
+                Text(
+                    formatBytes(item.media.sizeBytes),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFB9B1C8),
+                    maxLines = 1
+                )
+                Spacer(Modifier.weight(1f))
                 if (item.isInProgress) {
-                    Spacer(Modifier.width(7.dp))
-                    Text((item.fraction * 100).toInt().toString() + "%",
+                    Text(
+                        (item.fraction * 100).toInt().toString() + "%",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFFC084FC),
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
                 }
             }
         }
