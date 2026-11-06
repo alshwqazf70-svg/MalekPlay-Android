@@ -219,6 +219,10 @@
     <string name="net_discovery_title">اكتشاف أجهزة الشبكة</string>
     <string name="net_discovery_search">بحث</string>
     <string name="net_discovery_searching">جارٍ البحث</string>
+    <string name="net_discovery_detected">مكتشف</string>
+    <string name="net_discovery_configure_smb">إعداد SMB</string>
+    <string name="net_discovery_scanning">نبحث عن خدمات الوسائط وأجهزة Windows على شبكة Wi-Fi الحالية…</string>
+    <string name="net_discovery_subtitle">كمبيوتر • تلفزيون • خادم وسائط</string>
     <string name="net_title">مصادر الشبكة</string>
     <string name="net_add">إضافة مصدر</string>
     <string name="net_protocol">البروتوكول</string>
