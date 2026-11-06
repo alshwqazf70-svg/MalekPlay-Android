@@ -18,6 +18,7 @@ import java.io.InputStream
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -193,8 +194,17 @@ object UltraShareTransport {
         ServerSocket().use { server ->
             server.reuseAddress = true
             server.bind(InetSocketAddress(port), 1)
-            server.soTimeout = SOCKET_TIMEOUT_MS
-            server.accept().use { socket ->
+            server.soTimeout = 1_000
+            var accepted: Socket? = null
+            while (accepted == null) {
+                currentCoroutineContext().ensureActive()
+                try {
+                    accepted = server.accept()
+                } catch (_: SocketTimeoutException) {
+                    // Poll cancellation while keeping the receiver available for the user.
+                }
+            }
+            accepted.use { socket ->
                 socket.soTimeout = SOCKET_TIMEOUT_MS
                 val input = DataInputStream(socket.getInputStream())
                 val output = DataOutputStream(socket.getOutputStream())
@@ -227,6 +237,16 @@ object UltraShareTransport {
                 require(metadata.available() == 0) { "بيانات الملف المرسل غير مكتملة." }
 
                 val partial = File(destinationDirectory, ".$fileName.ultrashare.part")
+                val resumeMarker = File(destinationDirectory, ".$fileName.ultrashare.meta")
+                val expectedMarker = "$size:" + expectedDigest.joinToString("") { "%02x".format(it) }
+                val existingMarker = resumeMarker.takeIf { it.isFile }?.readText(Charsets.UTF_8)
+                if (existingMarker != expectedMarker) {
+                    if (partial.exists()) check(partial.delete()) { "تعذر تنظيف ملف استئناف غير مطابق." }
+                    if (resumeMarker.exists()) check(resumeMarker.delete()) { "تعذر تنظيف بيانات الاستئناف القديمة." }
+                    val markerTemp = File(destinationDirectory, ".$fileName.ultrashare.meta.tmp")
+                    markerTemp.writeText(expectedMarker, Charsets.UTF_8)
+                    check(markerTemp.renameTo(resumeMarker)) { "تعذر حفظ بيانات استئناف النقل." }
+                }
                 if (partial.exists() && partial.length() > size) {
                     check(partial.delete()) { "تعذر تنظيف ملف استئناف قديم." }
                 }
@@ -263,6 +283,10 @@ object UltraShareTransport {
                 val finalFile = if (verified) uniqueDestination(destinationDirectory, fileName) else null
                 if (verified) {
                     check(partial.renameTo(finalFile!!)) { "تم استلام الملف لكن تعذر نقله إلى مجلد الملفات المكتملة." }
+                    if (resumeMarker.exists()) resumeMarker.delete()
+                } else {
+                    partial.delete()
+                    resumeMarker.delete()
                 }
                 val ack = ByteArrayOutputStream().use { bytes ->
                     DataOutputStream(bytes).use { data ->
