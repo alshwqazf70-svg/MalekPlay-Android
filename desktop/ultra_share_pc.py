@@ -1,0 +1,425 @@
+#!/usr/bin/env python3
+"""MalekPlay Ultra Share desktop companion (protocol v1).
+
+Requires Python 3.10+ and: pip install -r requirements.txt
+The pairing secret is used only in memory and is never written to disk.
+"""
+from __future__ import annotations
+
+import argparse
+import getpass
+import hashlib
+import hmac
+import ipaddress
+import mimetypes
+import os
+import secrets
+import socket
+import struct
+import sys
+import threading
+import time
+from pathlib import Path
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+MAGIC = 0x4D505531
+VERSION = 1
+DEFAULT_PORT = 38741
+DISCOVERY_PORT = 38742
+CHUNK_BYTES = 256 * 1024
+MAX_FILE_BYTES = 100 * 1024 * 1024 * 1024
+GCM_TAG_BYTES = 16
+PROBE = b"MPULTRA_DISCOVER|1"
+OFFER_PREFIX = "MPULTRA_OFFER|1|"
+
+
+def get_secret(value: str | None) -> bytes:
+    raw = value or getpass.getpass("Pairing code: ")
+    if len(raw) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in raw):
+        raise ValueError("Pairing code must contain exactly 64 hexadecimal characters.")
+    return bytes.fromhex(raw)
+
+
+def private_ipv4(host: str) -> str:
+    address = ipaddress.ip_address(host)
+    if not isinstance(address, ipaddress.IPv4Address) or not (
+        address.is_private or address.is_link_local
+    ):
+        raise ValueError("Use the receiver's private IPv4 address on the same LAN.")
+    return str(address)
+
+
+def recv_exact(sock: socket.socket, length: int) -> bytes:
+    data = bytearray()
+    while len(data) < length:
+        block = sock.recv(length - len(data))
+        if not block:
+            raise ConnectionError("The other device closed the connection.")
+        data.extend(block)
+    return bytes(data)
+
+
+def derive_key(secret: bytes, challenge: bytes, direction: str) -> bytes:
+    label = f"MalekPlay Ultra Share v1/{direction}".encode("utf-8")
+    return hmac.new(secret, challenge + label, hashlib.sha256).digest()
+
+
+def make_nonce(prefix: bytes, sequence: int) -> bytes:
+    if len(prefix) != 4 or sequence < 0:
+        raise ValueError("Invalid encrypted-frame nonce.")
+    return prefix + struct.pack(">Q", sequence)
+
+
+def write_frame(sock: socket.socket, key: bytes, prefix: bytes,
+                sequence: int, plaintext: bytes) -> None:
+    encrypted = AESGCM(key).encrypt(make_nonce(prefix, sequence), plaintext, None)
+    sock.sendall(struct.pack(">I", len(encrypted)) + encrypted)
+
+
+def read_frame(sock: socket.socket, key: bytes, prefix: bytes,
+               sequence: int, maximum_plain: int) -> bytes:
+    encrypted_size = struct.unpack(">I", recv_exact(sock, 4))[0]
+    if encrypted_size < GCM_TAG_BYTES or encrypted_size > maximum_plain + GCM_TAG_BYTES:
+        raise ValueError("The received encrypted frame has an invalid size.")
+    encrypted = recv_exact(sock, encrypted_size)
+    plaintext = AESGCM(key).decrypt(make_nonce(prefix, sequence), encrypted, None)
+    if len(plaintext) > maximum_plain:
+        raise ValueError("The decrypted frame exceeds the protocol limit.")
+    return plaintext
+
+
+def encode_text(value: str, maximum: int) -> bytes:
+    encoded = value.encode("utf-8")
+    if len(encoded) > maximum:
+        raise ValueError("Text field exceeds the protocol limit.")
+    return struct.pack(">H", len(encoded)) + encoded
+
+
+def read_text(data: bytes, offset: int, maximum: int) -> tuple[str, int]:
+    if offset + 2 > len(data):
+        raise ValueError("Incomplete text field.")
+    length = struct.unpack_from(">H", data, offset)[0]
+    offset += 2
+    if length > maximum or offset + length > len(data):
+        raise ValueError("Invalid text field length.")
+    return data[offset:offset + length].decode("utf-8"), offset + length
+
+
+def safe_name(raw: str) -> str:
+    name = raw.replace("\\", "/").split("/")[-1]
+    name = "".join(
+        ch for ch in name
+        if ord(ch) >= 32 and ch != "\x7f" and ch not in ':*?"<>|'
+    ).strip().strip(".")
+    while len(name.encode("utf-8")) > 180:
+        name = name[:-1]
+    if not name or name in {".", ".."}:
+        raise ValueError("The file name is not valid.")
+    return name
+
+
+def parse_metadata(data: bytes) -> tuple[str, int, str, bytes]:
+    if len(data) < 2 or struct.unpack_from(">H", data, 0)[0] != VERSION:
+        raise ValueError("Unsupported Ultra Share protocol version.")
+    name, offset = read_text(data, 2, 768)
+    if offset + 8 > len(data):
+        raise ValueError("Incomplete file metadata.")
+    size = struct.unpack_from(">q", data, offset)[0]
+    offset += 8
+    mime, offset = read_text(data, offset, 192)
+    if offset + 32 != len(data):
+        raise ValueError("Invalid file digest metadata.")
+    digest = data[offset:offset + 32]
+    if size < 0 or size > MAX_FILE_BYTES:
+        raise ValueError("The file size is outside the supported range.")
+    return safe_name(name), size, mime[:160], digest
+
+
+def unique_destination(directory: Path, filename: str) -> Path:
+    original = directory / filename
+    if not original.exists():
+        return original
+    suffix = Path(filename).suffix
+    stem = filename[:-len(suffix)] if suffix else filename
+    for index in range(1, 10_000):
+        candidate = directory / f"{stem} ({index}){suffix}"
+        if not candidate.exists():
+            return candidate
+    raise OSError("Could not create a unique destination filename.")
+
+
+def send_once(host: str, port: int, secret: bytes, source: Path) -> None:
+    size = source.stat().st_size
+    if size < 0 or size > MAX_FILE_BYTES:
+        raise ValueError("The file size is outside the supported range.")
+    filename = safe_name(source.name)
+    mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    digest = hashlib.sha256()
+    with source.open("rb") as stream:
+        while True:
+            block = stream.read(CHUNK_BYTES)
+            if not block:
+                break
+            digest.update(block)
+    file_digest = digest.digest()
+
+    with socket.create_connection((host, port), timeout=20) as sock:
+        sock.settimeout(20)
+        if struct.unpack(">I", recv_exact(sock, 4))[0] != MAGIC:
+            raise ValueError("The destination is not a MalekPlay Ultra Share receiver.")
+        challenge = recv_exact(sock, 32)
+        proof = hmac.new(secret, challenge, hashlib.sha256).digest()
+        sock.sendall(proof)
+        if recv_exact(sock, 1) != b"\x01":
+            raise PermissionError("The receiver rejected the pairing code.")
+        nonce_prefix = recv_exact(sock, 4)
+        send_key = derive_key(secret, challenge, "client-to-server")
+        receive_key = derive_key(secret, challenge, "server-to-client")
+
+        metadata = (
+            struct.pack(">H", VERSION)
+            + encode_text(filename, 768)
+            + struct.pack(">q", size)
+            + encode_text(mime[:160], 192)
+            + file_digest
+        )
+        write_frame(sock, send_key, nonce_prefix, 0, metadata)
+        offset_data = read_frame(sock, receive_key, nonce_prefix, 0, 64)
+        if len(offset_data) != 8:
+            raise ValueError("The receiver returned an invalid resume offset.")
+        offset = struct.unpack(">q", offset_data)[0]
+        if offset < 0 or offset > size:
+            raise ValueError("The receiver returned an invalid resume offset.")
+
+        transferred = offset
+        sequence = 1
+        started = time.monotonic()
+        with source.open("rb") as stream:
+            stream.seek(offset)
+            while transferred < size:
+                wanted = min(CHUNK_BYTES, size - transferred)
+                block = stream.read(wanted)
+                if not block:
+                    raise OSError("The source file ended before the expected size.")
+                write_frame(sock, send_key, nonce_prefix, sequence, block)
+                sequence += 1
+                transferred += len(block)
+                elapsed = max(time.monotonic() - started, 0.001)
+                rate = (transferred - offset) / elapsed
+                print(
+                    f"\\r{filename}: {transferred * 100 / max(size, 1):5.1f}%  "
+                    f"{transferred:,}/{size:,} bytes  {rate / 1024 / 1024:.2f} MB/s",
+                    end="",
+                    flush=True,
+                )
+            if stream.read(1):
+                raise OSError("The source file changed while it was being sent.")
+        write_frame(sock, send_key, nonce_prefix, sequence, b"")
+        acknowledgement = read_frame(sock, receive_key, nonce_prefix, 1, 1024)
+        if len(acknowledgement) < 3:
+            raise ValueError("The receiver returned an invalid acknowledgement.")
+        accepted = acknowledgement[0] == 1
+        message, end = read_text(acknowledgement, 1, 512)
+        if end != len(acknowledgement):
+            raise ValueError("The receiver returned malformed acknowledgement data.")
+        if not accepted:
+            raise OSError(message or "The receiver could not verify the file.")
+        print(f"\\nSent and verified: {filename}")
+
+
+def send_file(host: str, port: int, secret: bytes, source: Path) -> None:
+    host = private_ipv4(host)
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    for attempt in range(3):
+        try:
+            send_once(host, port, secret, source)
+            return
+        except (TimeoutError, ConnectionError, OSError) as exc:
+            if attempt == 2:
+                raise
+            print(f"\\nConnection interrupted ({exc}); retrying {attempt + 1}/2...")
+            time.sleep(attempt + 1)
+
+
+def receive_one(port: int, secret: bytes, directory: Path) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(("0.0.0.0", port))
+        server.listen(1)
+        server.settimeout(1)
+        print(f"Waiting for a MalekPlay device on TCP port {port}...")
+        while True:
+            try:
+                connection, address = server.accept()
+                break
+            except socket.timeout:
+                continue
+
+    with connection:
+        if not ipaddress.ip_address(address[0]).is_private:
+            raise PermissionError("Rejected a connection outside the private LAN.")
+        connection.settimeout(20)
+        connection.sendall(struct.pack(">I", MAGIC))
+        challenge = secrets.token_bytes(32)
+        connection.sendall(challenge)
+        supplied = recv_exact(connection, 32)
+        authenticated = hmac.compare_digest(
+            supplied, hmac.new(secret, challenge, hashlib.sha256).digest()
+        )
+        connection.sendall(b"\x01" if authenticated else b"\x00")
+        if not authenticated:
+            raise PermissionError("Pairing authentication failed.")
+        nonce_prefix = secrets.token_bytes(4)
+        connection.sendall(nonce_prefix)
+        receive_key = derive_key(secret, challenge, "client-to-server")
+        send_key = derive_key(secret, challenge, "server-to-client")
+
+        metadata = read_frame(connection, receive_key, nonce_prefix, 0, 1024)
+        filename, size, _mime, expected_digest = parse_metadata(metadata)
+        transfer_id = hashlib.sha256(f"{filename}:{size}".encode("utf-8")).hexdigest()[:24]
+        partial = directory / f".ultrashare-{transfer_id}.part"
+        marker = directory / f".ultrashare-{transfer_id}.meta"
+        expected_marker = f"{size}:{expected_digest.hex()}"
+        if not marker.is_file() or marker.read_text("utf-8") != expected_marker:
+            partial.unlink(missing_ok=True)
+            marker.unlink(missing_ok=True)
+            temporary_marker = directory / f".ultrashare-{transfer_id}.meta.tmp"
+            temporary_marker.write_text(expected_marker, encoding="utf-8")
+            temporary_marker.replace(marker)
+        if partial.exists() and partial.stat().st_size > size:
+            partial.unlink()
+        offset = partial.stat().st_size if partial.is_file() else 0
+        write_frame(connection, send_key, nonce_prefix, 0, struct.pack(">q", offset))
+
+        transferred = offset
+        sequence = 1
+        with partial.open("ab") as output:
+            while transferred < size:
+                block = read_frame(connection, receive_key, nonce_prefix, sequence, CHUNK_BYTES)
+                sequence += 1
+                if not block or len(block) > size - transferred:
+                    raise ValueError("Received a data block with an invalid size.")
+                output.write(block)
+                transferred += len(block)
+                print(f"\\rReceiving {filename}: {transferred * 100 / max(size, 1):5.1f}%", end="", flush=True)
+            output.flush()
+            os.fsync(output.fileno())
+            end = read_frame(connection, receive_key, nonce_prefix, sequence, 64)
+            if end:
+                raise ValueError("Invalid end-of-transfer frame.")
+
+        actual_digest = hashlib.sha256(partial.read_bytes()).digest()
+        verified = partial.stat().st_size == size and hmac.compare_digest(expected_digest, actual_digest)
+        message = "File integrity verified." if verified else "File integrity verification failed."
+        final_path: Path | None = None
+        if verified:
+            final_path = unique_destination(directory, filename)
+            partial.replace(final_path)
+            marker.unlink(missing_ok=True)
+        else:
+            partial.unlink(missing_ok=True)
+            marker.unlink(missing_ok=True)
+        acknowledgement = (b"\x01" if verified else b"\x00") + encode_text(message, 512)
+        write_frame(connection, send_key, nonce_prefix, 1, acknowledgement)
+        if not verified:
+            raise OSError(message)
+        print(f"\\nReceived and verified: {final_path}")
+        return final_path
+
+
+def discovery_responder(port: int, transfer_port: int, device_name: str) -> None:
+    response = f"{OFFER_PREFIX}{transfer_port}|{device_name[:64]}".encode("utf-8")
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.bind(("0.0.0.0", port))
+        while True:
+            data, address = sock.recvfrom(512)
+            if data == PROBE and ipaddress.ip_address(address[0]).is_private:
+                sock.sendto(response, address)
+
+
+def discover_devices(timeout: float, port: int) -> list[tuple[str, int, str]]:
+    found: dict[str, tuple[str, int, str]] = {}
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.bind(("0.0.0.0", 0))
+        sock.settimeout(0.5)
+        sock.sendto(PROBE, ("255.255.255.255", port))
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                data, address = sock.recvfrom(512)
+            except socket.timeout:
+                continue
+            if not ipaddress.ip_address(address[0]).is_private:
+                continue
+            try:
+                prefix, version, remote_port, name = data.decode("utf-8").split("|", 3)
+                if prefix == "MPULTRA_OFFER" and version == "1":
+                    number = int(remote_port)
+                    if 1 <= number <= 65535:
+                        found[address[0]] = (address[0], number, name[:64])
+            except (UnicodeDecodeError, ValueError):
+                continue
+    return list(found.values())
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="MalekPlay Ultra Share desktop companion")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    receive = sub.add_parser("receive", help="Receive files from Android or another desktop")
+    receive.add_argument("--secret", help="64-character pairing code (prompted if omitted)")
+    receive.add_argument("--output", type=Path, default=Path("Received"))
+    receive.add_argument("--port", type=int, default=DEFAULT_PORT)
+    receive.add_argument("--discovery-port", type=int, default=DISCOVERY_PORT)
+    receive.add_argument("--name", default=socket.gethostname())
+
+    send = sub.add_parser("send", help="Send a file to an Android or desktop receiver")
+    send.add_argument("--secret", help="64-character pairing code (prompted if omitted)")
+    send.add_argument("--host", required=True, help="Receiver's private IPv4 address")
+    send.add_argument("--file", required=True, type=Path)
+    send.add_argument("--port", type=int, default=DEFAULT_PORT)
+
+    discover = sub.add_parser("discover", help="Find MalekPlay receivers on the local network")
+    discover.add_argument("--timeout", type=float, default=5.0)
+    discover.add_argument("--port", type=int, default=DISCOVERY_PORT)
+
+    args = parser.parse_args()
+    try:
+        if args.command == "discover":
+            for host, port, name in discover_devices(args.timeout, args.port):
+                print(f"{name}: {host}:{port}")
+            return 0
+
+        secret = get_secret(args.secret)
+        if args.command == "send":
+            send_file(args.host, args.port, secret, args.file)
+            return 0
+
+        responder = threading.Thread(
+            target=discovery_responder,
+            args=(args.discovery_port, args.port, args.name),
+            daemon=True,
+        )
+        responder.start()
+        print("Discovery is active. Press Ctrl+C to stop receiving.")
+        while True:
+            try:
+                receive_one(args.port, secret, args.output)
+            except (ConnectionError, OSError, ValueError, PermissionError) as exc:
+                print(f"Transfer rejected or interrupted: {exc}", file=sys.stderr)
+    except KeyboardInterrupt:
+        print("\nStopped.")
+        return 0
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
