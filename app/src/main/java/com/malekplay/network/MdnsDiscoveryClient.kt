@@ -236,6 +236,8 @@ internal class MdnsDiscoveryClient {
             "_airplay._tcp.local",
             "_raop._tcp.local",
             "_companion-link._tcp.local",
+            "_http._tcp.local",
+            "_webdav._tcp.local",
             "_smb._tcp.local"
         )
     }
