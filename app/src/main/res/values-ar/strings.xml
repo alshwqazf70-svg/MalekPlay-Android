@@ -230,6 +230,7 @@
     <string name="net_discovery_scanning">نبحث عن أجهزة UPnP وWindows وmDNS على شبكة Wi-Fi الحالية…</string>
     <string name="net_discovery_subtitle">كمبيوتر • تلفزيون • هواتف وخوادم وسائط</string>
     <string name="net_discovery_privacy">تظهر الأجهزة التي تعلن خدمة مشاركة فقط؛ لا نفتح الملفات الخاصة دون تفعيل المشاركة.</string>
+    <string name="net_smb_share_hint">أدخل اسم المجلد المشترك في Windows (مثل Movies أو Public)، وليس عنوان الكمبيوتر. يجب تفعيل مشاركة الملفات ومنح الحساب صلاحية الوصول.</string>
     <string name="net_title">مصادر الشبكة</string>
     <string name="net_add">إضافة مصدر</string>
     <string name="net_protocol">البروتوكول</string>
