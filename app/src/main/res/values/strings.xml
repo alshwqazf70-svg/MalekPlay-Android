@@ -341,4 +341,7 @@
     <string name="ultra_share_clipboard_invalid">The copied text is not a valid MalekPlay pairing link.</string>
     <string name="ultra_share_copy_pairing_link">Copy pairing link</string>
     <string name="ultra_share_pairing_copied">Pairing link copied. Send it to the sending device.</string>
+    <string name="ultra_share_notification_channel">MalekPlay file transfer</string>
+    <string name="ultra_share_notification_description">Notification while sending or receiving files over the local network.</string>
+    <string name="ultra_share_notification_active">Transfer in progress; you can briefly switch to another app.</string>
 </resources>
