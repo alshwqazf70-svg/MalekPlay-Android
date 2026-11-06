@@ -226,8 +226,8 @@
     <string name="net_dlna_folder">Media folder</string>
     <string name="net_dlna_file">Media file</string>
     <string name="net_discovery_configure_smb">Set up SMB</string>
-    <string name="net_discovery_scanning">Searching for media services and Windows devices on the current Wi-Fi…</string>
-    <string name="net_discovery_subtitle">Computer • TV • Media server</string>
+    <string name="net_discovery_scanning">Searching for UPnP, Windows and mDNS devices on the current Wi-Fi…</string>
+    <string name="net_discovery_subtitle">Computers • TVs • phones and media servers</string>
     <string name="net_title">Network sources</string>
     <string name="net_add">Add source</string>
     <string name="net_protocol">Protocol</string>
