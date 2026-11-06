@@ -75,6 +75,12 @@ object UltraShareTransport {
     fun isValidPairingSecret(value: String): Boolean =
         value.length == SECRET_BYTES * 2 && value.all { it in "0123456789abcdefABCDEF" }
 
+    /** Accepts only literal private/link-local IPv4 endpoints; never resolves hostnames. */
+    fun isValidPrivateLanHost(host: String): Boolean = runCatching {
+        resolvePrivateLanAddress(host)
+        true
+    }.getOrDefault(false)
+
     private fun decodeSecret(value: String): ByteArray {
         require(isValidPairingSecret(value)) { "رمز الاقتران غير صالح." }
         return ByteArray(SECRET_BYTES) { index ->
