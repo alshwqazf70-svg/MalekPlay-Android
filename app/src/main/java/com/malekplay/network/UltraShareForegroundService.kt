@@ -145,7 +145,7 @@ class UltraShareForegroundService : Service() {
                 startForegroundCompat()
                 acquireTransferLocks()
                 publish(UltraShareServiceState(sending = true, status = getString(R.string.ultra_share_sending)))
-                transferJob = serviceScope.launch {
+                val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     try {
                         val metadata = readDocumentMetadata(uri)
                         UltraShareTransport.send(
