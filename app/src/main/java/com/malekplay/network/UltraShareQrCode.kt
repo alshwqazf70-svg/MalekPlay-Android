@@ -88,9 +88,9 @@ object UltraShareQrCode {
 
     fun decodeImage(contentResolver: ContentResolver, imageUri: Uri): String {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        contentResolver.openInputStream(imageUri)?.use {
-            BitmapFactory.decodeStream(it, null, bounds)
-        } ?: error("تعذر فتح صورة رمز QR.")
+        val boundsInput = contentResolver.openInputStream(imageUri)
+            ?: error("تعذر فتح صورة رمز QR.")
+        boundsInput.use { BitmapFactory.decodeStream(it, null, bounds) }
         require(bounds.outWidth > 0 && bounds.outHeight > 0) { "الصورة المحددة غير صالحة." }
 
         var sampleSize = 1
