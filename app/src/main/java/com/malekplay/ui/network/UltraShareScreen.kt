@@ -643,6 +643,16 @@ fun UltraShareScreen(
                         )
                     }
                 }
+                Text(
+                    "فعّل Wi-Fi Direct على الجهازين. يفضّل MalekPlay جعل جهاز الاستقبال مالك مجموعة الاتصال.",
+                    color = MalekPlayColors.TextMuted,
+                    style = MaterialTheme.typography.labelSmall
+                )
+                Text(
+                    "بديل بلا راوتر: فعّل نقطة الاتصال على جهاز الاستقبال، ثم صِل الجهاز الآخر بها وابدأ الاستقبال.",
+                    color = MalekPlayColors.TextMuted,
+                    style = MaterialTheme.typography.labelSmall
+                )
                 OutlinedTextField(
                     value = host,
                     onValueChange = { host = it },
