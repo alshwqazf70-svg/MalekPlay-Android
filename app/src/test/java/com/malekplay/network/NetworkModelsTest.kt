@@ -9,6 +9,13 @@ import org.junit.Test
 class NetworkModelsTest {
 
     @Test
+    fun discoveredServiceEndpointsMustMatchTheRespondingLanHost() {
+        assertEquals(true, isSameDiscoveryHost("192.168.1.20", "192.168.1.20"))
+        assertEquals(false, isSameDiscoveryHost("203.0.113.8", "192.168.1.20"))
+        assertEquals(false, isSameDiscoveryHost(null, "192.168.1.20"))
+    }
+
+    @Test
     fun classifiesUpnpMediaServersAndRenderersFromAdvertisedServiceTypes() {
         assertEquals(
             NetworkDeviceKind.MEDIA_SERVER,
