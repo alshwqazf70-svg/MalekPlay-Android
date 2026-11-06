@@ -83,14 +83,19 @@ object UltraShareTransport {
     }
 
     fun sanitizeFileName(raw: String): String {
-        val cleaned = raw
+        var cleaned = raw
             .replace('\\', '/')
             .substringAfterLast('/')
             .filter { it >= ' ' && it != '\u007f' && it != ':' && it != '*' &&
                 it != '?' && it != '"' && it != '<' && it != '>' && it != '|' }
             .trim()
             .trim('.')
-            .take(180)
+        while (cleaned.toByteArray(Charsets.UTF_8).size > 180) {
+            cleaned = cleaned.dropLast(1)
+            if (cleaned.isNotEmpty() && Character.isHighSurrogate(cleaned.last())) {
+                cleaned = cleaned.dropLast(1)
+            }
+        }
         require(cleaned.isNotBlank() && cleaned != "." && cleaned != "..") {
             "اسم الملف غير صالح."
         }
@@ -241,14 +246,18 @@ object UltraShareTransport {
                 val expectedDigest = ByteArray(32).also(metadata::readFully)
                 require(metadata.available() == 0) { "بيانات الملف المرسل غير مكتملة." }
 
-                val partial = File(destinationDirectory, ".$fileName.ultrashare.part")
-                val resumeMarker = File(destinationDirectory, ".$fileName.ultrashare.meta")
+                val transferId = MessageDigest.getInstance("SHA-256")
+                    .digest("$fileName:$size".toByteArray(Charsets.UTF_8))
+                    .take(12)
+                    .joinToString("") { "%02x".format(it) }
+                val partial = File(destinationDirectory, ".ultrashare-$transferId.part")
+                val resumeMarker = File(destinationDirectory, ".ultrashare-$transferId.meta")
                 val expectedMarker = "$size:" + expectedDigest.joinToString("") { "%02x".format(it) }
                 val existingMarker = resumeMarker.takeIf { it.isFile }?.readText(Charsets.UTF_8)
                 if (existingMarker != expectedMarker) {
                     if (partial.exists()) check(partial.delete()) { "تعذر تنظيف ملف استئناف غير مطابق." }
                     if (resumeMarker.exists()) check(resumeMarker.delete()) { "تعذر تنظيف بيانات الاستئناف القديمة." }
-                    val markerTemp = File(destinationDirectory, ".$fileName.ultrashare.meta.tmp")
+                    val markerTemp = File(destinationDirectory, ".ultrashare-$transferId.meta.tmp")
                     markerTemp.writeText(expectedMarker, Charsets.UTF_8)
                     check(markerTemp.renameTo(resumeMarker)) { "تعذر حفظ بيانات استئناف النقل." }
                 }
