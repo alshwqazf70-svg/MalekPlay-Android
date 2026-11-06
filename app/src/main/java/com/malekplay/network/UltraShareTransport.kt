@@ -204,7 +204,8 @@ object UltraShareTransport {
                     // Poll cancellation while keeping the receiver available for the user.
                 }
             }
-            accepted.use { socket ->
+            val clientSocket = requireNotNull(accepted)
+            clientSocket.use { socket ->
                 socket.soTimeout = SOCKET_TIMEOUT_MS
                 val input = DataInputStream(socket.getInputStream())
                 val output = DataOutputStream(socket.getOutputStream())
