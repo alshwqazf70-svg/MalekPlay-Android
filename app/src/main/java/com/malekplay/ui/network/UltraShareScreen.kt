@@ -295,8 +295,13 @@ fun UltraShareScreen(
                         Text(stringResource(R.string.ultra_share_no_address), color = MaterialTheme.colorScheme.error)
                     } else {
                         state.localAddresses.forEach { address ->
-                            Text("$address:${UltraShareTransport.DEFAULT_PORT}", color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+                            Text(address, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
                         }
+                        Text(
+                            stringResource(R.string.ultra_share_port, UltraShareTransport.DEFAULT_PORT),
+                            color = MalekPlayColors.TextSecondary,
+                            style = MaterialTheme.typography.labelSmall
+                        )
                     }
                     Text(stringResource(R.string.ultra_share_pairing_code), color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelMedium)
                     Text(state.pairingSecret.chunked(4).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
