@@ -155,7 +155,11 @@ class UltraShareViewModel @Inject constructor(
                 advertisementJob = null
                 receiveJob = null
                 stopTransferService()
-                _state.value = _state.value.copy(receiving = false)
+                _state.value = _state.value.copy(
+                    receiving = false,
+                    pairingSecret = "",
+                    localAddresses = emptyList()
+                )
             }
         }
     }
