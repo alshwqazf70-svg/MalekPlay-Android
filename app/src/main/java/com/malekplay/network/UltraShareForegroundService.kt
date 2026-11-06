@@ -223,6 +223,7 @@ class UltraShareForegroundService : Service() {
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
                 if (uri == null) {
                     publish(currentState().copy(error = getString(R.string.ultra_share_transfer_failed)))
+                    finishService()
                 } else {
                     startSendingQueue(listOf(uri), host, secret, replaceQueue = false)
                 }
@@ -367,7 +368,12 @@ class UltraShareForegroundService : Service() {
                         lastError = failure.localizedMessage ?: "تعذرت قراءة أحد الملفات."
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_FAILED, error = lastError)
                         activeUri = null
-                        publish(currentState().copy(queueCompleted = index + 1, queueTotal = queue.size))
+                        publish(currentState().copy(
+                            queueCompleted = index + 1,
+                            queueTotal = queue.size,
+                            queueTotalBytes = totalBytes,
+                            queueTransferredBytes = completedBytes
+                        ))
                         return@forEachIndexed
                     }
                     UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_SENDING)
