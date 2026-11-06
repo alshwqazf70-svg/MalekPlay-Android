@@ -29,7 +29,7 @@
     <uses-feature android:name="android.software.picture_in_picture" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
-    <!-- Cleartext HTTP is needed by legacy LAN DLNA servers; the DLNA client restricts requests to the discovered private host and blocks redirects. -->
+    <!-- Legacy DLNA may use HTTP. App code permits it only through dedicated DLNA routes after private-host validation, LAN socket binding and redirect blocking; ordinary HTTP media URLs are rejected. -->
     <application
         android:name=".MalekPlayApplication"
         android:allowBackup="true"
