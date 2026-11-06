@@ -40,7 +40,9 @@ internal fun isPrivateLanHost(host: String): Boolean = runCatching {
 
 internal fun validateDlnaDeviceUrl(raw: String, deviceHost: String): URI {
     require(isPrivateLanHost(deviceHost)) { "يُسمح بتصفح DLNA على عناوين الشبكة المحلية فقط" }
+    require(raw.length <= 4096) { "رابط DLNA طويل جداً" }
     val uri = URI(raw).normalize()
+    require(uri.port == -1 || uri.port in 1..65535) { "منفذ DLNA غير صالح" }
     require(uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) {
         "خادم DLNA أعلن رابطاً غير آمن"
     }
