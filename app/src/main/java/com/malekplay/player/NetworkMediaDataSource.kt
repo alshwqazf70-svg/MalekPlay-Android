@@ -2,6 +2,15 @@ package com.malekplay.player
 
 import android.content.Context
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import com.malekplay.network.isPrivateLanHost
+import com.malekplay.network.validateDlnaDeviceUrl
+import okhttp3.OkHttpClient
+import java.net.Proxy
+import java.util.concurrent.TimeUnit
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
@@ -349,6 +358,7 @@ class NetworkRoutingDataSource(
         currentUri = dataSpec.uri
         val source = when (dataSpec.uri.scheme?.lowercase()) {
             "maleksmb", "maleksftp" -> NetworkMediaDataSource(context, profileStore, credentialVault)
+            "http" -> createLanDlnaDataSource(dataSpec.uri)
             else -> httpFactory.createDataSource()
         }
         delegate = source
@@ -363,6 +373,42 @@ class NetworkRoutingDataSource(
             currentUri = null
             throw error
         }
+    }
+
+    /**
+     * DLNA media is served by a discovered device on the local network.
+     * Bind its HTTP socket to Wi-Fi/Ethernet explicitly; never let a private-LAN
+     * media URL escape through a cellular route or an HTTP proxy.
+     */
+    private fun createLanDlnaDataSource(uri: Uri): DataSource {
+        val host = uri.host ?: throw IOException("عنوان خادم DLNA غير صالح")
+        if (uri.userInfo != null || !isPrivateLanHost(host)) {
+            throw IOException("يُسمح بتشغيل DLNA عبر HTTP من أجهزة الشبكة المحلية فقط")
+        }
+        try {
+            validateDlnaDeviceUrl(uri.toString(), host)
+        } catch (error: Exception) {
+            throw IOException("رابط وسائط DLNA غير موثوق", error)
+        }
+
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: throw IOException("خدمة اتصال الشبكة غير متاحة")
+        val lanNetwork = connectivity.allNetworks.firstOrNull { network ->
+            val capabilities = connectivity.getNetworkCapabilities(network) ?: return@firstOrNull false
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+        } ?: throw IOException("اتصل بشبكة Wi-Fi أو Ethernet نفسها التي يوجد عليها خادم DLNA")
+
+        val client = OkHttpClient.Builder()
+            .socketFactory(lanNetwork.socketFactory)
+            .proxy(Proxy.NO_PROXY)
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+        return OkHttpDataSource.Factory(client).createDataSource()
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
