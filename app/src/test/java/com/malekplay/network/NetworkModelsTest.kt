@@ -80,6 +80,10 @@ class NetworkModelsTest {
             classifySsdpDevice("urn:schemas-upnp-org:device:MediaRenderer:1", "")
         )
         assertEquals(
+            NetworkDeviceKind.MEDIA_SERVER,
+            classifySsdpDevice("urn:schemas-upnp-org:service:ContentDirectory:1", "")
+        )
+        assertEquals(
             NetworkDeviceKind.NETWORK_DEVICE,
             classifySsdpDevice("upnp:rootdevice", "uuid:device-123")
         )
