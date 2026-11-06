@@ -165,7 +165,7 @@ object UltraShareTransport {
                     check(read > 0) { "انتهى الملف قبل اكتمال نقله." }
                     writeEncryptedFrame(output, sendKey, noncePrefix, sequence++, buffer.copyOf(read))
                     transferred += read
-                    onProgress(progress(safeName, transferred, sizeBytes, startedAt, false))
+                    onProgress(progress(safeName, transferred, sizeBytes, startedAt, false, offset))
                 }
                 check(source.read() == -1) { "تغير حجم الملف أثناء الإرسال؛ أعد المحاولة." }
                 writeEncryptedFrame(output, sendKey, noncePrefix, sequence, ByteArray(0))
@@ -177,7 +177,7 @@ object UltraShareTransport {
                 val message = readUtf8(data, 512)
                 check(accepted) { message.ifBlank { "تعذر التحقق من الملف على الجهاز المستقبل." } }
             }
-            onProgress(progress(safeName, sizeBytes, sizeBytes, startedAt, false))
+            onProgress(progress(safeName, sizeBytes, sizeBytes, startedAt, false, offset))
         }
     }
 
@@ -202,15 +202,14 @@ object UltraShareTransport {
             while (accepted == null) {
                 currentCoroutineContext().ensureActive()
                 try {
-                    accepted = server.accept()
+                    val candidate = server.accept()
+                    if (isPrivateLanAddress(candidate.inetAddress)) accepted = candidate
+                    else candidate.close()
                 } catch (_: SocketTimeoutException) {
                     // Poll cancellation while keeping the receiver available for the user.
                 }
             }
             val clientSocket = requireNotNull(accepted)
-            require(isPrivateLanAddress(clientSocket.inetAddress)) {
-                "تم رفض اتصال وارد من خارج نطاق الشبكة المحلية."
-            }
             clientSocket.use { socket ->
                 socket.soTimeout = SOCKET_TIMEOUT_MS
                 val input = DataInputStream(socket.getInputStream())
@@ -276,7 +275,7 @@ object UltraShareTransport {
                         }
                         fileOutput.write(chunk)
                         transferred += chunk.size
-                        onProgress(progress(fileName, transferred, size, startedAt, true))
+                        onProgress(progress(fileName, transferred, size, startedAt, true, offset))
                     }
                     fileOutput.fd.sync()
                     val end = readEncryptedFrame(input, receiveKey, noncePrefix, sequence, 64)
@@ -286,7 +285,7 @@ object UltraShareTransport {
                 val actualDigest = FileInputStream(partial).use { digestStreamRaw(it) }
                 val verified = MessageDigest.isEqual(expectedDigest, actualDigest) &&
                     partial.length() == size
-                val resultMessage = if (verified) "تم التحقق من سلامة الملف." else "فشل التحقق من سلامة الملف؛ احتفظنا بالجزء لاستكمال المحاولة."
+                val resultMessage = if (verified) "تم التحقق من سلامة الملف." else "فشل التحقق من سلامة الملف؛ أُزيلت النسخة غير المطابقة ويمكن إعادة الإرسال."
                 val finalFile = if (verified) uniqueDestination(destinationDirectory, fileName) else null
                 if (verified) {
                     check(partial.renameTo(finalFile!!)) { "تم استلام الملف لكن تعذر نقله إلى مجلد الملفات المكتملة." }
@@ -304,7 +303,7 @@ object UltraShareTransport {
                 }
                 writeEncryptedFrame(output, sendKey, noncePrefix, 1L, ack)
                 check(verified) { resultMessage }
-                onProgress(progress(fileName, size, size, startedAt, true))
+                onProgress(progress(fileName, size, size, startedAt, true, offset))
                 ReceivedFile(requireNotNull(finalFile), fileName, size, mime)
             }
         }
@@ -476,10 +475,13 @@ object UltraShareTransport {
         transferred: Long,
         total: Long,
         startedAtNanos: Long,
-        receiving: Boolean
+        receiving: Boolean,
+        initialBytes: Long = 0L
     ): Progress {
         val elapsed = (System.nanoTime() - startedAtNanos).coerceAtLeast(1L)
-        val rate = ((transferred * 1_000_000_000L) / elapsed).coerceAtLeast(0L)
+        val newlyTransferred = (transferred - initialBytes).coerceAtLeast(0L)
+        val rate = ((newlyTransferred.toDouble() * 1_000_000_000.0) / elapsed.toDouble())
+            .coerceAtMost(Long.MAX_VALUE.toDouble()).toLong().coerceAtLeast(0L)
         return Progress(fileName, transferred, total, rate, receiving)
     }
 }
