@@ -230,6 +230,7 @@
     <string name="net_discovery_scanning">Searching for UPnP, Windows and mDNS devices on the current Wi-Fi…</string>
     <string name="net_discovery_subtitle">Computers • TVs • phones and media servers</string>
     <string name="net_discovery_privacy">Only devices advertising a sharing service appear; private files are never opened without sharing being enabled.</string>
+    <string name="net_smb_share_hint">Enter the Windows shared-folder name (for example Movies or Public), not the computer name. File sharing must be enabled and your account must have access.</string>
     <string name="net_title">Network sources</string>
     <string name="net_add">Add source</string>
     <string name="net_protocol">Protocol</string>
