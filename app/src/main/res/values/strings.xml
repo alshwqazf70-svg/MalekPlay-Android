@@ -322,4 +322,6 @@
     <string name="ultra_share_save_to_device">Save to a folder on this phone</string>
     <string name="ultra_share_lan_note">The first release uses the same local Wi-Fi network. No internet or cloud server is required. Keep the receiving screen open during transfer. Wi-Fi Direct and QR pairing will be added in later stages.</string>
 
+    <string name="ultra_share_cancel_send">Cancel sending</string>
+    <string name="ultra_share_send_cancelled">Sending cancelled. Retry to resume from the completed portion on the receiver.</string>
 </resources>
