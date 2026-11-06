@@ -330,4 +330,10 @@
     <string name="ultra_share_scan_qr">Read QR code from image</string>
     <string name="ultra_share_scan_success">Pairing details imported.</string>
     <string name="ultra_share_scan_failed">Could not read pairing details from the image.</string>
+    <string name="ultra_share_find_devices">Find nearby devices</string>
+    <string name="ultra_share_searching">Searching for devices…</string>
+    <string name="ultra_share_no_devices">No MalekPlay receivers found. Make sure the other device is on the same network and receiving is started.</string>
+    <string name="ultra_share_devices_found">Found %1$d device(s)</string>
+    <string name="ultra_share_peer_select">%1$s — %2$s (tap to select)</string>
+    <string name="ultra_share_discovery_unavailable">Automatic discovery is unavailable. Enter the IP address or use the QR code.</string>
 </resources>
