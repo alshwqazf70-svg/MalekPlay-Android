@@ -303,6 +303,8 @@
     <string name="ultra_share_subtitle">Fast, secure transfers over your local network</string>
     <string name="ultra_share_receive">Receive files</string>
     <string name="ultra_share_receive_hint">Start receiving on this phone, then use its address and pairing code on the sending phone.</string>
+    <string name="ultra_share_sending">Preparing transfer…</string>
+    <string name="ultra_share_cancel_transfer">Stop transfer</string>
     <string name="ultra_share_waiting">Waiting for another device…</string>
     <string name="ultra_share_receiver_address">This phone's IP address</string>
     <string name="ultra_share_port">Port: %1$d</string>
