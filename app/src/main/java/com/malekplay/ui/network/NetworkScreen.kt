@@ -520,19 +520,19 @@ private fun DiscoveryPanel(
             Icon(Icons.Filled.Storage, contentDescription = null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(26.dp))
             Spacer(Modifier.width(9.dp))
             Column(Modifier.weight(1f)) {
-                Text("اكتشاف أجهزة الشبكة", style = MaterialTheme.typography.titleMedium, color = MalekPlayColors.TextPrimary, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                Text("كمبيوتر • تلفزيون • خادم وسائط", style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.TextSecondary)
+                Text(stringResource(R.string.net_discovery_title), style = MaterialTheme.typography.titleMedium, color = MalekPlayColors.TextPrimary, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Text(stringResource(R.string.net_discovery_subtitle), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.TextSecondary)
             }
             OutlinedButton(onClick = onRefresh, enabled = !running, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
                 if (running) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                 else Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(17.dp))
                 Spacer(Modifier.width(5.dp))
-                Text(if (running) "جارٍ البحث" else "بحث")
+                Text(stringResource(if (running) R.string.net_discovery_searching else R.string.net_discovery_search))
             }
         }
         if (running) {
             androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
-            Text("نبحث عن خدمات UPnP وWindows على شبكة Wi-Fi الحالية…", style = MaterialTheme.typography.bodySmall, color = MalekPlayColors.TextSecondary)
+            Text(stringResource(R.string.net_discovery_scanning), style = MaterialTheme.typography.bodySmall, color = MalekPlayColors.TextSecondary)
         }
         message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MalekPlayColors.TextSecondary) }
         if (devices.isNotEmpty()) {
@@ -557,9 +557,9 @@ private fun DiscoveryPanel(
                             Text(device.host + " • " + device.services.firstOrNull().orEmpty(), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         if (device.kind == NetworkDeviceKind.WINDOWS_COMPUTER) {
-                            TextButton(onClick = { onUseWindowsDevice(device) }) { Text("إعداد SMB") }
+                            TextButton(onClick = { onUseWindowsDevice(device) }) { Text(stringResource(R.string.net_discovery_configure_smb)) }
                         } else {
-                            Text("مكتشف", style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.PurpleSoft)
+                            Text(stringResource(R.string.net_discovery_detected), style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.PurpleSoft)
                         }
                     }
                 }
