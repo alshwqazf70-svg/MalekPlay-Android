@@ -306,7 +306,7 @@
     <string name="ultra_share_sending">Preparing transfer…</string>
     <string name="ultra_share_cancel_transfer">Stop transfer</string>
     <string name="ultra_share_waiting">Waiting for another device…</string>
-    <string name="ultra_share_receiver_address">This phone\'s IP address</string>
+    <string name="ultra_share_receiver_address">"This phone's IP address"</string>
     <string name="ultra_share_port">Port: %1$d</string>
     <string name="ultra_share_no_address">No local network address found. Connect to Wi-Fi and try again.</string>
     <string name="ultra_share_pairing_code">Pairing code</string>
