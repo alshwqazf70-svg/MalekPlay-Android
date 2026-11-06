@@ -325,4 +325,9 @@
 
     <string name="ultra_share_cancel_send">إلغاء الإرسال</string>
     <string name="ultra_share_send_cancelled">تم إلغاء الإرسال. يمكنك إعادة المحاولة وسيستأنف المستقبل من الجزء المكتمل.</string>
+    <string name="ultra_share_qr_description">رمز QR لاقتران MalekPlay Ultra Share</string>
+    <string name="ultra_share_qr_hint">يمكن مسح الرمز أو اختيار صورة QR من الهاتف المرسل.</string>
+    <string name="ultra_share_scan_qr">قراءة رمز QR من صورة</string>
+    <string name="ultra_share_scan_success">تمت قراءة بيانات الاقتران.</string>
+    <string name="ultra_share_scan_failed">تعذر قراءة رمز الاقتران من الصورة.</string>
 </resources>
