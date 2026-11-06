@@ -501,7 +501,7 @@ class UltraShareForegroundService : Service() {
             .filter { network ->
                 val name = network.name.lowercase()
                 network.isUp && !network.isLoopback &&
-                    (name.startsWith("wlan") || name.startsWith("swlan") || name.startsWith("ap") || name.startsWith("eth"))
+                    (name.startsWith("wlan") || name.startsWith("swlan") || name.startsWith("ap") || name.startsWith("eth") || name.startsWith("p2p"))
             }
             .flatMap { it.inetAddresses.toList() }
             .filterIsInstance<Inet4Address>()
