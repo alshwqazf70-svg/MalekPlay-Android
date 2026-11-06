@@ -345,4 +345,6 @@
     <string name="ultra_share_notification_description">Notification while sending or receiving files over the local network.</string>
     <string name="ultra_share_notification_active">Transfer in progress; you can briefly switch to another app.</string>
     <string name="ultra_share_background_unavailable">Background transfer notification could not start. Keep the app open during the transfer.</string>
+    <string name="ultra_share_progress">%1$d%% • %2$s / %3$s • %4$s/s • ETA %5$s</string>
+    <string name="ultra_share_eta_calculating">calculating</string>
 </resources>
