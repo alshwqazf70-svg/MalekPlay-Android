@@ -3,6 +3,7 @@ package com.malekplay.network
 import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.net.Uri
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
@@ -79,7 +80,7 @@ object UltraShareQrCode {
         for (y in 0 until dimension) {
             for (x in 0 until dimension) {
                 pixels[y * dimension + x] =
-                    if (matrix.get(x, y)) Bitmap.COLOR_BLACK else Bitmap.COLOR_WHITE
+                    if (matrix.get(x, y)) Color.BLACK else Color.WHITE
             }
         }
         return Bitmap.createBitmap(pixels, dimension, dimension, Bitmap.Config.ARGB_8888)
