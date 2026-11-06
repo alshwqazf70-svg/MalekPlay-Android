@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import java.net.DatagramPacket
 import java.net.InetAddress
 import java.net.MulticastSocket
+import java.net.InetSocketAddress
 import java.net.SocketTimeoutException
 import java.util.Locale
 
@@ -26,10 +27,14 @@ internal class MdnsDiscoveryClient {
         val addresses = LinkedHashMap<String, String>()
         val fallbackHosts = LinkedHashMap<String, String>()
         val friendlyNames = LinkedHashMap<String, String>()
-        MulticastSocket().use { socket ->
+        val supportedServices = SERVICE_TYPES.toSet()
+        MulticastSocket(null).use { socket ->
+            socket.reuseAddress = true
+            socket.bind(InetSocketAddress(MDNS_PORT))
             socket.soTimeout = RECEIVE_TIMEOUT_MS
             socket.timeToLive = 1
             val group = InetAddress.getByName(MDNS_GROUP)
+            socket.joinGroup(group)
             SERVICE_TYPES.forEach { service ->
                 val query = buildPtrQuery(service)
                 socket.send(DatagramPacket(query, query.size, group, MDNS_PORT))
@@ -50,8 +55,11 @@ internal class MdnsDiscoveryClient {
                 parsed.forEach { record ->
                     when (record.type) {
                         TYPE_PTR -> record.target?.let { target ->
-                            instances[target.lowercase(Locale.ROOT)] = record.name.lowercase(Locale.ROOT)
-                            fallbackHosts[target.lowercase(Locale.ROOT)] = sourceHost
+                            val service = record.name.lowercase(Locale.ROOT)
+                            if (service in supportedServices) {
+                                instances[target.lowercase(Locale.ROOT)] = service
+                                fallbackHosts[target.lowercase(Locale.ROOT)] = sourceHost
+                            }
                         }
                         TYPE_SRV -> record.target?.let { target ->
                             servers[record.name.lowercase(Locale.ROOT)] = target.lowercase(Locale.ROOT) to record.port
@@ -97,7 +105,7 @@ internal class MdnsDiscoveryClient {
         }
         put(0)
         put(0); put(TYPE_PTR)
-        put(0x80); put(1)
+        put(0); put(1)
         return out.toByteArray()
     }
 
