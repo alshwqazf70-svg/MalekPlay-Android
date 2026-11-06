@@ -458,7 +458,11 @@ class NetworkViewModel @Inject constructor(
         dlnaBrowseJob = viewModelScope.launch {
             try {
                 val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-                val wifiNetwork = connectivity.allNetworks.firstOrNull { candidate ->
+                val activeNetwork = connectivity.activeNetwork
+                val wifiNetwork = activeNetwork?.takeIf { candidate ->
+                    connectivity.getNetworkCapabilities(candidate)
+                        ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+                } ?: connectivity.allNetworks.firstOrNull { candidate ->
                     connectivity.getNetworkCapabilities(candidate)
                         ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
                 } ?: throw IllegalStateException("اتصل بشبكة Wi-Fi نفسها التي يوجد عليها خادم الوسائط.")
