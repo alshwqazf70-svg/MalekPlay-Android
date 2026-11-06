@@ -896,7 +896,7 @@ private fun AudioPanel(
                     colors = listOf(Color(0xFF2A153A), Panel, MalekPlayColors.BackgroundElevated)
                 )
             )
-            .border(1.dp, Neon.copy(alpha = 0.27f), shape)
+            .border(1.dp, GlassBorder, shape)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(17.dp),
         verticalAlignment = Alignment.CenterVertically
