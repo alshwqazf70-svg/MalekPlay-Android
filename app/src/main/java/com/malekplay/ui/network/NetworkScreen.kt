@@ -747,11 +747,18 @@ private fun DlnaBrowsePanel(
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
                 items(items = state.entries, key = { it.id }) { entry ->
+                    val entryShape = RoundedCornerShape(17.dp)
                     Row(
-                        Modifier.fillMaxWidth().clickable {
-                            if (entry.isContainer) onNavigate(entry.id)
-                            else entry.mediaUrl?.let(onOpenMedia)
-                        }.padding(horizontal = 16.dp, vertical = 11.dp),
+                        Modifier.fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 5.dp)
+                            .clip(entryShape)
+                            .background(Brush.horizontalGradient(listOf(Color(0xFF241A32), Color(0xFF17131F), Color(0xFF111019))))
+                            .border(1.dp, Brush.linearGradient(listOf(Color(0x66C084FC), Color(0x18FFFFFF), Color(0x557E22CE))), entryShape)
+                            .clickable {
+                                if (entry.isContainer) onNavigate(entry.id)
+                                else entry.mediaUrl?.let(onOpenMedia)
+                            }
+                            .padding(horizontal = 13.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
