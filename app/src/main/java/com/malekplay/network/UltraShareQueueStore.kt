@@ -78,6 +78,30 @@ object UltraShareQueueStore {
         }
     }
 
+    suspend fun claimForSending(
+        context: Context,
+        uri: Uri,
+        displayName: String
+    ): Boolean {
+        var claimed = false
+        context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
+            val entries = decode(preferences[QUEUE].orEmpty()).map { entry ->
+                if (entry.uri == uri.toString() &&
+                    (entry.status == STATUS_PENDING || entry.status == STATUS_FAILED)
+                ) {
+                    claimed = true
+                    entry.copy(
+                        displayName = displayName,
+                        status = STATUS_SENDING,
+                        error = null
+                    )
+                } else entry
+            }
+            preferences[QUEUE] = encode(entries)
+        }
+        return claimed
+    }
+
     suspend fun skip(context: Context, uri: Uri) {
         context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
             val entries = decode(preferences[QUEUE].orEmpty()).map { entry ->
