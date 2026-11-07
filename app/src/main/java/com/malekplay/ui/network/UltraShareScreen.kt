@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -63,6 +64,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -664,7 +667,7 @@ fun UltraShareScreen(
                         )
                     }
                     Text(stringResource(R.string.ultra_share_pairing_code), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
-                    Text(state.pairingSecret.chunked(4).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    Text(state.pairingSecret.chunked(3).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(stringResource(R.string.ultra_share_code_warning), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     qrBitmap?.let { bitmap ->
                         val activeQrPayload = qrPayload ?: return@let
@@ -764,10 +767,11 @@ fun UltraShareScreen(
                 )
                 OutlinedTextField(
                     value = secret,
-                    onValueChange = { secret = it.filter { char -> char.isLetterOrDigit() }.take(64) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.ultra_share_pairing_code)) },
-                    singleLine = true
+                    onValueChange = { secret = it.filter { char -> char in '0'..'9' }.take(9) },
+                    modifier = Modifier.widthIn(max = 220.dp),
+                    label = { Text("رمز الاقتران (9 أرقام)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
                 OutlinedButton(
                     onClick = ::scanQrWithCamera,

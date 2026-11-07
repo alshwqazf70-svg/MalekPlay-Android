@@ -1,12 +1,42 @@
 package com.malekplay.network
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class UltraShareQrCodeTest {
+
+    @Test
+    fun generatedPairingCodeIsExactlyNineNumericDigits() {
+        val code = UltraShareTransport.createPairingSecret()
+        assertEquals(9, code.length)
+        assertTrue(code.all { it in '0'..'9' })
+        assertTrue(UltraShareTransport.isValidPairingSecret(code))
+    }
+
+    @Test
+    fun shortPinDerivesSessionKeyFromFreshChallenge() {
+        val pin = "004219837"
+        val challenge = ByteArray(32) { it.toByte() }
+        assertTrue(UltraShareTransport.derivePairingKey(pin, challenge).contentEquals(
+            UltraShareTransport.derivePairingKey(pin, challenge.copyOf())
+        ))
+        val freshChallenge = ByteArray(32) { (it + 1).toByte() }
+        assertFalse(UltraShareTransport.derivePairingKey(pin, challenge).contentEquals(
+            UltraShareTransport.derivePairingKey(pin, freshChallenge)
+        ))
+    }
+
+    @Test
+    fun pairingCodeRejectsLettersAndWrongLengths() {
+        assertFalse(UltraShareTransport.isValidPairingSecret("12345678"))
+        assertFalse(UltraShareTransport.isValidPairingSecret("12345678A"))
+        assertFalse(UltraShareTransport.isValidPairingSecret("1234567890"))
+    }
 
     @Test
     fun pairingPayloadRoundTripsEndpointAndSecret() {

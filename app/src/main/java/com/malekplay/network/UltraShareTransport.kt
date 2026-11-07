@@ -23,9 +23,12 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Locale
 import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
@@ -63,6 +66,9 @@ object UltraShareTransport {
     private const val MAGIC = 0x4D505531 // MPU1
     private const val VERSION = 1
     private const val SECRET_BYTES = 32
+    private const val PIN_LENGTH = 9
+    private const val PIN_KDF_ITERATIONS = 210_000
+    private const val PIN_SALT_BYTES = 16
     private const val CHALLENGE_BYTES = 32
     private const val NONCE_PREFIX_BYTES = 4
     private const val GCM_TAG_BYTES = 16
@@ -87,13 +93,13 @@ object UltraShareTransport {
         val mimeType: String
     )
 
-    fun createPairingSecret(): String {
-        val bytes = ByteArray(SECRET_BYTES).also(SecureRandom()::nextBytes)
-        return bytes.joinToString("") { "%02x".format(it) }
-    }
+    /** Generates a compact, human-friendly one-time numeric pairing PIN. */
+    fun createPairingSecret(): String =
+        String.format(Locale.US, "%09d", SecureRandom().nextInt(1_000_000_000))
 
     fun isValidPairingSecret(value: String): Boolean =
-        value.length == SECRET_BYTES * 2 && value.all { it in "0123456789abcdefABCDEF" }
+        (value.length == PIN_LENGTH && value.all { it in '0'..'9' }) ||
+            (value.length == SECRET_BYTES * 2 && value.all { it in "0123456789abcdefABCDEF" })
 
     /** Accepts only literal private/link-local IPv4 endpoints; never resolves hostnames. */
     fun isValidPrivateLanHost(host: String): Boolean = runCatching {
@@ -101,8 +107,18 @@ object UltraShareTransport {
         true
     }.getOrDefault(false)
 
-    private fun decodeSecret(value: String): ByteArray {
+    /** Derives a per-handshake key; the fresh receiver challenge supplies the PBKDF2 salt. */
+    internal fun derivePairingKey(value: String, challenge: ByteArray): ByteArray {
         require(isValidPairingSecret(value)) { "رمز الاقتران غير صالح." }
+        require(challenge.size == CHALLENGE_BYTES) { "تحدي الاقتران غير صالح." }
+        if (value.length == PIN_LENGTH) {
+            val spec = PBEKeySpec(value.toCharArray(), challenge.copyOfRange(0, PIN_SALT_BYTES), PIN_KDF_ITERATIONS, SECRET_BYTES * 8)
+            return try {
+                SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+            } finally {
+                spec.clearPassword()
+            }
+        }
         return ByteArray(SECRET_BYTES) { index ->
             value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
         }
@@ -197,7 +213,6 @@ object UltraShareTransport {
         require(port in 1..65535) { "منفذ الاتصال غير صالح." }
         require(sizeBytes in 0..MAX_FILE_BYTES) { "حجم الملف غير مدعوم أو الملف فارغ." }
         val safeName = sanitizeFileName(fileName)
-        val secret = decodeSecret(pairingSecret)
         val digest = resolver.openInputStream(uri)?.use { stream ->
             digestStream(stream, sizeBytes)
         } ?: error("تعذر فتح الملف المحدد.")
@@ -210,6 +225,7 @@ object UltraShareTransport {
 
             check(input.readInt() == MAGIC) { "الجهاز الآخر لا يشغّل MalekPlay Ultra Share." }
             val challenge = ByteArray(CHALLENGE_BYTES).also(input::readFully)
+            val secret = derivePairingKey(pairingSecret, challenge)
             val proof = hmac(secret, challenge)
             output.write(proof)
             output.flush()
@@ -272,7 +288,6 @@ object UltraShareTransport {
         onProgress: (Progress) -> Unit = {}
     ): ReceivedFile = withContext(Dispatchers.IO) {
         require(port in 1..65535) { "منفذ الاستقبال غير صالح." }
-        val secret = decodeSecret(pairingSecret)
         check(destinationDirectory.exists() || destinationDirectory.mkdirs()) {
             "تعذر إنشاء مجلد الملفات المستلمة."
         }
@@ -301,6 +316,7 @@ object UltraShareTransport {
 
                 output.writeInt(MAGIC)
                 val challenge = ByteArray(CHALLENGE_BYTES).also(SecureRandom()::nextBytes)
+                val secret = derivePairingKey(pairingSecret, challenge)
                 output.write(challenge)
                 output.flush()
 
