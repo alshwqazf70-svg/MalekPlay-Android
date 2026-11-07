@@ -395,6 +395,12 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
         if partial.exists() and partial.stat().st_size > size:
             partial.unlink()
 
+        # A connection can drop after the final data block but before its receipt.
+        # Reuse a full-sized partial only when its complete SHA-256 still matches.
+        if partial.is_file() and partial.stat().st_size == size:
+            if not hmac.compare_digest(hash_file(partial), expected_digest):
+                partial.unlink()
+
         offset = partial.stat().st_size if partial.is_file() else 0
         write_frame(connection, send_key, nonce_prefix, 0, struct.pack(">q", offset))
 
