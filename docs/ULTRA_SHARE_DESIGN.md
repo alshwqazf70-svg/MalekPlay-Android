@@ -8,7 +8,7 @@
 - Pairing uses a short 12-digit PIN, a fresh challenge, PBKDF2-HMAC-SHA256 (210,000 iterations), and HMAC-SHA256 challenge-response. Legacy 64-character hexadecimal secrets remain accepted for compatibility.
 - Session traffic uses direction-specific keys and AES-256-GCM authenticated frames.
 - Files stream in 256 KiB chunks. SHA-256 is checked before a completed file is exposed to the user.
-- Transfer identity includes sanitized filename, size, and content digest. Partial files can resume from their verified offset; a verified receipt prevents duplicate copies when the final acknowledgement was lost.
+- Transfer identity includes sanitized filename, size, and content digest. Partial files resume from the saved offset only when the sidecar identity matches; the completed file is SHA-256 verified before it is exposed. A verified receipt prevents duplicate copies when the final acknowledgement was lost. A full-sized partial is re-hashed before the receiver accepts a zero-byte resume.
 - The receiver sanitizes incoming filenames, preserves existing destination files, and accepts only private/link-local IPv4 peers.
 - A foreground data-sync service owns send/receive sockets and coroutines independently of the navigation/ViewModel lifecycle. The ongoing notification exposes cancellation; transfer wake locks are acquired during active data transfer and released after it.
 - A persistent DataStore queue supports multiple selected files, per-file status, retry of failed items, skip, pause, and manual resume. Interrupted sending rows are recovered as pending when the UI starts.
