@@ -71,6 +71,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -89,6 +90,7 @@ import com.malekplay.domain.model.EqualizerPreset
 import com.malekplay.domain.model.MediaItem as DomainMedia
 import com.malekplay.ui.components.MediaThumbnail
 import com.malekplay.ui.player.PlayerViewModel
+import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.player.components.EqualizerSheet
 import com.malekplay.ui.player.components.SleepTimerDialog
 import com.malekplay.ui.player.components.SpeedPickerDialog
@@ -103,6 +105,8 @@ fun AudioPlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel(),
     settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
+    val parentalControl = remember(context) { ParentalControlManager(context) }
     val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
@@ -146,7 +150,10 @@ fun AudioPlayerScreen(
         if (item != null) {
             // Keep the entire music library in the service queue. Media3 then
             // exposes previous/next commands to the notification and lock screen.
-            val audioQueue = viewModel.loadAudioQueue()
+            val discoveredQueue = viewModel.loadAudioQueue()
+            val audioQueue = if (parentalControl.isEnabled) {
+                discoveredQueue.filter { parentalControl.isMediaAllowed(it.id) }
+            } else discoveredQueue
             val selectedIndex = audioQueue.indexOfFirst { it.id == item.id }
             if (selectedIndex >= 0) {
                 viewModel.playQueue(
