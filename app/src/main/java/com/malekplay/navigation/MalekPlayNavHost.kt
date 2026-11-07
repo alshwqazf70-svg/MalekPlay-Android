@@ -118,10 +118,11 @@ fun MalekPlayNavHost(
         playerController?.currentMediaItem
     }
     var pendingTransferUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    val openTransferForMedia: (MediaItem) -> Unit = { media ->
-        pendingTransferUris = listOf(media.uri)
-        navController.navigate(Screen.UltraShare.route)
+    val openTransferForUris: (List<Uri>) -> Unit = { uris ->
+        pendingTransferUris = uris.distinct()
+        if (pendingTransferUris.isNotEmpty()) navController.navigate(Screen.UltraShare.route)
     }
+    val openTransferForMedia: (MediaItem) -> Unit = { media -> openTransferForUris(listOf(media.uri)) }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -203,7 +204,7 @@ fun MalekPlayNavHost(
             }
 
             composable(Screen.Movies.route) {
-                VideoCategoryScreen(series = false, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) }, onSendMedia = openTransferForMedia)
+                VideoCategoryScreen(series = false, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) }, onSendMedia = { media -> openTransferForUris(media.map { it.uri }) })
             }
 
             composable(Screen.Series.route) {

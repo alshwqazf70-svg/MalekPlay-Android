@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -131,6 +132,9 @@ fun MusicScreen(
         libraryViewModel.applySort(songs, settings.sortMode)
     }
     var tabIndex by remember { mutableIntStateOf(0) }
+    val selectedSongs = remember { mutableStateListOf<Uri>() }
+    val songSelectionMode = selectedSongs.isNotEmpty()
+    fun toggleSong(uri: Uri) { if (uri in selectedSongs) selectedSongs.remove(uri) else selectedSongs.add(uri) }
     val tabLabels = listOf(
         R.string.music_songs,
         R.string.music_albums,
@@ -212,12 +216,24 @@ fun MusicScreen(
             }
         }
 
+        if (tabIndex == 0 && songSelectionMode) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${selectedSongs.size} أغنية محددة", modifier = Modifier.weight(1f), color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                androidx.compose.material3.TextButton(onClick = { selectedSongs.clear() }) { Text("إلغاء") }
+                androidx.compose.material3.TextButton(onClick = { onSendMedia(sortedSongs.filter { it.media.uri in selectedSongs }.map { it.media }.firstOrNull() ?: return@TextButton) }) { Text("إرسال") }
+            }
+        }
+
         when (tabIndex) {
             0 -> SongsTab(
                 songs = sortedSongs,
                 unknownArtist = unknownArtist,
                 onOpenMedia = onOpenMedia,
                 onSendMedia = onSendMedia,
+                selectionMode = songSelectionMode,
+                selectedUris = selectedSongs.toSet(),
+                onToggleSelection = ::toggleSong,
+                onSendSelected = { onSendMedia(sortedSongs.filter { it.media.uri in selectedSongs }.first().media) },
                 onToggleFavourite = { libraryViewModel.toggleFavourite(it) },
                 onDeleted = libraryViewModel::refresh
             )
@@ -237,6 +253,10 @@ private fun SongsTab(
     unknownArtist: String,
     onOpenMedia: (MediaItem) -> Unit,
     onSendMedia: (MediaItem) -> Unit,
+    selectionMode: Boolean,
+    selectedUris: Set<Uri>,
+    onToggleSelection: (Uri) -> Unit,
+    onSendSelected: () -> Unit,
     onToggleFavourite: (String) -> Unit,
     onDeleted: () -> Unit
 ) {
@@ -257,7 +277,10 @@ private fun SongsTab(
                 item = item,
                 unknownArtist = unknownArtist,
                 onClick = { onOpenMedia(item.media) },
-                onSend = { onSendMedia(item.media) },
+                onSend = { onToggleSelection(item.media.uri) },
+                selectionMode = selectionMode,
+                isSelected = item.media.uri in selectedUris,
+                onSelect = { onToggleSelection(item.media.uri) },
                 onToggleFavourite = { onToggleFavourite(item.media.id) },
                 onDeleted = onDeleted
             )
@@ -271,6 +294,9 @@ private fun SongRow(
     unknownArtist: String,
     onClick: () -> Unit,
     onSend: () -> Unit,
+    selectionMode: Boolean,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
     onToggleFavourite: () -> Unit,
     onDeleted: () -> Unit
 ) {
@@ -280,7 +306,7 @@ private fun SongRow(
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .shadow(7.dp, RoundedCornerShape(16.dp), ambientColor = MalekPlayColors.NeonGlow)
             .clip(RoundedCornerShape(16.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF21192D), Color(0xFF15121C), Color(0xFF111019))))
+            .background(if (isSelected) MalekPlayColors.PurpleDeep.copy(alpha = 0.58f) else Brush.linearGradient(listOf(Color(0xFF21192D), Color(0xFF15121C), Color(0xFF111019))))
             .border(
                 1.dp,
                 Brush.linearGradient(
@@ -292,7 +318,7 @@ private fun SongRow(
                 ),
                 RoundedCornerShape(16.dp)
             )
-            .combinedClickable(onClick = onClick, onLongClick = onSend)
+            .combinedClickable(onClick = { if (selectionMode) onSelect() else onClick() }, onLongClick = onSelect)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
