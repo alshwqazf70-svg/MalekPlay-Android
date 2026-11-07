@@ -142,16 +142,13 @@ fun MusicScreen(
         R.string.music_genres
     )
 
+    val colors = MaterialTheme.colorScheme
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(
-                        MalekPlayColors.BackgroundElevated,
-                        MalekPlayColors.Background,
-                        Color(0xFF07060C)
-                    )
+                    listOf(colors.surfaceContainerHigh, colors.background, colors.surface)
                 )
             )
             .padding(contentPadding)
@@ -167,12 +164,12 @@ fun MusicScreen(
                     text = stringResource(R.string.nav_music),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MalekPlayColors.TextPrimary
+                    color = colors.onSurface
                 )
                 Text(
                     text = stringResource(R.string.music_track_count, songs.size),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MalekPlayColors.TextMuted
+                    color = colors.onSurfaceVariant
                 )
             }
             Box(
@@ -199,7 +196,7 @@ fun MusicScreen(
         TabRow(
             selectedTabIndex = tabIndex,
             containerColor = Color.Transparent,
-            contentColor = MalekPlayColors.NeonPurple
+            contentColor = colors.primary
         ) {
             tabLabels.forEachIndexed { index, labelRes ->
                 Tab(
