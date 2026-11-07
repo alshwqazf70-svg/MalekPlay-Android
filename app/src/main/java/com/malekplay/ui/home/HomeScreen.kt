@@ -58,6 +58,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -338,18 +341,22 @@ private fun HomeHeader(
 
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Keep the Latin brand name in LTR order even when the app UI is Arabic/RTL.
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 Text(
-                    text = "Malek",
-                    color = Color.White,
-                    fontWeight = FontWeight.ExtraBold,
-                    style = MaterialTheme.typography.headlineSmall
-                )
-                Text(
-                    text = "Play",
-                    color = Neon,
-                    fontWeight = FontWeight.ExtraBold,
-                    style = MaterialTheme.typography.headlineSmall
+                    text = "MalekPlay",
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Color(0xFFFFD76A),
+                                Color(0xFFE8B84F),
+                                Color(0xFFB66BEE),
+                                Color(0xFFA855F7)
+                            )
+                        )
+                    ),
+                    maxLines = 1
                 )
             }
             Text(
