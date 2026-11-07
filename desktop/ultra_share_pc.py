@@ -311,7 +311,8 @@ def send_file(host: str, port: int, secret: str, source: Path) -> None:
         try:
             send_once(host, port, secret, source)
             return
-        except (TimeoutError, ConnectionError, OSError) as exc:
+        # Retry transport interruptions only; authentication and local file errors are permanent.
+        except (TimeoutError, ConnectionError) as exc:
             if attempt == 2:
                 raise
             print(f"\\nConnection interrupted ({exc}); retrying {attempt + 1}/2...")
