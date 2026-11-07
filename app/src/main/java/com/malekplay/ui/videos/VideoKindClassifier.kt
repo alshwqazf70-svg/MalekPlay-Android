@@ -28,11 +28,11 @@ internal object VideoKindClassifier {
         val season = if (numbers.size == 1) 1 else numbers[0].toIntOrNull() ?: 1
         val episode = numbers.lastOrNull()?.toIntOrNull() ?: return null
         val rawSeries = normalized.removeRange(match.range)
-            .replace(Regex("""(?i)\\b(1080p|720p|2160p|480p|4k|hevc|x264|x265|web[ ._-]?dl|bluray)\\b"""), " ")
-            .replace(Regex("""[._\\-\\[\\]()]+"""), " ")
+            .replace(Regex("""(?i)\b(1080p|720p|2160p|480p|4k|hevc|x264|x265|web[ ._-]?dl|bluray)\b"""), " ")
+            .replace(Regex("""[._\-\[\]()]+"""), " ")
             .trim()
             .ifBlank { folderName.ifBlank { folderPath.substringBeforeLast('/') } }
-        val seriesKey = rawSeries.lowercase().replace(Regex("""\\s+"""), " ").trim()
+        val seriesKey = rawSeries.lowercase().replace(Regex("""\s+"""), " ").trim()
         return EpisodeSortKey(seriesKey, season.coerceAtLeast(1), episode.coerceAtLeast(0))
     }
 
