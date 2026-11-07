@@ -6,7 +6,9 @@ import unittest
 from ultra_share_pc import (
     VERSION,
     derive_key,
+    derive_pairing_key,
     encode_text,
+    get_secret,
     is_lan_ipv4,
     parse_metadata,
     read_frame,
@@ -37,6 +39,26 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             ("clip.mp4", 5, "video/mp4", digest),
             parse_metadata(encoded),
         )
+
+    def test_android_twelve_digit_pin_uses_matching_pbkdf2_derivation(self):
+        pin = "004219837615"
+        challenge = bytes(range(32))
+        self.assertEqual(pin, get_secret(pin))
+        self.assertEqual(
+            hashlib.pbkdf2_hmac("sha256", pin.encode("ascii"), challenge[:16], 210_000, dklen=32),
+            derive_pairing_key(pin, challenge),
+        )
+
+    def test_legacy_hex_pairing_key_remains_supported(self):
+        legacy = "ab" * 32
+        self.assertEqual(legacy, get_secret(legacy))
+        self.assertEqual(bytes.fromhex(legacy), derive_pairing_key(legacy, bytes(32)))
+
+    def test_invalid_pairing_codes_are_rejected(self):
+        for invalid in ("12345678901", "1234567890123", "not-a-pin"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    get_secret(invalid)
 
     def test_lan_filter_allows_private_and_link_local_only(self):
         self.assertTrue(is_lan_ipv4("192.168.1.20"))
