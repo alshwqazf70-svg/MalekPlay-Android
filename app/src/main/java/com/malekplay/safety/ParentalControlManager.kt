@@ -12,6 +12,15 @@ class ParentalControlManager(context: Context) {
 
     val isEnabled: Boolean get() = prefs.getBoolean(KEY_ENABLED, false)
     val hasPin: Boolean get() = prefs.contains(KEY_HASH) && prefs.contains(KEY_SALT)
+    /** Stable media IDs explicitly approved by the parent. Empty means nothing is approved. */
+    val allowedMediaIds: Set<String> get() = prefs.getStringSet(KEY_ALLOWED_MEDIA, emptySet())?.toSet().orEmpty()
+
+    fun isMediaAllowed(mediaId: String): Boolean = mediaId.isNotBlank() && mediaId in allowedMediaIds
+
+    fun setAllowedMediaIds(mediaIds: Set<String>) = synchronized(PIN_LOCK) {
+        val clean = mediaIds.asSequence().map(String::trim).filter(String::isNotEmpty).take(MAX_ALLOWED_MEDIA).toSet()
+        check(prefs.edit().putStringSet(KEY_ALLOWED_MEDIA, clean).commit()) { "تعذر حفظ قائمة محتوى الأطفال" }
+    }
 
     fun setPin(pin: String) = synchronized(PIN_LOCK) {
         require(isValidPin(pin)) { "يجب أن يتكون رمز PIN من 4 إلى 8 أرقام" }
@@ -100,6 +109,8 @@ class ParentalControlManager(context: Context) {
         const val KEY_HASH = "pin_hash"
         const val KEY_FAILURES = "pin_failures"
         const val KEY_LOCK_UNTIL = "pin_lock_until"
+        const val KEY_ALLOWED_MEDIA = "allowed_media_ids"
+        const val MAX_ALLOWED_MEDIA = 10_000
         const val SALT_LENGTH = 16
         const val HASH_LENGTH = 32
         const val PBKDF2_ITERATIONS = 120_000
