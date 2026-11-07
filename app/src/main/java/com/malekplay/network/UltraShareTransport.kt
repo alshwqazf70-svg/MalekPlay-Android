@@ -353,19 +353,24 @@ object UltraShareTransport {
                 val transferId = buildTransferId(fileName, size, expectedDigest)
                 val receiptMarker = File(destinationDirectory, ".ultrashare-$transferId.received")
                 val expectedDigestHex = expectedDigest.joinToString("") { "%02x".format(it) }
+                // A damaged or temporarily unreadable receipt must not abort a new
+                // transfer. Treat it as untrusted metadata and continue through the
+                // normal resume path, which removes the stale marker below.
                 val completedReceipt = receiptMarker.takeIf { it.isFile }?.let { marker ->
-                    UltraShareTransport.completedReceiptFileName(
-                        marker.readText(Charsets.UTF_8),
-                        size,
-                        expectedDigestHex
-                    )?.let { safeName ->
-                        val completedFile = File(destinationDirectory, safeName)
-                        if (!completedFile.isFile || completedFile.length() != size) null
-                        else {
-                            val actual = FileInputStream(completedFile).use { digestStreamRaw(it) }
-                            completedFile.takeIf { MessageDigest.isEqual(expectedDigest, actual) }
+                    runCatching {
+                        UltraShareTransport.completedReceiptFileName(
+                            marker.readText(Charsets.UTF_8),
+                            size,
+                            expectedDigestHex
+                        )?.let { safeName ->
+                            val completedFile = File(destinationDirectory, safeName)
+                            if (!completedFile.isFile || completedFile.length() != size) null
+                            else {
+                                val actual = FileInputStream(completedFile).use { digestStreamRaw(it) }
+                                completedFile.takeIf { MessageDigest.isEqual(expectedDigest, actual) }
+                            }
                         }
-                    }
+                    }.getOrNull()
                 }
                 if (completedReceipt != null) {
                     val offsetPayload = ByteArrayOutputStream().use { bytes ->
