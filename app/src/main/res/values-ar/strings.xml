@@ -349,4 +349,15 @@
     <string name="ultra_share_background_unavailable">تعذر تشغيل إشعار النقل في الخلفية؛ أبقِ التطبيق مفتوحاً أثناء النقل.</string>
     <string name="ultra_share_progress">%1$d%% • %2$s / %3$s • %4$s/ث • المتبقي %5$s</string>
     <string name="ultra_share_eta_calculating">جارٍ الحساب</string>
+    <string name="kids_choose_title">اختيار محتوى الأطفال</string>
+    <string name="kids_choose_summary">تم اختيار %1$d عنصراً. ستظهر هذه الفيديوهات والأغاني فقط في وضع الأطفال.</string>
+    <string name="kids_library_title">مكتبتي الآمنة</string>
+    <string name="kids_library_summary">%1$d عنصر معتمد</string>
+    <string name="kids_save_selection">حفظ</string>
+    <string name="kids_video_label">فيديو</string>
+    <string name="kids_audio_label">موسيقى</string>
+    <string name="kids_no_approved_media">لم يتم اعتماد أي محتوى بعد. اطلب من الوالد اختيار الفيديوهات أو الموسيقى.</string>
+    <string name="kids_no_media_found">لم نعثر على فيديوهات أو ملفات موسيقى في مكتبة الجهاز.</string>
+    <string name="kids_manage_content">اختيار الفيديوهات والموسيقى المسموح بها</string>
+    <string name="kids_manage_content_summary">حدد المحتوى الذي يستطيع الطفل تشغيله فقط</string>
 </resources>
