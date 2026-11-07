@@ -23,4 +23,18 @@ class VideoKindClassifierTest {
         assertEquals(VideoKind.UNCLASSIFIED, VideoKindClassifier.classify("Interstellar.2014.1080p"))
         assertEquals(VideoKind.UNCLASSIFIED, VideoKindClassifier.classify("Nature Beauty 4K"))
     }
+    @Test fun extractsEpisodeOrderForLatinAndArabicNames() {
+        val first = VideoKindClassifier.episodeSortKey("My.Show.S01E02.1080p.mkv")
+        val nextSeason = VideoKindClassifier.episodeSortKey("My.Show.S02E01.mkv")
+        val arabic = VideoKindClassifier.episodeSortKey("الحلقة ١٢", "مسلسل الرحلة")
+
+        assertEquals("my show", first?.seriesKey)
+        assertEquals(1, first?.season)
+        assertEquals(2, first?.episode)
+        assertEquals(2, nextSeason?.season)
+        assertEquals(1, nextSeason?.episode)
+        assertEquals("مسلسل الرحلة", arabic?.seriesKey)
+        assertEquals(12, arabic?.episode)
+    }
+
 }
