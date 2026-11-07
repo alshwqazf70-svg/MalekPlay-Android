@@ -391,6 +391,20 @@ class PlayerViewModel @Inject constructor(
         if (player.isPlaying) player.pause() else player.play()
     }
 
+    /** Clears any previously playing item before entering the restricted kids experience. */
+    fun stopForParentalMode() {
+        val player = _controller.value ?: return
+        player.playWhenReady = false
+        player.stop()
+        player.clearMediaItems()
+        _queue.value = emptyList()
+        _currentIndex.value = 0
+        _queueSize.value = 0
+        currentMediaId = null
+        _currentItemId.value = null
+        _playerError.value = null
+    }
+
     fun seekTo(positionMs: Long) {
         val player = _controller.value ?: return
         val target = positionMs.coerceIn(0L, player.duration.takeIf { it > 0L } ?: Long.MAX_VALUE)
