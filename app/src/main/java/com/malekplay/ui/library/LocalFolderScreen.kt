@@ -34,7 +34,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -57,16 +56,13 @@ fun LocalFolderScreen(
     onBack: () -> Unit,
     onOpenMedia: (MediaItem) -> Unit,
     contentPadding: PaddingValues,
-    onSendMedia: (List<MediaItem>) -> Unit = {}
+    onSendMedia: (MediaItem) -> Unit = {}
 ) {
     val viewModel: LibraryViewModel = hiltViewModel()
 
     val items by remember(folderPath) { viewModel.folderContents(folderPath) }
         .collectAsStateWithLifecycle(initialValue = emptyList<LibraryItem>())
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
-    val selectedUris = remember { mutableStateListOf<android.net.Uri>() }
-    val selectionMode = selectedUris.isNotEmpty()
-    fun toggleSelection(uri: android.net.Uri) { if (uri in selectedUris) selectedUris.remove(uri) else selectedUris.add(uri) }
 
     val folderName = remember(folderPath) {
         folderPath.trimEnd('/').substringAfterLast('/').ifBlank { folderPath }
@@ -115,15 +111,6 @@ fun LocalFolderScreen(
             )
         }
     ) { padding ->
-        if (selectionMode) {
-            androidx.compose.material3.Surface(color = MalekPlayColors.PurpleDeep.copy(alpha = 0.35f), modifier = Modifier.fillMaxWidth().padding(padding).padding(horizontal = 12.dp, vertical = 6.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
-                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${selectedUris.size} ملف محدد", modifier = Modifier.weight(1f), color = MalekPlayColors.TextPrimary)
-                    androidx.compose.material3.TextButton(onClick = { selectedUris.clear() }) { Text("إلغاء") }
-                    androidx.compose.material3.TextButton(onClick = { onSendMedia(items.filter { it.media.uri in selectedUris }.map { it.media }) }) { Text("إرسال المحدد") }
-                }
-            }
-        }
         if (items.isEmpty()) {
             EmptyState(
                 title = stringResource(R.string.lib_empty_title),
@@ -148,10 +135,7 @@ fun LocalFolderScreen(
                 FolderItemRow(
                     item = item,
                     onClick = { onOpenMedia(item.media) },
-                    onSend = { toggleSelection(item.media.uri) },
-                    selectionMode = selectionMode,
-                    isSelected = item.media.uri in selectedUris,
-                    onSelect = { toggleSelection(item.media.uri) },
+                    onSend = { onSendMedia(item.media) },
                     onToggleFavourite = { viewModel.toggleFavourite(item.media.id) }
                 )
             }
@@ -164,16 +148,12 @@ private fun FolderItemRow(
     item: LibraryItem,
     onClick: () -> Unit,
     onSend: () -> Unit,
-    selectionMode: Boolean,
-    isSelected: Boolean,
-    onSelect: () -> Unit,
     onToggleFavourite: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = { if (selectionMode) onSelect() else onClick() }, onLongClick = onSelect)
-            .background(if (isSelected) MalekPlayColors.PurpleDeep.copy(alpha = 0.45f) else androidx.compose.ui.graphics.Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onSend)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

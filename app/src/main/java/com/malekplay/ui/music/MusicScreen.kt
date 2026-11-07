@@ -252,7 +252,7 @@ private fun SongsTab(
     songs: List<LibraryItem>,
     unknownArtist: String,
     onOpenMedia: (MediaItem) -> Unit,
-    onSendMedia: (MediaItem) -> Unit,
+    onSendMedia: (List<MediaItem>) -> Unit,
     selectionMode: Boolean,
     selectedUris: Set<Uri>,
     onToggleSelection: (Uri) -> Unit,
