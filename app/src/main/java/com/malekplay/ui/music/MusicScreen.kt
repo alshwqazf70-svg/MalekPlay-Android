@@ -296,13 +296,14 @@ private fun SongRow(
     onToggleFavourite: () -> Unit,
     onDeleted: () -> Unit
 ) {
+    val colors = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .shadow(7.dp, RoundedCornerShape(16.dp), ambientColor = MalekPlayColors.NeonGlow)
             .clip(RoundedCornerShape(16.dp))
-            .background(if (isSelected) MalekPlayColors.PurpleDeep.copy(alpha = 0.58f) else Color(0xFF17131F))
+            .background(if (isSelected) colors.primaryContainer else colors.surface)
             .border(
                 1.dp,
                 Brush.linearGradient(
@@ -324,7 +325,7 @@ private fun SongRow(
             Text(
                 text = item.media.displayTitle,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MalekPlayColors.TextPrimary,
+                color = colors.onSurface,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -335,14 +336,14 @@ private fun SongRow(
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MalekPlayColors.TextMuted,
+                color = colors.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = item.media.album?.takeIf { it.isNotBlank() } ?: formatDuration(item.media.durationMs),
                 style = MaterialTheme.typography.labelSmall,
-                color = MalekPlayColors.PurpleBright,
+                color = colors.primary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -397,6 +398,7 @@ private fun AlbumsTab(albums: List<AlbumSummary>) {
 
 @Composable
 private fun AlbumCard(album: AlbumSummary) {
+    val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(20.dp)
     Card(
         modifier = Modifier
@@ -416,7 +418,7 @@ private fun AlbumCard(album: AlbumSummary) {
             ),
         shape = shape,
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF17131F)
+            containerColor = colors.surface
         )
     ) {
         Column(modifier = Modifier.padding(11.dp)) {
@@ -449,7 +451,7 @@ private fun AlbumCard(album: AlbumSummary) {
             Text(
                 text = album.name,
                 style = MaterialTheme.typography.titleSmall,
-                color = MalekPlayColors.TextPrimary,
+                color = colors.onSurface,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -457,7 +459,7 @@ private fun AlbumCard(album: AlbumSummary) {
             Text(
                 text = album.artist,
                 style = MaterialTheme.typography.bodySmall,
-                color = MalekPlayColors.TextSecondary,
+                color = colors.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -523,6 +525,7 @@ private fun ArtistGenreRow(
     trackCount: Int,
     icon: ImageVector
 ) {
+    val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(18.dp)
     Row(
         modifier = Modifier
@@ -531,7 +534,7 @@ private fun ArtistGenreRow(
             .clip(shape)
             .background(
                 Brush.horizontalGradient(
-                    listOf(Color(0xFF241A32), Color(0xFF17131F), Color(0xFF121019))
+                    listOf(colors.surfaceContainerHigh, colors.surface, colors.surfaceContainerLow)
                 )
             )
             .border(
@@ -572,7 +575,7 @@ private fun ArtistGenreRow(
             Text(
                 text = name,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MalekPlayColors.TextPrimary,
+                color = colors.onSurface,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -580,18 +583,18 @@ private fun ArtistGenreRow(
             Text(
                 text = stringResource(R.string.music_track_count, trackCount),
                 style = MaterialTheme.typography.bodySmall,
-                color = MalekPlayColors.TextMuted
+                color = colors.onSurfaceVariant
             )
         }
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(10.dp))
-                .background(MalekPlayColors.PurpleDeep.copy(alpha = 0.24f))
+                .background(colors.primaryContainer)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
             Text(
                 text = trackCount.toString(),
-                color = MalekPlayColors.PurpleBright,
+                color = colors.onPrimaryContainer,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold
             )
