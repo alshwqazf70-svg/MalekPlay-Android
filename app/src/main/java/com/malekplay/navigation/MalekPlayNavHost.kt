@@ -303,7 +303,16 @@ fun MalekPlayNavHost(
                 enterTransition = { slideIntoSlideUp() },
                 exitTransition = { slideOutOfSlideDown() }
             ) {
-                SettingsScreen(\n                    onBack = { navController.popBackStack() },\n                    onOpenKidsContent = { navController.navigate(Screen.KidsMode.route) },\n                    onKidsModeEnabled = {\n                        navController.navigate(Screen.KidsMode.route) {\n                            popUpTo(Screen.Home.route) { inclusive = true }\n                            launchSingleTop = true\n                        }\n                    }\n                )
+                SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenKidsContent = { navController.navigate(Screen.KidsMode.route) },
+                    onKidsModeEnabled = {
+                        navController.navigate(Screen.KidsMode.route) {
+                            popUpTo(Screen.Home.route) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                )
             }
         }
     }
