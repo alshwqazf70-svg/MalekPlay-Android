@@ -1006,7 +1006,7 @@ fun UltraShareScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("سجل الملفات المستلمة", color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
-                            Text("\${state.receivedHistory.size} ملف محفوظ في السجل", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                            Text("${state.receivedHistory.size} ملف محفوظ في السجل", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
                         }
                         TextButton(onClick = viewModel::clearReceivedHistory, enabled = !state.receiving) { Text("مسح السجل") }
                     }
@@ -1020,7 +1020,7 @@ fun UltraShareScreen(
                         }
                     }
                     if (state.receivedHistory.size > 10) {
-                        Text("و \${state.receivedHistory.size - 10} ملفات أخرى", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                        Text("و ${state.receivedHistory.size - 10} ملفات أخرى", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
