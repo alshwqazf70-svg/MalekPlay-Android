@@ -120,7 +120,18 @@ class UltraShareForegroundService : Service() {
                 )
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     advertisementJob = launch {
-                        runCatching { UltraShareDiscovery.advertiseWhileReceiving() }
+                        try {
+                            UltraShareDiscovery.advertiseWhileReceiving()
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            // Receiving remains available through the displayed local IP
+                            // even if another app/process already occupies the discovery port.
+                            publish(currentState().copy(
+                                status = "الاستقبال يعمل، لكن الاكتشاف التلقائي غير متاح. استخدم عنوان IP الظاهر يدوياً.",
+                                error = failure.localizedMessage ?: "تعذر تشغيل الاكتشاف التلقائي للأجهزة."
+                            ))
+                        }
                     }
                     try {
                         while (true) {
