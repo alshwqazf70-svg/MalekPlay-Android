@@ -99,6 +99,7 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.malekplay.MainActivity
 import com.malekplay.R
+import com.google.mlkit.nl.translate.TranslateLanguage
 import com.malekplay.core.ui.theme.PlayerChrome
 import com.malekplay.core.ui.util.DecoderInfo
 import com.malekplay.core.ui.util.findActivity
@@ -339,6 +340,7 @@ fun VideoPlayerScreen(
     var showBookmarks by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var showTranslationLanguages by remember { mutableStateOf(false) }
     var showOnlineSubtitles by remember { mutableStateOf(false) }
     val detectedEpisode = remember(title) {
         Regex("(?i)(?:S(\\d{1,2})[ ._-]*E(\\d{1,2})|(\\d{1,2})x(\\d{1,2}))").find(title)
@@ -728,7 +730,7 @@ fun VideoPlayerScreen(
                     enabled = subtitleTranslationAvailable && !subtitleTranslationLoading,
                     onClick = {
                         showMenu = false
-                        viewModel.translateCurrentSubtitleToArabic()
+                        showTranslationLanguages = true
                     }
                 )
                 DropdownMenuItem(
@@ -802,6 +804,46 @@ fun VideoPlayerScreen(
             )
         }
 
+
+        if (showTranslationLanguages) {
+            val sourceLanguages = remember {
+                TranslateLanguage.getAllLanguages()
+                    .filterNot { it == TranslateLanguage.ARABIC }
+                    .sorted()
+            }
+            AlertDialog(
+                onDismissRequest = { showTranslationLanguages = false },
+                title = { Text("اختر لغة الترجمة الأصلية") },
+                text = {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)
+                    ) {
+                        items(sourceLanguages, key = { it }) { languageCode ->
+                            TextButton(
+                                onClick = {
+                                    showTranslationLanguages = false
+                                    viewModel.translateCurrentSubtitleToArabic(languageCode)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !subtitleTranslationLoading
+                            ) {
+                                Text(
+                                    text = java.util.Locale.forLanguageTag(languageCode)
+                                        .getDisplayLanguage(java.util.Locale("ar"))
+                                        .ifBlank { languageCode } + "  ·  " + languageCode,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showTranslationLanguages = false }) {
+                        Text(stringResource(R.string.common_close))
+                    }
+                }
+            )
+        }
 
         if (showOnlineSubtitles) {
             AlertDialog(
