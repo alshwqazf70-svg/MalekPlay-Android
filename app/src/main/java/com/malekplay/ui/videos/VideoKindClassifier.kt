@@ -49,7 +49,7 @@ internal object VideoKindClassifier {
             .find(normalizeDigits("$folderName $folderPath"))?.groupValues?.drop(1)?.firstOrNull { it.isNotBlank() }?.toIntOrNull()
         val season = if (numbers.size == 1) folderSeason ?: 1 else numbers[0].toIntOrNull() ?: folderSeason ?: 1
         val episode = numbers.lastOrNull()?.toIntOrNull() ?: return null
-        val rawSeries = normalized.removeRange(match.range)
+        val rawSeries = normalized.substring(0, match.range.first)
             .replace(Regex("""(?i)\b(1080p|720p|2160p|480p|4k|hevc|x264|x265|web[ ._-]?dl|bluray)\b"""), " ")
             .replace(Regex("""(?i)\.(mkv|mp4|avi|mov|webm|m4v|ts|3gp)$"""), " ")
             .replace(Regex("""[._\-\[\]()]+"""), " ")

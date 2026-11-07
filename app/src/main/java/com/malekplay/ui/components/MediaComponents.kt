@@ -397,10 +397,10 @@ fun MediaGridCard(
     val colors = MaterialTheme.colorScheme
     Column(
         modifier = modifier
-            .shadow(12.dp, shape, ambientColor = Color(0x55A855F7), spotColor = Color(0x22A855F7))
+            .shadow(12.dp, shape, ambientColor = colors.primary.copy(alpha = 0.34f), spotColor = colors.primary.copy(alpha = 0.14f))
             .clip(shape)
             .background(Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface, colors.surfaceContainerLow)))
-            .border(2.dp, Brush.linearGradient(if (isSelected) listOf(colors.onPrimaryContainer, colors.primary) else listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))), shape)
+            .border(2.dp, Brush.linearGradient(if (isSelected) listOf(colors.onPrimaryContainer, colors.primary) else listOf(colors.primary.copy(alpha = 0.54f), colors.outlineVariant.copy(alpha = 0.55f), colors.secondary.copy(alpha = 0.34f))), shape)
     ) {
         Box(
             modifier = Modifier.fillMaxWidth().aspectRatio(0.92f).combinedClickable(onClick = { if (selectionMode) onSelect() else onPlay() }, onLongClick = onSelect)
@@ -444,7 +444,7 @@ fun MediaGridCard(
             }
             Box(
                 modifier = Modifier.align(Alignment.Center).size(48.dp)
-                    .shadow(12.dp, CircleShape, ambientColor = Color(0x99A855F7), spotColor = Color(0x66A855F7))
+                    .shadow(12.dp, CircleShape, ambientColor = colors.primary.copy(alpha = 0.60f), spotColor = colors.primary.copy(alpha = 0.34f))
                     .clip(CircleShape)
                     .background(Brush.linearGradient(listOf(colors.primaryContainer, colors.primary)))
                     .border(1.dp, Color.White.copy(alpha = 0.42f), CircleShape)
@@ -538,7 +538,7 @@ fun FolderRow(
             .border(
                 1.dp,
                 Brush.linearGradient(
-                    listOf(Color(0x77C084FC), Color(0x22FFFFFF), Color(0x557E22CE))
+                    listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.48f), MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), MaterialTheme.colorScheme.secondary.copy(alpha = 0.30f))
                 ),
                 folderShape
             )
@@ -655,7 +655,7 @@ fun EmptyState(
             .border(
                 1.dp,
                 Brush.linearGradient(
-                    listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))
+                    listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.52f), MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.50f), MaterialTheme.colorScheme.secondary.copy(alpha = 0.32f))
                 ),
                 emptyShape
             )
@@ -666,14 +666,14 @@ fun EmptyState(
         Box(
             modifier = Modifier
                 .size(76.dp)
-                .shadow(14.dp, CircleShape, ambientColor = Color(0x55A855F7))
+                .shadow(14.dp, CircleShape, ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f))
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        listOf(Color(0x667E22CE), Color(0x2215101F))
+                        listOf(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f), MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
                     )
                 )
-                .border(1.dp, Color(0x66C084FC), CircleShape),
+                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(

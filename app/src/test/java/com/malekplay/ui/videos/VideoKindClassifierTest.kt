@@ -59,4 +59,26 @@ class VideoKindClassifierTest {
         assertEquals("drama series", numbered?.seriesKey)
         assertEquals(3, numbered?.episode)
     }
+    @Test fun episodeTitlesDoNotSplitOneSeriesIntoDifferentGroups() {
+        val first = VideoKindClassifier.episodeSortKey(
+            "Avatar.The.Last.Airbender.S01E01.The.Boy.In.The.Iceberg.1080p.mkv"
+        )
+        val second = VideoKindClassifier.episodeSortKey(
+            "Avatar.The.Last.Airbender.S01E02.The.Avatar.Returns.1080p.mkv"
+        )
+        assertEquals("avatar the last airbender", first?.seriesKey)
+        assertEquals(first?.seriesKey, second?.seriesKey)
+        assertEquals(1, first?.episode)
+        assertEquals(2, second?.episode)
+    }
+
+    @Test fun usesParentFolderWhenEpisodeMarkerStartsTheFilename() {
+        val episode = VideoKindClassifier.episodeSortKey(
+            "S02E04.The.Return.mkv", "Season 2", "/storage/TV/Avatar/Season 2"
+        )
+        assertEquals("avatar", episode?.seriesKey)
+        assertEquals(2, episode?.season)
+        assertEquals(4, episode?.episode)
+    }
+
 }
