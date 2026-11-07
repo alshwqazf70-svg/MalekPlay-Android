@@ -1,7 +1,9 @@
 import hashlib
 import socket
 import struct
+import tempfile
 import unittest
+from pathlib import Path
 
 from ultra_share_pc import (
     VERSION,
@@ -10,6 +12,7 @@ from ultra_share_pc import (
     derive_pairing_key,
     encode_text,
     get_secret,
+    find_completed_receipt,
     is_lan_ipv4,
     parse_metadata,
     read_frame,
@@ -78,6 +81,38 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             with self.subTest(invalid=invalid):
                 with self.assertRaises(ValueError):
                     get_secret(invalid)
+
+    def test_verified_receipt_prevents_duplicate_receive(self):
+        content = b"already received"
+        digest = hashlib.sha256(content).digest()
+        transfer_id = build_transfer_id("clip.mp4", len(content), digest)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            destination = directory / "clip.mp4"
+            destination.write_bytes(content)
+            (directory / f".ultrashare-{transfer_id}.received").write_text(
+                f"{len(content)}:{digest.hex()}:clip.mp4", encoding="utf-8"
+            )
+            self.assertEqual(
+                destination,
+                find_completed_receipt(directory, transfer_id, len(content), digest),
+            )
+
+    def test_invalid_receipt_is_removed_and_never_trusted(self):
+        content = b"tampered file"
+        expected_digest = hashlib.sha256(b"original file").digest()
+        transfer_id = build_transfer_id("clip.mp4", len(content), expected_digest)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "clip.mp4").write_bytes(content)
+            receipt = directory / f".ultrashare-{transfer_id}.received"
+            receipt.write_text(
+                f"{len(content)}:{expected_digest.hex()}:clip.mp4", encoding="utf-8"
+            )
+            self.assertIsNone(
+                find_completed_receipt(directory, transfer_id, len(content), expected_digest)
+            )
+            self.assertFalse(receipt.exists())
 
     def test_lan_filter_allows_private_and_link_local_only(self):
         self.assertTrue(is_lan_ipv4("192.168.1.20"))
