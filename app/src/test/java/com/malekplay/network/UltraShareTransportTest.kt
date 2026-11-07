@@ -65,7 +65,7 @@ class UltraShareTransportTest {
         assertEquals("video/mp4", UltraShareTransport.sanitizeMimeType(" video/mp4 "))
         assertEquals(
             "application/octet-stream",
-            UltraShareTransport.sanitizeMimeType("video/mp4\\r\\nX-Evil: yes")
+            UltraShareTransport.sanitizeMimeType("video/mp4\r\nX-Evil: yes")
         )
         assertEquals("application/octet-stream", UltraShareTransport.sanitizeMimeType("not a mime type"))
     }
