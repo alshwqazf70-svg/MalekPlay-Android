@@ -523,7 +523,7 @@ fun FolderRow(
             )
             .clickable(onClick = onClick),
         shape = folderShape,
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF17131F))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -628,7 +628,7 @@ fun EmptyState(
             .clip(emptyShape)
             .background(
                 Brush.verticalGradient(
-                    listOf(Color(0xFF21192D), Color(0xFF17131F), Color(0xFF100E16))
+                    listOf(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceContainerLow)
                 )
             )
             .border(
@@ -658,7 +658,7 @@ fun EmptyState(
             Icon(
                 icon,
                 contentDescription = null,
-                tint = Color(0xFFE9D5FF),
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(34.dp)
             )
         }
@@ -666,13 +666,13 @@ fun EmptyState(
         Text(
             title,
             style = MaterialTheme.typography.titleMedium,
-            color = Color(0xFFF8F5FF)
+            color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(Modifier.height(6.dp))
         Text(
             body,
             style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFFB9B1C8)
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         if (actions != null) {
             Spacer(Modifier.height(16.dp))

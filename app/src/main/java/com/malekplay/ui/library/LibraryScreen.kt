@@ -127,7 +127,7 @@ fun LibraryScreen(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(folder?.name ?: "مكتبتي", color = colors.onBackground, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${videos.size} فيديو  •  ${folders.size} مجلد", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.bodySmall)
+                    Text("${videos.size} فيديو  •  ${folders.size} مجلد", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
                 if (folder != null || searching) {
                     HeaderAction(Icons.AutoMirrored.Filled.ArrowBack, "رجوع") {
@@ -173,7 +173,7 @@ fun LibraryScreen(
                         textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.onSurface),
                         decorationBox = { inner ->
                             Box {
-                                if (query.isEmpty()) Text("ابحث عن فيلم أو ملف فيديو...", color = MalekPlayColors.TextMuted)
+                                if (query.isEmpty()) Text("ابحث عن فيلم أو ملف فيديو...", color = colors.onSurfaceVariant)
                                 inner()
                             }
                         }
@@ -192,13 +192,13 @@ fun LibraryScreen(
             if (error != null) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp)
-                        .clip(RoundedCornerShape(14.dp)).background(Color(0xFF321A27))
+                        .clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.errorContainer)
                         .border(1.dp, MalekPlayColors.Ruby.copy(.4f), RoundedCornerShape(14.dp))
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(error ?: "تعذر تحديث المكتبة", color = Color(0xFFFFD8E1), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                    Text("إعادة المحاولة", color = MalekPlayColors.PurpleSoft, fontWeight = FontWeight.Bold,
+                    Text(error ?: "تعذر تحديث المكتبة", color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    Text("إعادة المحاولة", color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { viewModel.refresh() }.padding(6.dp))
                 }
             }
@@ -217,7 +217,7 @@ fun LibraryScreen(
                     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("تصفح المجلدات", color = colors.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.weight(1f))
-                        Text("${folders.size} مجلد", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                        Text("${folders.size} مجلد", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                     }
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 9.dp),
@@ -304,7 +304,7 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = if (selected) MalekPlayColors.PurpleSoft else MalekPlayColors.TextSecondary,
+        Text(label, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelMedium, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
     }
 }
@@ -325,8 +325,8 @@ private fun FolderTile(folder: MediaFolder, onClick: () -> Unit) {
         ) { Icon(Icons.Filled.Folder, null, tint = MalekPlayColors.PurpleBright) }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(folder.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${folder.videoCount} فيديو • ${folder.audioCount} صوت", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+            Text(folder.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${folder.videoCount} فيديو • ${folder.audioCount} صوت", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
         }
     }
 }
@@ -360,10 +360,10 @@ private fun PremiumVideoRow(
         }
         Spacer(Modifier.width(13.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(item.media.displayTitle, color = Color.White, style = MaterialTheme.typography.titleSmall,
+            Text(item.media.displayTitle, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text("${formatDuration(item.media.durationMs)}  •  ${formatFileSize(item.media.sizeBytes)}",
-                color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
             if (item.isInProgress) Text("متابعة المشاهدة • ${(item.fraction * 100).toInt()}%",
                 color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             else if (item.isCompleted) Text("تمت المشاهدة", color = MalekPlayColors.Emerald, style = MaterialTheme.typography.labelSmall)
@@ -414,10 +414,10 @@ private fun EmptyLibrary(searching: Boolean, filter: LibraryFilter, onRefresh: (
             filter == LibraryFilter.WATCHING -> "لا توجد مشاهدة قيد المتابعة"
             filter == LibraryFilter.FAVOURITES -> "قائمة المفضلة فارغة"
             else -> "مكتبتك جاهزة لاستقبال الوسائط"
-        }, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(7.dp))
         Text(if (searching) "جرّب كلمات بحث مختلفة." else "حدّث المكتبة للبحث عن الملفات الجديدة.",
-            color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.bodySmall)
+            color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(15.dp))
         Text("تحديث المكتبة", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold,
             modifier = Modifier.clickable(onClick = onRefresh).padding(10.dp))
