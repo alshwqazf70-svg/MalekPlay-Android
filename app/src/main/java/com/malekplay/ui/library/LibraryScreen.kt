@@ -110,9 +110,10 @@ fun LibraryScreen(
         }
     }
 
+    val colors = MaterialTheme.colorScheme
     Box(
         modifier.fillMaxSize().background(
-            Brush.verticalGradient(listOf(Color(0xFF171020), MalekPlayColors.Background, Color(0xFF09080D)))
+            Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.background, colors.surface))
         )
     ) {
         Box(
@@ -125,7 +126,7 @@ fun LibraryScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(folder?.name ?: "مكتبتي", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(folder?.name ?: "مكتبتي", color = colors.onBackground, fontSize = 25.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("${videos.size} فيديو  •  ${folders.size} مجلد", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.bodySmall)
                 }
                 if (folder != null || searching) {
@@ -169,7 +170,7 @@ fun LibraryScreen(
                     BasicTextField(
                         value = query, onValueChange = { query = it }, modifier = Modifier.weight(1f),
                         singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.onSurface),
                         decorationBox = { inner ->
                             Box {
                                 if (query.isEmpty()) Text("ابحث عن فيلم أو ملف فيديو...", color = MalekPlayColors.TextMuted)
@@ -214,7 +215,7 @@ fun LibraryScreen(
                 }
                 if (folders.isNotEmpty()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("تصفح المجلدات", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                        Text("تصفح المجلدات", color = colors.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.weight(1f))
                         Text("${folders.size} مجلد", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
                     }
