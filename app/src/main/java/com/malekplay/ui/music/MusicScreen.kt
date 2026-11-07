@@ -352,7 +352,7 @@ private fun SongRow(
         Text(
             text = formatDuration(item.media.durationMs),
             style = MaterialTheme.typography.labelMedium,
-            color = MalekPlayColors.TextSecondary
+            color = colors.onSurfaceVariant
         )
         MediaDeleteButton(media = item.media, onDeleted = onDeleted)
         IconButton(onClick = onToggleFavourite) {
