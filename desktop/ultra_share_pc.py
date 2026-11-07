@@ -337,14 +337,6 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
         marker = directory / f".ultrashare-{transfer_id}.meta"
         receipt = directory / f".ultrashare-{transfer_id}.received"
         expected_marker = f"{size}:{expected_digest.hex()}"
-        if not marker.is_file() or marker.read_text("utf-8") != expected_marker:
-            partial.unlink(missing_ok=True)
-            marker.unlink(missing_ok=True)
-            temporary_marker = directory / f".ultrashare-{transfer_id}.meta.tmp"
-            temporary_marker.write_text(expected_marker, encoding="utf-8")
-            temporary_marker.replace(marker)
-        if partial.exists() and partial.stat().st_size > size:
-            partial.unlink()
         # If the previous acknowledgement was lost, confirm the already verified
         # destination instead of creating a second copy of the same file.
         completed: Path | None = None
@@ -374,6 +366,15 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
             write_frame(connection, send_key, nonce_prefix, 1, acknowledgement)
             print(f"\nAlready received and verified: {completed}")
             return completed
+
+        if not marker.is_file() or marker.read_text("utf-8") != expected_marker:
+            partial.unlink(missing_ok=True)
+            marker.unlink(missing_ok=True)
+            temporary_marker = directory / f".ultrashare-{transfer_id}.meta.tmp"
+            temporary_marker.write_text(expected_marker, encoding="utf-8")
+            temporary_marker.replace(marker)
+        if partial.exists() and partial.stat().st_size > size:
+            partial.unlink()
 
         offset = partial.stat().st_size if partial.is_file() else 0
         write_frame(connection, send_key, nonce_prefix, 0, struct.pack(">q", offset))
