@@ -475,14 +475,14 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     receive = sub.add_parser("receive", help="Receive files from Android or another desktop")
-    receive.add_argument("--secret", help="64-character pairing code (prompted if omitted)")
+    receive.add_argument("--secret", help="12-digit pairing code (legacy 64-character hex key also accepted; prompted if omitted)")
     receive.add_argument("--output", type=Path, default=Path("Received"))
     receive.add_argument("--port", type=int, default=DEFAULT_PORT)
     receive.add_argument("--discovery-port", type=int, default=DISCOVERY_PORT)
     receive.add_argument("--name", default=socket.gethostname())
 
     send = sub.add_parser("send", help="Send a file to an Android or desktop receiver")
-    send.add_argument("--secret", help="64-character pairing code (prompted if omitted)")
+    send.add_argument("--secret", help="12-digit pairing code (legacy 64-character hex key also accepted; prompted if omitted)")
     send.add_argument("--host", required=True, help="Receiver's private IPv4 address")
     send.add_argument("--file", required=True, type=Path)
     send.add_argument("--port", type=int, default=DEFAULT_PORT)
