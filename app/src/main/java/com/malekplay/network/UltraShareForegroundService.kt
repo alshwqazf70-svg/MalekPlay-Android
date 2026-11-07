@@ -160,7 +160,8 @@ class UltraShareForegroundService : Service() {
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (failure: Exception) {
-                                // A rejected peer or a dropped connection must not disable the receiver.
+                                // Keep the receiver available after failures, but apply a small
+                                // global backoff so repeated bad pairing attempts cost more time.
                                 publish(
                                     currentState().copy(
                                         receiving = true,
@@ -168,7 +169,7 @@ class UltraShareForegroundService : Service() {
                                         error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)
                                     )
                                 )
-                                kotlinx.coroutines.delay(500)
+                                kotlinx.coroutines.delay(1_500)
                             }
                         }
                     } catch (cancelled: CancellationException) {
