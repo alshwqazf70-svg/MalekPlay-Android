@@ -17,6 +17,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,6 +39,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -82,7 +87,11 @@ fun KidsModeScreen(
                     }
                 },
                 actions = {
-                    if (!enabled) {
+                    if (enabled) {
+                        TextButton(onClick = { showParentDialog = true }) {
+                            Text(stringResource(R.string.kids_parent_access))
+                        }
+                    } else {
                         TextButton(
                             onClick = {
                                 manager.setAllowedMediaIds(selected)
@@ -163,5 +172,40 @@ fun KidsModeScreen(
                 }
             }
         }
+    }
+
+    if (showParentDialog) {
+        AlertDialog(
+            onDismissRequest = { showParentDialog = false; parentPin = ""; pinError = false },
+            title = { Text(stringResource(R.string.kids_parent_access)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.kids_parent_pin_prompt))
+                    OutlinedTextField(
+                        value = parentPin,
+                        onValueChange = { parentPin = it.filter(Char::isDigit).take(8); pinError = false },
+                        label = { Text(stringResource(R.string.kids_pin_hint)) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        singleLine = true
+                    )
+                    if (pinError) Text(stringResource(R.string.kids_pin_wrong), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (manager.disableAfterPin(parentPin)) {
+                        showParentDialog = false
+                        parentPin = ""
+                        onBack()
+                    } else pinError = true
+                }) { Text(stringResource(R.string.kids_parent_exit)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showParentDialog = false; parentPin = "" }) {
+                    Text(stringResource(R.string.lib_cancel))
+                }
+            }
+        )
     }
 }
