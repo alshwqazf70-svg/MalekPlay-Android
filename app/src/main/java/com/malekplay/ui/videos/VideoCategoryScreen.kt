@@ -154,20 +154,20 @@ fun VideoCategoryScreen(
                 ) {
                     Text(
                         text = if (series) "مكتبة المسلسلات" else "مكتبة الأفلام",
-                        color = MalekPlayColors.TextPrimary,
+                        color = colors.onSurface,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = stringResource(R.string.video_category_count, filtered.size),
                         modifier = Modifier.padding(top = 3.dp),
-                        color = MalekPlayColors.PurpleBright,
+                        color = colors.primary,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
                 if (selectionMode) {
-                    androidx.compose.material3.Surface(color = MalekPlayColors.PurpleDeep.copy(alpha = 0.35f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    androidx.compose.material3.Surface(color = colors.primaryContainer.copy(alpha = 0.85f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
                         androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             Text("${selectedMedia.size} ملف محدد", color = MalekPlayColors.TextPrimary, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
                             TextButton(onClick = { selectedMedia.clear() }) { Text("إلغاء") }
