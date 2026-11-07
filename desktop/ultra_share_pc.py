@@ -34,11 +34,26 @@ PROBE = b"MPULTRA_DISCOVER|1"
 OFFER_PREFIX = "MPULTRA_OFFER|1|"
 
 
-def get_secret(value: str | None) -> bytes:
+def get_secret(value: str | None) -> str:
     raw = value or getpass.getpass("Pairing code: ")
-    if len(raw) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in raw):
-        raise ValueError("Pairing code must contain exactly 64 hexadecimal characters.")
-    return bytes.fromhex(raw)
+    is_pin = len(raw) == 12 and raw.isascii() and raw.isdigit()
+    is_legacy_key = len(raw) == 64 and all(
+        ch in "0123456789abcdefABCDEF" for ch in raw
+    )
+    if not (is_pin or is_legacy_key):
+        raise ValueError("Pairing code must be 12 digits (or a legacy 64-character hex key).")
+    return raw
+
+
+def derive_pairing_key(secret: str, challenge: bytes) -> bytes:
+    """Match Android's PBKDF2 PIN derivation; retain legacy hex-key support."""
+    if len(secret) == 12 and secret.isascii() and secret.isdigit():
+        return hashlib.pbkdf2_hmac(
+            "sha256", secret.encode("ascii"), challenge[:16], 210_000, dklen=32
+        )
+    if len(secret) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in secret):
+        return bytes.fromhex(secret)
+    raise ValueError("Invalid Ultra Share pairing code.")
 
 
 def is_lan_ipv4(value: str) -> bool:
@@ -169,7 +184,7 @@ def unique_destination(directory: Path, filename: str) -> Path:
     raise OSError("Could not create a unique destination filename.")
 
 
-def send_once(host: str, port: int, secret: bytes, source: Path) -> None:
+def send_once(host: str, port: int, secret: str, source: Path) -> None:
     size = source.stat().st_size
     if size < 0 or size > MAX_FILE_BYTES:
         raise ValueError("The file size is outside the supported range.")
@@ -189,7 +204,8 @@ def send_once(host: str, port: int, secret: bytes, source: Path) -> None:
         if struct.unpack(">I", recv_exact(sock, 4))[0] != MAGIC:
             raise ValueError("The destination is not a MalekPlay Ultra Share receiver.")
         challenge = recv_exact(sock, 32)
-        proof = hmac.new(secret, challenge, hashlib.sha256).digest()
+        pairing_key = derive_pairing_key(secret, challenge)
+        proof = hmac.new(pairing_key, challenge, hashlib.sha256).digest()
         sock.sendall(proof)
         if recv_exact(sock, 1) != b"\x01":
             raise PermissionError("The receiver rejected the pairing code.")
@@ -248,7 +264,7 @@ def send_once(host: str, port: int, secret: bytes, source: Path) -> None:
         print(f"\\nSent and verified: {filename}")
 
 
-def send_file(host: str, port: int, secret: bytes, source: Path) -> None:
+def send_file(host: str, port: int, secret: str, source: Path) -> None:
     host = private_ipv4(host)
     if not source.is_file():
         raise FileNotFoundError(source)
@@ -263,7 +279,7 @@ def send_file(host: str, port: int, secret: bytes, source: Path) -> None:
             time.sleep(attempt + 1)
 
 
-def receive_one(port: int, secret: bytes, directory: Path) -> Path:
+def receive_one(port: int, secret: str, directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -286,8 +302,9 @@ def receive_one(port: int, secret: bytes, directory: Path) -> Path:
         challenge = secrets.token_bytes(32)
         connection.sendall(challenge)
         supplied = recv_exact(connection, 32)
+        pairing_key = derive_pairing_key(secret, challenge)
         authenticated = hmac.compare_digest(
-            supplied, hmac.new(secret, challenge, hashlib.sha256).digest()
+            supplied, hmac.new(pairing_key, challenge, hashlib.sha256).digest()
         )
         connection.sendall(b"\x01" if authenticated else b"\x00")
         if not authenticated:
@@ -299,9 +316,17 @@ def receive_one(port: int, secret: bytes, directory: Path) -> Path:
 
         metadata = read_frame(connection, receive_key, nonce_prefix, 0, 1024)
         filename, size, _mime, expected_digest = parse_metadata(metadata)
-        transfer_id = hashlib.sha256(f"{filename}:{size}".encode("utf-8")).hexdigest()[:24]
+        name_bytes = filename.encode("utf-8")
+        identity = (
+            struct.pack(">I", len(name_bytes))
+            + name_bytes
+            + struct.pack(">q", size)
+            + expected_digest
+        )
+        transfer_id = hashlib.sha256(identity).digest()[:12].hex()
         partial = directory / f".ultrashare-{transfer_id}.part"
         marker = directory / f".ultrashare-{transfer_id}.meta"
+        receipt = directory / f".ultrashare-{transfer_id}.received"
         expected_marker = f"{size}:{expected_digest.hex()}"
         if not marker.is_file() or marker.read_text("utf-8") != expected_marker:
             partial.unlink(missing_ok=True)
@@ -311,6 +336,31 @@ def receive_one(port: int, secret: bytes, directory: Path) -> Path:
             temporary_marker.replace(marker)
         if partial.exists() and partial.stat().st_size > size:
             partial.unlink()
+        # If the previous acknowledgement was lost, confirm the already verified
+        # destination instead of creating a second copy of the same file.
+        if receipt.is_file():
+            try:
+                receipt_size, receipt_digest, receipt_name = receipt.read_text("utf-8").split(":", 2)
+                completed = directory / safe_name(receipt_name)
+                if (
+                    int(receipt_size) == size
+                    and receipt_digest == expected_digest.hex()
+                    and completed.is_file()
+                    and completed.stat().st_size == size
+                    and hmac.compare_digest(hash_file(completed), expected_digest)
+                ):
+                    write_frame(connection, send_key, nonce_prefix, 0, struct.pack(">q", size))
+                    end = read_frame(connection, receive_key, nonce_prefix, 1, 64)
+                    if end:
+                        raise ValueError("Invalid end-of-transfer frame.")
+                    acknowledgement = b"\x01" + encode_text("File already received and verified.", 512)
+                    write_frame(connection, send_key, nonce_prefix, 1, acknowledgement)
+                    print(f"\nAlready received and verified: {completed}")
+                    return completed
+            except (OSError, ValueError):
+                pass
+            receipt.unlink(missing_ok=True)
+
         offset = partial.stat().st_size if partial.is_file() else 0
         write_frame(connection, send_key, nonce_prefix, 0, struct.pack(">q", offset))
 
@@ -337,7 +387,18 @@ def receive_one(port: int, secret: bytes, directory: Path) -> Path:
         final_path: Path | None = None
         if verified:
             final_path = unique_destination(directory, filename)
-            partial.replace(final_path)
+            receipt_temp = directory / f".ultrashare-{transfer_id}.received.tmp"
+            receipt_content = f"{size}:{expected_digest.hex()}:{final_path.name}"
+            with receipt_temp.open("w", encoding="utf-8") as receipt_stream:
+                receipt_stream.write(receipt_content)
+                receipt_stream.flush()
+                os.fsync(receipt_stream.fileno())
+            receipt_temp.replace(receipt)
+            try:
+                partial.replace(final_path)
+            except OSError:
+                receipt.unlink(missing_ok=True)
+                raise
             marker.unlink(missing_ok=True)
         else:
             partial.unlink(missing_ok=True)
