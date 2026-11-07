@@ -71,6 +71,23 @@ class UltraShareTransportTest {
     }
 
     @Test
+    fun resumeIdentitySeparatesDifferentContentWithSameNameAndSize() {
+        val firstDigest = ByteArray(32) { 1 }
+        val secondDigest = ByteArray(32) { 2 }
+        val first = UltraShareTransport.buildTransferId("movie.mp4", 4096L, firstDigest)
+        val sameContent = UltraShareTransport.buildTransferId("movie.mp4", 4096L, firstDigest)
+        val differentContent = UltraShareTransport.buildTransferId("movie.mp4", 4096L, secondDigest)
+
+        assertEquals(first, sameContent)
+        assertFalse(first == differentContent)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun resumeIdentityRejectsInvalidDigestLength() {
+        UltraShareTransport.buildTransferId("movie.mp4", 4096L, ByteArray(31))
+    }
+
+    @Test
     fun privateLanHostValidationRejectsNonLocalTargets() {
         assertTrue(UltraShareTransport.isValidPrivateLanHost("192.168.1.25"))
         assertTrue(UltraShareTransport.isValidPrivateLanHost("10.0.0.8"))
