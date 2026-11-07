@@ -167,7 +167,7 @@ fun VideoCategoryScreen(
                 if (selectionMode) {
                     androidx.compose.material3.Surface(color = colors.primaryContainer.copy(alpha = 0.85f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
                         androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Text("${selectedMedia.size} ملف محدد", color = MalekPlayColors.TextPrimary, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                            Text("${selectedMedia.size} ملف محدد", color = colors.onPrimaryContainer, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
                             TextButton(onClick = { selectedMedia.clear() }) { Text("إلغاء") }
                             TextButton(onClick = { onSendMedia(filtered.filter { it.media.uri in selectedMedia }.map { it.media }) }) { Text("إرسال المحدد") }
                         }

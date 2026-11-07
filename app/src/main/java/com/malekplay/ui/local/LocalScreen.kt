@@ -94,6 +94,7 @@ fun LocalScreen(
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val colors = MaterialTheme.colorScheme
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val folders by viewModel.folders.collectAsStateWithLifecycle()
     val videos by viewModel.videos.collectAsStateWithLifecycle()
@@ -189,7 +190,7 @@ fun LocalScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color(0xFF191323), MalekPlayColors.Background, Color(0xFF07060C))
+                    listOf(colors.surfaceContainerHigh, colors.background, colors.surface)
                 )
             )
             .padding(contentPadding)
@@ -363,9 +364,9 @@ fun LocalScreen(
         }
 
         if (selectionMode) {
-            Surface(color = MalekPlayColors.PurpleDeep.copy(alpha = 0.38f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
+            Surface(color = colors.primaryContainer, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${selectedUris.size} ملف محدد", modifier = Modifier.weight(1f), color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                    Text("${selectedUris.size} ملف محدد", modifier = Modifier.weight(1f), color = colors.onPrimaryContainer, fontWeight = FontWeight.Bold)
                     TextButton(onClick = { selectedUris.clear() }) { Text("إلغاء") }
                     TextButton(onClick = {
                         val selected = (searchResults + sortedVideos + sortedAudio).distinctBy { it.media.uri }.filter { it.media.uri in selectedUris }.map { it.media }
