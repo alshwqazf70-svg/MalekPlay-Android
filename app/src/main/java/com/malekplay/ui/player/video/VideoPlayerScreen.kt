@@ -109,6 +109,8 @@ import com.malekplay.domain.model.EqualizerPreset
 import com.malekplay.domain.model.GestureAction
 import com.malekplay.domain.model.MediaItem as DomainMedia
 import com.malekplay.ui.player.PlayerViewModel
+import com.malekplay.ui.videos.VideoKindClassifier
+import com.malekplay.ui.videos.EpisodeSortKey
 import com.malekplay.ui.player.components.EqualizerSheet
 import com.malekplay.ui.player.components.GestureIndicator
 import com.malekplay.ui.player.components.PlayerCenterControls
@@ -242,13 +244,31 @@ fun VideoPlayerScreen(
         if (!resolved || controller == null) return@LaunchedEffect
         val item = media
         if (item != null) {
-            // Keep the complete local video library in Media3's queue so
-            // next/previous controls and automatic transitions work.
+            // Series playback stays inside the same show and follows numeric
+            // season/episode order; movies retain the normal library queue.
             val videoQueue = viewModel.loadVideoQueue()
-            val selectedIndex = videoQueue.indexOfFirst { it.id == item.id }
+            val selectedEpisode = VideoKindClassifier.episodeSortKey(
+                item.displayTitle, item.folderName, item.folderPath
+            )
+            val playbackQueue = if (selectedEpisode != null) {
+                videoQueue.mapNotNull { candidate ->
+                    val key = VideoKindClassifier.episodeSortKey(
+                        candidate.displayTitle, candidate.folderName, candidate.folderPath
+                    )
+                    if (key?.seriesKey == selectedEpisode.seriesKey) candidate to key else null
+                }.sortedWith(
+                    compareBy<Pair<DomainMedia, EpisodeSortKey>>(
+                        { it.second.season },
+                        { it.second.episode }
+                    )
+                ).map { it.first }
+            } else {
+                videoQueue
+            }
+            val selectedIndex = playbackQueue.indexOfFirst { it.id == item.id }
             if (selectedIndex >= 0) {
                 viewModel.playQueue(
-                    items = videoQueue,
+                    items = playbackQueue,
                     startIndex = selectedIndex,
                     startPositionMs = resumeMs,
                     speed = resumeSpeed
