@@ -224,7 +224,7 @@ fun MalekPlayNavHost(
                 MusicScreen(
                     onOpenMedia = { item -> navController.openMedia(item) },
                     contentPadding = padding,
-                    onSendMedia = openTransferForMedia
+                    onSendMedia = { media -> openTransferForUris(media.map { it.uri }) }
                 )
             }
 
