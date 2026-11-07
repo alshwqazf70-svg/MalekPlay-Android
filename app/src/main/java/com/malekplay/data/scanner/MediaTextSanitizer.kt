@@ -13,7 +13,8 @@ internal fun chooseMediaDisplayName(metadataTitle: String, fileName: String): St
     val fallback = rawFileName.substringBeforeLast('.', rawFileName).trim()
 
     return when {
-        metadata.isNotEmpty() && !isLikelyCorruptedMediaText(metadata) -> metadata
+        metadata.isNotEmpty() && !isPlaceholderMediaTitle(metadata) &&
+            !isLikelyCorruptedMediaText(metadata) -> metadata
         fallback.isNotEmpty() && !isLikelyCorruptedMediaText(fallback) -> fallback
         metadata.isNotEmpty() -> metadata
         fallback.isNotEmpty() -> fallback
@@ -27,3 +28,7 @@ internal fun isLikelyCorruptedMediaText(value: String): Boolean {
     return questionMarks >= 2 &&
         questionMarks.toDouble() / value.length.coerceAtLeast(1) >= 0.20
 }
+
+/** MediaStore occasionally supplies a generic tag even when the filename is descriptive. */
+internal fun isPlaceholderMediaTitle(value: String): Boolean =
+    value.trim().lowercase() in setOf("unknown", "untitled", "no title", "(unknown)")

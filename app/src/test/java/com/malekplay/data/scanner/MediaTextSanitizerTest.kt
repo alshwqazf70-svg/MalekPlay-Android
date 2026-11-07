@@ -31,6 +31,17 @@ class MediaTextSanitizerTest {
     }
 
     @Test
+    fun genericMetadataTitleFallsBackToDescriptiveFilename() {
+        assertEquals("يا حبيبي", chooseMediaDisplayName("Unknown", "يا حبيبي.mp3"))
+        assertEquals("Live Concert", chooseMediaDisplayName("No Title", "Live Concert.mp4"))
+    }
+
+    @Test
+    fun meaningfulTitleContainingUnknownIsPreserved() {
+        assertEquals("Unknown Pleasures", chooseMediaDisplayName("Unknown Pleasures", "track.mp3"))
+    }
+
+    @Test
     fun ordinaryQuestionMarkIsNotAutomaticallyRejected() {
         assertEquals("Who?", chooseMediaDisplayName("Who?", "track.mp3"))
     }
