@@ -59,6 +59,10 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         challenge = bytes(range(32))
         self.assertEqual(pin, get_secret(pin))
         self.assertEqual(
+            "556b0f717d241f6ef78a6cc439154edfbb1e2d23e05b91f40494d5b56a375182",
+            derive_pairing_key(pin, challenge).hex(),
+        )
+        self.assertEqual(
             hashlib.pbkdf2_hmac("sha256", pin.encode("ascii"), challenge[:16], 210_000, dklen=32),
             derive_pairing_key(pin, challenge),
         )
