@@ -63,7 +63,6 @@ import com.malekplay.ui.components.PlaylistPickerDialog
 import kotlinx.coroutines.flow.Flow
 
 private enum class LibraryFilter { ALL, WATCHING, FAVOURITES }
-private val Neon = MalekPlayColors.NeonPurple
 
 @Composable
 fun LibraryScreen(
@@ -118,7 +117,7 @@ fun LibraryScreen(
     ) {
         Box(
             Modifier.align(Alignment.TopEnd).size(240.dp)
-                .background(Brush.radialGradient(listOf(Neon.copy(.16f), Color.Transparent)), CircleShape)
+                .background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(.16f), Color.Transparent)), CircleShape)
         )
         Column(Modifier.fillMaxSize()) {
             Row(
@@ -165,7 +164,7 @@ fun LibraryScreen(
                         .padding(horizontal = 14.dp, vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.Search, null, tint = MalekPlayColors.PurpleBright)
+                    Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(10.dp))
                     BasicTextField(
                         value = query, onValueChange = { query = it }, modifier = Modifier.weight(1f),
@@ -187,7 +186,7 @@ fun LibraryScreen(
 
             if (refreshing) LinearProgressIndicator(
                 Modifier.fillMaxWidth().height(2.dp),
-                color = Neon, trackColor = Color.Transparent
+                color = MaterialTheme.colorScheme.primary, trackColor = Color.Transparent
             )
             if (error != null) {
                 Row(
@@ -304,8 +303,8 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
     val glass = Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface))
     Row(
         Modifier.clip(CircleShape)
-            .then(if (selected) Modifier.background(Neon.copy(.20f)) else Modifier.background(glass))
-            .border(1.dp, if (selected) Neon.copy(.75f) else MaterialTheme.colorScheme.outlineVariant, CircleShape)
+            .then(if (selected) Modifier.background(MaterialTheme.colorScheme.primary.copy(.20f)) else Modifier.background(glass))
+            .border(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(.75f) else MaterialTheme.colorScheme.outlineVariant, CircleShape)
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -327,10 +326,10 @@ private fun FolderTile(folder: MediaFolder, onClick: () -> Unit) {
     ) {
         Box(
             Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
-                .background(MalekPlayColors.PurpleDeep.copy(.25f))
-                .border(1.dp, Neon.copy(.35f), RoundedCornerShape(13.dp)),
+                .background(MaterialTheme.colorScheme.primaryContainer.copy(.25f))
+                .border(1.dp, MaterialTheme.colorScheme.primary.copy(.35f), RoundedCornerShape(13.dp)),
             contentAlignment = Alignment.Center
-        ) { Icon(Icons.Filled.Folder, null, tint = MalekPlayColors.PurpleBright) }
+        ) { Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary) }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(folder.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -366,7 +365,7 @@ private fun PremiumVideoRow(
             if (item.isInProgress) LinearProgressIndicator(
                 progress = { item.fraction },
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp),
-                color = Neon, trackColor = Color.White.copy(.2f)
+                color = MaterialTheme.colorScheme.primary, trackColor = Color.White.copy(.2f)
             )
         }
         Spacer(Modifier.width(13.dp))
@@ -376,7 +375,7 @@ private fun PremiumVideoRow(
             Text("${formatDuration(item.media.durationMs)}  •  ${formatFileSize(item.media.sizeBytes)}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
             if (item.isInProgress) Text("متابعة المشاهدة • ${(item.fraction * 100).toInt()}%",
-                color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             else if (item.isCompleted) Text("تمت المشاهدة", color = MalekPlayColors.Emerald, style = MaterialTheme.typography.labelSmall)
         }
         Box(
@@ -389,7 +388,7 @@ private fun PremiumVideoRow(
             Icon(
                 Icons.Filled.PlaylistAdd,
                 contentDescription = "إضافة إلى قائمة التشغيل",
-                tint = MalekPlayColors.PurpleBright,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -403,7 +402,7 @@ private fun PremiumVideoRow(
             Icon(
                 Icons.Filled.Favorite,
                 contentDescription = if (item.isFavourite) "إزالة من المفضلة" else "إضافة إلى المفضلة",
-                tint = if (item.isFavourite) Color(0xFFFF6B9D) else MalekPlayColors.TextMuted,
+                tint = if (item.isFavourite) Color(0xFFFF6B9D) else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(19.dp)
             )
         }
@@ -414,10 +413,10 @@ private fun PremiumVideoRow(
 @Composable
 private fun EmptyLibrary(searching: Boolean, filter: LibraryFilter, onRefresh: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Box(Modifier.size(76.dp).clip(CircleShape).background(Neon.copy(.17f))
-            .border(1.dp, Neon.copy(.4f), CircleShape), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(76.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(.17f))
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(.4f), CircleShape), contentAlignment = Alignment.Center) {
             Icon(if (filter == LibraryFilter.FAVOURITES) Icons.Filled.Favorite else Icons.Filled.Folder,
-                null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(34.dp))
+                null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp))
         }
         Spacer(Modifier.height(16.dp))
         Text(when {
@@ -430,7 +429,7 @@ private fun EmptyLibrary(searching: Boolean, filter: LibraryFilter, onRefresh: (
         Text(if (searching) "جرّب كلمات بحث مختلفة." else "حدّث المكتبة للبحث عن الملفات الجديدة.",
             color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(15.dp))
-        Text("تحديث المكتبة", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold,
+        Text("تحديث المكتبة", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold,
             modifier = Modifier.clickable(onClick = onRefresh).padding(10.dp))
     }
 }
