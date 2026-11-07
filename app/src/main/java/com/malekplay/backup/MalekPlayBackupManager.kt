@@ -12,11 +12,15 @@ import com.malekplay.domain.model.PlayerSettings
 import com.malekplay.domain.model.SortMode
 import com.malekplay.domain.model.ViewMode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
+import java.io.InputStream
+import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -26,6 +30,37 @@ import dagger.hilt.android.qualifiers.ApplicationContext
  * Missing or malformed sections must never be interpreted as empty collections,
  * because that could silently erase the user's existing favourites and playlists.
  */
+/**
+ * Reads a document-provider stream with a hard byte limit and cooperative cancellation.
+ * A zero-length bulk read is handled with a single-byte read to guarantee progress.
+ */
+internal suspend fun readBoundedBackupBytes(
+    input: InputStream,
+    maxBytes: Int
+): ByteArray {
+    require(maxBytes > 0) { "Backup size limit must be positive" }
+    val buffer = ByteArray(8192)
+    val output = ByteArrayOutputStream()
+    var total = 0
+    while (true) {
+        currentCoroutineContext().ensureActive()
+        val count = input.read(buffer)
+        if (count < 0) break
+        if (count == 0) {
+            val single = input.read()
+            if (single < 0) break
+            total++
+            require(total <= maxBytes) { "Backup file exceeds the size limit" }
+            output.write(single)
+            continue
+        }
+        total += count
+        require(total <= maxBytes) { "Backup file exceeds the size limit" }
+        output.write(buffer, 0, count)
+    }
+    return output.toByteArray()
+}
+
 internal data class ValidatedBackupCollections(
     val favourites: JSONArray,
     val playlists: JSONArray,
@@ -143,27 +178,7 @@ class MalekPlayBackupManager @Inject constructor(
         val input = context.contentResolver.openInputStream(source)
             ?: error("Could not open the backup file")
         val bytes = input.use { stream ->
-            val buffer = ByteArray(8192)
-            val out = java.io.ByteArrayOutputStream()
-            var total = 0
-            while (true) {
-                val count = stream.read(buffer)
-                if (count < 0) break
-                if (count == 0) {
-                    // Some document providers can return zero without EOF.
-                    // Force one-byte progress rather than spinning forever.
-                    val single = stream.read()
-                    if (single < 0) break
-                    total++
-                    require(total <= MAX_BACKUP_BYTES) { "Backup file exceeds the size limit" }
-                    out.write(single)
-                    continue
-                }
-                total += count
-                require(total <= MAX_BACKUP_BYTES) { "Backup file exceeds the size limit" }
-                out.write(buffer, 0, count)
-            }
-            out.toByteArray()
+            readBoundedBackupBytes(stream, MAX_BACKUP_BYTES)
         }
 
         val root = JSONObject(String(bytes, StandardCharsets.UTF_8))

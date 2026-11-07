@@ -5,6 +5,9 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import kotlinx.coroutines.runBlocking
+import java.io.ByteArrayInputStream
+import java.io.InputStream
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
@@ -66,4 +69,32 @@ class MalekPlayBackupManagerTest {
             validateBackupCollections(backup)
         }
     }
+    @Test
+    fun boundedBackupReaderHandlesProvidersThatReturnZero() = runBlocking {
+        val delegate = ByteArrayInputStream(byteArrayOf(4, 5, 6))
+        val source = object : InputStream() {
+            private var first = true
+            override fun read(): Int = delegate.read()
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (first) {
+                    first = false
+                    return 0
+                }
+                return delegate.read(buffer, offset, length)
+            }
+        }
+        assertEquals(listOf<Byte>(4, 5, 6), readBoundedBackupBytes(source, 3).toList())
+    }
+
+    @Test
+    fun boundedBackupReaderAcceptsExactLimitAndRejectsOversizedInput() = runBlocking {
+        assertEquals(4, readBoundedBackupBytes(ByteArrayInputStream(ByteArray(4)), 4).size)
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking {
+                readBoundedBackupBytes(ByteArrayInputStream(ByteArray(5)), 4)
+            }
+        }
+    }
+
+
 }

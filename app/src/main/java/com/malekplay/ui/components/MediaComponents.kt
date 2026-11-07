@@ -255,14 +255,14 @@ fun MediaThumbnail(
             Box(
                 modifier = Modifier
                     .size(62.dp)
-                    .shadow(10.dp, CircleShape, ambientColor = Color(0x55A855F7))
+                    .shadow(10.dp, CircleShape, ambientColor = colors.primary.copy(alpha = 0.34f))
                     .clip(CircleShape)
                     .background(
                         Brush.radialGradient(
-                            listOf(Color(0x667E22CE), Color(0x2215101F))
+                            listOf(colors.primaryContainer.copy(alpha = 0.78f), colors.surface.copy(alpha = 0.92f))
                         )
                     )
-                    .border(1.dp, Color(0x66C084FC), CircleShape),
+                    .border(1.dp, colors.primary.copy(alpha = 0.55f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
