@@ -127,6 +127,37 @@ class UltraShareQueueStoreTest {
     }
 
     @Test
+    fun failedQueueEntryCanBeDismissedWithoutClearingOtherPendingFiles() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val failedUri = Uri.parse("content://malekplay.test/document/failed-to-dismiss")
+        val pendingUri = Uri.parse("content://malekplay.test/document/still-pending")
+        UltraShareQueueStore.clear(context)
+        try {
+            UltraShareQueueStore.replace(context, listOf(failedUri, pendingUri))
+            UltraShareQueueStore.update(
+                context,
+                failedUri,
+                status = UltraShareQueueStore.STATUS_FAILED,
+                error = "temporary network failure"
+            )
+
+            UltraShareQueueStore.skip(context, failedUri)
+
+            val entries = UltraShareQueueStore.observe(context).first()
+            assertEquals(
+                UltraShareQueueStore.STATUS_SKIPPED,
+                entries.first { it.uri == failedUri.toString() }.status
+            )
+            assertEquals(
+                listOf(pendingUri.toString()),
+                UltraShareQueueStore.pending(context).map { it.uri }
+            )
+        } finally {
+            UltraShareQueueStore.clear(context)
+        }
+    }
+
+    @Test
     fun enqueuePreservesOlderHistoryAndResetsOnlyRequeuedUri() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val oldUri = Uri.parse("content://malekplay.test/document/old")
