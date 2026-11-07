@@ -210,8 +210,8 @@ def send_once(host: str, port: int, secret: str, source: Path) -> None:
         if recv_exact(sock, 1) != b"\x01":
             raise PermissionError("The receiver rejected the pairing code.")
         nonce_prefix = recv_exact(sock, 4)
-        send_key = derive_key(secret, challenge, "client-to-server")
-        receive_key = derive_key(secret, challenge, "server-to-client")
+        send_key = derive_key(pairing_key, challenge, "client-to-server")
+        receive_key = derive_key(pairing_key, challenge, "server-to-client")
 
         metadata = (
             struct.pack(">H", VERSION)
@@ -311,8 +311,8 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
             raise PermissionError("Pairing authentication failed.")
         nonce_prefix = secrets.token_bytes(4)
         connection.sendall(nonce_prefix)
-        receive_key = derive_key(secret, challenge, "client-to-server")
-        send_key = derive_key(secret, challenge, "server-to-client")
+        receive_key = derive_key(pairing_key, challenge, "client-to-server")
+        send_key = derive_key(pairing_key, challenge, "server-to-client")
 
         metadata = read_frame(connection, receive_key, nonce_prefix, 0, 1024)
         filename, size, _mime, expected_digest = parse_metadata(metadata)
