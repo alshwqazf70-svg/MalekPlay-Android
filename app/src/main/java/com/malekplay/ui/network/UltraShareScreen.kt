@@ -385,7 +385,9 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun skipQueuedFile(entry: UltraShareQueueEntry) {
-        if (entry.status != UltraShareQueueStore.STATUS_PENDING) return
+        if (entry.status != UltraShareQueueStore.STATUS_PENDING &&
+            entry.status != UltraShareQueueStore.STATUS_FAILED
+        ) return
         viewModelScope.launch {
             UltraShareQueueStore.skip(context, entry.parsedUri)
         }
@@ -939,11 +941,15 @@ fun UltraShareScreen(
                                             )
                                         }
                                     }
-                                if (entry.status == UltraShareQueueStore.STATUS_PENDING) {
+                                if (entry.status == UltraShareQueueStore.STATUS_PENDING ||
+                                    entry.status == UltraShareQueueStore.STATUS_FAILED
+                                ) {
                                     TextButton(
                                         onClick = { viewModel.skipQueuedFile(entry) },
                                         enabled = true
-                                    ) { Text("تخطّي") }
+                                    ) {
+                                        Text(if (entry.status == UltraShareQueueStore.STATUS_FAILED) "إزالة" else "تخطّي")
+                                    }
                                 }
                                     if (entry.status == UltraShareQueueStore.STATUS_FAILED) {
                                         TextButton(onClick = { viewModel.retryFile(entry, host.trim(), secret.trim()) }, enabled = !state.sending && !state.receiving && host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)) {
