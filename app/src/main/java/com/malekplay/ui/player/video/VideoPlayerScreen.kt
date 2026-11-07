@@ -111,6 +111,7 @@ import com.malekplay.domain.model.EqualizerPreset
 import com.malekplay.domain.model.GestureAction
 import com.malekplay.domain.model.MediaItem as DomainMedia
 import com.malekplay.ui.player.PlayerViewModel
+import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.videos.VideoKindClassifier
 import com.malekplay.ui.videos.EpisodeSortKey
 import com.malekplay.ui.player.components.EqualizerSheet
@@ -163,6 +164,7 @@ fun VideoPlayerScreen(
     settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val parentalControl = remember(context) { ParentalControlManager(context) }
     val externalSubtitlePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
         onResult = { uri ->
@@ -247,7 +249,10 @@ fun VideoPlayerScreen(
         if (item != null) {
             // Series playback stays inside the same show and follows numeric
             // season/episode order; movies retain the normal library queue.
-            val videoQueue = viewModel.loadVideoQueue()
+            val discoveredQueue = viewModel.loadVideoQueue()
+            val videoQueue = if (parentalControl.isEnabled) {
+                discoveredQueue.filter { parentalControl.isMediaAllowed(it.id) }
+            } else discoveredQueue
             val selectedEpisode = VideoKindClassifier.episodeSortKey(
                 item.displayTitle, item.folderName, item.folderPath
             )
