@@ -64,8 +64,6 @@ import kotlinx.coroutines.flow.Flow
 
 private enum class LibraryFilter { ALL, WATCHING, FAVOURITES }
 private val Neon = MalekPlayColors.NeonPurple
-private val Glass = Brush.verticalGradient(listOf(Color.White.copy(.09f), Color.White.copy(.025f)))
-private val GlassStroke = Brush.linearGradient(listOf(MalekPlayColors.PurpleBright.copy(.5f), Color.White.copy(.1f), MalekPlayColors.PurpleDeep.copy(.3f)))
 
 @Composable
 fun LibraryScreen(
@@ -111,6 +109,8 @@ fun LibraryScreen(
     }
 
     val colors = MaterialTheme.colorScheme
+    val glass = Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface))
+    val glassStroke = Brush.linearGradient(listOf(colors.primary.copy(alpha = .45f), colors.outlineVariant, colors.secondary.copy(alpha = .25f)))
     Box(
         modifier.fillMaxSize().background(
             Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.background, colors.surface))
@@ -160,8 +160,8 @@ fun LibraryScreen(
             if (searching) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(16.dp)).background(Glass)
-                        .border(1.dp, GlassStroke, RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(16.dp)).background(glass)
+                        .border(1.dp, glassStroke, RoundedCornerShape(16.dp))
                         .padding(horizontal = 14.dp, vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -179,7 +179,7 @@ fun LibraryScreen(
                         }
                     )
                     if (query.isNotEmpty()) {
-                        Icon(Icons.Filled.Close, "مسح", tint = MalekPlayColors.TextSecondary,
+                        Icon(Icons.Filled.Close, "مسح", tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.clickable { query = "" })
                     }
                 }
@@ -286,21 +286,26 @@ fun LibraryScreen(
 
 @Composable
 private fun HeaderAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val glass = Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface))
+    val glassStroke = Brush.linearGradient(listOf(colors.primary.copy(alpha = .45f), colors.outlineVariant, colors.secondary.copy(alpha = .25f)))
     Box(
-        Modifier.padding(start = 5.dp).size(37.dp).clip(CircleShape).background(Glass)
-            .border(1.dp, GlassStroke, CircleShape).clickable(onClick = onClick),
+        Modifier.padding(start = 5.dp).size(37.dp).clip(CircleShape).background(glass)
+            .border(1.dp, glassStroke, CircleShape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, label, tint = MalekPlayColors.TextPrimary, modifier = Modifier.size(18.dp))
+        Icon(icon, label, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
     }
 }
 
 @Composable
 private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val glass = Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface))
     Row(
         Modifier.clip(CircleShape)
-            .then(if (selected) Modifier.background(Neon.copy(.20f)) else Modifier.background(Glass))
-            .border(1.dp, if (selected) Neon.copy(.75f) else Color.White.copy(alpha = 0.12f), CircleShape)
+            .then(if (selected) Modifier.background(Neon.copy(.20f)) else Modifier.background(glass))
+            .border(1.dp, if (selected) Neon.copy(.75f) else MaterialTheme.colorScheme.outlineVariant, CircleShape)
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -311,9 +316,12 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun FolderTile(folder: MediaFolder, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val glass = Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface))
+    val glassStroke = Brush.linearGradient(listOf(colors.primary.copy(alpha = .45f), colors.outlineVariant, colors.secondary.copy(alpha = .25f)))
     Row(
-        Modifier.width(190.dp).animateContentSize().clip(RoundedCornerShape(17.dp)).background(Glass)
-            .border(1.dp, GlassStroke, RoundedCornerShape(17.dp))
+        Modifier.width(190.dp).animateContentSize().clip(RoundedCornerShape(17.dp)).background(glass)
+            .border(1.dp, glassStroke, RoundedCornerShape(17.dp))
             .clickable(onClick = onClick).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -339,9 +347,12 @@ private fun PremiumVideoRow(
     onAddToPlaylist: () -> Unit,
     onDeleted: () -> Unit
 ) {
+    val colors = MaterialTheme.colorScheme
+    val glass = Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface))
+    val glassStroke = Brush.linearGradient(listOf(colors.primary.copy(alpha = .45f), colors.outlineVariant, colors.secondary.copy(alpha = .25f)))
     Row(
-        Modifier.fillMaxWidth().animateContentSize().clip(RoundedCornerShape(19.dp)).background(Glass)
-            .border(1.dp, GlassStroke, RoundedCornerShape(19.dp))
+        Modifier.fillMaxWidth().animateContentSize().clip(RoundedCornerShape(19.dp)).background(glass)
+            .border(1.dp, glassStroke, RoundedCornerShape(19.dp))
             .clickable(onClick = onClick).padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
