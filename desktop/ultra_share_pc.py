@@ -19,6 +19,7 @@ import struct
 import sys
 import threading
 import time
+import unicodedata
 from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -134,7 +135,9 @@ def safe_name(raw: str) -> str:
     name = raw.replace("\\", "/").split("/")[-1]
     name = "".join(
         ch for ch in name
-        if ord(ch) >= 32 and ch != "\x7f" and ch not in ':*?"<>|'
+        if not (ord(ch) < 32 or 127 <= ord(ch) <= 159)
+        and unicodedata.category(ch) != "Cf"
+        and ch not in ':*?"<>|'
     ).strip().strip(".")
     while len(name.encode("utf-8")) > 180:
         name = name[:-1]
