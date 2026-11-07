@@ -210,6 +210,16 @@ def find_completed_receipt(
     return None
 
 
+def read_resume_marker(marker: Path) -> str | None:
+    """Treat unreadable resume metadata as stale, untrusted state."""
+    if not marker.is_file():
+        return None
+    try:
+        return marker.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
 def unique_destination(directory: Path, filename: str) -> Path:
     original = directory / filename
     if not original.exists():
@@ -374,7 +384,9 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
             print(f"\nAlready received and verified: {completed}")
             return completed
 
-        if not marker.is_file() or marker.read_text("utf-8") != expected_marker:
+        if read_resume_marker(marker) != expected_marker:
+            # An unreadable or damaged sidecar must not trap the receiver in a
+            # permanent retry loop. Discard the untrusted partial and rebuild it.
             partial.unlink(missing_ok=True)
             marker.unlink(missing_ok=True)
             temporary_marker = directory / f".ultrashare-{transfer_id}.meta.tmp"
