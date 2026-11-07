@@ -47,6 +47,9 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -113,6 +116,11 @@ fun MalekPlayNavHost(
     val currentItemId by playerViewModel.currentItemId.collectAsStateWithLifecycle()
     val currentMediaItem = androidx.compose.runtime.remember(playerController, currentItemId) {
         playerController?.currentMediaItem
+    }
+    var pendingTransferUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    val openTransferForMedia: (MediaItem) -> Unit = { media ->
+        pendingTransferUris = listOf(media.uri)
+        navController.navigate(Screen.UltraShare.route)
     }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -195,17 +203,18 @@ fun MalekPlayNavHost(
             }
 
             composable(Screen.Movies.route) {
-                VideoCategoryScreen(series = false, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) })
+                VideoCategoryScreen(series = false, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) }, onSendMedia = openTransferForMedia)
             }
 
             composable(Screen.Series.route) {
-                VideoCategoryScreen(series = true, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) })
+                VideoCategoryScreen(series = true, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) }, onSendMedia = openTransferForMedia)
             }
 
             composable(Screen.Local.route) {
                 LocalScreen(
                     onOpenMedia = { item -> navController.openMedia(item) },
                     onOpenFolder = { path -> navController.navigate(Screen.Folder.create(path)) },
+                    onSendMedia = openTransferForMedia,
                     onOpenSettings = { navController.navigate(Screen.Settings.route) },
                     contentPadding = padding
                 )
@@ -214,7 +223,8 @@ fun MalekPlayNavHost(
             composable(Screen.Music.route) {
                 MusicScreen(
                     onOpenMedia = { item -> navController.openMedia(item) },
-                    contentPadding = padding
+                    contentPadding = padding,
+                    onSendMedia = openTransferForMedia
                 )
             }
 
@@ -229,7 +239,8 @@ fun MalekPlayNavHost(
             composable(Screen.UltraShare.route) {
                 UltraShareScreen(
                     contentPadding = padding,
-                    onBack = { navController.popBackStack() }
+                    onBack = { pendingTransferUris = emptyList(); navController.popBackStack() },
+                    initialUris = pendingTransferUris
                 )
             }
 

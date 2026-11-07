@@ -50,6 +50,7 @@ fun VideoCategoryScreen(
     series: Boolean,
     onBack: () -> Unit,
     onOpenMedia: (MediaItem) -> Unit,
+    onSendMedia: (MediaItem) -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val videos by viewModel.videos.collectAsStateWithLifecycle()
@@ -156,7 +157,8 @@ fun VideoCategoryScreen(
                             onPlay = { onOpenMedia(item.media) },
                             onFavourite = { viewModel.toggleFavourite(item.media.id) },
                             onAddToPlaylist = { playlistTarget = item.media },
-                            onDeleted = viewModel::refresh
+                            onDeleted = viewModel::refresh,
+                            onSend = { onSendMedia(item.media) }
                         )
                     }
                 }

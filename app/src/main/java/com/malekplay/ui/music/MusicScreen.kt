@@ -7,6 +7,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -107,7 +108,8 @@ class MusicViewModel @Inject constructor(
 @Composable
 fun MusicScreen(
     onOpenMedia: (MediaItem) -> Unit,
-    contentPadding: PaddingValues
+    contentPadding: PaddingValues,
+    onSendMedia: (MediaItem) -> Unit = {}
 ) {
     val viewModel: MusicViewModel = hiltViewModel()
     val libraryViewModel: LibraryViewModel = hiltViewModel()
@@ -215,6 +217,7 @@ fun MusicScreen(
                 songs = sortedSongs,
                 unknownArtist = unknownArtist,
                 onOpenMedia = onOpenMedia,
+                onSendMedia = onSendMedia,
                 onToggleFavourite = { libraryViewModel.toggleFavourite(it) },
                 onDeleted = libraryViewModel::refresh
             )
@@ -233,6 +236,7 @@ private fun SongsTab(
     songs: List<LibraryItem>,
     unknownArtist: String,
     onOpenMedia: (MediaItem) -> Unit,
+    onSendMedia: (MediaItem) -> Unit,
     onToggleFavourite: (String) -> Unit,
     onDeleted: () -> Unit
 ) {
@@ -253,6 +257,7 @@ private fun SongsTab(
                 item = item,
                 unknownArtist = unknownArtist,
                 onClick = { onOpenMedia(item.media) },
+                onSend = { onSendMedia(item.media) },
                 onToggleFavourite = { onToggleFavourite(item.media.id) },
                 onDeleted = onDeleted
             )
@@ -265,6 +270,7 @@ private fun SongRow(
     item: LibraryItem,
     unknownArtist: String,
     onClick: () -> Unit,
+    onSend: () -> Unit,
     onToggleFavourite: () -> Unit,
     onDeleted: () -> Unit
 ) {
@@ -286,7 +292,7 @@ private fun SongRow(
                 ),
                 RoundedCornerShape(16.dp)
             )
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onSend)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

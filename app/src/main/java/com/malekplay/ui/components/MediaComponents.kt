@@ -28,6 +28,7 @@ import android.util.LruCache
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -262,13 +263,14 @@ fun MediaListRow(
     onFavourite: () -> Unit,
     onAddToPlaylist: () -> Unit,
     showFolder: Boolean = false,
-    onDeleted: () -> Unit = {}
+    onDeleted: () -> Unit = {},
+    onSend: () -> Unit = {}
 ) {
     val media = item.media
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onPlay),
+            .combinedClickable(onClick = onPlay, onLongClick = onSend),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isCurrent) MaterialTheme.colorScheme.secondaryContainer
@@ -359,7 +361,8 @@ fun MediaGridCard(
     onPlay: () -> Unit,
     onFavourite: () -> Unit,
     onAddToPlaylist: () -> Unit,
-    onDeleted: () -> Unit = {}
+    onDeleted: () -> Unit = {},
+    onSend: () -> Unit = {}
 ) {
     val shape = RoundedCornerShape(20.dp)
     Column(
@@ -370,7 +373,7 @@ fun MediaGridCard(
             .border(1.dp, Brush.linearGradient(listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))), shape)
     ) {
         Box(
-            modifier = Modifier.fillMaxWidth().aspectRatio(0.92f).clickable(onClick = onPlay)
+            modifier = Modifier.fillMaxWidth().aspectRatio(0.92f).combinedClickable(onClick = onPlay, onLongClick = onSend)
         ) {
             MediaThumbnail(
                 media = item.media,

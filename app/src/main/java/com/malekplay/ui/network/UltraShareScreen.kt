@@ -430,7 +430,8 @@ class UltraShareViewModel @Inject constructor(
 @Composable
 fun UltraShareScreen(
     contentPadding: PaddingValues,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    initialUris: List<Uri> = emptyList()
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -438,6 +439,7 @@ fun UltraShareScreen(
     val state by viewModel.state.collectAsState()
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
+    var pendingMediaUris by remember(initialUris) { mutableStateOf(initialUris.distinct()) }
     fun pastePairingDetails() {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         val raw = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
@@ -470,7 +472,8 @@ fun UltraShareScreen(
                     context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
             }
-            viewModel.sendBatch(uris, host.trim(), secret.trim())
+            viewModel.sendBatch((pendingMediaUris + uris).distinct(), host.trim(), secret.trim())
+            pendingMediaUris = emptyList()
         }
     }
     val exportFile = rememberLauncherForActivityResult(
@@ -726,6 +729,33 @@ fun UltraShareScreen(
                 ) {
                     Icon(Icons.Filled.ContentCopy, contentDescription = null)
                     Text(stringResource(R.string.ultra_share_paste_pairing), modifier = Modifier.padding(start = 8.dp))
+                }
+                if (pendingMediaUris.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MalekPlayColors.PurpleDeep.copy(alpha = 0.22f))
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "ملفات محددة من المكتبة: ${pendingMediaUris.size}",
+                                color = MalekPlayColors.TextPrimary,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Button(
+                                onClick = {
+                                    viewModel.sendBatch(pendingMediaUris, host.trim(), secret.trim())
+                                    pendingMediaUris = emptyList()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !state.sending && !state.receiving && host.isNotBlank() &&
+                                    UltraShareTransport.isValidPairingSecret(secret)
+                            ) {
+                                Icon(Icons.Filled.Send, contentDescription = null)
+                                Text("إرسال الملفات المحددة", modifier = Modifier.padding(start = 8.dp))
+                            }
+                        }
+                    }
                 }
                 Button(
                     onClick = { pickFiles.launch(arrayOf("*/*")) },

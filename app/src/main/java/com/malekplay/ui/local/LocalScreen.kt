@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -89,6 +90,7 @@ fun LocalScreen(
     onOpenFolder: (String) -> Unit,
     onOpenSettings: () -> Unit,
     contentPadding: PaddingValues,
+    onSendMedia: (MediaItem) -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -374,6 +376,7 @@ fun LocalScreen(
                 emptyBody = stringResource(R.string.lib_no_results_body),
                 showFolder = true,
                 onPlay = onOpenMedia,
+                onSend = onSendMedia,
                 onFavourite = { viewModel.toggleFavourite(it.media.id) },
                 onAddToPlaylist = { playlistTarget = it.media },
                 onDeleted = viewModel::refresh
@@ -534,6 +537,7 @@ private fun MediaList(
     emptyBody: String,
     showFolder: Boolean = false,
     onPlay: (com.malekplay.domain.model.MediaItem) -> Unit,
+    onSend: (com.malekplay.domain.model.MediaItem) -> Unit = {},
     onFavourite: (com.malekplay.domain.model.LibraryItem) -> Unit,
     onAddToPlaylist: (com.malekplay.domain.model.LibraryItem) -> Unit,
     onDeleted: () -> Unit = {}
@@ -556,6 +560,7 @@ private fun MediaList(
                 MediaGridCard(
                     item = item,
                     onPlay = { onPlay(item.media) },
+                    onSend = { onSend(item.media) },
                     onFavourite = { onFavourite(item) },
                     onAddToPlaylist = { onAddToPlaylist(item) },
                     onDeleted = onDeleted
