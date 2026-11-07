@@ -318,20 +318,24 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
-    fun sendBatch(uris: List<Uri>, host: String, secret: String) {
-        if (uris.isEmpty() || _state.value.sending || _state.value.receiving) return
-        runCatching {
+    fun sendBatch(uris: List<Uri>, host: String, secret: String): Boolean {
+        if (uris.isEmpty() || _state.value.sending || _state.value.receiving ||
+            host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)
+        ) return false
+        return runCatching {
             UltraShareForegroundService.startSendingBatch(context, uris, host, secret)
             _state.value = _state.value.copy(
                 sending = true, progress = null, queueCompleted = 0,
                 queueTotal = uris.size, queueCurrentName = null, error = null,
                 status = "بدأ إرسال " + uris.size + " ملفات بالتتابع"
             )
-        }.onFailure {
+            true
+        }.getOrElse {
             _state.value = _state.value.copy(
                 sending = false,
                 error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
             )
+            false
         }
     }
 
@@ -794,8 +798,9 @@ fun UltraShareScreen(
                                 }
                                 Button(
                                     onClick = {
-                                        viewModel.sendBatch(pendingMediaUris, host.trim(), secret.trim())
-                                        pendingMediaUris = emptyList()
+                                        if (viewModel.sendBatch(pendingMediaUris, host.trim(), secret.trim())) {
+                                            pendingMediaUris = emptyList()
+                                        }
                                     },
                                     modifier = Modifier.weight(1f),
                                     enabled = !state.sending && !state.receiving && host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
