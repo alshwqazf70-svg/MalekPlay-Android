@@ -69,19 +69,23 @@ import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.components.MediaThumbnail
 import com.malekplay.ui.library.LibraryViewModel
 
-private val Night = MalekPlayColors.Background
-private val Panel = MalekPlayColors.Surface
-private val PanelRaised = MalekPlayColors.SurfaceElevated
 private val Neon = MalekPlayColors.NeonPurple
 private val CardShape = RoundedCornerShape(24.dp)
-private val GlassBrush = Brush.verticalGradient(
-    colors = listOf(Color.White.copy(alpha = 0.105f), Color.White.copy(alpha = 0.035f))
-)
-private val GlassBorder = Brush.linearGradient(
+
+@Composable
+private fun glassBrush(): Brush = Brush.verticalGradient(
     colors = listOf(
-        MalekPlayColors.PurpleBright.copy(alpha = 0.58f),
-        Color.White.copy(alpha = 0.12f),
-        MalekPlayColors.PurpleDeep.copy(alpha = 0.30f)
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.075f),
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.025f)
+    )
+)
+
+@Composable
+private fun glassBorder(): Brush = Brush.linearGradient(
+    colors = listOf(
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.52f),
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+        MaterialTheme.colorScheme.secondary.copy(alpha = 0.28f)
     )
 )
 
@@ -131,7 +135,7 @@ fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Night)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         // Ambient violet light gives depth without relying on a flat purple fill.
         Box(
@@ -321,8 +325,8 @@ private fun HomeHeader(
                     spotColor = Neon.copy(alpha = 0.20f)
                 )
                 .clip(CircleShape)
-                .background(PanelRaised)
-                .border(1.dp, GlassBorder, CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .border(1.dp, glassBorder(), CircleShape)
         ) {
             Image(
                 painter = painterResource(R.drawable.ic_malekplay_logo),
@@ -382,8 +386,8 @@ private fun GlassIconButton(
             .size(44.dp)
             .shadow(8.dp, CircleShape, ambientColor = Neon.copy(alpha = 0.12f))
             .clip(CircleShape)
-            .background(GlassBrush)
-            .border(1.dp, GlassBorder, CircleShape)
+            .background(glassBrush())
+            .border(1.dp, glassBorder(), CircleShape)
             .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -420,10 +424,14 @@ private fun HeroCard(
             .clip(shape)
             .background(
                 Brush.linearGradient(
-                    colors = listOf(Color(0xFF35134F), Color(0xFF191025), Night)
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primaryContainer,
+                        MaterialTheme.colorScheme.surfaceContainerHigh,
+                        MaterialTheme.colorScheme.background
+                    )
                 )
             )
-            .border(1.dp, GlassBorder, shape)
+            .border(1.dp, glassBorder(), shape)
     ) {
         if (item != null) {
             MediaThumbnail(
@@ -675,8 +683,8 @@ private fun ActionTile(action: HomeAction) {
             .height(108.dp)
             .shadow(10.dp, shape, ambientColor = Neon.copy(alpha = 0.10f))
             .clip(shape)
-            .background(GlassBrush)
-            .border(1.dp, GlassBorder, shape)
+            .background(glassBrush())
+            .border(1.dp, glassBorder(), shape)
             .clickable(role = Role.Button, onClick = action.onClick)
             .padding(horizontal = 9.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -747,7 +755,7 @@ private fun MediaPosterCard(
         modifier = Modifier
             .width(if (portrait) 148.dp else 224.dp)
             .clip(shape)
-            .background(Panel)
+            .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, Color.White.copy(alpha = 0.075f), shape)
             .clickable(role = Role.Button, onClick = onClick)
     ) {
@@ -858,8 +866,8 @@ private fun EmptyLibrary(onOpenLibrary: () -> Unit) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .clip(shape)
-            .background(GlassBrush)
-            .border(1.dp, GlassBorder, shape)
+            .background(glassBrush())
+            .border(1.dp, glassBorder(), shape)
             .clickable(role = Role.Button, onClick = onOpenLibrary)
             .padding(horizontal = 22.dp, vertical = 26.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -914,10 +922,14 @@ private fun AudioPanel(
             .clip(shape)
             .background(
                 Brush.horizontalGradient(
-                    colors = listOf(Color(0xFF2A153A), Panel, MalekPlayColors.BackgroundElevated)
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primaryContainer,
+                        MaterialTheme.colorScheme.surface,
+                        MaterialTheme.colorScheme.background
+                    )
                 )
             )
-            .border(1.dp, GlassBorder, shape)
+            .border(1.dp, glassBorder(), shape)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(17.dp),
         verticalAlignment = Alignment.CenterVertically
