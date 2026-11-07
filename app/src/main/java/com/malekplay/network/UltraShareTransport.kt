@@ -36,6 +36,26 @@ import javax.crypto.spec.SecretKeySpec
  * File data and metadata use AES-GCM; the challenge-response prevents sending
  * the reusable secret over the LAN.
  */
+/**
+ * Guarantees forward progress for unusual InputStreams that return zero from bulk reads.
+ * Returns -1 only at EOF and otherwise copies at least one byte into the destination.
+ */
+internal fun readStreamWithProgress(
+    input: InputStream,
+    buffer: ByteArray,
+    offset: Int = 0,
+    length: Int = buffer.size - offset
+): Int {
+    require(offset >= 0 && length >= 0 && offset <= buffer.size - length)
+    if (length == 0) return 0
+    val count = input.read(buffer, offset, length)
+    if (count != 0) return count
+    val single = input.read()
+    if (single < 0) return -1
+    buffer[offset] = single.toByte()
+    return 1
+}
+
 object UltraShareTransport {
     const val DEFAULT_PORT = 38741
     const val CHUNK_BYTES = 256 * 1024
@@ -471,9 +491,8 @@ object UltraShareTransport {
         var total = 0L
         while (true) {
             currentCoroutineContext().ensureActive()
-            val count = stream.read(buffer)
+            val count = readStreamWithProgress(stream, buffer)
             if (count < 0) break
-            if (count == 0) continue
             total += count
             require(total <= expectedSize) { "تغير حجم الملف أثناء قراءة المصدر." }
             digest.update(buffer, 0, count)

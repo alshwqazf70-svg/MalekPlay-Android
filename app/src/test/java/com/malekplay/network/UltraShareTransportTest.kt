@@ -127,4 +127,27 @@ class UltraShareTransportTest {
         assertFalse(UltraShareTransport.isValidPrivateLanHost("192.168.1.999"))
     }
 
+    @Test
+    fun streamReaderMakesProgressWhenBulkReadReturnsZero() {
+        val delegate = java.io.ByteArrayInputStream(byteArrayOf(10, 20, 30))
+        val unusual = object : java.io.InputStream() {
+            private var returnZero = true
+            override fun read(): Int = delegate.read()
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (returnZero) {
+                    returnZero = false
+                    return 0
+                }
+                return delegate.read(buffer, offset, length)
+            }
+        }
+        val buffer = ByteArray(3)
+        assertEquals(1, readStreamWithProgress(unusual, buffer))
+        assertEquals(10.toByte(), buffer[0])
+        assertEquals(2, readStreamWithProgress(unusual, buffer, 1, 2))
+        assertEquals(listOf<Byte>(10, 20, 30), buffer.toList())
+        assertEquals(-1, readStreamWithProgress(unusual, buffer))
+    }
+
+
 }
