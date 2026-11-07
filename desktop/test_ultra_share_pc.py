@@ -5,6 +5,7 @@ import unittest
 
 from ultra_share_pc import (
     VERSION,
+    build_transfer_id,
     derive_key,
     derive_pairing_key,
     encode_text,
@@ -25,6 +26,19 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
     def test_invalid_empty_names_are_rejected(self):
         with self.assertRaises(ValueError):
             safe_name("...")
+
+    def test_android_transfer_identity_layout_is_reproduced(self):
+        filename = "مقطع.mp4"
+        size = 123456
+        digest = hashlib.sha256(b"sample content").digest()
+        name = filename.encode("utf-8")
+        identity = struct.pack(">I", len(name)) + name + struct.pack(">q", size) + digest
+        expected = hashlib.sha256(identity).digest()[:12].hex()
+        self.assertEqual(expected, build_transfer_id(filename, size, digest))
+
+    def test_filename_sanitization_removes_format_and_c1_controls(self):
+        self.assertEqual("clip.mp4", safe_name("clip\u200b.mp4"))
+        self.assertEqual("song.mp3", safe_name("song\u0085.mp3"))
 
     def test_metadata_round_trip_matches_android_wire_layout(self):
         digest = hashlib.sha256(b"hello").digest()
