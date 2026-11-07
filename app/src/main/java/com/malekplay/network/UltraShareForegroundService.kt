@@ -398,7 +398,8 @@ class UltraShareForegroundService : Service() {
                     val storedStatus = UltraShareQueueStore.observe(this@UltraShareForegroundService)
                         .first().firstOrNull { it.uri == uri.toString() }?.status
                     if (storedStatus == UltraShareQueueStore.STATUS_SKIPPED) {
-                        totalBytes = (totalBytes - (metadataByUri[uri]?.third ?: 0L)).coerceAtLeast(completedBytes)
+                        // Keep the original denominator: skipped bytes are not transferred,
+                        // so the overall progress must not falsely reach 100%.
                         publish(currentState().copy(
                             queueCompleted = index + 1,
                             queueTotal = queue.size,
@@ -410,7 +411,7 @@ class UltraShareForegroundService : Service() {
                     val metadata = try {
                         metadataByUri[uri] ?: readDocumentMetadata(uri)
                     } catch (failure: Exception) {
-                        totalBytes = (totalBytes - (metadataByUri[uri]?.third ?: 0L)).coerceAtLeast(completedBytes)
+                        // Preserve the original total so failed bytes remain visible as incomplete.
                         failed++
                         lastError = failure.localizedMessage ?: "تعذرت قراءة أحد الملفات."
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_FAILED, error = lastError)
@@ -456,7 +457,8 @@ class UltraShareForegroundService : Service() {
                         throw cancelled
                     } catch (failure: Exception) {
                         failed++
-                        totalBytes = (totalBytes - metadata.third).coerceAtLeast(completedBytes)
+                        // Do not shrink the denominator on failure; otherwise the bar can
+                        // report 100% even though this file still needs a retry.
                         lastError = metadata.first + ": " + (failure.localizedMessage ?: "فشل الإرسال.")
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
                     } finally {
