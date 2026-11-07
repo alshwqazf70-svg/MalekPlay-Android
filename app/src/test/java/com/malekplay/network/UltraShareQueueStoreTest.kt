@@ -15,6 +15,31 @@ import org.robolectric.RuntimeEnvironment
 class UltraShareQueueStoreTest {
 
     @Test
+    fun decodeKeepsValidQueueRowsWhenAnotherRowIsMalformed() {
+        val raw = """[
+            {"uri":"content://queue/first","name":"first.mp4","status":"pending"},
+            null,
+            {"uri":"","name":"missing-uri","status":"sending"},
+            {"uri":"content://queue/second","name":"second.mp4","status":"unknown"},
+            {"uri":"content://queue/first","name":"duplicate.mp4","status":"failed"}
+        ]"""
+
+        val decoded = UltraShareQueueStore.decode(raw)
+
+        assertEquals(2, decoded.size)
+        assertEquals(
+            listOf("content://queue/first", "content://queue/second"),
+            decoded.map { it.uri }
+        )
+        assertEquals(UltraShareQueueStore.STATUS_PENDING, decoded[1].status)
+    }
+
+    @Test
+    fun decodeReturnsEmptyQueueForInvalidRootJson() {
+        assertTrue(UltraShareQueueStore.decode("{broken-json").isEmpty())
+    }
+
+    @Test
     fun queueClaimsAreExclusiveAndSkippedItemsCannotBeResumed() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val activeUri = Uri.parse("content://malekplay.test/document/active")
