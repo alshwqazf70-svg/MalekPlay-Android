@@ -120,10 +120,17 @@ internal fun trimMediaThumbnailCache(level: Int) {
  * fallback. This keeps thumbnails available in every library surface, including
  * rows backed by cached database entries.
  */
+internal fun representativeThumbnailTimeUs(durationMs: Long): Long {
+    if (durationMs <= 0L) return 0L
+    // Avoid the first frame, which is commonly black or a studio logo.
+    return (durationMs / 10L).coerceAtLeast(1L) * 1_000L
+}
+
 private fun loadVideoThumbnail(
     context: android.content.Context,
     uri: android.net.Uri,
-    targetSize: Size
+    targetSize: Size,
+    durationMs: Long
 ): Bitmap? {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         runCatching {
@@ -149,19 +156,31 @@ private fun loadVideoThumbnail(
         retriever.setDataSource(context, uri)
         val width = targetSize.width.coerceAtLeast(1)
         val height = targetSize.height.coerceAtLeast(1)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+        val preferredTimeUs = representativeThumbnailTimeUs(durationMs)
+        val frame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             retriever.getScaledFrameAtTime(
+                preferredTimeUs,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                width,
+                height
+            ) ?: retriever.getScaledFrameAtTime(
                 0L,
                 MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
                 width,
                 height
             )
         } else {
-            retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                ?.let { frame ->
-                    if (frame.width <= width && frame.height <= height) frame
-                    else Bitmap.createScaledBitmap(frame, width, height, true)
-                }
+            retriever.getFrameAtTime(
+                preferredTimeUs,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+            ) ?: retriever.getFrameAtTime(
+                0L,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+            )
+        }
+        frame?.let {
+            if (it.width <= width && it.height <= height) it
+            else Bitmap.createScaledBitmap(it, width, height, true)
         }
     } catch (_: Exception) {
         null
@@ -200,7 +219,7 @@ fun MediaThumbnail(
                         targetSize = maxOf(targetSize.width, targetSize.height)
                     )
                 } else {
-                    loadVideoThumbnail(context, source, targetSize)
+                    loadVideoThumbnail(context, source, targetSize, media.durationMs)
                 }
                 loaded?.also { thumbnailCache.put(cacheKey, it) }
             } catch (cancelled: CancellationException) {
