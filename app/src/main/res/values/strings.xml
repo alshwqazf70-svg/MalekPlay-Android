@@ -360,4 +360,7 @@
     <string name="kids_no_media_found">No videos or music were found in the device library.</string>
     <string name="kids_manage_content">Choose allowed videos and music</string>
     <string name="kids_manage_content_summary">Select exactly what children can play</string>
+    <string name="kids_parent_access">Parent access</string>
+    <string name="kids_parent_pin_prompt">Enter the parent PIN to leave Kids Mode.</string>
+    <string name="kids_parent_exit">Exit Kids Mode</string>
 </resources>
