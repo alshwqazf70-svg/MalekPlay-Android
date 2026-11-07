@@ -35,6 +35,9 @@ class VideoKindClassifierTest {
         assertEquals(1, nextSeason?.episode)
         assertEquals("مسلسل الرحلة", arabic?.seriesKey)
         assertEquals(12, arabic?.episode)
+        val numbered = VideoKindClassifier.episodeSortKey("Episode 3", "Drama Series")
+        assertEquals("drama series", numbered?.seriesKey)
+        assertEquals(3, numbered?.episode)
     }
 
 }
