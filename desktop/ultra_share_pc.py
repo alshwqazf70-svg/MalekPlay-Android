@@ -163,6 +163,19 @@ def parse_metadata(data: bytes) -> tuple[str, int, str, bytes]:
     return safe_name(name), size, mime[:160], digest
 
 
+def build_transfer_id(filename: str, size: int, digest: bytes) -> str:
+    name_bytes = safe_name(filename).encode("utf-8")
+    if size < 0 or len(digest) != 32:
+        raise ValueError("Invalid transfer identity.")
+    identity = (
+        struct.pack(">I", len(name_bytes))
+        + name_bytes
+        + struct.pack(">q", size)
+        + digest
+    )
+    return hashlib.sha256(identity).digest()[:12].hex()
+
+
 def hash_file(path: Path) -> bytes:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -319,14 +332,7 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
 
         metadata = read_frame(connection, receive_key, nonce_prefix, 0, 1024)
         filename, size, _mime, expected_digest = parse_metadata(metadata)
-        name_bytes = filename.encode("utf-8")
-        identity = (
-            struct.pack(">I", len(name_bytes))
-            + name_bytes
-            + struct.pack(">q", size)
-            + expected_digest
-        )
-        transfer_id = hashlib.sha256(identity).digest()[:12].hex()
+        transfer_id = build_transfer_id(filename, size, expected_digest)
         partial = directory / f".ultrashare-{transfer_id}.part"
         marker = directory / f".ultrashare-{transfer_id}.meta"
         receipt = directory / f".ultrashare-{transfer_id}.received"
