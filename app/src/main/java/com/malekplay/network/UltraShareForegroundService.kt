@@ -378,17 +378,22 @@ class UltraShareForegroundService : Service() {
             var completedBytes = 0L
             var lastError: String? = null
             val queue = uris.distinctBy { it.toString() }
-            val metadataByUri = queue.mapNotNull { item ->
-                runCatching { item to readDocumentMetadata(item) }.getOrNull()
-            }.toMap()
-            var totalBytes = metadataByUri.values.fold(0L) { total, metadata ->
-                if (Long.MAX_VALUE - total < metadata.third) Long.MAX_VALUE else total + metadata.third
-            }
-            publish(currentState().copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L))
+            var metadataByUri: Map<Uri, Triple<String, String, Long>> = emptyMap()
+            var totalBytes = 0L
             try {
+                // Persist the complete batch before querying document providers. If Android
+                // stops the process during slow metadata lookup, the selected files remain
+                // visible as pending instead of disappearing from the durable queue.
                 if (replaceQueue) {
                     UltraShareQueueStore.enqueue(this@UltraShareForegroundService, queue)
                 }
+                metadataByUri = queue.mapNotNull { item ->
+                    runCatching { item to readDocumentMetadata(item) }.getOrNull()
+                }.toMap()
+                totalBytes = metadataByUri.values.fold(0L) { total, metadata ->
+                    if (Long.MAX_VALUE - total < metadata.third) Long.MAX_VALUE else total + metadata.third
+                }
+                publish(currentState().copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L))
                 queue.forEachIndexed { index, uri ->
                     val storedStatus = UltraShareQueueStore.observe(this@UltraShareForegroundService)
                         .first().firstOrNull { it.uri == uri.toString() }?.status
