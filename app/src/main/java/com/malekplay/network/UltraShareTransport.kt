@@ -118,12 +118,44 @@ object UltraShareTransport {
 
     fun sanitizeMimeType(raw: String): String {
         val candidate = raw.trim()
+        val token = "[A-Za-z0-9!#    fun sanitizeMimeType(raw: String): String {
+        val candidate = raw.trim()
         val token = "[A-Za-z0-9!#$&^_.+-]+"
         return if (candidate.length <= 160 && Regex("^$token/$token$").matches(candidate)) {
             candidate
         } else {
             "application/octet-stream"
         }
+    }
+^_.+-]+"
+        return if (candidate.length <= 160 && Regex("^$token/$token$").matches(candidate)) {
+            candidate
+        } else {
+            "application/octet-stream"
+        }
+    }
+
+    /**
+     * A resume file belongs to the exact content, not just its visible name and size.
+     * This prevents two different same-name/same-size files from sharing partial bytes.
+     */
+    internal fun buildTransferId(fileName: String, size: Long, contentDigest: ByteArray): String {
+        require(size in 0..MAX_FILE_BYTES)
+        require(contentDigest.size == 32) { "بصمة الملف غير صالحة." }
+        val nameBytes = sanitizeFileName(fileName).toByteArray(Charsets.UTF_8)
+        val identity = ByteArrayOutputStream().use { bytes ->
+            DataOutputStream(bytes).use { data ->
+                data.writeInt(nameBytes.size)
+                data.write(nameBytes)
+                data.writeLong(size)
+                data.write(contentDigest)
+            }
+            bytes.toByteArray()
+        }
+        return MessageDigest.getInstance("SHA-256")
+            .digest(identity)
+            .take(12)
+            .joinToString("") { "%02x".format(it) }
     }
 
     suspend fun send(
@@ -271,10 +303,7 @@ object UltraShareTransport {
                 val expectedDigest = ByteArray(32).also(metadata::readFully)
                 require(metadata.available() == 0) { "بيانات الملف المرسل غير مكتملة." }
 
-                val transferId = MessageDigest.getInstance("SHA-256")
-                    .digest("$fileName:$size".toByteArray(Charsets.UTF_8))
-                    .take(12)
-                    .joinToString("") { "%02x".format(it) }
+                val transferId = buildTransferId(fileName, size, expectedDigest)
                 val partial = File(destinationDirectory, ".ultrashare-$transferId.part")
                 val resumeMarker = File(destinationDirectory, ".ultrashare-$transferId.meta")
                 val expectedMarker = "$size:" + expectedDigest.joinToString("") { "%02x".format(it) }
