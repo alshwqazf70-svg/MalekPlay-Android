@@ -7,6 +7,7 @@ class VideoKindClassifierTest {
     @Test fun detectsSeasonEpisodeNotation() {
         assertEquals(VideoKind.SERIES, VideoKindClassifier.classify("The.Office.S02E04.1080p.mkv"))
         assertEquals(VideoKind.SERIES, VideoKindClassifier.classify("Show 2x08"))
+        assertEquals(VideoKind.SERIES, VideoKindClassifier.classify("Show.S02.E04.mkv"))
     }
 
     @Test fun detectsArabicEpisodeAndSeriesFolders() {
@@ -41,6 +42,18 @@ class VideoKindClassifierTest {
         assertEquals(12, arabic?.episode)
         assertEquals(2, arabicSeason?.season)
         assertEquals(3, arabicSeason?.episode)
+
+        val dotted = VideoKindClassifier.episodeSortKey("My.Show.S02.E04.mkv")
+        assertEquals("my show", dotted?.seriesKey)
+        assertEquals(2, dotted?.season)
+        assertEquals(4, dotted?.episode)
+
+        val folderSeason = VideoKindClassifier.episodeSortKey(
+            "Episode 3.mkv", "Season 2", "/storage/TV/Drama Series/Season 2"
+        )
+        assertEquals("drama series", folderSeason?.seriesKey)
+        assertEquals(2, folderSeason?.season)
+        assertEquals(3, folderSeason?.episode)
 
         val numbered = VideoKindClassifier.episodeSortKey("Episode 3", "Drama Series")
         assertEquals("drama series", numbered?.seriesKey)

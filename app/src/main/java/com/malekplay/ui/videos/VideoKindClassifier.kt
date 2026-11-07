@@ -13,7 +13,7 @@ internal data class EpisodeSortKey(
 
 internal object VideoKindClassifier {
     private val episodePatterns = listOf(
-        Regex("""(?i)s(\d{1,2})\s*e(\d{1,3})"""),
+        Regex("""(?i)s(\d{1,2})[ ._-]*e(\d{1,3})"""),
         Regex("""(?i)(\d{1,2})\s*x\s*(\d{1,3})"""),
         Regex("""(?i)season\s*(\d{1,2})[ ._-]*(?:episode|ep)\s*(\d{1,3})"""),
         Regex("""(?i)(?:episode|ep)\s*[-_. ]?(\d{1,3})"""),
@@ -40,19 +40,26 @@ internal object VideoKindClassifier {
         }
     }
 
-    /** Extracts a stable show/season/episode key from common Latin and Arabic filenames. */
+    /** Extracts a stable show/season/episode key from common Latin and Arabic filenames and folders. */
     fun episodeSortKey(title: String, folderName: String = "", folderPath: String = ""): EpisodeSortKey? {
         val normalized = normalizeDigits(title)
         val match = episodePatterns.firstNotNullOfOrNull { it.find(normalized) } ?: return null
         val numbers = match.groupValues.drop(1).filter { it.isNotBlank() }
-        val season = if (numbers.size == 1) 1 else numbers[0].toIntOrNull() ?: 1
+        val folderSeason = Regex("""(?i)\bseason\s*(\d{1,2})\b|الموسم\s*(\d{1,2})""")
+            .find(normalizeDigits("$folderName $folderPath"))?.groupValues?.drop(1)?.firstOrNull { it.isNotBlank() }?.toIntOrNull()
+        val season = if (numbers.size == 1) folderSeason ?: 1 else numbers[0].toIntOrNull() ?: folderSeason ?: 1
         val episode = numbers.lastOrNull()?.toIntOrNull() ?: return null
         val rawSeries = normalized.removeRange(match.range)
             .replace(Regex("""(?i)\b(1080p|720p|2160p|480p|4k|hevc|x264|x265|web[ ._-]?dl|bluray)\b"""), " ")
             .replace(Regex("""(?i)\.(mkv|mp4|avi|mov|webm|m4v|ts|3gp)$"""), " ")
             .replace(Regex("""[._\-\[\]()]+"""), " ")
             .trim()
-            .ifBlank { folderName.ifBlank { folderPath.substringBeforeLast('/') } }
+            .ifBlank {
+                val namedFolder = folderName.takeIf {
+                    it.isNotBlank() && !Regex("""(?i)\bseason\s*\d+\b|الموسم\s*\d+""").containsMatchIn(normalizeDigits(it))
+                }
+                namedFolder ?: folderPath.substringBeforeLast('/').substringAfterLast('/').ifBlank { folderName }
+            }
         val seriesKey = rawSeries.lowercase(Locale.ROOT).replace(Regex("""\s+"""), " ").trim()
         return EpisodeSortKey(seriesKey, season.coerceAtLeast(1), episode.coerceAtLeast(0))
     }
