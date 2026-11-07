@@ -87,10 +87,10 @@ class MalekPlayBackupManagerTest {
     }
 
     @Test
-    fun boundedBackupReaderAcceptsExactLimitAndRejectsOversizedInput() = runBlocking {
-        assertEquals(4, readBoundedBackupBytes(ByteArrayInputStream(ByteArray(4)), 4).size)
-        assertThrows(IllegalArgumentException::class.java) {
-            runBlocking {
+    fun boundedBackupReaderAcceptsExactLimitAndRejectsOversizedInput() {
+        runBlocking {
+            assertEquals(4, readBoundedBackupBytes(ByteArrayInputStream(ByteArray(4)), 4).size)
+            assertThrows(IllegalArgumentException::class.java) {
                 readBoundedBackupBytes(ByteArrayInputStream(ByteArray(5)), 4)
             }
         }
