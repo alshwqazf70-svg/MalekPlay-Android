@@ -140,10 +140,6 @@ fun SettingsScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { backupViewModel.restoreFrom(it) } }
 
-    LaunchedEffect(kidsEnabled, playerController) {
-        if (kidsEnabled && playerController != null) playerViewModel.stopForParentalMode()
-    }
-
     LaunchedEffect(message) {
         if (message != null) {
             delay(4_000L)
@@ -474,7 +470,10 @@ fun SettingsScreen(
                 if (applied) {
                     kidsEnabled = parentalControl.isEnabled
                     showPinDialog = false
-                    if (kidsEnabled) onKidsModeEnabled()
+                    if (kidsEnabled) {
+                        if (playerController != null) playerViewModel.stopForParentalMode()
+                        onKidsModeEnabled()
+                    }
                 }
                 applied
             }
