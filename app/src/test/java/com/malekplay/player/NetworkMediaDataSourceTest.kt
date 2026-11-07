@@ -110,6 +110,23 @@ class NetworkMediaDataSourceTest {
     }
 
     @Test
+    fun preservesOriginalReadFailureWhenReconnectFails() {
+        val readFailure = IOException("initial socket read failed")
+        val reconnectFailure = IOException("reconnect failed")
+
+        val thrown = assertThrows(IOException::class.java) {
+            readWithReconnect(
+                read = { throw readFailure },
+                reconnect = { throw reconnectFailure }
+            )
+        }
+
+        assertEquals(reconnectFailure, thrown)
+        assertEquals(1, thrown.suppressed.size)
+        assertEquals(readFailure, thrown.suppressed.single())
+    }
+
+    @Test
     fun doesNotAttemptASecondReconnectAfterRetryReadFails() {
         var reads = 0
         var reconnects = 0
