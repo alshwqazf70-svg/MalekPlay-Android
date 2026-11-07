@@ -13,11 +13,11 @@ internal data class EpisodeSortKey(
 
 internal object VideoKindClassifier {
     private val episodePatterns = listOf(
-        Regex("""(?i)s(\\d{1,2})\\s*e(\\d{1,3})"""),
-        Regex("""(?i)(\\d{1,2})\\s*x\\s*(\\d{1,3})"""),
-        Regex("""(?i)season\\s*(\\d{1,2})[ ._-]*(?:episode|ep)\\s*(\\d{1,3})"""),
-        Regex("""(?i)(?:episode|ep)\\s*[-_. ]?(\\d{1,3})"""),
-        Regex("""الحلقة\\s*([0-9]{1,3})""")
+        Regex("""(?i)s(\d{1,2})\s*e(\d{1,3})"""),
+        Regex("""(?i)(\d{1,2})\s*x\s*(\d{1,3})"""),
+        Regex("""(?i)season\s*(\d{1,2})[ ._-]*(?:episode|ep)\s*(\d{1,3})"""),
+        Regex("""(?i)(?:episode|ep)\s*[-_. ]?(\d{1,3})"""),
+        Regex("""الحلقة\s*([0-9]{1,3})""")
     )
 
     private fun normalizeDigits(value: String): String = buildString(value.length) {
@@ -48,24 +48,24 @@ internal object VideoKindClassifier {
         val season = if (numbers.size == 1) 1 else numbers[0].toIntOrNull() ?: 1
         val episode = numbers.lastOrNull()?.toIntOrNull() ?: return null
         val rawSeries = normalized.removeRange(match.range)
-            .replace(Regex("""(?i)\\b(1080p|720p|2160p|480p|4k|hevc|x264|x265|web[ ._-]?dl|bluray)\\b"""), " ")
-            .replace(Regex("""(?i)\\.(mkv|mp4|avi|mov|webm|m4v|ts|3gp)$"""), " ")
-            .replace(Regex("""[._\\-\\[\\]()]+"""), " ")
+            .replace(Regex("""(?i)\b(1080p|720p|2160p|480p|4k|hevc|x264|x265|web[ ._-]?dl|bluray)\b"""), " ")
+            .replace(Regex("""(?i)\.(mkv|mp4|avi|mov|webm|m4v|ts|3gp)$"""), " ")
+            .replace(Regex("""[._\-\[\]()]+"""), " ")
             .trim()
             .ifBlank { folderName.ifBlank { folderPath.substringBeforeLast('/') } }
-        val seriesKey = rawSeries.lowercase(Locale.ROOT).replace(Regex("""\\s+"""), " ").trim()
+        val seriesKey = rawSeries.lowercase(Locale.ROOT).replace(Regex("""\s+"""), " ").trim()
         return EpisodeSortKey(seriesKey, season.coerceAtLeast(1), episode.coerceAtLeast(0))
     }
 
     private val seriesPatterns = listOf(
-        Regex("""(?i)\\bs\\d{1,2}\\s*e\\d{1,3}\\b"""),
-        Regex("""(?i)\\b\\d{1,2}\\s*x\\s*\\d{1,3}\\b"""),
-        Regex("""(?i)\\b(?:season|episode|ep)\\s*[-_. ]?\\d{1,3}\\b"""),
-        Regex("""(?i)\\b(?:tv\\s*series|web\\s*series|series)\\b"""),
-        Regex("""الحلقة\\s*\\d*|الموسم\\s*\\d*|مسلسل""")
+        Regex("""(?i)\bs\d{1,2}\s*e\d{1,3}\b"""),
+        Regex("""(?i)\b\d{1,2}\s*x\s*\d{1,3}\b"""),
+        Regex("""(?i)\b(?:season|episode|ep)\s*[-_. ]?\d{1,3}\b"""),
+        Regex("""(?i)\b(?:tv\s*series|web\s*series|series)\b"""),
+        Regex("""الحلقة\s*\d*|الموسم\s*\d*|مسلسل""")
     )
     private val moviePatterns = listOf(
-        Regex("""(?i)\\b(?:movie|film|feature\\s*film)\\b"""),
+        Regex("""(?i)\b(?:movie|film|feature\s*film)\b"""),
         Regex("""فيلم|أفلام|سينمائي""")
     )
 
