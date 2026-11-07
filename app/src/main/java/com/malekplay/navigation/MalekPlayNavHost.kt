@@ -308,7 +308,9 @@ fun MalekPlayNavHost(
                     onBack = { navController.popBackStack() },
                     onOpenMedia = { item -> navController.openMedia(item) },
                     contentPadding = padding,
-                    onSendMedia = { media -> openTransferForUris(media.map { it.uri }) }
+                    onSendMedia = { selectedMedia: List<MediaItem> ->
+                        openTransferForUris(selectedMedia.map { selectedItem: MediaItem -> selectedItem.uri })
+                    }
                 )
             }
 
