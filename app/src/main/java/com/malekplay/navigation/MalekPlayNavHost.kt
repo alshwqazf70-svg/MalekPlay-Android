@@ -128,8 +128,8 @@ fun MalekPlayNavHost(
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = externalUri?.let { Screen.VideoPlayer.create(it.toString()) }
-                ?: Screen.Home.route,
+            startDestination = if (parentalControl.isEnabled) Screen.KidsMode.route
+                else externalUri?.let { Screen.VideoPlayer.create(it.toString()) } ?: Screen.Home.route,
             modifier = Modifier.fillMaxSize(),
             enterTransition = {
                 fadeIn(tween(ANIM_MS)) + scaleIn(
@@ -144,6 +144,17 @@ fun MalekPlayNavHost(
                 )
             }
         ) {
+            composable(Screen.KidsMode.route) {
+                KidsModeScreen(
+                    onBack = {
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.KidsMode.route) { inclusive = true }
+                        }
+                    },
+                    onPlay = { item -> navController.openMedia(item) }
+                )
+            }
+
             composable(Screen.Home.route) {
                 HomeScreen(
                     onOpenMedia = { navController.openMedia(it) },
@@ -224,10 +235,14 @@ fun MalekPlayNavHost(
             ) { entry ->
                 val mediaId = entry.arguments?.getString(Screen.VideoPlayer.ARG_MEDIA_ID)
                     ?.let { Uri.decode(it) }.orEmpty()
-                VideoPlayerScreen(
-                    mediaId = mediaId,
-                    onBack = { navController.popBackStack() }
-                )
+                if (!parentalControl.isEnabled || parentalControl.isMediaAllowed(mediaId)) {
+                    VideoPlayerScreen(
+                        mediaId = mediaId,
+                        onBack = { navController.popBackStack() }
+                    )
+                } else {
+                    KidsModeScreen(onBack = {}, onPlay = { item -> navController.openMedia(item) })
+                }
             }
 
             composable(
@@ -244,10 +259,14 @@ fun MalekPlayNavHost(
             ) { entry ->
                 val mediaId = entry.arguments?.getString(Screen.AudioPlayer.ARG_MEDIA_ID)
                     ?.let { Uri.decode(it) }.orEmpty()
-                AudioPlayerScreen(
-                    mediaId = mediaId,
-                    onBack = { navController.popBackStack() }
-                )
+                if (!parentalControl.isEnabled || parentalControl.isMediaAllowed(mediaId)) {
+                    AudioPlayerScreen(
+                        mediaId = mediaId,
+                        onBack = { navController.popBackStack() }
+                    )
+                } else {
+                    KidsModeScreen(onBack = {}, onPlay = { item -> navController.openMedia(item) })
+                }
             }
 
             composable(
