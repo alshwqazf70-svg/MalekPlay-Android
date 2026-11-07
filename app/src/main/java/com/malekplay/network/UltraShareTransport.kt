@@ -157,7 +157,7 @@ object UltraShareTransport {
         val fields = markerContent.split(':', limit = 3)
         if (fields.size != 3 || fields[0].toLongOrNull() != expectedSize ||
             fields[1] != expectedDigestHex
-        ) return null
+        ) return@runCatching null
         sanitizeFileName(fields[2])
     }.getOrNull()
 
