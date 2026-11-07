@@ -72,6 +72,8 @@ import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareTransport
 import com.malekplay.network.UltraShareDiscovery
 import com.malekplay.network.UltraShareQueueEntry
+import com.malekplay.network.UltraShareReceivedEntry
+import com.malekplay.network.UltraShareReceivedHistoryStore
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraShareQrCode
@@ -110,6 +112,7 @@ data class UltraShareUiState(
     val queueTotalBytes: Long = 0L,
     val queueTransferredBytes: Long = 0L,
     val queueEntries: List<UltraShareQueueEntry> = emptyList(),
+    val receivedHistory: List<UltraShareReceivedEntry> = emptyList(),
     val wifiDirectPeers: List<UltraShareWifiDirect.Peer> = emptyList(),
     val wifiDirectHost: String? = null
 )
@@ -130,6 +133,11 @@ class UltraShareViewModel @Inject constructor(
             }
             UltraShareQueueStore.observe(context).collect { entries ->
                 _state.value = _state.value.copy(queueEntries = entries)
+            }
+        }
+        viewModelScope.launch {
+            UltraShareReceivedHistoryStore.observe(context).collect { entries ->
+                _state.value = _state.value.copy(receivedHistory = entries)
             }
         }
         viewModelScope.launch {
@@ -387,6 +395,12 @@ class UltraShareViewModel @Inject constructor(
     fun clearQueue() {
         viewModelScope.launch {
             if (!_state.value.sending) UltraShareQueueStore.clear(context)
+        }
+    }
+
+    fun clearReceivedHistory() {
+        viewModelScope.launch {
+            if (!_state.value.receiving) UltraShareReceivedHistoryStore.clear(context)
         }
     }
 
@@ -981,6 +995,32 @@ fun UltraShareScreen(
                     OutlinedButton(onClick = { exportFile.launch(received.fileName) }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Filled.ContentCopy, contentDescription = null)
                         Text(stringResource(R.string.ultra_share_save_to_device), modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+        }
+
+        if (state.receivedHistory.isNotEmpty()) {
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF17131F)), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("سجل الملفات المستلمة", color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                            Text("\${state.receivedHistory.size} ملف محفوظ في السجل", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                        }
+                        TextButton(onClick = viewModel::clearReceivedHistory, enabled = !state.receiving) { Text("مسح السجل") }
+                    }
+                    state.receivedHistory.take(10).forEach { entry ->
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(entry.fileName, color = MalekPlayColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(formatTransferBytes(entry.sizeBytes) + " • " + java.text.DateFormat.getDateTimeInstance().format(java.util.Date(entry.receivedAtEpochMs)), color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                            }
+                            Text(if (entry.isAvailable) "متاح" else "غير موجود", color = if (entry.isAvailable) Color(0xFF65D6A2) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    if (state.receivedHistory.size > 10) {
+                        Text("و \${state.receivedHistory.size - 10} ملفات أخرى", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
