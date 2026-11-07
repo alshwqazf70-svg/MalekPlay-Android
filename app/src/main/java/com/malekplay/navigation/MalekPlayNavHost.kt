@@ -51,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
@@ -77,6 +78,8 @@ import com.malekplay.ui.settings.SettingsScreen
 import com.malekplay.ui.library.LocalFolderScreen
 import com.malekplay.ui.favorites.FavouritesScreen
 import com.malekplay.ui.playlists.PlaylistLibraryScreen
+import com.malekplay.ui.kids.KidsModeScreen
+import com.malekplay.safety.ParentalControlManager
 
 private const val ANIM_MS = 260
 
@@ -96,6 +99,8 @@ fun MalekPlayNavHost(
     externalUri: Uri? = null,
     navController: NavHostController = rememberNavController()
 ) {
+    val context = LocalContext.current
+    val parentalControl = remember(context) { ParentalControlManager(context) }
     var pendingTransferUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     val openTransferForUris: (List<Uri>) -> Unit = { uris ->
         pendingTransferUris = uris.distinct()
@@ -298,7 +303,7 @@ fun MalekPlayNavHost(
                 enterTransition = { slideIntoSlideUp() },
                 exitTransition = { slideOutOfSlideDown() }
             ) {
-                SettingsScreen(onBack = { navController.popBackStack() })
+                SettingsScreen(\n                    onBack = { navController.popBackStack() },\n                    onOpenKidsContent = { navController.navigate(Screen.KidsMode.route) },\n                    onKidsModeEnabled = {\n                        navController.navigate(Screen.KidsMode.route) {\n                            popUpTo(Screen.Home.route) { inclusive = true }\n                            launchSingleTop = true\n                        }\n                    }\n                )
             }
         }
     }
