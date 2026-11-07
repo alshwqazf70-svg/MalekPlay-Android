@@ -118,7 +118,7 @@ Second cue
 
     @Test
     fun doesNotTreatSrtCueTextAsWebVttMetadata() {
-        val srt = "1\\n00:00:01,000 --> 00:00:02,000\\nNOTE this is spoken dialogue"
+        val srt = "1\n00:00:01,000 --> 00:00:02,000\nNOTE this is spoken dialogue"
         assertEquals(1, SrtSubtitleParser.splitBlocks(srt).size)
     }
 
