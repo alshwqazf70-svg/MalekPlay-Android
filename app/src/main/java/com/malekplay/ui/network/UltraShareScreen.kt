@@ -75,6 +75,7 @@ import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraShareWifiDirect
+import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScanning
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.widget.Toast
@@ -499,6 +500,32 @@ fun UltraShareScreen(
     LaunchedEffect(state.wifiDirectHost) {
         host = state.wifiDirectHost.orEmpty()
     }
+    fun scanQrWithCamera() {
+        GmsBarcodeScanning.getClient(context).startScan()
+            .addOnSuccessListener { barcode ->
+                val raw = barcode.rawValue
+                runCatching { UltraShareQrCode.parsePayload(raw.orEmpty()) }
+                    .onSuccess { pairing ->
+                        host = pairing.host
+                        secret = pairing.pairingSecret
+                        Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
+                    }
+                    .onFailure {
+                        Toast.makeText(context, R.string.ultra_share_scan_failed, Toast.LENGTH_LONG).show()
+                    }
+            }
+            .addOnCanceledListener {
+                // The user closed the scanner; keep the current pairing fields unchanged.
+            }
+            .addOnFailureListener { failure ->
+                Toast.makeText(
+                    context,
+                    "تعذر فتح ماسح QR. تأكد من تحديث خدمات Google Play أو استخدم خيار اختيار صورة QR.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+    }
+
     val scanQrImage = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             scope.launch {
@@ -676,6 +703,14 @@ fun UltraShareScreen(
                     label = { Text(stringResource(R.string.ultra_share_pairing_code)) },
                     singleLine = true
                 )
+                OutlinedButton(
+                    onClick = ::scanQrWithCamera,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.sending && !state.receiving
+                ) {
+                    Icon(Icons.Filled.QrCode, contentDescription = null)
+                    Text("مسح QR بالكاميرا", modifier = Modifier.padding(start = 8.dp))
+                }
                 OutlinedButton(
                     onClick = { scanQrImage.launch(arrayOf("image/*")) },
                     modifier = Modifier.fillMaxWidth(),
