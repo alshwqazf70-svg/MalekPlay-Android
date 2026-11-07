@@ -53,7 +53,7 @@ fun VideoCategoryScreen(
     series: Boolean,
     onBack: () -> Unit,
     onOpenMedia: (MediaItem) -> Unit,
-    onSendMedia: (MediaItem) -> Unit = {},
+    onSendMedia: (List<MediaItem>) -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val videos by viewModel.videos.collectAsStateWithLifecycle()
@@ -147,7 +147,7 @@ fun VideoCategoryScreen(
                         androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             Text("${selectedMedia.size} ملف محدد", color = MalekPlayColors.TextPrimary, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
                             TextButton(onClick = { selectedMedia.clear() }) { Text("إلغاء") }
-                            TextButton(onClick = { onSendMedia(selectedMedia.toList().map { uri -> filtered.first { it.media.uri == uri }.media }) }) { Text("إرسال المحدد") }
+                            TextButton(onClick = { onSendMedia(filtered.filter { it.media.uri in selectedMedia }.map { it.media }) }) { Text("إرسال المحدد") }
                         }
                     }
                 }

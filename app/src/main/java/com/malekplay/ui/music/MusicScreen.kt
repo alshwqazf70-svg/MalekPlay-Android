@@ -110,7 +110,7 @@ class MusicViewModel @Inject constructor(
 fun MusicScreen(
     onOpenMedia: (MediaItem) -> Unit,
     contentPadding: PaddingValues,
-    onSendMedia: (MediaItem) -> Unit = {}
+    onSendMedia: (List<MediaItem>) -> Unit = {}
 ) {
     val viewModel: MusicViewModel = hiltViewModel()
     val libraryViewModel: LibraryViewModel = hiltViewModel()
@@ -220,7 +220,7 @@ fun MusicScreen(
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("${selectedSongs.size} أغنية محددة", modifier = Modifier.weight(1f), color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
                 androidx.compose.material3.TextButton(onClick = { selectedSongs.clear() }) { Text("إلغاء") }
-                androidx.compose.material3.TextButton(onClick = { onSendMedia(sortedSongs.filter { it.media.uri in selectedSongs }.map { it.media }.firstOrNull() ?: return@TextButton) }) { Text("إرسال") }
+                androidx.compose.material3.TextButton(onClick = { onSendMedia(sortedSongs.filter { it.media.uri in selectedSongs }.map { it.media }) }) { Text("إرسال") }
             }
         }
 
@@ -233,7 +233,7 @@ fun MusicScreen(
                 selectionMode = songSelectionMode,
                 selectedUris = selectedSongs.toSet(),
                 onToggleSelection = ::toggleSong,
-                onSendSelected = { onSendMedia(sortedSongs.filter { it.media.uri in selectedSongs }.first().media) },
+                onSendSelected = { onSendMedia(sortedSongs.filter { it.media.uri in selectedSongs }.map { it.media }) },
                 onToggleFavourite = { libraryViewModel.toggleFavourite(it) },
                 onDeleted = libraryViewModel::refresh
             )
@@ -306,7 +306,7 @@ private fun SongRow(
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .shadow(7.dp, RoundedCornerShape(16.dp), ambientColor = MalekPlayColors.NeonGlow)
             .clip(RoundedCornerShape(16.dp))
-            .background(if (isSelected) MalekPlayColors.PurpleDeep.copy(alpha = 0.58f) else Brush.linearGradient(listOf(Color(0xFF21192D), Color(0xFF15121C), Color(0xFF111019))))
+            .background(if (isSelected) MalekPlayColors.PurpleDeep.copy(alpha = 0.58f) else Color(0xFF17131F))
             .border(
                 1.dp,
                 Brush.linearGradient(

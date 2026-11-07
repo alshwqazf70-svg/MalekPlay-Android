@@ -375,7 +375,7 @@ fun MediaGridCard(
             .shadow(12.dp, shape, ambientColor = Color(0x55A855F7), spotColor = Color(0x22A855F7))
             .clip(shape)
             .background(Brush.verticalGradient(listOf(Color(0xFF21192C), Color(0xFF15121C), Color(0xFF100E16))))
-            .border(2.dp, if (isSelected) Color(0xFFC084FC) else Brush.linearGradient(listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))), shape)
+            .border(2.dp, Brush.linearGradient(if (isSelected) listOf(Color(0xFFE9D5FF), Color(0xFFA855F7)) else listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))), shape)
     ) {
         Box(
             modifier = Modifier.fillMaxWidth().aspectRatio(0.92f).combinedClickable(onClick = { if (selectionMode) onSelect() else onPlay() }, onLongClick = onSelect)

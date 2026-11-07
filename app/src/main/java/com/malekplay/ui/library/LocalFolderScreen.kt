@@ -57,7 +57,7 @@ fun LocalFolderScreen(
     onBack: () -> Unit,
     onOpenMedia: (MediaItem) -> Unit,
     contentPadding: PaddingValues,
-    onSendMedia: (MediaItem) -> Unit = {}
+    onSendMedia: (List<MediaItem>) -> Unit = {}
 ) {
     val viewModel: LibraryViewModel = hiltViewModel()
 
@@ -120,7 +120,7 @@ fun LocalFolderScreen(
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("${selectedUris.size} ملف محدد", modifier = Modifier.weight(1f), color = MalekPlayColors.TextPrimary)
                     androidx.compose.material3.TextButton(onClick = { selectedUris.clear() }) { Text("إلغاء") }
-                    androidx.compose.material3.TextButton(onClick = { onSendMedia(items.filter { it.media.uri in selectedUris }.first().media) }) { Text("إرسال المحدد") }
+                    androidx.compose.material3.TextButton(onClick = { onSendMedia(items.filter { it.media.uri in selectedUris }.map { it.media }) }) { Text("إرسال المحدد") }
                 }
             }
         }

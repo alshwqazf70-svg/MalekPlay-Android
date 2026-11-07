@@ -208,7 +208,7 @@ fun MalekPlayNavHost(
             }
 
             composable(Screen.Series.route) {
-                VideoCategoryScreen(series = true, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) }, onSendMedia = openTransferForMedia)
+                VideoCategoryScreen(series = true, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) }, onSendMedia = { media -> openTransferForUris(media.map { it.uri }) })
             }
 
             composable(Screen.Local.route) {
@@ -225,7 +225,7 @@ fun MalekPlayNavHost(
                 MusicScreen(
                     onOpenMedia = { item -> navController.openMedia(item) },
                     contentPadding = padding,
-                    onSendMedia = openTransferForMedia
+                    onSendMedia = { media -> openTransferForUris(media.map { it.uri }) }
                 )
             }
 
@@ -306,7 +306,7 @@ fun MalekPlayNavHost(
                     onBack = { navController.popBackStack() },
                     onOpenMedia = { item -> navController.openMedia(item) },
                     contentPadding = padding,
-                    onSendMedia = openTransferForMedia
+                    onSendMedia = { media -> openTransferForUris(listOf(media.uri)) }
                 )
             }
 
