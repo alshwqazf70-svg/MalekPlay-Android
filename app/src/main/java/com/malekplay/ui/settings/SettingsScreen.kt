@@ -69,6 +69,7 @@ import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.core.ui.util.formatSpeed
 import com.malekplay.domain.model.GestureAction
 import com.malekplay.safety.ParentalControlManager
+import com.malekplay.ui.player.PlayerViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -121,6 +122,8 @@ fun SettingsScreen(
 ) {
     val viewModel: SettingsViewModel = hiltViewModel()
     val backupViewModel: BackupViewModel = hiltViewModel()
+    val playerViewModel: PlayerViewModel = hiltViewModel()
+    val playerController by playerViewModel.controller.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val message by backupViewModel.message.collectAsStateWithLifecycle()
 
@@ -136,6 +139,10 @@ fun SettingsScreen(
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { backupViewModel.restoreFrom(it) } }
+
+    LaunchedEffect(kidsEnabled, playerController) {
+        if (kidsEnabled && playerController != null) playerViewModel.stopForParentalMode()
+    }
 
     LaunchedEffect(message) {
         if (message != null) {
