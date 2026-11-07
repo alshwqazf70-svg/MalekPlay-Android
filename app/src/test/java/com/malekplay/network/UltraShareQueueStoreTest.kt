@@ -125,4 +125,41 @@ class UltraShareQueueStoreTest {
             UltraShareQueueStore.clear(context)
         }
     }
+
+    @Test
+    fun enqueuePreservesOlderHistoryAndResetsOnlyRequeuedUri() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val oldUri = Uri.parse("content://malekplay.test/document/old")
+        val reusedUri = Uri.parse("content://malekplay.test/document/reused")
+        val newUri = Uri.parse("content://malekplay.test/document/new")
+        UltraShareQueueStore.clear(context)
+        try {
+            UltraShareQueueStore.replace(context, listOf(oldUri, reusedUri))
+            UltraShareQueueStore.update(
+                context, oldUri, displayName = "old.mp4",
+                status = UltraShareQueueStore.STATUS_COMPLETED
+            )
+            UltraShareQueueStore.update(
+                context, reusedUri, displayName = "reused.mp4",
+                status = UltraShareQueueStore.STATUS_FAILED, error = "temporary failure"
+            )
+
+            UltraShareQueueStore.enqueue(context, listOf(newUri, reusedUri, newUri))
+            val entries = UltraShareQueueStore.observe(context).first()
+            assertEquals(3, entries.size)
+            assertEquals(
+                UltraShareQueueStore.STATUS_COMPLETED,
+                entries.first { it.uri == oldUri.toString() }.status
+            )
+            val requeued = entries.first { it.uri == reusedUri.toString() }
+            assertEquals(UltraShareQueueStore.STATUS_PENDING, requeued.status)
+            assertEquals(null, requeued.error)
+            assertEquals(
+                UltraShareQueueStore.STATUS_PENDING,
+                entries.first { it.uri == newUri.toString() }.status
+            )
+        } finally {
+            UltraShareQueueStore.clear(context)
+        }
+    }
 }
