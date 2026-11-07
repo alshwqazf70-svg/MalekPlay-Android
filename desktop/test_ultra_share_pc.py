@@ -34,6 +34,7 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         name = filename.encode("utf-8")
         identity = struct.pack(">I", len(name)) + name + struct.pack(">q", size) + digest
         expected = hashlib.sha256(identity).digest()[:12].hex()
+        self.assertEqual("0b9008e02c8c871dcedefd6a", expected)
         self.assertEqual(expected, build_transfer_id(filename, size, digest))
 
     def test_filename_sanitization_removes_format_and_c1_controls(self):
