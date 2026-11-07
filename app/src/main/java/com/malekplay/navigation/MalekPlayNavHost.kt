@@ -304,7 +304,8 @@ fun MalekPlayNavHost(
                     folderPath = path,
                     onBack = { navController.popBackStack() },
                     onOpenMedia = { item -> navController.openMedia(item) },
-                    contentPadding = padding
+                    contentPadding = padding,
+                    onSendMedia = openTransferForMedia
                 )
             }
 

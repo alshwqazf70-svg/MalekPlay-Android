@@ -3,6 +3,7 @@
 package com.malekplay.ui.library
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -54,7 +55,8 @@ fun LocalFolderScreen(
     folderPath: String,
     onBack: () -> Unit,
     onOpenMedia: (MediaItem) -> Unit,
-    contentPadding: PaddingValues
+    contentPadding: PaddingValues,
+    onSendMedia: (MediaItem) -> Unit = {}
 ) {
     val viewModel: LibraryViewModel = hiltViewModel()
 
@@ -133,6 +135,7 @@ fun LocalFolderScreen(
                 FolderItemRow(
                     item = item,
                     onClick = { onOpenMedia(item.media) },
+                    onSend = { onSendMedia(item.media) },
                     onToggleFavourite = { viewModel.toggleFavourite(item.media.id) }
                 )
             }
@@ -144,12 +147,13 @@ fun LocalFolderScreen(
 private fun FolderItemRow(
     item: LibraryItem,
     onClick: () -> Unit,
+    onSend: () -> Unit,
     onToggleFavourite: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onSend)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
