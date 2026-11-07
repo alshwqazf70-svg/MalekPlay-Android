@@ -181,6 +181,7 @@ fun MediaThumbnail(
     contentScale: ContentScale = ContentScale.Crop
 ) {
     val context = LocalContext.current
+    val colors = MaterialTheme.colorScheme
     val source = if (media.isVideo) media.uri else (media.artworkUri ?: media.uri)
     // Include inexpensive MediaStore metadata so a replaced file at the same
     // content URI does not keep showing the previous decoded frame.
@@ -214,7 +215,7 @@ fun MediaThumbnail(
             .clip(shape)
             .background(
                 Brush.verticalGradient(
-                    listOf(Color(0xFF241A32), Color(0xFF17131F), Color(0xFF100E16))
+                    listOf(colors.surfaceContainerHigh, colors.surface, colors.surfaceContainerLow)
                 )
             ),
         contentAlignment = Alignment.Center
@@ -370,11 +371,12 @@ fun MediaGridCard(
     onSelect: () -> Unit = onSend
 ) {
     val shape = RoundedCornerShape(20.dp)
+    val colors = MaterialTheme.colorScheme
     Column(
         modifier = modifier
             .shadow(12.dp, shape, ambientColor = Color(0x55A855F7), spotColor = Color(0x22A855F7))
             .clip(shape)
-            .background(Brush.verticalGradient(listOf(Color(0xFF21192C), Color(0xFF15121C), Color(0xFF100E16))))
+            .background(Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface, colors.surfaceContainerLow)))
             .border(2.dp, Brush.linearGradient(if (isSelected) listOf(Color(0xFFE9D5FF), Color(0xFFA855F7)) else listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))), shape)
     ) {
         Box(
@@ -454,7 +456,7 @@ fun MediaGridCard(
             Text(
                 text = item.media.displayTitle,
                 style = MaterialTheme.typography.titleSmall,
-                color = Color(0xFFF8F5FF),
+                color = colors.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
@@ -467,14 +469,14 @@ fun MediaGridCard(
                 Text(
                     formatDuration(item.media.durationMs),
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFC084FC),
+                    color = colors.primary,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                 )
                 Text("•", color = Color(0xFF81788F), style = MaterialTheme.typography.labelSmall)
                 Text(
                     formatBytes(item.media.sizeBytes),
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFB9B1C8),
+                    color = colors.onSurfaceVariant,
                     maxLines = 1
                 )
                 Spacer(Modifier.weight(1f))
