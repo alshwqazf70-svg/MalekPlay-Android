@@ -20,6 +20,17 @@ class UltraShareTransportTest {
     }
 
     @Test
+    fun pairingPinDerivationMatchesDesktopProtocolVector() {
+        val challenge = ByteArray(32) { it.toByte() }
+        val derived = UltraShareTransport.derivePairingKey("004219837615", challenge)
+        val actual = derived.joinToString("") { "%02x".format(it) }
+        assertEquals(
+            "556b0f717d241f6ef78a6cc439154edfbb1e2d23e05b91f40494d5b56a375182",
+            actual
+        )
+    }
+
+    @Test
     fun pairingSecretRejectsMalformedValues() {
         assertFalse(UltraShareTransport.isValidPairingSecret(""))
         assertFalse(UltraShareTransport.isValidPairingSecret("123456"))
