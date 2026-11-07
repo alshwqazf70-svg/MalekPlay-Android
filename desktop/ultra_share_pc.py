@@ -338,28 +338,33 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
             partial.unlink()
         # If the previous acknowledgement was lost, confirm the already verified
         # destination instead of creating a second copy of the same file.
+        completed: Path | None = None
         if receipt.is_file():
             try:
                 receipt_size, receipt_digest, receipt_name = receipt.read_text("utf-8").split(":", 2)
-                completed = directory / safe_name(receipt_name)
+                candidate = directory / safe_name(receipt_name)
                 if (
                     int(receipt_size) == size
                     and receipt_digest == expected_digest.hex()
-                    and completed.is_file()
-                    and completed.stat().st_size == size
-                    and hmac.compare_digest(hash_file(completed), expected_digest)
+                    and candidate.is_file()
+                    and candidate.stat().st_size == size
+                    and hmac.compare_digest(hash_file(candidate), expected_digest)
                 ):
-                    write_frame(connection, send_key, nonce_prefix, 0, struct.pack(">q", size))
-                    end = read_frame(connection, receive_key, nonce_prefix, 1, 64)
-                    if end:
-                        raise ValueError("Invalid end-of-transfer frame.")
-                    acknowledgement = b"\x01" + encode_text("File already received and verified.", 512)
-                    write_frame(connection, send_key, nonce_prefix, 1, acknowledgement)
-                    print(f"\nAlready received and verified: {completed}")
-                    return completed
+                    completed = candidate
             except (OSError, ValueError):
-                pass
-            receipt.unlink(missing_ok=True)
+                completed = None
+            if completed is None:
+                receipt.unlink(missing_ok=True)
+
+        if completed is not None:
+            write_frame(connection, send_key, nonce_prefix, 0, struct.pack(">q", size))
+            end = read_frame(connection, receive_key, nonce_prefix, 1, 64)
+            if end:
+                raise ValueError("Invalid end-of-transfer frame.")
+            acknowledgement = b"\x01" + encode_text("File already received and verified.", 512)
+            write_frame(connection, send_key, nonce_prefix, 1, acknowledgement)
+            print(f"\nAlready received and verified: {completed}")
+            return completed
 
         offset = partial.stat().st_size if partial.is_file() else 0
         write_frame(connection, send_key, nonce_prefix, 0, struct.pack(">q", offset))
