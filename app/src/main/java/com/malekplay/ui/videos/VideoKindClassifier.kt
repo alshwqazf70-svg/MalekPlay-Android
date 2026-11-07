@@ -14,6 +14,7 @@ internal object VideoKindClassifier {
         Regex("""(?i)s(\d{1,2})\s*e(\d{1,3})"""),
         Regex("""(?i)(\d{1,2})\s*x\s*(\d{1,3})"""),
         Regex("""(?i)season\s*(\d{1,2})[ ._-]*(?:episode|ep)\s*(\d{1,3})"""),
+        Regex("""(?i)(?:episode|ep)\s*[-_. ]?(\d{1,3})"""),
         Regex("""الحلقة\s*([0-9٠-٩]{1,3})""")
     )
 
