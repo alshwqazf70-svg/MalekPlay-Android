@@ -214,7 +214,7 @@ fun MalekPlayNavHost(
                 LocalScreen(
                     onOpenMedia = { item -> navController.openMedia(item) },
                     onOpenFolder = { path -> navController.navigate(Screen.Folder.create(path)) },
-                    onSendMedia = openTransferForMedia,
+                    onSendMedia = { media -> openTransferForUris(media.map { it.uri }) },
                     onOpenSettings = { navController.navigate(Screen.Settings.route) },
                     contentPadding = padding
                 )

@@ -90,7 +90,7 @@ fun LocalScreen(
     onOpenFolder: (String) -> Unit,
     onOpenSettings: () -> Unit,
     contentPadding: PaddingValues,
-    onSendMedia: (List<MediaItem>) -> Unit = {},
+    onSendMedia: (MediaItem) -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -105,9 +105,6 @@ fun LocalScreen(
     var query by remember { mutableStateOf("") }
     var sortMenu by remember { mutableStateOf(false) }
     var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
-    val selectedUris = remember { androidx.compose.runtime.mutableStateListOf<Uri>() }
-    val selectionMode = selectedUris.isNotEmpty()
-    fun toggleSelection(uri: Uri) { if (uri in selectedUris) selectedUris.remove(uri) else selectedUris.add(uri) }
 
     val searchFlow = remember(query) { viewModel.search(query) }
     val searchResults by searchFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -362,19 +359,6 @@ fun LocalScreen(
             )
         }
 
-        if (selectionMode) {
-            Surface(color = MalekPlayColors.PurpleDeep.copy(alpha = 0.38f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
-                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${selectedUris.size} ملف محدد", modifier = Modifier.weight(1f), color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
-                    TextButton(onClick = { selectedUris.clear() }) { Text("إلغاء") }
-                    TextButton(onClick = {
-                        val selected = (searchResults + sortedVideos + sortedAudio).distinctBy { it.media.uri }.filter { it.media.uri in selectedUris }.map { it.media }
-                        onSendMedia(selected)
-                    }) { Text("إرسال المحدد") }
-                }
-            }
-        }
-
         if (isRefreshing && folders.isEmpty() && videos.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
@@ -392,10 +376,7 @@ fun LocalScreen(
                 emptyBody = stringResource(R.string.lib_no_results_body),
                 showFolder = true,
                 onPlay = onOpenMedia,
-                onSend = { toggleSelection(it.uri) },
-                selectionMode = selectionMode,
-                selectedUris = selectedUris.toSet(),
-                onToggleSelection = ::toggleSelection,
+                onSend = onSendMedia,
                 onFavourite = { viewModel.toggleFavourite(it.media.id) },
                 onAddToPlaylist = { playlistTarget = it.media },
                 onDeleted = viewModel::refresh
@@ -443,9 +424,6 @@ fun LocalScreen(
                 emptyTitle = stringResource(R.string.lib_empty_title),
                 emptyBody = stringResource(R.string.lib_empty_body),
                 onPlay = onOpenMedia,
-                selectionMode = selectionMode,
-                selectedUris = selectedUris.toSet(),
-                onToggleSelection = ::toggleSelection,
                 onFavourite = { viewModel.toggleFavourite(it.media.id) },
                 onAddToPlaylist = { playlistTarget = it.media },
                 onDeleted = viewModel::refresh
@@ -560,9 +538,6 @@ private fun MediaList(
     showFolder: Boolean = false,
     onPlay: (com.malekplay.domain.model.MediaItem) -> Unit,
     onSend: (com.malekplay.domain.model.MediaItem) -> Unit = {},
-    selectionMode: Boolean = false,
-    selectedUris: Set<Uri> = emptySet(),
-    onToggleSelection: (Uri) -> Unit = {},
     onFavourite: (com.malekplay.domain.model.LibraryItem) -> Unit,
     onAddToPlaylist: (com.malekplay.domain.model.LibraryItem) -> Unit,
     onDeleted: () -> Unit = {}
@@ -588,10 +563,7 @@ private fun MediaList(
                     onSend = { onSend(item.media) },
                     onFavourite = { onFavourite(item) },
                     onAddToPlaylist = { onAddToPlaylist(item) },
-                    onDeleted = onDeleted,
-                    selectionMode = selectionMode,
-                    isSelected = item.media.uri in selectedUris,
-                    onSelect = { onToggleSelection(item.media.uri) }
+                    onDeleted = onDeleted
                 )
             }
         }
@@ -610,11 +582,7 @@ private fun MediaList(
                     onPlay = { onPlay(item.media) },
                     onFavourite = { onFavourite(item) },
                     onAddToPlaylist = { onAddToPlaylist(item) },
-                    onDeleted = onDeleted,
-                    onSend = { onToggleSelection(item.media.uri) },
-                    selectionMode = selectionMode,
-                    isSelected = item.media.uri in selectedUris,
-                    onSelect = { onToggleSelection(item.media.uri) }
+                    onDeleted = onDeleted
                 )
             }
         }
