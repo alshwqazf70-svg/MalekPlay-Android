@@ -149,9 +149,14 @@ object UltraShareWifiDirect {
             }
         }
 
+        @SuppressLint("MissingPermission")
         override fun close() {
             if (closed) return
             closed = true
+            // Stop active discovery when the screen/ViewModel goes away. This does
+            // not tear down an established group, so an in-flight TCP transfer can
+            // continue over the existing Wi-Fi Direct connection.
+            runCatching { manager.stopPeerDiscovery(channel, null) }
             runCatching { appContext.unregisterReceiver(receiver) }
         }
 
