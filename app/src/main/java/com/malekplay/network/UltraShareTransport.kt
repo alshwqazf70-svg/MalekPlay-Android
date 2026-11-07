@@ -295,6 +295,41 @@ object UltraShareTransport {
                 require(metadata.available() == 0) { "بيانات الملف المرسل غير مكتملة." }
 
                 val transferId = buildTransferId(fileName, size, expectedDigest)
+                val receiptMarker = File(destinationDirectory, ".ultrashare-$transferId.received")
+                val expectedDigestHex = expectedDigest.joinToString("") { "%02x".format(it) }
+                val completedReceipt = receiptMarker.takeIf { it.isFile }?.let { marker ->
+                    runCatching {
+                        val fields = marker.readText(Charsets.UTF_8).split(':', limit = 3)
+                        if (fields.size != 3 || fields[0].toLongOrNull() != size ||
+                            fields[1] != expectedDigestHex
+                        ) return@runCatching null
+                        val completedFile = File(destinationDirectory, sanitizeFileName(fields[2]))
+                        if (!completedFile.isFile || completedFile.length() != size) return@runCatching null
+                        val actual = FileInputStream(completedFile).use { digestStreamRaw(it) }
+                        completedFile.takeIf { MessageDigest.isEqual(expectedDigest, actual) }
+                    }.getOrNull()
+                }
+                if (completedReceipt != null) {
+                    val offsetPayload = ByteArrayOutputStream().use { bytes ->
+                        DataOutputStream(bytes).use { it.writeLong(size) }
+                        bytes.toByteArray()
+                    }
+                    writeEncryptedFrame(output, sendKey, noncePrefix, 0L, offsetPayload)
+                    val end = readEncryptedFrame(input, receiveKey, noncePrefix, 1L, 64)
+                    require(end.isEmpty()) { "إشارة نهاية النقل غير صالحة." }
+                    val ack = ByteArrayOutputStream().use { bytes ->
+                        DataOutputStream(bytes).use { data ->
+                            data.writeBoolean(true)
+                            writeUtf8(data, "الملف مستلم مسبقاً وتم التحقق منه.", 512)
+                        }
+                        bytes.toByteArray()
+                    }
+                    writeEncryptedFrame(output, sendKey, noncePrefix, 1L, ack)
+                    return@withContext ReceivedFile(completedReceipt, fileName, size, mime)
+                }
+                if (receiptMarker.exists()) {
+                    check(receiptMarker.delete()) { "تعذر تنظيف سجل استلام قديم." }
+                }
                 val partial = File(destinationDirectory, ".ultrashare-$transferId.part")
                 val resumeMarker = File(destinationDirectory, ".ultrashare-$transferId.meta")
                 val expectedMarker = "$size:" + expectedDigest.joinToString("") { "%02x".format(it) }
@@ -341,7 +376,20 @@ object UltraShareTransport {
                 val resultMessage = if (verified) "تم التحقق من سلامة الملف." else "فشل التحقق من سلامة الملف؛ أُزيلت النسخة غير المطابقة ويمكن إعادة الإرسال."
                 val finalFile = if (verified) uniqueDestination(destinationDirectory, fileName) else null
                 if (verified) {
-                    check(partial.renameTo(finalFile!!)) { "تم استلام الملف لكن تعذر نقله إلى مجلد الملفات المكتملة." }
+                    val markerTemp = File(destinationDirectory, ".ultrashare-$transferId.received.tmp")
+                    val markerContent = "$size:$expectedDigestHex:" + finalFile!!.name
+                    FileOutputStream(markerTemp).use { markerOutput ->
+                        markerOutput.write(markerContent.toByteArray(Charsets.UTF_8))
+                        markerOutput.fd.sync()
+                    }
+                    if (receiptMarker.exists()) check(receiptMarker.delete()) {
+                        "تعذر تحديث سجل الاستلام."
+                    }
+                    check(markerTemp.renameTo(receiptMarker)) { "تعذر حفظ سجل الاستلام." }
+                    if (!partial.renameTo(finalFile)) {
+                        receiptMarker.delete()
+                        error("تم استلام الملف لكن تعذر نقله إلى مجلد الملفات المكتملة.")
+                    }
                     if (resumeMarker.exists()) resumeMarker.delete()
                 } else {
                     partial.delete()
