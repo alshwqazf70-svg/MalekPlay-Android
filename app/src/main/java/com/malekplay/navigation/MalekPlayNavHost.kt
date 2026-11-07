@@ -44,6 +44,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -112,6 +113,13 @@ fun MalekPlayNavHost(
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    LaunchedEffect(currentRoute, parentalControl.isEnabled) {
+        val safePlayerRoute = currentRoute == Screen.VideoPlayer.route ||
+            currentRoute == Screen.AudioPlayer.route
+        if (parentalControl.isEnabled && currentRoute != Screen.KidsMode.route && !safePlayerRoute) {
+            navController.navigate(Screen.KidsMode.route) { launchSingleTop = true }
+        }
+    }
     val showBottomBar = BOTTOM_DESTINATIONS.any { it.screen.route == currentRoute }
 
     Scaffold(
