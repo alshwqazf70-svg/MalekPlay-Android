@@ -1,42 +1,41 @@
 # MalekPlay Ultra Share — implementation notes
 
-## Current first-stage implementation
+## Implemented Android transfer
 
-- Android-to-Android transfer over the same private IPv4 LAN.
-- TCP transfer port: `38741`.
-- UDP discovery port: `38742`.
-- Nearby discovery uses broadcast probes and replies only; it does not scan address ranges or ports.
-- Discovery announcements contain only the MalekPlay service name and transfer port. Pairing secrets are never broadcast.
-- A receiver creates a random 256-bit, one-session pairing secret.
-- Pairing uses a fresh server challenge and HMAC-SHA256 proof. A session key is derived independently for each traffic direction.
-- Metadata and file chunks are encrypted/authenticated with AES-GCM.
-- Data is streamed in 256 KiB chunks without media recompression.
-- The sender calculates SHA-256 before transfer. The receiver verifies the completed file before exposing it as received.
-- Interrupted transfers keep a partial file and a sidecar identity marker. A later send of the same filename, size and digest can resume at the existing byte offset.
-- The receiver rejects non-private IPv4 peers and the sender rejects non-private IPv4 destinations.
-- Files are staged under the app-specific Downloads directory and can be exported through Android's Storage Access Framework.
-- While a transfer is active, the service holds Wi-Fi and partial CPU wake locks to reduce interruptions when the display turns off; both locks are released on completion, cancellation, or service destruction. This increases battery use during transfers.
-- A data-sync foreground service owns the send/receive coroutine and socket work. The ViewModel only submits commands and observes a process-local StateFlow, so removing the Ultra Share destination no longer cancels an active transfer while Android keeps the app process/service alive. The ongoing notification shows progress and provides a stop action.
-- Pairing can be transferred through the generated QR payload, live camera scanning through Google Play services Code Scanner, QR image import, or a copied pairing URI. If the on-demand scanner module or Google Play services is unavailable, QR image import and clipboard pairing remain available.
+- Android-to-Android file transfer over a reachable private IPv4 LAN.
+- TCP transfer port: `38741`; UDP discovery port: `38742`.
+- LAN discovery uses bounded broadcast probes and replies. It does not scan address ranges or ports, and discovery packets never contain pairing secrets.
+- Pairing uses a short 12-digit PIN, a fresh challenge, PBKDF2-HMAC-SHA256 (210,000 iterations), and HMAC-SHA256 challenge-response. Legacy 64-character hexadecimal secrets remain accepted for compatibility.
+- Session traffic uses direction-specific keys and AES-256-GCM authenticated frames.
+- Files stream in 256 KiB chunks. SHA-256 is checked before a completed file is exposed to the user.
+- Transfer identity includes sanitized filename, size, and content digest. Partial files can resume from their verified offset; a verified receipt prevents duplicate copies when the final acknowledgement was lost.
+- The receiver sanitizes incoming filenames, preserves existing destination files, and accepts only private/link-local IPv4 peers.
+- A foreground data-sync service owns send/receive sockets and coroutines independently of the navigation/ViewModel lifecycle. The ongoing notification exposes cancellation; transfer wake locks are acquired during active data transfer and released after it.
+- A persistent DataStore queue supports multiple selected files, per-file status, retry of failed items, skip, pause, and manual resume. Interrupted sending rows are recovered as pending when the UI starts.
+- Queue decoding tolerates malformed individual rows without discarding other valid queue entries.
+- Pairing is available through a QR payload, live camera scanning via Google Play services Code Scanner, QR image import, and clipboard pairing URI.
+- Received files are recorded in local history and can be exported through Android's Storage Access Framework.
+- Wi-Fi Direct peer discovery and connection are implemented as an optional direct-network path. The receiver should be the group owner; the sender connects as a client and uses the reported group-owner IPv4 address.
+- A desktop companion in `desktop/` supports Windows, Linux, and macOS. It can send to Android and receive from Android over the same local-network protocol. A user-enabled phone hotspot can provide the local network when no router is available.
 
 ## Current limitations — do not advertise these as completed
 
-- One file is transferred per receiver session.
-- Both devices must be on a reachable local network; access-point client isolation can prevent communication.
-- Process death, force-stop, reboot, or Android's foreground-service execution limits can still interrupt a transfer. Partial files and their identity marker are retained for a later manual resume; automatic service/job recovery is not implemented.
-- A short numeric pairing PIN is not implemented. The current manual pairing secret remains a random 256-bit value; reducing it to six digits without a redesigned authenticated key exchange and strict online rate limiting would weaken protection against offline guessing.
-- Wi-Fi Direct, automatic hotspot creation, internet relay, desktop/browser receiver, and multi-file queues are not implemented.
-- No speed benchmark has been run. Throughput depends on both radios, Wi-Fi generation, channel congestion, distance, device storage and CPU.
+- Wi-Fi Direct behavior varies by Android vendor and device. It requires real-device testing; the helper does not guarantee that every handset permits peer discovery or group formation.
+- The app does not silently enable or configure the phone hotspot. The user enables the hotspot in Android settings and connects the computer/peer to it.
+- No internet relay, cloud transfer, remote-network traversal, or browser-based receiver is implemented.
+- Foreground service execution is still subject to Android and vendor limits. Android 15+ can stop a data-sync foreground service after its allowed execution window. Process death, force-stop, reboot, or revoked document-provider permissions can interrupt a transfer; partial data is retained where possible and the user can manually resume after reopening the app.
+- Persistable document permissions are requested for files selected through the document picker. Files shared from other apps may provide temporary-only grants; those files may need to be selected again after process death.
+- A transfer has not yet been validated across the full device matrix. Required real-device checks include Android-to-Android, Android-to-desktop in both directions, Wi-Fi Direct, hotspot fallback, screen-off transfer, large files, interruption/resume, duplicate receipt, and low-storage behavior.
+- No controlled throughput benchmark has been completed. Do not claim a speed advantage until repeatable measurements are collected.
 
-## Next engineering stages
+## Remaining engineering and verification stages
 
-1. Add a persistent multi-file queue with per-file progress, pause/cancel controls and resumable state.
-2. Complete static review and then obtain approval for the first build/device test.
-3. Verify discovery, pairing, encryption, background continuation, large-file transfer, interruption and resume on two real Android devices.
-4. Add a direct Wi-Fi transport strategy (Wi-Fi Direct where supported, hotspot fallback where permitted).
-5. Add optional desktop/browser receiving and cross-platform interoperability.
-6. Benchmark against controlled LAN conditions before making any speed comparisons.
+1. Complete defensive handling for queue persistence, unreadable resume metadata, cancellation, and stale temporary files.
+2. Review the Android and desktop protocol implementations together and keep cross-platform test vectors in sync.
+3. Run unit tests, Android lint, desktop protocol tests, and debug/release builds after feature development is frozen.
+4. Test on at least two physical Android devices and one desktop, including Android 15+ background limits and vendor-specific Wi-Fi Direct behavior.
+5. Fix any failures found in the final build/device pass before publishing artifacts.
 
 ## Build policy
 
-Do not run Gradle, CI builds, emulators or device tests during feature development until the user explicitly approves the final build stage. Keep development commits marked with `[skip ci]`.
+Feature commits made before the agreed final build stage should use `[skip ci]` so development does not trigger repeated builds. Do not start the final Gradle/CI build, emulator suite, or device-validation pass until the feature set is frozen and the user approves the final build stage.
