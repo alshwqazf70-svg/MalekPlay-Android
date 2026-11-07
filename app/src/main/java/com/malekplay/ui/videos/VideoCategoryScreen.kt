@@ -82,16 +82,17 @@ fun VideoCategoryScreen(
         }.map { it.first }
     }
 
+    val colors = MaterialTheme.colorScheme
     Scaffold(
-        containerColor = MalekPlayColors.Background,
+        containerColor = colors.background,
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Text(title, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.ExtraBold)
+                        Text(title, color = colors.onSurface, fontWeight = FontWeight.ExtraBold)
                         Text(
                             text = if (series) "عالم الحلقات والمواسم" else "تجربتك السينمائية",
-                            color = MalekPlayColors.TextMuted,
+                            color = colors.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
@@ -118,13 +119,13 @@ fun VideoCategoryScreen(
         } else {
             Column(
                 Modifier.fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(MalekPlayColors.BackgroundElevated, MalekPlayColors.Background, Color(0xFF08070C))))
+                    .background(Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.background, colors.surface)))
                     .padding(padding)
             ) {
                 Column(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
                         .clip(RoundedCornerShape(20.dp))
-                        .background(Brush.linearGradient(listOf(Color(0xFF292039), Color(0xFF17131F), Color(0xFF111019))))
+                        .background(Brush.linearGradient(listOf(colors.surfaceContainerHigh, colors.surface, colors.surfaceContainerLow)))
                         .border(1.dp, Brush.linearGradient(listOf(MalekPlayColors.PurpleBright.copy(alpha = 0.55f), Color.White.copy(alpha = 0.08f), MalekPlayColors.PurpleDeep.copy(alpha = 0.35f))), RoundedCornerShape(20.dp))
                         .padding(horizontal = 16.dp, vertical = 13.dp)
                 ) {
