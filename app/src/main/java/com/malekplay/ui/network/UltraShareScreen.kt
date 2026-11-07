@@ -575,22 +575,22 @@ fun UltraShareScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF20122F), MalekPlayColors.Background, Color(0xFF07060C))))
+            .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface)))
             .padding(contentPadding)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF251535)), modifier = Modifier.fillMaxWidth()) {
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back), tint = MalekPlayColors.TextPrimary)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back), tint = MaterialTheme.colorScheme.onSurface)
                     }
                     Column(Modifier.weight(1f)) {
                         Text("ULTRA SHARE", color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
-                        Text(stringResource(R.string.ultra_share_title), style = MaterialTheme.typography.headlineSmall, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.ExtraBold)
-                        Text(stringResource(R.string.ultra_share_subtitle), style = MaterialTheme.typography.bodySmall, color = MalekPlayColors.TextSecondary)
+                        Text(stringResource(R.string.ultra_share_title), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold)
+                        Text(stringResource(R.string.ultra_share_subtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Icon(Icons.Filled.Wifi, contentDescription = null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(34.dp))
                 }
@@ -607,29 +607,29 @@ fun UltraShareScreen(
                     else -> MalekPlayColors.PurpleBright
                 }
                 Row(
-                    modifier = Modifier.fillMaxWidth().background(Color(0xFF120D1B), androidx.compose.foundation.shape.RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 11.dp),
+                    modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(Modifier.size(9.dp).background(connectionColor, androidx.compose.foundation.shape.CircleShape))
-                    Text(connectionLabel, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 9.dp).weight(1f))
+                    Text(connectionLabel, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 9.dp).weight(1f))
                     Text(when { state.sending -> "LIVE"; state.receiving -> "ONLINE"; state.scanning -> "SCAN"; else -> "READY" }, color = connectionColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF171020)), modifier = Modifier.weight(1f)) {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.weight(1f)) {
                         Column(Modifier.padding(11.dp)) {
-                            Text("الإرسال", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
-                            Text(if (state.sending) "نشط الآن" else "جاهز", color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                            Text("الإرسال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                            Text(if (state.sending) "نشط الآن" else "جاهز", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                         }
                     }
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF171020)), modifier = Modifier.weight(1f)) {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.weight(1f)) {
                         Column(Modifier.padding(11.dp)) {
-                            Text("الاستقبال", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
-                            Text(if (state.receiving) "يستقبل الآن" else "متاح", color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                            Text("الاستقبال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                            Text(if (state.receiving) "يستقبل الآن" else "متاح", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                         }
                     }
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF171020)), modifier = Modifier.weight(1f)) {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.weight(1f)) {
                         Column(Modifier.padding(11.dp)) {
-                            Text("الملفات", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                            Text("الملفات", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                             Text("${pendingMediaUris.size}", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
                         }
                     }
@@ -637,20 +637,20 @@ fun UltraShareScreen(
             }
         }
 
-        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Download, contentDescription = null, tint = MalekPlayColors.PurpleBright)
-                    Text(stringResource(R.string.ultra_share_receive), color = MalekPlayColors.TextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                    Text(stringResource(R.string.ultra_share_receive), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
                 }
-                Text(stringResource(R.string.ultra_share_receive_hint), color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.ultra_share_receive_hint), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 if (state.receiving) {
-                    Text(stringResource(R.string.ultra_share_receiver_address), color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelMedium)
+                    Text(stringResource(R.string.ultra_share_receiver_address), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                     if (state.localAddresses.isEmpty()) {
                         Text(stringResource(R.string.ultra_share_no_address), color = MaterialTheme.colorScheme.error)
                     } else {
                         state.localAddresses.forEach { address ->
-                            Text(address, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+                            Text(address, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
                         }
                         TextButton(
                             onClick = { UltraShareForegroundService.refreshLocalAddresses(context) }
@@ -659,13 +659,13 @@ fun UltraShareScreen(
                         }
                         Text(
                             stringResource(R.string.ultra_share_port, UltraShareTransport.DEFAULT_PORT),
-                            color = MalekPlayColors.TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
-                    Text(stringResource(R.string.ultra_share_pairing_code), color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelMedium)
+                    Text(stringResource(R.string.ultra_share_pairing_code), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                     Text(state.pairingSecret.chunked(4).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                    Text(stringResource(R.string.ultra_share_code_warning), color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.ultra_share_code_warning), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     qrBitmap?.let { bitmap ->
                         val activeQrPayload = qrPayload ?: return@let
                         Image(
@@ -677,7 +677,7 @@ fun UltraShareScreen(
                         )
                         Text(
                             stringResource(R.string.ultra_share_qr_hint),
-                            color = MalekPlayColors.TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
                         OutlinedButton(
@@ -704,11 +704,11 @@ fun UltraShareScreen(
             }
         }
 
-        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Send, contentDescription = null, tint = MalekPlayColors.PurpleBright)
-                    Text(stringResource(R.string.ultra_share_send), color = MalekPlayColors.TextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                    Text(stringResource(R.string.ultra_share_send), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
                 }
                 OutlinedButton(
                     onClick = viewModel::scanNearbyDevices,
@@ -747,12 +747,12 @@ fun UltraShareScreen(
                 }
                 Text(
                     "فعّل Wi-Fi Direct على الجهازين. يفضّل MalekPlay جعل جهاز الاستقبال مالك مجموعة الاتصال.",
-                    color = MalekPlayColors.TextMuted,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall
                 )
                 Text(
                     "بديل بلا راوتر: فعّل نقطة الاتصال على جهاز الاستقبال، ثم صِل الجهاز الآخر بها وابدأ الاستقبال.",
-                    color = MalekPlayColors.TextMuted,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall
                 )
                 OutlinedTextField(
@@ -801,8 +801,8 @@ fun UltraShareScreen(
                         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text("قائمة الإرسال", color = MalekPlayColors.TextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                    Text("${pendingMediaUris.size} ملف جاهز للإرسال", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
+                                    Text("قائمة الإرسال", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    Text("${pendingMediaUris.size} ملف جاهز للإرسال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                                 }
                                 TextButton(onClick = { pendingMediaUris = emptyList() }, enabled = !state.sending) { Text("إفراغ") }
                             }
@@ -824,7 +824,7 @@ fun UltraShareScreen(
                                 }
                             }
                             if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
-                                Text("أكمل ربط الجهاز أولًا، ثم اضغط إرسال الآن.", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                                Text("أكمل ربط الجهاز أولًا، ثم اضغط إرسال الآن.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
@@ -839,7 +839,7 @@ fun UltraShareScreen(
                     Text(
                         "طابور الإرسال: " + state.queueCompleted + " / " + state.queueTotal +
                             (state.queueCurrentName?.let { " • " + it } ?: ""),
-                        color = MalekPlayColors.TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall
                     )
                     if (state.queueTotalBytes > 0L) {
@@ -852,7 +852,7 @@ fun UltraShareScreen(
                         Text(
                             "الإجمالي: " + formatTransferBytes(state.queueTransferredBytes) +
                                 " / " + formatTransferBytes(state.queueTotalBytes),
-                            color = MalekPlayColors.TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
@@ -866,13 +866,13 @@ fun UltraShareScreen(
                     }
                     val skippedCount = state.queueEntries.count { it.status == UltraShareQueueStore.STATUS_SKIPPED }
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("سجل عمليات النقل", color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                        Text("سجل عمليات النقل", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                             listOf(
                                 "اكتمل $completedCount" to Color(0xFF65D6A2),
                                 "فشل $failedCount" to MaterialTheme.colorScheme.error,
                                 "معلّق $pendingCount" to MalekPlayColors.PurpleBright,
-                                "متخطّى $skippedCount" to MalekPlayColors.TextMuted
+                                "متخطّى $skippedCount" to MaterialTheme.colorScheme.onSurfaceVariant
                             ).forEach { (label, tint) ->
                                 Text(
                                     label,
@@ -890,19 +890,19 @@ fun UltraShareScreen(
                                 UltraShareQueueStore.STATUS_SKIPPED -> "تم التخطي"
                                 else -> "بانتظار الإرسال"
                             }
-                            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF171020)), modifier = Modifier.fillMaxWidth()) {
+                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(entry.displayName, color = MalekPlayColors.TextPrimary, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(label, color = if (entry.status == UltraShareQueueStore.STATUS_FAILED) MaterialTheme.colorScheme.error else if (entry.status == UltraShareQueueStore.STATUS_COMPLETED) Color(0xFF65D6A2) else MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
+                                        Text(entry.displayName, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(label, color = if (entry.status == UltraShareQueueStore.STATUS_FAILED) MaterialTheme.colorScheme.error else if (entry.status == UltraShareQueueStore.STATUS_COMPLETED) Color(0xFF65D6A2) else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                                         entry.error?.takeIf { it.isNotBlank() }?.let { reason ->
                                             Text(
                                                 reason,
-                                                color = if (entry.status == UltraShareQueueStore.STATUS_FAILED) MaterialTheme.colorScheme.error.copy(alpha = 0.9f) else MalekPlayColors.TextMuted,
+                                                color = if (entry.status == UltraShareQueueStore.STATUS_FAILED) MaterialTheme.colorScheme.error.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 style = MaterialTheme.typography.labelSmall,
                                                 maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis
@@ -924,7 +924,7 @@ fun UltraShareScreen(
                             }
                         }
                         if (state.queueEntries.size > 12) {
-                            Text("و " + (state.queueEntries.size - 12) + " ملفات أخرى", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                            Text("و " + (state.queueEntries.size - 12) + " ملفات أخرى", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                         }
                     }
                     if (!state.sending && state.queueEntries.any {
@@ -955,12 +955,12 @@ fun UltraShareScreen(
         }
 
         state.progress?.let { progress ->
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF17131F)), modifier = Modifier.fillMaxWidth()) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("نقل جارٍ الآن", color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                            Text(progress.fileName, color = MalekPlayColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(progress.fileName, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Text("${(progress.fraction * 100).toInt()}%", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
                     }
@@ -976,7 +976,7 @@ fun UltraShareScreen(
                                 ((progress.totalBytes - progress.transferredBytes).coerceAtLeast(0L) / progress.bytesPerSecond)
                             ) else stringResource(R.string.ultra_share_eta_calculating)
                         ),
-                        color = MalekPlayColors.TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
@@ -984,14 +984,14 @@ fun UltraShareScreen(
         }
 
         state.receivedFile?.let { received ->
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF18291F)), modifier = Modifier.fillMaxWidth()) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF66D99A))
-                        Text(stringResource(R.string.ultra_share_receive_complete), color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                        Text(stringResource(R.string.ultra_share_receive_complete), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
                     }
-                    Text(received.fileName, color = MalekPlayColors.TextPrimary)
-                    Text(formatTransferBytes(received.sizeBytes), color = MalekPlayColors.TextSecondary)
+                    Text(received.fileName, color = MaterialTheme.colorScheme.onSurface)
+                    Text(formatTransferBytes(received.sizeBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     OutlinedButton(onClick = { exportFile.launch(received.fileName) }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Filled.ContentCopy, contentDescription = null)
                         Text(stringResource(R.string.ultra_share_save_to_device), modifier = Modifier.padding(start = 8.dp))
@@ -1001,26 +1001,26 @@ fun UltraShareScreen(
         }
 
         if (state.receivedHistory.isNotEmpty()) {
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF17131F)), modifier = Modifier.fillMaxWidth()) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("سجل الملفات المستلمة", color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
-                            Text("${state.receivedHistory.size} ملف محفوظ في السجل", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                            Text("سجل الملفات المستلمة", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                            Text("${state.receivedHistory.size} ملف محفوظ في السجل", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                         }
                         TextButton(onClick = viewModel::clearReceivedHistory, enabled = !state.receiving) { Text("مسح السجل") }
                     }
                     state.receivedHistory.take(10).forEach { entry ->
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(entry.fileName, color = MalekPlayColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(formatTransferBytes(entry.sizeBytes) + " • " + java.text.DateFormat.getDateTimeInstance().format(java.util.Date(entry.receivedAtEpochMs)), color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                                Text(entry.fileName, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(formatTransferBytes(entry.sizeBytes) + " • " + java.text.DateFormat.getDateTimeInstance().format(java.util.Date(entry.receivedAtEpochMs)), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                             }
                             Text(if (entry.isAvailable) "متاح" else "غير موجود", color = if (entry.isAvailable) Color(0xFF65D6A2) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
                         }
                     }
                     if (state.receivedHistory.size > 10) {
-                        Text("و ${state.receivedHistory.size - 10} ملفات أخرى", color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.labelSmall)
+                        Text("و ${state.receivedHistory.size - 10} ملفات أخرى", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
@@ -1033,7 +1033,7 @@ fun UltraShareScreen(
         }
         Text(
             stringResource(R.string.ultra_share_lan_note),
-            color = MalekPlayColors.TextMuted,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelSmall
         )
         Spacer(Modifier.height(12.dp))
