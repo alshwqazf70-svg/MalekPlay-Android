@@ -36,6 +36,35 @@ class UltraShareTransportTest {
     fun fileNameSanitizerRejectsBlankNames() {
         UltraShareTransport.sanitizeFileName("...")
     }
+
+    @Test
+    fun fileNameSanitizerRemovesControlAndBidirectionalFormattingCharacters() {
+        val unsafe = "movie\u202Egpj.exe\u0085.mp4"
+        assertEquals("moviegpj.exe.mp4", UltraShareTransport.sanitizeFileName(unsafe))
+    }
+
+    @Test
+    fun fileNameSanitizerBoundsUtf8LengthWithoutSplittingUnicodeCodePoints() {
+        val sanitized = UltraShareTransport.sanitizeFileName("🎬".repeat(100))
+        assertTrue(sanitized.toByteArray(Charsets.UTF_8).size <= 180)
+        var index = 0
+        while (index < sanitized.length) {
+            val codePoint = sanitized.codePointAt(index)
+            assertTrue(Character.isValidCodePoint(codePoint))
+            index += Character.charCount(codePoint)
+        }
+    }
+
+    @Test
+    fun mimeTypeSanitizerAcceptsValidTypesAndRejectsHeaderInjection() {
+        assertEquals("video/mp4", UltraShareTransport.sanitizeMimeType(" video/mp4 "))
+        assertEquals(
+            "application/octet-stream",
+            UltraShareTransport.sanitizeMimeType("video/mp4\\r\\nX-Evil: yes")
+        )
+        assertEquals("application/octet-stream", UltraShareTransport.sanitizeMimeType("not a mime type"))
+    }
+
     @Test
     fun privateLanHostValidationRejectsNonLocalTargets() {
         assertTrue(UltraShareTransport.isValidPrivateLanHost("192.168.1.25"))
