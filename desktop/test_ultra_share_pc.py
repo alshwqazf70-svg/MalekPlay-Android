@@ -4,8 +4,10 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from ultra_share_pc import (
+    DEFAULT_PORT,
     VERSION,
     build_transfer_id,
     derive_key,
@@ -17,6 +19,7 @@ from ultra_share_pc import (
     parse_metadata,
     read_frame,
     safe_name,
+    send_file,
     write_frame,
 )
 
@@ -113,6 +116,30 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
                 find_completed_receipt(directory, transfer_id, len(content), expected_digest)
             )
             self.assertFalse(receipt.exists())
+
+    def test_pairing_rejection_is_not_retried(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "clip.mp4"
+            source.write_bytes(b"sample")
+            with patch("ultra_share_pc.send_once", side_effect=PermissionError("wrong PIN")) as send:
+                with patch("ultra_share_pc.time.sleep") as sleep:
+                    with self.assertRaises(PermissionError):
+                        send_file("192.168.1.20", DEFAULT_PORT, "004219837615", source)
+            self.assertEqual(1, send.call_count)
+            sleep.assert_not_called()
+
+    def test_transient_connection_failure_is_retried(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "clip.mp4"
+            source.write_bytes(b"sample")
+            with patch(
+                "ultra_share_pc.send_once",
+                side_effect=[ConnectionResetError("connection reset"), None],
+            ) as send:
+                with patch("ultra_share_pc.time.sleep") as sleep:
+                    send_file("192.168.1.20", DEFAULT_PORT, "004219837615", source)
+            self.assertEqual(2, send.call_count)
+            sleep.assert_called_once_with(1)
 
     def test_lan_filter_allows_private_and_link_local_only(self):
         self.assertTrue(is_lan_ipv4("192.168.1.20"))
