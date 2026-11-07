@@ -26,7 +26,7 @@ import kotlin.coroutines.resumeWithException
 /** Validates a source language against the language models supported by ML Kit. */
 internal fun validateTranslationSourceLanguage(
     languageCode: String,
-    supportedLanguageCodes: Set<String>
+    supportedLanguageCodes: Collection<String>
 ): String {
     val normalized = languageCode.trim().lowercase(java.util.Locale.ROOT)
     require(normalized.isNotBlank() && normalized in supportedLanguageCodes) {
