@@ -12,6 +12,8 @@ class VideoKindClassifierTest {
     @Test fun detectsArabicEpisodeAndSeriesFolders() {
         assertEquals(VideoKind.SERIES, VideoKindClassifier.classify("الحلقة 12", "الموسم الثاني"))
         assertEquals(VideoKind.SERIES, VideoKindClassifier.classify("Episode 3", "Drama Series"))
+        assertEquals(VideoKind.SERIES, VideoKindClassifier.classify("الحلقة ١٢"))
+        assertEquals(VideoKind.SERIES, VideoKindClassifier.classify("مسلسل الرحلة الحلقة ١٢"))
     }
 
     @Test fun detectsExplicitMovieLabels() {
@@ -23,10 +25,12 @@ class VideoKindClassifierTest {
         assertEquals(VideoKind.UNCLASSIFIED, VideoKindClassifier.classify("Interstellar.2014.1080p"))
         assertEquals(VideoKind.UNCLASSIFIED, VideoKindClassifier.classify("Nature Beauty 4K"))
     }
+
     @Test fun extractsEpisodeOrderForLatinAndArabicNames() {
         val first = VideoKindClassifier.episodeSortKey("My.Show.S01E02.1080p.mkv")
         val nextSeason = VideoKindClassifier.episodeSortKey("My.Show.S02E01.mkv")
         val arabic = VideoKindClassifier.episodeSortKey("الحلقة ١٢", "مسلسل الرحلة")
+        val arabicSeason = VideoKindClassifier.episodeSortKey("المسلسل S٠٢E٠٣.mkv")
 
         assertEquals("my show", first?.seriesKey)
         assertEquals(1, first?.season)
@@ -35,9 +39,11 @@ class VideoKindClassifierTest {
         assertEquals(1, nextSeason?.episode)
         assertEquals("مسلسل الرحلة", arabic?.seriesKey)
         assertEquals(12, arabic?.episode)
+        assertEquals(2, arabicSeason?.season)
+        assertEquals(3, arabicSeason?.episode)
+
         val numbered = VideoKindClassifier.episodeSortKey("Episode 3", "Drama Series")
         assertEquals("drama series", numbered?.seriesKey)
         assertEquals(3, numbered?.episode)
     }
-
 }
