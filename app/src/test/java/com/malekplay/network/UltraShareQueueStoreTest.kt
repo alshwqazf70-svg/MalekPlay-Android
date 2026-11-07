@@ -83,4 +83,46 @@ class UltraShareQueueStoreTest {
             UltraShareQueueStore.clear(context)
         }
     }
+
+    @Test
+    fun replaceDeduplicatesUrisAndResetsEveryEntryToPending() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val first = Uri.parse("content://malekplay.test/document/first")
+        val second = Uri.parse("content://malekplay.test/document/second")
+        UltraShareQueueStore.clear(context)
+        try {
+            UltraShareQueueStore.replace(context, listOf(first, second, first))
+            val initial = UltraShareQueueStore.observe(context).first()
+            assertEquals(2, initial.size)
+            assertEquals(listOf(first.toString(), second.toString()), initial.map { it.uri })
+            UltraShareQueueStore.update(context, first, displayName = "first.mp4", status = UltraShareQueueStore.STATUS_COMPLETED)
+            UltraShareQueueStore.replace(context, listOf(first, second))
+            val replaced = UltraShareQueueStore.observe(context).first()
+            assertEquals(2, replaced.size)
+            assertTrue(replaced.all { it.status == UltraShareQueueStore.STATUS_PENDING })
+            assertTrue(replaced.all { it.error == null })
+        } finally {
+            UltraShareQueueStore.clear(context)
+        }
+    }
+
+    @Test
+    fun pendingReturnsFailedAndPendingButExcludesTerminalEntries() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val pendingUri = Uri.parse("content://malekplay.test/document/pending")
+        val failedUri = Uri.parse("content://malekplay.test/document/failed")
+        val completedUri = Uri.parse("content://malekplay.test/document/completed")
+        val skippedUri = Uri.parse("content://malekplay.test/document/skipped")
+        UltraShareQueueStore.clear(context)
+        try {
+            UltraShareQueueStore.replace(context, listOf(pendingUri, failedUri, completedUri, skippedUri))
+            UltraShareQueueStore.update(context, failedUri, status = UltraShareQueueStore.STATUS_FAILED, error = "network unavailable")
+            UltraShareQueueStore.update(context, completedUri, status = UltraShareQueueStore.STATUS_COMPLETED)
+            UltraShareQueueStore.update(context, skippedUri, status = UltraShareQueueStore.STATUS_SKIPPED)
+            val retryable = UltraShareQueueStore.pending(context).map { it.uri }.toSet()
+            assertEquals(setOf(pendingUri.toString(), failedUri.toString()), retryable)
+        } finally {
+            UltraShareQueueStore.clear(context)
+        }
+    }
 }
