@@ -27,13 +27,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import android.net.Uri
-import androidx.compose.material3.TextButton
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -53,14 +50,11 @@ fun VideoCategoryScreen(
     series: Boolean,
     onBack: () -> Unit,
     onOpenMedia: (MediaItem) -> Unit,
-    onSendMedia: (List<MediaItem>) -> Unit = {},
+    onSendMedia: (MediaItem) -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val videos by viewModel.videos.collectAsStateWithLifecycle()
     var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
-    val selectedMedia = remember { mutableStateListOf<Uri>() }
-    val selectionMode = selectedMedia.isNotEmpty()
-    fun toggleSelection(uri: Uri) { if (uri in selectedMedia) selectedMedia.remove(uri) else selectedMedia.add(uri) }
     val title = stringResource(if (series) R.string.nav_series else R.string.nav_movies)
     // Classification depends only on the media snapshot. Reuse it across
     // unrelated recompositions (for example playlist dialog visibility).
@@ -142,15 +136,6 @@ fun VideoCategoryScreen(
                         fontWeight = FontWeight.SemiBold
                     )
                 }
-                if (selectionMode) {
-                    androidx.compose.material3.Surface(color = MalekPlayColors.PurpleDeep.copy(alpha = 0.35f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
-                        androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Text("${selectedMedia.size} ملف محدد", color = MalekPlayColors.TextPrimary, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                            TextButton(onClick = { selectedMedia.clear() }) { Text("إلغاء") }
-                            TextButton(onClick = { onSendMedia(filtered.filter { it.media.uri in selectedMedia }.map { it.media }) }) { Text("إرسال المحدد") }
-                        }
-                    }
-                }
                 if (!series && unclassifiedCount > 0) {
                     Text(
                         text = stringResource(R.string.video_category_unclassified_notice, unclassifiedCount),
@@ -173,10 +158,7 @@ fun VideoCategoryScreen(
                             onFavourite = { viewModel.toggleFavourite(item.media.id) },
                             onAddToPlaylist = { playlistTarget = item.media },
                             onDeleted = viewModel::refresh,
-                            onSend = { toggleSelection(item.media.uri) },
-                            selectionMode = selectionMode,
-                            isSelected = item.media.uri in selectedMedia,
-                            onSelect = { toggleSelection(item.media.uri) }
+                            onSend = { onSendMedia(item.media) }
                         )
                     }
                 }

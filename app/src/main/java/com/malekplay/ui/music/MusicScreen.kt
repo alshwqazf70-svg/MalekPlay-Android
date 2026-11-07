@@ -291,6 +291,9 @@ private fun SongRow(
     unknownArtist: String,
     onClick: () -> Unit,
     onSend: () -> Unit,
+    selectionMode: Boolean,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
     onToggleFavourite: () -> Unit,
     onDeleted: () -> Unit
 ) {

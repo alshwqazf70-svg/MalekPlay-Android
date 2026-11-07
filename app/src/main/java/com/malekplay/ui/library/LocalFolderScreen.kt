@@ -164,6 +164,9 @@ private fun FolderItemRow(
     item: LibraryItem,
     onClick: () -> Unit,
     onSend: () -> Unit,
+    selectionMode: Boolean,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
     onToggleFavourite: () -> Unit
 ) {
     Row(

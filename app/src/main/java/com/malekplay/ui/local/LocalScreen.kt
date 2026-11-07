@@ -442,6 +442,9 @@ fun LocalScreen(
                 emptyTitle = stringResource(R.string.lib_empty_title),
                 emptyBody = stringResource(R.string.lib_empty_body),
                 onPlay = onOpenMedia,
+                selectionMode = selectionMode,
+                selectedUris = selectedUris.toSet(),
+                onToggleSelection = ::toggleSelection,
                 onFavourite = { viewModel.toggleFavourite(it.media.id) },
                 onAddToPlaylist = { playlistTarget = it.media },
                 onDeleted = viewModel::refresh

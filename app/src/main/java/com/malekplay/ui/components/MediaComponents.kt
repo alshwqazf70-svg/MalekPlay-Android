@@ -264,19 +264,17 @@ fun MediaListRow(
     onAddToPlaylist: () -> Unit,
     showFolder: Boolean = false,
     onDeleted: () -> Unit = {},
-    onSend: () -> Unit = {},
-    selectionMode: Boolean = false,
-    isSelected: Boolean = false,
-    onSelect: () -> Unit = onSend
+    onSend: () -> Unit = {}
 ) {
     val media = item.media
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = { if (selectionMode) onSelect() else onPlay() }, onLongClick = onSelect),
+            .combinedClickable(onClick = onPlay, onLongClick = onSend),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = when { isSelected -> MaterialTheme.colorScheme.primaryContainer; isCurrent -> MaterialTheme.colorScheme.secondaryContainer; else -> MaterialTheme.colorScheme.surface }
+            containerColor = if (isCurrent) MaterialTheme.colorScheme.secondaryContainer
+            else MaterialTheme.colorScheme.surface
         )
     ) {
         Row(
@@ -364,10 +362,7 @@ fun MediaGridCard(
     onFavourite: () -> Unit,
     onAddToPlaylist: () -> Unit,
     onDeleted: () -> Unit = {},
-    onSend: () -> Unit = {},
-    selectionMode: Boolean = false,
-    isSelected: Boolean = false,
-    onSelect: () -> Unit = onSend
+    onSend: () -> Unit = {}
 ) {
     val shape = RoundedCornerShape(20.dp)
     Column(
@@ -375,10 +370,10 @@ fun MediaGridCard(
             .shadow(12.dp, shape, ambientColor = Color(0x55A855F7), spotColor = Color(0x22A855F7))
             .clip(shape)
             .background(Brush.verticalGradient(listOf(Color(0xFF21192C), Color(0xFF15121C), Color(0xFF100E16))))
-            .border(2.dp, Brush.linearGradient(if (isSelected) listOf(Color(0xFFE9D5FF), Color(0xFFA855F7)) else listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))), shape)
+            .border(1.dp, Brush.linearGradient(listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))), shape)
     ) {
         Box(
-            modifier = Modifier.fillMaxWidth().aspectRatio(0.92f).combinedClickable(onClick = { if (selectionMode) onSelect() else onPlay() }, onLongClick = onSelect)
+            modifier = Modifier.fillMaxWidth().aspectRatio(0.92f).combinedClickable(onClick = onPlay, onLongClick = onSend)
         ) {
             MediaThumbnail(
                 media = item.media,
@@ -386,7 +381,6 @@ fun MediaGridCard(
                 cornerRadius = 0.dp,
                 contentScale = ContentScale.Crop
             )
-            if (selectionMode || isSelected) Surface(modifier = Modifier.align(Alignment.TopEnd).padding(9.dp), shape = CircleShape, color = if (isSelected) Color(0xFFA855F7) else Color.Black.copy(alpha = 0.68f)) { Icon(Icons.Filled.CheckCircle, contentDescription = if (isSelected) "محدد" else "تحديد", tint = Color.White, modifier = Modifier.padding(5.dp).size(22.dp)) }
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                 listOf(Color(0x18000000), Color.Transparent, Color(0xAA08060D))
             )))
@@ -448,7 +442,7 @@ fun MediaGridCard(
             }
         }
         Column(
-            modifier = Modifier.fillMaxWidth().clickable(onClick = { if (selectionMode) onSelect() else onPlay() }).padding(horizontal = 11.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(horizontal = 11.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
