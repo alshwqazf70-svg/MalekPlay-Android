@@ -349,4 +349,15 @@
     <string name="ultra_share_background_unavailable">Background transfer notification could not start. Keep the app open during the transfer.</string>
     <string name="ultra_share_progress">%1$d%% • %2$s / %3$s • %4$s/s • ETA %5$s</string>
     <string name="ultra_share_eta_calculating">calculating</string>
+    <string name="kids_choose_title">Choose child-safe media</string>
+    <string name="kids_choose_summary">%1$d selected items. Only these videos and songs will appear in Kids Mode.</string>
+    <string name="kids_library_title">My Kids Library</string>
+    <string name="kids_library_summary">%1$d approved items</string>
+    <string name="kids_save_selection">Save</string>
+    <string name="kids_video_label">Video</string>
+    <string name="kids_audio_label">Music</string>
+    <string name="kids_no_approved_media">No media has been approved yet. Ask a parent to select videos or music.</string>
+    <string name="kids_no_media_found">No videos or music were found in the device library.</string>
+    <string name="kids_manage_content">Choose allowed videos and music</string>
+    <string name="kids_manage_content_summary">Select exactly what children can play</string>
 </resources>
