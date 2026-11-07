@@ -109,7 +109,6 @@ class UltraShareForegroundService : Service() {
                 }
                 if (transferJob != null) return START_NOT_STICKY
                 startForegroundCompat()
-                acquireTransferLocks()
                 val addresses = findLocalIpv4Addresses()
                 publish(
                     UltraShareServiceState(
@@ -126,15 +125,22 @@ class UltraShareForegroundService : Service() {
                     try {
                         while (true) {
                             try {
-                                val received = UltraShareTransport.receiveOnce(
-                                    pairingSecret = secret,
-                                    destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
-                                    onProgress = { progress ->
-                                        val nextState = currentState().copy(progress = progress, error = null)
-                                        publish(nextState)
-                                        updateNotification(progress)
-                                    }
-                                )
+                                val received = try {
+                                    UltraShareTransport.receiveOnce(
+                                        pairingSecret = secret,
+                                        destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
+                                        onProgress = { progress ->
+                                            acquireTransferLocks()
+                                            val nextState = currentState().copy(progress = progress, error = null)
+                                            publish(nextState)
+                                            updateNotification(progress)
+                                        }
+                                    )
+                                } finally {
+                                    // The receiver may wait for a peer for hours. Hold wake locks
+                                    // only while bytes are actively being transferred.
+                                    releaseTransferLocks()
+                                }
                                 UltraShareReceivedHistoryStore.record(
                                     context = this@UltraShareForegroundService,
                                     file = received.file,
@@ -192,7 +198,6 @@ class UltraShareForegroundService : Service() {
                 }
                 if (transferJob != null) return START_NOT_STICKY
                 startForegroundCompat()
-                acquireTransferLocks()
                 publish(UltraShareServiceState(sending = true, status = getString(R.string.ultra_share_sending)))
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     try {
@@ -206,6 +211,7 @@ class UltraShareForegroundService : Service() {
                             mimeType = metadata.second,
                             sizeBytes = metadata.third,
                             onProgress = { progress ->
+                                acquireTransferLocks()
                                 publish(currentState().copy(progress = progress))
                                 updateNotification(progress)
                             }
@@ -251,6 +257,28 @@ class UltraShareForegroundService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /**
+     * Android 15 enforces a time limit for dataSync foreground services.
+     * Stop all work immediately when the system reports that the limit was reached.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        publish(
+            currentState().copy(
+                receiving = false,
+                sending = false,
+                pairingSecret = "",
+                localAddresses = emptyList(),
+                progress = null,
+                error = "أوقف Android خدمة النقل بعد بلوغ الحد الزمني المسموح. يمكنك بدء النقل مجدداً."
+            )
+        )
+        transferJob?.cancel()
+        advertisementJob?.cancel()
+        releaseTransferLocks()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf(startId)
+    }
 
     override fun onDestroy() {
         transferJob?.cancel()
@@ -341,7 +369,6 @@ class UltraShareForegroundService : Service() {
         }
         if (transferJob != null) return
         startForegroundCompat()
-        acquireTransferLocks()
         publish(UltraShareServiceState(sending = true, queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال"))
         val job = serviceScope.launch(start = CoroutineStart.LAZY) {
             var activeUri: Uri? = null
@@ -408,6 +435,7 @@ class UltraShareForegroundService : Service() {
                     publish(currentState().copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = null))
                     try {
                         sendWithRetry(uri, host, secret, metadata) { progress ->
+                            acquireTransferLocks()
                             publish(currentState().copy(
                                 progress = progress,
                                 queueCurrentName = metadata.first,
@@ -425,6 +453,8 @@ class UltraShareForegroundService : Service() {
                         totalBytes = (totalBytes - metadata.third).coerceAtLeast(completedBytes)
                         lastError = metadata.first + ": " + (failure.localizedMessage ?: "فشل الإرسال.")
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
+                    } finally {
+                        releaseTransferLocks()
                     }
                     activeUri = null
                     publish(currentState().copy(
