@@ -416,6 +416,14 @@ object UltraShareTransport {
                 if (partial.exists() && partial.length() > size) {
                     check(partial.delete()) { "تعذر تنظيف ملف استئناف قديم." }
                 }
+                // A disconnect can leave a full-sized partial before the final
+                // receipt/acknowledgement. Reuse it only if its complete digest matches.
+                if (partial.isFile && partial.length() == size) {
+                    val partialDigest = FileInputStream(partial).use { digestStreamRaw(it) }
+                    if (!MessageDigest.isEqual(expectedDigest, partialDigest)) {
+                        check(partial.delete()) { "تعذر تنظيف ملف استئناف مكتمل لكنه تالف." }
+                    }
+                }
                 val offset = if (partial.isFile) partial.length() else 0L
                 val offsetPayload = ByteArrayOutputStream().use { bytes ->
                     DataOutputStream(bytes).use { it.writeLong(offset) }
