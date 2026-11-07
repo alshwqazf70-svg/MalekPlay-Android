@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
@@ -40,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.malekplay.R
-import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.components.EmptyState
@@ -123,7 +121,7 @@ fun VideoCategoryScreen(
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.cd_back),
-                            tint = MalekPlayColors.PurpleBright
+                            tint = colors.primary
                         )
                     }
                 }
@@ -147,7 +145,17 @@ fun VideoCategoryScreen(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
                         .clip(RoundedCornerShape(20.dp))
                         .background(Brush.linearGradient(listOf(colors.surfaceContainerHigh, colors.surface, colors.surfaceContainerLow)))
-                        .border(1.dp, Brush.linearGradient(listOf(MalekPlayColors.PurpleBright.copy(alpha = 0.55f), Color.White.copy(alpha = 0.08f), MalekPlayColors.PurpleDeep.copy(alpha = 0.35f))), RoundedCornerShape(20.dp))
+                        .border(
+                            1.dp,
+                            Brush.linearGradient(
+                                listOf(
+                                    colors.primary.copy(alpha = 0.48f),
+                                    colors.outlineVariant.copy(alpha = 0.55f),
+                                    colors.secondary.copy(alpha = 0.30f)
+                                )
+                            ),
+                            RoundedCornerShape(20.dp)
+                        )
                         .padding(horizontal = 16.dp, vertical = 13.dp)
                 ) {
                     Text(
