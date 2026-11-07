@@ -30,7 +30,7 @@
 
 ## Remaining engineering and verification stages
 
-1. Complete defensive handling for queue persistence, unreadable resume metadata, cancellation, and stale temporary files.
+1. Completed the first defensive pass: malformed queue rows no longer discard valid history, unreadable resume markers are rebuilt safely, and failed LAN discovery leaves manual-IP receiving available. Continue reviewing cancellation and stale-file edge cases during final verification.
 2. Review the Android and desktop protocol implementations together and keep cross-platform test vectors in sync.
 3. Run unit tests, Android lint, desktop protocol tests, and debug/release builds after feature development is frozen.
 4. Test on at least two physical Android devices and one desktop, including Android 15+ background limits and vendor-specific Wi-Fi Direct behavior.
