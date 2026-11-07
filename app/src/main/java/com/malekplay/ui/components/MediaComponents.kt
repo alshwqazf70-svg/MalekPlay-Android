@@ -123,7 +123,9 @@ internal fun trimMediaThumbnailCache(level: Int) {
 internal fun representativeThumbnailTimeUs(durationMs: Long): Long {
     if (durationMs <= 0L) return 0L
     // Avoid the first frame, which is commonly black or a studio logo.
-    return (durationMs / 10L).coerceAtLeast(1L) * 1_000L
+    val positionMs = (durationMs / 10L).coerceAtLeast(1L)
+    return if (positionMs > Long.MAX_VALUE / 1_000L) Long.MAX_VALUE
+    else positionMs * 1_000L
 }
 
 private fun loadVideoThumbnail(

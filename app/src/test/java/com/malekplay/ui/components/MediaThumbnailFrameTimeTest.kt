@@ -18,6 +18,11 @@ class MediaThumbnailFrameTimeTest {
     }
 
     @Test
+    fun extremeDurationDoesNotOverflowTimestamp() {
+        assertEquals(Long.MAX_VALUE, representativeThumbnailTimeUs(Long.MAX_VALUE))
+    }
+
+    @Test
     fun veryShortVideosStillUseAValidTimestamp() {
         assertEquals(100_000L, representativeThumbnailTimeUs(1_000L))
         assertEquals(1_000L, representativeThumbnailTimeUs(10L))
