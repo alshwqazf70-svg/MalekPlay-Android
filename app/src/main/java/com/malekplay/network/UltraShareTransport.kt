@@ -396,12 +396,21 @@ object UltraShareTransport {
                 val partial = File(destinationDirectory, ".ultrashare-$transferId.part")
                 val resumeMarker = File(destinationDirectory, ".ultrashare-$transferId.meta")
                 val expectedMarker = "$size:" + expectedDigest.joinToString("") { "%02x".format(it) }
-                val existingMarker = resumeMarker.takeIf { it.isFile }?.readText(Charsets.UTF_8)
+                // Resume metadata is untrusted local state. If it is unreadable,
+                // discard the partial data and rebuild the marker instead of failing
+                // the whole receive session before the sender can retry.
+                val existingMarker = resumeMarker.takeIf { it.isFile }?.let { marker ->
+                    runCatching { marker.readText(Charsets.UTF_8) }.getOrNull()
+                }
                 if (existingMarker != expectedMarker) {
                     if (partial.exists()) check(partial.delete()) { "تعذر تنظيف ملف استئناف غير مطابق." }
                     if (resumeMarker.exists()) check(resumeMarker.delete()) { "تعذر تنظيف بيانات الاستئناف القديمة." }
                     val markerTemp = File(destinationDirectory, ".ultrashare-$transferId.meta.tmp")
-                    markerTemp.writeText(expectedMarker, Charsets.UTF_8)
+                    if (markerTemp.exists()) check(markerTemp.delete()) { "تعذر تنظيف بيانات الاستئناف المؤقتة." }
+                    FileOutputStream(markerTemp).use { markerOutput ->
+                        markerOutput.write(expectedMarker.toByteArray(Charsets.UTF_8))
+                        markerOutput.fd.sync()
+                    }
                     check(markerTemp.renameTo(resumeMarker)) { "تعذر حفظ بيانات استئناف النقل." }
                 }
                 if (partial.exists() && partial.length() > size) {
