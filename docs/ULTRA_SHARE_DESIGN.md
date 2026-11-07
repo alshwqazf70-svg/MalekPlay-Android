@@ -17,14 +17,14 @@
 - Files are staged under the app-specific Downloads directory and can be exported through Android's Storage Access Framework.
 - While a transfer is active, the service holds Wi-Fi and partial CPU wake locks to reduce interruptions when the display turns off; both locks are released on completion, cancellation, or service destruction. This increases battery use during transfers.
 - A data-sync foreground service owns the send/receive coroutine and socket work. The ViewModel only submits commands and observes a process-local StateFlow, so removing the Ultra Share destination no longer cancels an active transfer while Android keeps the app process/service alive. The ongoing notification shows progress and provides a stop action.
-- Pairing can be transferred through the generated QR payload, QR image import, or a copied pairing URI.
+- Pairing can be transferred through the generated QR payload, live camera scanning through Google Play services Code Scanner, QR image import, or a copied pairing URI. If the on-demand scanner module or Google Play services is unavailable, QR image import and clipboard pairing remain available.
 
 ## Current limitations — do not advertise these as completed
 
 - One file is transferred per receiver session.
 - Both devices must be on a reachable local network; access-point client isolation can prevent communication.
 - Process death, force-stop, reboot, or Android's foreground-service execution limits can still interrupt a transfer. Partial files and their identity marker are retained for a later manual resume; automatic service/job recovery is not implemented.
-- Live camera QR scanning is not part of this stage; the app can import a QR image or pairing URI.
+- A short numeric pairing PIN is not implemented. The current manual pairing secret remains a random 256-bit value; reducing it to six digits without a redesigned authenticated key exchange and strict online rate limiting would weaken protection against offline guessing.
 - Wi-Fi Direct, automatic hotspot creation, internet relay, desktop/browser receiver, and multi-file queues are not implemented.
 - No speed benchmark has been run. Throughput depends on both radios, Wi-Fi generation, channel congestion, distance, device storage and CPU.
 
