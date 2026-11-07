@@ -517,7 +517,7 @@ fun UltraShareScreen(
             .addOnCanceledListener {
                 // The user closed the scanner; keep the current pairing fields unchanged.
             }
-            .addOnFailureListener { failure ->
+            .addOnFailureListener {
                 Toast.makeText(
                     context,
                     "تعذر فتح ماسح QR. تأكد من تحديث خدمات Google Play أو استخدم خيار اختيار صورة QR.",
@@ -598,7 +598,7 @@ fun UltraShareScreen(
                         )
                     }
                     Text(stringResource(R.string.ultra_share_pairing_code), color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelMedium)
-                    Text(state.pairingSecret.chunked(4).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                    Text(state.pairingSecret.chunked(4).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                     Text(stringResource(R.string.ultra_share_code_warning), color = MalekPlayColors.TextMuted, style = MaterialTheme.typography.bodySmall)
                     qrBitmap?.let { bitmap ->
                         val activeQrPayload = qrPayload ?: return@let
