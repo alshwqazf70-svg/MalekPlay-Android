@@ -118,11 +118,10 @@ fun MalekPlayNavHost(
         playerController?.currentMediaItem
     }
     var pendingTransferUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    val openTransferForUris: (List<Uri>) -> Unit = { uris ->
-        pendingTransferUris = uris.distinct()
-        if (pendingTransferUris.isNotEmpty()) navController.navigate(Screen.UltraShare.route)
+    val openTransferForMedia: (MediaItem) -> Unit = { media ->
+        pendingTransferUris = listOf(media.uri)
+        navController.navigate(Screen.UltraShare.route)
     }
-    val openTransferForMedia: (MediaItem) -> Unit = { media -> openTransferForUris(listOf(media.uri)) }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -204,11 +203,11 @@ fun MalekPlayNavHost(
             }
 
             composable(Screen.Movies.route) {
-                VideoCategoryScreen(series = false, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) }, onSendMedia = { media -> openTransferForUris(media.map { it.uri }) })
+                VideoCategoryScreen(series = false, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) }, onSendMedia = openTransferForMedia)
             }
 
             composable(Screen.Series.route) {
-                VideoCategoryScreen(series = true, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) }, onSendMedia = { media -> openTransferForUris(media.map { it.uri }) })
+                VideoCategoryScreen(series = true, onBack = { navController.popBackStack() }, onOpenMedia = { navController.openMedia(it) }, onSendMedia = openTransferForMedia)
             }
 
             composable(Screen.Local.route) {
@@ -225,7 +224,7 @@ fun MalekPlayNavHost(
                 MusicScreen(
                     onOpenMedia = { item -> navController.openMedia(item) },
                     contentPadding = padding,
-                    onSendMedia = { media -> openTransferForUris(media.map { it.uri }) }
+                    onSendMedia = openTransferForMedia
                 )
             }
 
@@ -306,7 +305,7 @@ fun MalekPlayNavHost(
                     onBack = { navController.popBackStack() },
                     onOpenMedia = { item -> navController.openMedia(item) },
                     contentPadding = padding,
-                    onSendMedia = { media -> openTransferForUris(listOf(media.uri)) }
+                    onSendMedia = openTransferForMedia
                 )
             }
 
