@@ -1,6 +1,30 @@
 package com.malekplay.core.ui.theme
 
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+
+/**
+ * Shared metallic brand gradient: the same continuous gold-to-magenta blend
+ * is applied across each glyph, rather than assigning a separate color per letter.
+ * Light mode uses deeper stops to preserve readable contrast on pale surfaces.
+ */
+object MalekPlayGradients {
+    val DarkTextStops = listOf(
+        Color(0xFFFFE27A),
+        Color(0xFFFFA33D),
+        Color(0xFFFF5FA2),
+        Color(0xFFC34BFF)
+    )
+    val LightTextStops = listOf(
+        Color(0xFF946200),
+        Color(0xFFC15B12),
+        Color(0xFFB92369),
+        Color(0xFF7026A8)
+    )
+
+    fun textBrush(isDark: Boolean): Brush =
+        Brush.horizontalGradient(if (isDark) DarkTextStops else LightTextStops)
+}
 
 /**
  * MalekPlay's semantic color tokens.

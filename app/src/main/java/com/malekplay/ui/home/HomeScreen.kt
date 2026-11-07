@@ -347,14 +347,7 @@ private fun HomeHeader(
                     text = "MalekPlay",
                     style = MaterialTheme.typography.headlineSmall.copy(
                         fontWeight = FontWeight.ExtraBold,
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(
-                                Color(0xFFFFD76A),
-                                Color(0xFFE8B84F),
-                                Color(0xFFB66BEE),
-                                Color(0xFFA855F7)
-                            )
-                        )
+
                     ),
                     maxLines = 1
                 )

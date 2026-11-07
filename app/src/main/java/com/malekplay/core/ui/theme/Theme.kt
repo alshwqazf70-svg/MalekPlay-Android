@@ -137,7 +137,7 @@ fun MalekPlayTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = MalekPlayTypography,
+        typography = malekPlayTypography(effectiveMode != AppThemeMode.LIGHT),
         shapes = MalekPlayShapes,
         content = content
     )

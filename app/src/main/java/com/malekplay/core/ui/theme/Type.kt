@@ -2,6 +2,8 @@ package com.malekplay.core.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -90,3 +92,30 @@ val MalekPlayTypography = Typography(
         lineHeight = 15.sp
     )
 )
+
+
+/**
+ * Applies one continuous metallic gold → orange → pink → violet brush to
+ * every Material typography role. TextStyle's brush is retained even when a
+ * screen supplies a semantic color, so all labels share the brand treatment.
+ */
+fun malekPlayTypography(isDark: Boolean): Typography {
+    val brush = MalekPlayGradients.textBrush(isDark)
+    return MalekPlayTypography.copy(
+        displayLarge = MalekPlayTypography.displayLarge.copy(brush = brush),
+        displayMedium = MalekPlayTypography.displayMedium.copy(brush = brush),
+        displaySmall = MalekPlayTypography.displaySmall.copy(brush = brush),
+        headlineLarge = MalekPlayTypography.headlineLarge.copy(brush = brush),
+        headlineMedium = MalekPlayTypography.headlineMedium.copy(brush = brush),
+        headlineSmall = MalekPlayTypography.headlineSmall.copy(brush = brush),
+        titleLarge = MalekPlayTypography.titleLarge.copy(brush = brush),
+        titleMedium = MalekPlayTypography.titleMedium.copy(brush = brush),
+        titleSmall = MalekPlayTypography.titleSmall.copy(brush = brush),
+        bodyLarge = MalekPlayTypography.bodyLarge.copy(brush = brush),
+        bodyMedium = MalekPlayTypography.bodyMedium.copy(brush = brush),
+        bodySmall = MalekPlayTypography.bodySmall.copy(brush = brush),
+        labelLarge = MalekPlayTypography.labelLarge.copy(brush = brush),
+        labelMedium = MalekPlayTypography.labelMedium.copy(brush = brush),
+        labelSmall = MalekPlayTypography.labelSmall.copy(brush = brush)
+    )
+}
