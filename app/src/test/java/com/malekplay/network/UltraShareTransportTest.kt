@@ -49,9 +49,14 @@ class UltraShareTransportTest {
         assertTrue(sanitized.toByteArray(Charsets.UTF_8).size <= 180)
         var index = 0
         while (index < sanitized.length) {
-            val codePoint = sanitized.codePointAt(index)
-            assertTrue(Character.isValidCodePoint(codePoint))
-            index += Character.charCount(codePoint)
+            val current = sanitized[index]
+            if (Character.isHighSurrogate(current)) {
+                assertTrue(index + 1 < sanitized.length && Character.isLowSurrogate(sanitized[index + 1]))
+            }
+            if (Character.isLowSurrogate(current)) {
+                assertTrue(index > 0 && Character.isHighSurrogate(sanitized[index - 1]))
+            }
+            index++
         }
     }
 
