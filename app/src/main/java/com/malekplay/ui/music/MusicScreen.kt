@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.malekplay.ui.music
 
 import android.graphics.Bitmap
