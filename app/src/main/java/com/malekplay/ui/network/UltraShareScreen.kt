@@ -844,8 +844,30 @@ fun UltraShareScreen(
                     }
                 }
                 if (state.queueEntries.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("حالة الملفات المحفوظة", color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                    val completedCount = state.queueEntries.count { it.status == UltraShareQueueStore.STATUS_COMPLETED }
+                    val failedCount = state.queueEntries.count { it.status == UltraShareQueueStore.STATUS_FAILED }
+                    val pendingCount = state.queueEntries.count {
+                        it.status == UltraShareQueueStore.STATUS_PENDING ||
+                            it.status == UltraShareQueueStore.STATUS_SENDING
+                    }
+                    val skippedCount = state.queueEntries.count { it.status == UltraShareQueueStore.STATUS_SKIPPED }
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("سجل عمليات النقل", color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            listOf(
+                                "اكتمل $completedCount" to Color(0xFF65D6A2),
+                                "فشل $failedCount" to MaterialTheme.colorScheme.error,
+                                "معلّق $pendingCount" to MalekPlayColors.PurpleBright,
+                                "متخطّى $skippedCount" to MalekPlayColors.TextMuted
+                            ).forEach { (label, tint) ->
+                                Text(
+                                    label,
+                                    color = tint,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
                         state.queueEntries.take(12).forEach { entry ->
                             val label = when (entry.status) {
                                 UltraShareQueueStore.STATUS_COMPLETED -> "اكتمل"
@@ -863,6 +885,15 @@ fun UltraShareScreen(
                                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         Text(entry.displayName, color = MalekPlayColors.TextPrimary, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(label, color = if (entry.status == UltraShareQueueStore.STATUS_FAILED) MaterialTheme.colorScheme.error else if (entry.status == UltraShareQueueStore.STATUS_COMPLETED) Color(0xFF65D6A2) else MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
+                                        entry.error?.takeIf { it.isNotBlank() }?.let { reason ->
+                                            Text(
+                                                reason,
+                                                color = if (entry.status == UltraShareQueueStore.STATUS_FAILED) MaterialTheme.colorScheme.error.copy(alpha = 0.9f) else MalekPlayColors.TextMuted,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                     }
                                 if (entry.status == UltraShareQueueStore.STATUS_PENDING) {
                                     TextButton(
