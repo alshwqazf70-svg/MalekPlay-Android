@@ -767,9 +767,9 @@ fun UltraShareScreen(
                 )
                 OutlinedTextField(
                     value = secret,
-                    onValueChange = { secret = it.filter { char -> char in '0'..'9' }.take(9) },
+                    onValueChange = { secret = it.filter { char -> char in '0'..'9' }.take(12) },
                     modifier = Modifier.widthIn(max = 220.dp),
-                    label = { Text("رمز الاقتران (9 أرقام)") },
+                    label = { Text("رمز الاقتران (12 رقماً)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
