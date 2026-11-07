@@ -14,18 +14,13 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Favorite
@@ -34,10 +29,6 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -52,18 +43,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -73,8 +57,6 @@ import androidx.navigation.navArgument
 import com.malekplay.core.ui.util.stringResourceByName
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.R
-import com.malekplay.core.ui.theme.MalekPlayColors
-import com.malekplay.ui.player.PlayerViewModel
 import com.malekplay.ui.home.HomeScreen
 import com.malekplay.ui.videos.VideoCategoryScreen
 import com.malekplay.ui.local.LocalScreen
@@ -108,15 +90,6 @@ fun MalekPlayNavHost(
     externalUri: Uri? = null,
     navController: NavHostController = rememberNavController()
 ) {
-    val playerViewModel: PlayerViewModel = hiltViewModel()
-    val playerController by playerViewModel.controller.collectAsStateWithLifecycle()
-    val playerIsPlaying by playerViewModel.isPlaying.collectAsStateWithLifecycle()
-    val playerPosition by playerViewModel.positionMs.collectAsStateWithLifecycle()
-    val playerDuration by playerViewModel.durationMs.collectAsStateWithLifecycle()
-    val currentItemId by playerViewModel.currentItemId.collectAsStateWithLifecycle()
-    val currentMediaItem = androidx.compose.runtime.remember(playerController, currentItemId) {
-        playerController?.currentMediaItem
-    }
     var pendingTransferUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     val openTransferForUris: (List<Uri>) -> Unit = { uris ->
         pendingTransferUris = uris.distinct()
@@ -134,35 +107,6 @@ fun MalekPlayNavHost(
         bottomBar = {
             if (showBottomBar) {
                 Column {
-                    currentMediaItem?.let { mediaItem ->
-                        val mimeType = mediaItem.localConfiguration?.mimeType.orEmpty()
-                        val isVideo = mimeType.startsWith("video/")
-                        val mediaId = currentItemId.orEmpty()
-                        val title = mediaItem.mediaMetadata.title?.toString()
-                            ?.takeIf { it.isNotBlank() }
-                            ?: mediaId.substringAfterLast('/').ifBlank { stringResource(R.string.app_name) }
-                        val artist = mediaItem.mediaMetadata.artist?.toString().orEmpty()
-                        MiniPlayerBar(
-                            title = title,
-                            subtitle = artist.ifBlank {
-                                stringResource(if (isVideo) R.string.mini_player_video_now_playing else R.string.mini_player_audio_now_playing)
-                            },
-                            isVideo = isVideo,
-                            isPlaying = playerIsPlaying,
-                            progress = if (playerDuration > 0L) {
-                                (playerPosition.toFloat() / playerDuration).coerceIn(0f, 1f)
-                            } else 0f,
-                            onTogglePlayback = playerViewModel::togglePlayPause,
-                            onOpenPlayer = {
-                                if (mediaId.isNotBlank()) {
-                                    navController.navigate(
-                                        if (isVideo) Screen.VideoPlayer.create(mediaId)
-                                        else Screen.AudioPlayer.create(mediaId)
-                                    )
-                                }
-                            }
-                        )
-                    }
                     MalekPlayBottomBar(
                         navController = navController,
                         currentRoute = currentRoute
@@ -407,115 +351,6 @@ private fun AnimatedContentTransitionScope<*>.slideIntoSlideUp() =
 
 private fun AnimatedContentTransitionScope<*>.slideOutOfSlideDown() =
     slideOutVertically(tween(ANIM_MS)) { it } + fadeOut(tween(ANIM_MS))
-
-@Composable
-private fun MiniPlayerBar(
-    title: String,
-    subtitle: String,
-    isVideo: Boolean,
-    isPlaying: Boolean,
-    progress: Float,
-    onTogglePlayback: () -> Unit,
-    onOpenPlayer: () -> Unit
-) {
-    val shape = RoundedCornerShape(18.dp)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(shape)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(Color(0xFF2B1A3D), Color(0xFF191323), Color(0xFF100D17))
-                    )
-                )
-                .border(
-                    1.dp,
-                    Brush.linearGradient(
-                        listOf(MalekPlayColors.PurpleBright.copy(alpha = 0.48f), Color.White.copy(alpha = 0.08f), MalekPlayColors.PurpleDeep.copy(alpha = 0.35f))
-                    ),
-                    shape
-                )
-                .clickable(onClick = onOpenPlayer)
-                .padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(MalekPlayColors.PurpleDeep.copy(alpha = 0.32f))
-                    .border(1.dp, MalekPlayColors.NeonPurple.copy(alpha = 0.35f), RoundedCornerShape(13.dp)),
-                contentAlignment = androidx.compose.ui.Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (isVideo) Icons.Filled.Movie else Icons.Filled.MusicNote,
-                    contentDescription = null,
-                    tint = MalekPlayColors.PurpleSoft,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = title,
-                    color = MalekPlayColors.TextPrimary,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                )
-                Text(
-                    text = subtitle,
-                    color = MalekPlayColors.TextMuted,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.linearGradient(
-                            listOf(MalekPlayColors.PurpleDeep, MalekPlayColors.NeonPurple, MalekPlayColors.PurpleBright)
-                        )
-                    )
-                    .border(1.dp, Color.White.copy(alpha = 0.30f), CircleShape)
-                    .clickable(onClick = onTogglePlayback),
-                contentAlignment = androidx.compose.ui.Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = stringResource(if (isPlaying) R.string.mini_player_pause else R.string.mini_player_play),
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 5.dp)
-                .height(2.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.12f))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(progress.coerceIn(0f, 1f))
-                    .height(2.dp)
-                    .clip(CircleShape)
-                    .background(MalekPlayColors.PurpleBright)
-            )
-        }
-    }
-}
 
 @Composable
 private fun MalekPlayBottomBar(

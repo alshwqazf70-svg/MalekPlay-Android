@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -113,7 +114,6 @@ import com.malekplay.ui.videos.VideoKindClassifier
 import com.malekplay.ui.videos.EpisodeSortKey
 import com.malekplay.ui.player.components.EqualizerSheet
 import com.malekplay.ui.player.components.GestureIndicator
-import com.malekplay.ui.player.components.PlayerCenterControls
 import com.malekplay.ui.player.components.PlayerControlRail
 import com.malekplay.ui.player.components.PlayerMainControls
 import com.malekplay.ui.player.components.PlayerSeekRow
@@ -624,18 +624,7 @@ fun VideoPlayerScreen(
                 }
 
 
-                Box(modifier = Modifier.weight(1f)) {
-                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    PlayerCenterControls(
-                        isPlaying = isPlaying,
-                        onPlayPause = viewModel::togglePlayPause,
-                        onRewind = { viewModel.seekBy(-settings.skipSeconds * 1_000L) },
-                        onForward = { viewModel.seekBy(settings.skipSeconds * 1_000L) },
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                    }
-
-                }
+                Spacer(modifier = Modifier.weight(1f))
 
                 Column(modifier = Modifier.navigationBarsPadding()) {
                     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
