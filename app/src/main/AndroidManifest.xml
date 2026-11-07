@@ -45,6 +45,7 @@
 
     <!-- Legacy DLNA may use HTTP. App code permits it only through dedicated DLNA routes after private-host validation, LAN socket binding and redirect blocking; ordinary HTTP media URLs are rejected. -->
     <application
+        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode" />
         android:name=".MalekPlayApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
