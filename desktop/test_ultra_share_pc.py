@@ -18,6 +18,7 @@ from ultra_share_pc import (
     is_lan_ipv4,
     parse_metadata,
     read_frame,
+    read_resume_marker,
     safe_name,
     send_file,
     write_frame,
@@ -116,6 +117,15 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
                 find_completed_receipt(directory, transfer_id, len(content), expected_digest)
             )
             self.assertFalse(receipt.exists())
+
+    def test_resume_marker_reader_recovers_from_unreadable_sidecar(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "resume.meta"
+            self.assertIsNone(read_resume_marker(marker))
+            marker.write_text("4096:abc", encoding="utf-8")
+            self.assertEqual("4096:abc", read_resume_marker(marker))
+            with patch.object(Path, "read_text", side_effect=OSError("permission denied")):
+                self.assertIsNone(read_resume_marker(marker))
 
     def test_pairing_rejection_is_not_retried(self):
         with tempfile.TemporaryDirectory() as temporary:
