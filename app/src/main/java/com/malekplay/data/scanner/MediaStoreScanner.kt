@@ -311,10 +311,12 @@ class MediaStoreScanner(context: Context) {
 
         fun longOrNull(name: String): Long? {
             val index = this[name]
+            if (index < 0) return null
+            val isNull = cursor.isNull(index)
             return nullableMediaStoreLong(
-                columnPresent = index >= 0,
-                columnIsNull = index >= 0 && cursor.isNull(index),
-                value = if (index >= 0 && !cursor.isNull(index)) cursor.getLong(index) else 0L
+                columnPresent = true,
+                columnIsNull = isNull,
+                value = if (isNull) 0L else cursor.getLong(index)
             )
         }
 

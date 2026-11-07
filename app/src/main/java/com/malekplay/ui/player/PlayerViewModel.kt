@@ -489,7 +489,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     /** Translates the currently added external SRT subtitle to Arabic on-device. */
-    fun translateCurrentSubtitleToArabic() {
+    fun translateCurrentSubtitleToArabic(sourceLanguageCode: String = "en") {
         val source = translationSourceSubtitleUri ?: run {
             _subtitleTranslationError.value = "أضف ملف ترجمة خارجي أولاً"
             return
@@ -504,7 +504,7 @@ class PlayerViewModel @Inject constructor(
             _subtitleTranslationError.value = null
             try {
                 val translated = withContext(Dispatchers.IO) {
-                    subtitleTranslationEngine.translateSrtToArabic(source)
+                    subtitleTranslationEngine.translateSrtToArabic(source, sourceLanguageCode)
                 }
                 // Translation can take several seconds. Never attach its result
                 // to a different item if the viewer changed the queue meanwhile.

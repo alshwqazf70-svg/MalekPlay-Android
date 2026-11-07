@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
@@ -99,6 +100,19 @@ fun VideoCategoryScreen(
                 { it.first.media.displayTitle.lowercase() }
             )
         ).map { it.first }
+    }
+
+    val seriesSections = remember(orderedFiltered, series) {
+        if (!series) emptyList()
+        else orderedFiltered.groupBy { item ->
+            val key = VideoKindClassifier.episodeSortKey(
+                item.media.displayTitle,
+                item.media.folderName,
+                item.media.folderPath
+            )?.seriesKey?.takeIf { it.isNotBlank() }
+            key ?: item.media.folderName.takeIf { it.isNotBlank() }
+                ?: item.media.displayTitle.substringBeforeLast('.').ifBlank { item.media.displayTitle }
+        }.toList()
     }
 
     val colors = MaterialTheme.colorScheme
@@ -196,8 +210,31 @@ fun VideoCategoryScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(orderedFiltered, key = { it.media.id }) { item ->
-                        MediaGridCard(
+                    if (series) {
+                        seriesSections.forEach { (seriesName, episodes) ->
+                            item(key = "series-header-$seriesName", span = { GridItemSpan(maxLineSpan) }) {
+                                androidx.compose.material3.Surface(
+                                    color = colors.surfaceContainerHigh,
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                        Text(
+                                            text = seriesName.replace('_', ' ').replace('.', ' '),
+                                            color = colors.onSurface,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "${episodes.size} حلقة",
+                                            color = colors.onSurfaceVariant,
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    }
+                                }
+                            }
+                            items(episodes, key = { it.media.id }) { item ->
+                                MediaGridCard(
                             item = item,
                             onPlay = { onOpenMedia(item.media) },
                             onFavourite = { viewModel.toggleFavourite(item.media.id) },
@@ -208,6 +245,22 @@ fun VideoCategoryScreen(
                             isSelected = item.media.uri in selectedMedia,
                             onSelect = { toggleSelection(item.media.uri) }
                         )
+                            }
+                        }
+                    } else {
+                        items(orderedFiltered, key = { it.media.id }) { item ->
+                            MediaGridCard(
+                            item = item,
+                            onPlay = { onOpenMedia(item.media) },
+                            onFavourite = { viewModel.toggleFavourite(item.media.id) },
+                            onAddToPlaylist = { playlistTarget = item.media },
+                            onDeleted = viewModel::refresh,
+                            onSend = { toggleSelection(item.media.uri) },
+                            selectionMode = selectionMode,
+                            isSelected = item.media.uri in selectedMedia,
+                            onSelect = { toggleSelection(item.media.uri) }
+                        )
+                        }
                     }
                 }
             }

@@ -23,10 +23,25 @@ import kotlin.coroutines.resumeWithException
  * Downloads language models on demand and translates SRT subtitle cues locally.
  * The first model download requires an internet connection; translation thereafter is on-device.
  */
+/** Validates a source language against the language models supported by ML Kit. */
+internal fun validateTranslationSourceLanguage(
+    languageCode: String,
+    supportedLanguageCodes: Set<String>
+): String {
+    val normalized = languageCode.trim().lowercase(java.util.Locale.ROOT)
+    require(normalized.isNotBlank() && normalized in supportedLanguageCodes) {
+        "لغة المصدر غير مدعومة في الترجمة المحلية"
+    }
+    return normalized
+}
+
 class SubtitleTranslationEngine @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    suspend fun translateSrtToArabic(source: Uri): Uri {
+    suspend fun translateSrtToArabic(
+        source: Uri,
+        sourceLanguageCode: String = TranslateLanguage.ENGLISH
+    ): Uri {
         val extension = source.lastPathSegment.orEmpty()
             .substringAfterLast('.', "").lowercase()
         require(extension == "srt" || extension == "vtt") {
@@ -59,8 +74,15 @@ class SubtitleTranslationEngine @Inject constructor(
             }
         }
         val sourceText = SrtSubtitleParser.decode(sourceBytes)
+        val sourceLanguage = validateTranslationSourceLanguage(
+            sourceLanguageCode,
+            TranslateLanguage.getAllLanguages()
+        )
+        require(sourceLanguage != TranslateLanguage.ARABIC) {
+            "لغة المصدر هي العربية بالفعل"
+        }
         val options = TranslatorOptions.Builder()
-            .setSourceLanguage(TranslateLanguage.ENGLISH)
+            .setSourceLanguage(sourceLanguage)
             .setTargetLanguage(TranslateLanguage.ARABIC)
             .build()
         val translator = Translation.getClient(options)

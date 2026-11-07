@@ -268,7 +268,7 @@ fun MediaThumbnail(
                 Icon(
                     imageVector = if (media.isVideo) Icons.Filled.Movie else Icons.Filled.MusicNote,
                     contentDescription = null,
-                    tint = Color(0xFFE9D5FF),
+                    tint = colors.onPrimaryContainer,
                     modifier = Modifier.size(29.dp)
                 )
             }
@@ -400,7 +400,7 @@ fun MediaGridCard(
             .shadow(12.dp, shape, ambientColor = Color(0x55A855F7), spotColor = Color(0x22A855F7))
             .clip(shape)
             .background(Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface, colors.surfaceContainerLow)))
-            .border(2.dp, Brush.linearGradient(if (isSelected) listOf(Color(0xFFE9D5FF), Color(0xFFA855F7)) else listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))), shape)
+            .border(2.dp, Brush.linearGradient(if (isSelected) listOf(colors.onPrimaryContainer, colors.primary) else listOf(Color(0x88C084FC), Color(0x22FFFFFF), Color(0x667E22CE))), shape)
     ) {
         Box(
             modifier = Modifier.fillMaxWidth().aspectRatio(0.92f).combinedClickable(onClick = { if (selectionMode) onSelect() else onPlay() }, onLongClick = onSelect)
@@ -411,7 +411,7 @@ fun MediaGridCard(
                 cornerRadius = 0.dp,
                 contentScale = ContentScale.Crop
             )
-            if (selectionMode || isSelected) Surface(modifier = Modifier.align(Alignment.TopEnd).padding(9.dp), shape = CircleShape, color = if (isSelected) Color(0xFFA855F7) else Color.Black.copy(alpha = 0.68f)) { Icon(Icons.Filled.CheckCircle, contentDescription = if (isSelected) "محدد" else "تحديد", tint = Color.White, modifier = Modifier.padding(5.dp).size(22.dp)) }
+            if (selectionMode || isSelected) Surface(modifier = Modifier.align(Alignment.TopEnd).padding(9.dp), shape = CircleShape, color = if (isSelected) colors.primary else Color.Black.copy(alpha = 0.68f)) { Icon(Icons.Filled.CheckCircle, contentDescription = if (isSelected) "محدد" else "تحديد", tint = Color.White, modifier = Modifier.padding(5.dp).size(22.dp)) }
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                 listOf(Color(0x18000000), Color.Transparent, Color(0xAA08060D))
             )))
@@ -446,7 +446,7 @@ fun MediaGridCard(
                 modifier = Modifier.align(Alignment.Center).size(48.dp)
                     .shadow(12.dp, CircleShape, ambientColor = Color(0x99A855F7), spotColor = Color(0x66A855F7))
                     .clip(CircleShape)
-                    .background(Brush.linearGradient(listOf(Color(0xFF7E22CE), Color(0xFFA855F7))))
+                    .background(Brush.linearGradient(listOf(colors.primaryContainer, colors.primary)))
                     .border(1.dp, Color.White.copy(alpha = 0.42f), CircleShape)
                     .clickable(onClick = { if (selectionMode) onSelect() else onPlay() }),
                 contentAlignment = Alignment.Center
@@ -457,7 +457,7 @@ fun MediaGridCard(
                 LinearProgressIndicator(
                     progress = { item.fraction },
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp),
-                    color = Color(0xFFA855F7),
+                    color = colors.primary,
                     trackColor = Color.White.copy(alpha = 0.22f)
                 )
             }
@@ -495,7 +495,7 @@ fun MediaGridCard(
                     color = colors.primary,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                 )
-                Text("•", color = Color(0xFF81788F), style = MaterialTheme.typography.labelSmall)
+                Text("•", color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 Text(
                     formatBytes(item.media.sizeBytes),
                     style = MaterialTheme.typography.labelSmall,
@@ -507,7 +507,7 @@ fun MediaGridCard(
                     Text(
                         (item.fraction * 100).toInt().toString() + "%",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFC084FC),
+                        color = colors.primary,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                     )
                 }
