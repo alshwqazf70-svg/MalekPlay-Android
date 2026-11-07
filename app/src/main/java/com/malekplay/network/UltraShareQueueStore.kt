@@ -155,21 +155,32 @@ object UltraShareQueueStore {
         }
     }.toString()
 
-    private fun decode(raw: String): List<UltraShareQueueEntry> = runCatching {
-        val array = JSONArray(raw)
-        List(array.length()) { index ->
-            val item = array.getJSONObject(index)
-            val status = item.optString("status", STATUS_PENDING)
-            UltraShareQueueEntry(
-                uri = item.getString("uri"),
-                displayName = item.optString("name", "ملف"),
-                status = status.takeIf {
-                    it in setOf(STATUS_PENDING, STATUS_SENDING, STATUS_COMPLETED, STATUS_FAILED, STATUS_SKIPPED)
-                } ?: STATUS_PENDING,
-                error = item.optString("error").takeIf { it.isNotBlank() && it != "null" }
-            )
+    /**
+     * Decode entries independently: one malformed queue row must not erase every
+     * other pending/completed transfer from the user's local history.
+     */
+    internal fun decode(raw: String): List<UltraShareQueueEntry> {
+        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        val decoded = LinkedHashMap<String, UltraShareQueueEntry>()
+        for (index in 0 until array.length()) {
+            val entry = runCatching {
+                val item = array.optJSONObject(index) ?: return@runCatching null
+                val uri = item.optString("uri").takeIf { it.isNotBlank() } ?: return@runCatching null
+                val status = item.optString("status", STATUS_PENDING)
+                UltraShareQueueEntry(
+                    uri = uri,
+                    displayName = item.optString("name", "ملف").takeIf { it.isNotBlank() } ?: "ملف",
+                    status = status.takeIf {
+                        it in setOf(STATUS_PENDING, STATUS_SENDING, STATUS_COMPLETED, STATUS_FAILED, STATUS_SKIPPED)
+                    } ?: STATUS_PENDING,
+                    error = item.optString("error").takeIf { it.isNotBlank() && it != "null" }
+                )
+            }.getOrNull() ?: continue
+            // Preserve the first occurrence to keep the original queue order deterministic.
+            if (entry.uri !in decoded) decoded[entry.uri] = entry
         }
-    }.getOrDefault(emptyList())
+        return decoded.values.toList()
+    }
 
     const val STATUS_PENDING = "pending"
     const val STATUS_SENDING = "sending"
