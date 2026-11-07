@@ -352,7 +352,7 @@ class UltraShareForegroundService : Service() {
             publish(currentState().copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L))
             try {
                 if (replaceQueue) {
-                    UltraShareQueueStore.replace(this@UltraShareForegroundService, queue)
+                    UltraShareQueueStore.enqueue(this@UltraShareForegroundService, queue)
                 }
                 queue.forEachIndexed { index, uri ->
                     val storedStatus = UltraShareQueueStore.observe(this@UltraShareForegroundService)
