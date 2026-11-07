@@ -18,7 +18,7 @@ class ParentalControlManager(context: Context) {
     fun isMediaAllowed(mediaId: String): Boolean = mediaId.isNotBlank() && mediaId in allowedMediaIds
 
     fun setAllowedMediaIds(mediaIds: Set<String>) = synchronized(PIN_LOCK) {
-        val clean = mediaIds.asSequence().map(String::trim).filter(String::isNotEmpty).take(MAX_ALLOWED_MEDIA).toSet()
+        val clean = mediaIds.asSequence().map { it.trim() }.filter(String::isNotEmpty).take(MAX_ALLOWED_MEDIA).toSet()
         check(prefs.edit().putStringSet(KEY_ALLOWED_MEDIA, clean).commit()) { "تعذر حفظ قائمة محتوى الأطفال" }
     }
 
