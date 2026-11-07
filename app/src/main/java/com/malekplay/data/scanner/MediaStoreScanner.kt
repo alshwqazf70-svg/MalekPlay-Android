@@ -311,7 +311,11 @@ class MediaStoreScanner(context: Context) {
 
         fun longOrNull(name: String): Long? {
             val index = this[name]
-            return if (index < 0) null else cursor.getLong(index)
+            return nullableMediaStoreLong(
+                columnPresent = index >= 0,
+                columnIsNull = index >= 0 && cursor.isNull(index),
+                value = if (index >= 0 && !cursor.isNull(index)) cursor.getLong(index) else 0L
+            )
         }
 
         fun folderPath(): String {
@@ -360,3 +364,11 @@ class MediaStoreScanner(context: Context) {
 
     private fun String.nullIfBlank(): String? = takeIf { it.isNotBlank() }
 }
+
+
+/** Keeps SQL NULL distinct from the valid numeric value zero. */
+internal fun nullableMediaStoreLong(
+    columnPresent: Boolean,
+    columnIsNull: Boolean,
+    value: Long
+): Long? = if (!columnPresent || columnIsNull) null else value
