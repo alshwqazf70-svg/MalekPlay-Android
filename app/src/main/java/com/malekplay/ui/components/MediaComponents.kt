@@ -423,7 +423,7 @@ fun MediaGridCard(
                     .clip(CircleShape)
                     .background(Brush.linearGradient(listOf(Color(0xFF7E22CE), Color(0xFFA855F7))))
                     .border(1.dp, Color.White.copy(alpha = 0.42f), CircleShape)
-                    .clickable(onClick = onPlay),
+                    .clickable(onClick = { if (selectionMode) onSelect() else onPlay() }),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Filled.PlayArrow, contentDescription = "تشغيل", tint = Color.White, modifier = Modifier.size(28.dp))
