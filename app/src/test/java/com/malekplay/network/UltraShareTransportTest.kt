@@ -87,6 +87,16 @@ class UltraShareTransportTest {
     }
 
     @Test
+    fun transferIdentityMatchesDesktopProtocolVector() {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("sample content".toByteArray(Charsets.UTF_8))
+        assertEquals(
+            "0b9008e02c8c871dcedefd6a",
+            UltraShareTransport.buildTransferId("مقطع.mp4", 123456L, digest)
+        )
+    }
+
+    @Test
     fun resumeIdentitySeparatesDifferentContentWithSameNameAndSize() {
         val firstDigest = ByteArray(32) { 1 }
         val secondDigest = ByteArray(32) { 2 }
