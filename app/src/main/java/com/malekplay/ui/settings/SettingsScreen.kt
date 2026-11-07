@@ -384,6 +384,17 @@ fun SettingsScreen(
                     checked = kidsEnabled,
                     onCheckedChange = { showPinDialog = true }
                 )
+                OutlinedButton(
+                    onClick = onOpenKidsContent,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.kids_manage_content))
+                }
+                Text(
+                    text = stringResource(R.string.kids_manage_content_summary),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             // ------------------------------------------------------- backup
@@ -456,6 +467,7 @@ fun SettingsScreen(
                 if (applied) {
                     kidsEnabled = parentalControl.isEnabled
                     showPinDialog = false
+                    if (kidsEnabled) onKidsModeEnabled()
                 }
                 applied
             }
