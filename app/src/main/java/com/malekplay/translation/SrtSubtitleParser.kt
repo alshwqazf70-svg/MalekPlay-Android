@@ -7,7 +7,8 @@ import java.nio.charset.StandardCharsets
 
 /** Small, deterministic SRT parser helpers kept independent from ML Kit for unit testing. */
 internal object SrtSubtitleParser {
-    private val timingPattern = Regex("""^\s*\d{1,}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*\d{1,}:\d{2}:\d{2}[,.]\d{3}(?:\s+.*)?\s*$""")
+    private val timingPattern = Regex("""^\s*(?:\d{1,}:)?\d{2}:\d{2}[,.]\d{3}\s*-->\s*(?:\d{1,}:)?\d{2}:\d{2}[,.]\d{3}(?:\s+.*)?\s*$""")
+    private val vttTimestampPattern = Regex("""((?:\d{1,}:)?\d{2}:\d{2})\.(\d{3})""")
     private val markupPattern = Regex("""<[^>]+>""")
 
     fun decode(bytes: ByteArray): String {
@@ -47,10 +48,37 @@ internal object SrtSubtitleParser {
             .getOrElse { String(bytes, Charset.forName("windows-1252")) }
     }
 
-    fun splitBlocks(text: String): List<String> =
-        text.replace("\r\n", "\n").replace('\r', '\n')
+    /**
+     * Normalizes both SRT and WebVTT cue blocks for SRT export.
+     * WebVTT file headers and NOTE/STYLE/REGION metadata are not subtitle cues;
+     * WebVTT timestamps use dots, while SRT requires comma milliseconds.
+     */
+    fun splitBlocks(text: String): List<String> {
+        val blocks = text.replace("\r\n", "\n").replace('\r', '\n')
             .split(Regex("\n[\t ]*\n"))
             .filter { it.isNotBlank() }
+
+        return blocks.mapIndexedNotNull { index, rawBlock ->
+            val firstLine = rawBlock.lineSequence().firstOrNull()?.trim().orEmpty()
+            if (index == 0 && firstLine.startsWith("WEBVTT", ignoreCase = true)) {
+                return@mapIndexedNotNull null
+            }
+            if (firstLine.startsWith("NOTE", ignoreCase = true) ||
+                firstLine.equals("STYLE", ignoreCase = true) ||
+                firstLine.equals("REGION", ignoreCase = true)
+            ) {
+                return@mapIndexedNotNull null
+            }
+
+            rawBlock.lineSequence().map { line ->
+                if (line.contains("-->")) {
+                    vttTimestampPattern.replace(line, "$1,$2")
+                } else {
+                    line
+                }
+            }.joinToString("\n")
+        }
+    }
 
     fun timingLineIndex(lines: List<String>): Int =
         lines.indexOfFirst { timingPattern.matches(it) }
