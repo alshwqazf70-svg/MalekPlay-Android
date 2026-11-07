@@ -83,26 +83,24 @@ fun VideoCategoryScreen(
         }.map { it.first }
     }
 
+    // Parse each filename once per library snapshot. Re-running several
+    // regular expressions from a sort comparator is expensive on large libraries.
     val orderedFiltered = remember(filtered) {
-        filtered.sortedWith(
-            compareBy<LibraryItem>(
-                { item ->
-                    VideoKindClassifier.episodeSortKey(
-                        item.media.displayTitle, item.media.folderName, item.media.folderPath
-                    )?.seriesKey ?: item.media.displayTitle.lowercase()
-                },
-                { item ->
-                    VideoKindClassifier.episodeSortKey(
-                        item.media.displayTitle, item.media.folderName, item.media.folderPath
-                    )?.season ?: Int.MAX_VALUE
-                },
-                { item ->
-                    VideoKindClassifier.episodeSortKey(
-                        item.media.displayTitle, item.media.folderName, item.media.folderPath
-                    )?.episode ?: Int.MAX_VALUE
-                }
+        filtered.map { item ->
+            val episode = VideoKindClassifier.episodeSortKey(
+                item.media.displayTitle,
+                item.media.folderName,
+                item.media.folderPath
             )
-        )
+            item to episode
+        }.sortedWith(
+            compareBy<Pair<LibraryItem, EpisodeSortKey?>>(
+                { it.second?.seriesKey ?: it.first.media.displayTitle.lowercase() },
+                { it.second?.season ?: Int.MAX_VALUE },
+                { it.second?.episode ?: Int.MAX_VALUE },
+                { it.first.media.displayTitle.lowercase() }
+            )
+        ).map { it.first }
     }
 
     val colors = MaterialTheme.colorScheme

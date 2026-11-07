@@ -65,7 +65,7 @@ internal object VideoKindClassifier {
     }
 
     private val seriesPatterns = listOf(
-        Regex("""(?i)\bs\d{1,2}\s*e\d{1,3}\b"""),
+        Regex("""(?i)\bs\d{1,2}[ ._-]*e\d{1,3}\b"""),
         Regex("""(?i)\b\d{1,2}\s*x\s*\d{1,3}\b"""),
         Regex("""(?i)\b(?:season|episode|ep)\s*[-_. ]?\d{1,3}\b"""),
         Regex("""(?i)\b(?:tv\s*series|web\s*series|series)\b"""),

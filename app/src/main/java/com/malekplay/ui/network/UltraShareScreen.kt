@@ -672,7 +672,7 @@ fun UltraShareScreen(
                             bitmap = bitmap.asImageBitmap(),
                             contentDescription = stringResource(R.string.ultra_share_qr_description),
                             modifier = Modifier
-                                .size(220.dp)
+                                .size(160.dp)
                                 .align(Alignment.CenterHorizontally)
                         )
                         Text(
