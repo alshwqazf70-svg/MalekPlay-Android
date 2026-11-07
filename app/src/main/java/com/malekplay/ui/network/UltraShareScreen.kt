@@ -78,7 +78,7 @@ import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraShareWifiDirect
-import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.widget.Toast
