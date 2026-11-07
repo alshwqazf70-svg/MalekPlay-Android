@@ -41,6 +41,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
+import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.components.EmptyState
 import com.malekplay.ui.components.MediaGridCard
@@ -80,6 +81,28 @@ fun VideoCategoryScreen(
         classified.filter { (_, kind) ->
             if (series) kind == VideoKind.SERIES else kind != VideoKind.SERIES
         }.map { it.first }
+    }
+
+    val orderedFiltered = remember(filtered) {
+        filtered.sortedWith(
+            compareBy<LibraryItem>(
+                { item ->
+                    VideoKindClassifier.episodeSortKey(
+                        item.media.displayTitle, item.media.folderName, item.media.folderPath
+                    )?.seriesKey ?: item.media.displayTitle.lowercase()
+                },
+                { item ->
+                    VideoKindClassifier.episodeSortKey(
+                        item.media.displayTitle, item.media.folderName, item.media.folderPath
+                    )?.season ?: Int.MAX_VALUE
+                },
+                { item ->
+                    VideoKindClassifier.episodeSortKey(
+                        item.media.displayTitle, item.media.folderName, item.media.folderPath
+                    )?.episode ?: Int.MAX_VALUE
+                }
+            )
+        )
     }
 
     val colors = MaterialTheme.colorScheme
@@ -167,7 +190,7 @@ fun VideoCategoryScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(filtered, key = { it.media.id }) { item ->
+                    items(orderedFiltered, key = { it.media.id }) { item ->
                         MediaGridCard(
                             item = item,
                             onPlay = { onOpenMedia(item.media) },
