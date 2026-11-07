@@ -487,12 +487,38 @@ fun UltraShareScreen(
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
     }
 
+    fun persistReadGrant(uri: Uri): Boolean {
+        val resolver = context.contentResolver
+        val alreadyPersisted = resolver.persistedUriPermissions.any {
+            it.uri == uri && it.isReadPermission
+        }
+        if (alreadyPersisted) return true
+        return runCatching {
+            resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            true
+        }.getOrDefault(false)
+    }
+
+    LaunchedEffect(initialUris) {
+        val notPersisted = initialUris.distinct().count { !persistReadGrant(it) }
+        if (notPersisted > 0) {
+            Toast.makeText(
+                context,
+                "بعض الملفات المشتركة لا تسمح بحفظ إذن الوصول؛ قد تحتاج إلى اختيارها مجدداً إذا أُغلق التطبيق قبل إرسالها.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) {
-            uris.forEach { uri ->
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
+            val notPersisted = uris.count { !persistReadGrant(it) }
+            if (notPersisted > 0) {
+                Toast.makeText(
+                    context,
+                    "تعذر حفظ إذن الوصول إلى بعض الملفات؛ أعد اختيارها إذا تعذر استئنافها لاحقاً.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
             pendingMediaUris = (pendingMediaUris + uris).distinct()
         }
