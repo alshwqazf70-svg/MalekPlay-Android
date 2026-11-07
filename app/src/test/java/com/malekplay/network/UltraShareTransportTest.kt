@@ -88,6 +88,36 @@ class UltraShareTransportTest {
     }
 
     @Test
+    fun completedReceiptRequiresMatchingSizeAndContentDigest() {
+        val digest = "ab".repeat(32)
+        val marker = "4096:" + digest + ":movie.mp4"
+
+        assertEquals(
+            "movie.mp4",
+            UltraShareTransport.completedReceiptFileName(marker, 4096L, digest)
+        )
+        assertEquals(
+            null,
+            UltraShareTransport.completedReceiptFileName(marker, 4097L, digest)
+        )
+        assertEquals(
+            null,
+            UltraShareTransport.completedReceiptFileName(marker, 4096L, "cd".repeat(32))
+        )
+    }
+
+    @Test
+    fun completedReceiptSanitizesStoredFileNameBeforeResolvingIt() {
+        val digest = "ef".repeat(32)
+        val marker = "12:" + digest + ":../../received.mp4"
+
+        assertEquals(
+            "received.mp4",
+            UltraShareTransport.completedReceiptFileName(marker, 12L, digest)
+        )
+    }
+
+    @Test
     fun privateLanHostValidationRejectsNonLocalTargets() {
         assertTrue(UltraShareTransport.isValidPrivateLanHost("192.168.1.25"))
         assertTrue(UltraShareTransport.isValidPrivateLanHost("10.0.0.8"))
