@@ -360,4 +360,7 @@
     <string name="kids_no_media_found">لم نعثر على فيديوهات أو ملفات موسيقى في مكتبة الجهاز.</string>
     <string name="kids_manage_content">اختيار الفيديوهات والموسيقى المسموح بها</string>
     <string name="kids_manage_content_summary">حدد المحتوى الذي يستطيع الطفل تشغيله فقط</string>
+    <string name="kids_parent_access">دخول الوالد</string>
+    <string name="kids_parent_pin_prompt">أدخل رمز الوالد للخروج من وضع الأطفال.</string>
+    <string name="kids_parent_exit">الخروج من وضع الأطفال</string>
 </resources>
