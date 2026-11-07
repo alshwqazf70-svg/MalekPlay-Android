@@ -417,7 +417,7 @@ private fun EmptyLibrary(searching: Boolean, filter: LibraryFilter, onRefresh: (
         }, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(7.dp))
         Text(if (searching) "جرّب كلمات بحث مختلفة." else "حدّث المكتبة للبحث عن الملفات الجديدة.",
-            color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(15.dp))
         Text("تحديث المكتبة", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold,
             modifier = Modifier.clickable(onClick = onRefresh).padding(10.dp))
