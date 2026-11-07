@@ -89,23 +89,41 @@ object UltraShareTransport {
     }
 
     fun sanitizeFileName(raw: String): String {
-        var cleaned = raw
-            .replace('\\', '/')
-            .substringAfterLast('/')
-            .filter { it >= ' ' && it != '\u007f' && it != ':' && it != '*' &&
-                it != '?' && it != '"' && it != '<' && it != '>' && it != '|' }
-            .trim()
-            .trim('.')
-        while (cleaned.toByteArray(Charsets.UTF_8).size > 180) {
-            cleaned = cleaned.dropLast(1)
-            if (cleaned.isNotEmpty() && Character.isHighSurrogate(cleaned.last())) {
-                cleaned = cleaned.dropLast(1)
+        val leaf = raw.replace('\\', '/').substringAfterLast('/')
+        var cleaned = buildString(leaf.length) {
+            var index = 0
+            while (index < leaf.length) {
+                val codePoint = leaf.codePointAt(index)
+                index += Character.charCount(codePoint)
+                val type = Character.getType(codePoint)
+                val forbidden = codePoint == ':'.code || codePoint == '*'.code ||
+                    codePoint == '?'.code || codePoint == '"'.code ||
+                    codePoint == '<'.code || codePoint == '>'.code ||
+                    codePoint == '|'.code || Character.isISOControl(codePoint) ||
+                    type == Character.FORMAT.toInt()
+                if (!forbidden) appendCodePoint(codePoint)
             }
+        }.trim().trim('.')
+
+        // Bound the UTF-8 filename without splitting a Unicode code point.
+        while (cleaned.isNotEmpty() && cleaned.toByteArray(Charsets.UTF_8).size > 180) {
+            val lastCodePoint = cleaned.codePointBefore(cleaned.length)
+            cleaned = cleaned.dropLast(Character.charCount(lastCodePoint))
         }
         require(cleaned.isNotBlank() && cleaned != "." && cleaned != "..") {
             "اسم الملف غير صالح."
         }
         return cleaned
+    }
+
+    fun sanitizeMimeType(raw: String): String {
+        val candidate = raw.trim()
+        val token = "[A-Za-z0-9!#$&^_.+-]+"
+        return if (candidate.length <= 160 && Regex("^$token/$token$").matches(candidate)) {
+            candidate
+        } else {
+            "application/octet-stream"
+        }
     }
 
     suspend fun send(
@@ -150,7 +168,7 @@ object UltraShareTransport {
                     data.writeShort(VERSION)
                     writeUtf8(data, safeName, 768)
                     data.writeLong(sizeBytes)
-                    writeUtf8(data, mimeType.take(160), 192)
+                    writeUtf8(data, sanitizeMimeType(mimeType), 192)
                     data.write(digest)
                 }
                 bytes.toByteArray()
@@ -249,7 +267,7 @@ object UltraShareTransport {
                 val fileName = sanitizeFileName(readUtf8(metadata, 768))
                 val size = metadata.readLong()
                 require(size in 0..MAX_FILE_BYTES) { "حجم الملف المرسل غير مسموح." }
-                val mime = readUtf8(metadata, 192).take(160)
+                val mime = sanitizeMimeType(readUtf8(metadata, 192))
                 val expectedDigest = ByteArray(32).also(metadata::readFully)
                 require(metadata.available() == 0) { "بيانات الملف المرسل غير مكتملة." }
 
