@@ -114,7 +114,7 @@ class BackupViewModel @Inject constructor(
 }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(\n    onBack: () -> Unit,\n    onOpenKidsContent: () -> Unit = {},\n    onKidsModeEnabled: () -> Unit = {}\n) {
     val viewModel: SettingsViewModel = hiltViewModel()
     val backupViewModel: BackupViewModel = hiltViewModel()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
