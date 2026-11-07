@@ -66,13 +66,14 @@ object UltraShareTransport {
     private const val MAGIC = 0x4D505531 // MPU1
     private const val VERSION = 1
     private const val SECRET_BYTES = 32
-    private const val PIN_LENGTH = 9
+    private const val PIN_LENGTH = 12
     private const val PIN_KDF_ITERATIONS = 210_000
     private const val PIN_SALT_BYTES = 16
     private const val CHALLENGE_BYTES = 32
     private const val NONCE_PREFIX_BYTES = 4
     private const val GCM_TAG_BYTES = 16
     private const val SOCKET_TIMEOUT_MS = 20_000
+    private const val HANDSHAKE_TIMEOUT_MS = 5_000
 
     data class Progress(
         val fileName: String,
@@ -94,8 +95,12 @@ object UltraShareTransport {
     )
 
     /** Generates a compact, human-friendly one-time numeric pairing PIN. */
-    fun createPairingSecret(): String =
-        String.format(Locale.US, "%09d", SecureRandom().nextInt(1_000_000_000))
+    fun createPairingSecret(): String {
+        // A 12-digit PIN provides about 40 bits of entropy while remaining easy
+        // to read aloud or display as four groups in the pairing screen.
+        val value = SecureRandom().nextLong().ushr(1) % 1_000_000_000_000L
+        return String.format(Locale.US, "%012d", value)
+    }
 
     fun isValidPairingSecret(value: String): Boolean =
         (value.length == PIN_LENGTH && value.all { it in '0'..'9' }) ||
@@ -310,7 +315,9 @@ object UltraShareTransport {
             }
             val clientSocket = requireNotNull(accepted)
             clientSocket.use { socket ->
-                socket.soTimeout = SOCKET_TIMEOUT_MS
+                // Do not let an unauthenticated LAN peer hold the single receiver
+                // socket indefinitely while slowly sending the pairing proof.
+                socket.soTimeout = HANDSHAKE_TIMEOUT_MS
                 val input = DataInputStream(socket.getInputStream())
                 val output = DataOutputStream(socket.getOutputStream())
 
@@ -325,6 +332,7 @@ object UltraShareTransport {
                 output.writeBoolean(authenticated)
                 output.flush()
                 check(authenticated) { "فشل التحقق من رمز الاقتران." }
+                socket.soTimeout = SOCKET_TIMEOUT_MS
 
                 val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(SecureRandom()::nextBytes)
                 output.write(noncePrefix)
