@@ -12,7 +12,7 @@ class UltraShareTransportTest {
         val first = UltraShareTransport.createPairingSecret()
         val second = UltraShareTransport.createPairingSecret()
 
-        assertEquals(9, first.length)
+        assertEquals(12, first.length)
         assertTrue(first.all { it in '0'..'9' })
         assertTrue(UltraShareTransport.isValidPairingSecret(first))
         assertTrue(UltraShareTransport.isValidPairingSecret(second))
@@ -23,8 +23,10 @@ class UltraShareTransportTest {
     fun pairingSecretRejectsMalformedValues() {
         assertFalse(UltraShareTransport.isValidPairingSecret(""))
         assertFalse(UltraShareTransport.isValidPairingSecret("123456"))
-        assertFalse(UltraShareTransport.isValidPairingSecret("12345678A"))
+        assertFalse(UltraShareTransport.isValidPairingSecret("123456789"))
         assertFalse(UltraShareTransport.isValidPairingSecret("1234567890"))
+        assertFalse(UltraShareTransport.isValidPairingSecret("1234567890123"))
+        assertFalse(UltraShareTransport.isValidPairingSecret("12345678A"))
         assertFalse(UltraShareTransport.isValidPairingSecret("z".repeat(64)))
         assertFalse(UltraShareTransport.isValidPairingSecret("a".repeat(63)))
     }
