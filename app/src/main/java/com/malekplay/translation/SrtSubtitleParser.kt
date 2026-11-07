@@ -76,7 +76,7 @@ internal object SrtSubtitleParser {
 
             rawBlock.lineSequence().map { line ->
                 if (line.contains("-->")) {
-                    vttTimestampPattern.replace(line, "\\$1,\\$2")
+                    vttTimestampPattern.replace(line, "\$1,\$2")
                 } else {
                     line
                 }
