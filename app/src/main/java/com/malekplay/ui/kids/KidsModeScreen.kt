@@ -56,7 +56,10 @@ fun KidsModeScreen(
     val manager = remember(context) { ParentalControlManager(context) }
     val enabled = manager.isEnabled
     val media by viewModel.allMedia.collectAsStateWithLifecycle()
-    var selected by remember(manager) { mutableStateOf(manager.allowedMediaIds) }\n    var showParentDialog by remember { mutableStateOf(false) }\n    var parentPin by remember { mutableStateOf("") }\n    var pinError by remember { mutableStateOf(false) }
+    var selected by remember(manager) { mutableStateOf(manager.allowedMediaIds) }
+    var showParentDialog by remember { mutableStateOf(false) }
+    var parentPin by remember { mutableStateOf("") }
+    var pinError by remember { mutableStateOf(false) }
     val approved = remember(media, selected, enabled) {
         media.map { it.media }.filter { it.id in selected && (it.isVideo || it.isAudio) }
             .sortedBy { it.title.lowercase() }
