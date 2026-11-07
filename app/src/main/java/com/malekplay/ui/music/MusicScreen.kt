@@ -178,10 +178,10 @@ fun MusicScreen(
                 modifier = Modifier
                     .size(52.dp)
                     .clip(RoundedCornerShape(18.dp))
-                    .background(MalekPlayColors.PurpleDeep.copy(alpha = 0.30f))
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.30f))
                     .border(
                         1.dp,
-                        MalekPlayColors.NeonPurple.copy(alpha = 0.42f),
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.42f),
                         RoundedCornerShape(18.dp)
                     ),
                 contentAlignment = Alignment.Center
@@ -189,7 +189,7 @@ fun MusicScreen(
                 Icon(
                     imageVector = Icons.Filled.GraphicEq,
                     contentDescription = null,
-                    tint = MalekPlayColors.PurpleSoft,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(27.dp)
                 )
             }
@@ -301,16 +301,16 @@ private fun SongRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
-            .shadow(7.dp, RoundedCornerShape(16.dp), ambientColor = MalekPlayColors.NeonGlow)
+            .shadow(7.dp, RoundedCornerShape(16.dp), ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f))
             .clip(RoundedCornerShape(16.dp))
             .background(if (isSelected) colors.primaryContainer else colors.surface)
             .border(
                 1.dp,
                 Brush.linearGradient(
                     listOf(
-                        MalekPlayColors.PurpleBright.copy(alpha = 0.42f),
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.42f),
                         Color.White.copy(alpha = 0.07f),
-                        MalekPlayColors.PurpleDeep.copy(alpha = 0.30f)
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.30f)
                     )
                 ),
                 RoundedCornerShape(16.dp)
@@ -403,15 +403,15 @@ private fun AlbumCard(album: AlbumSummary) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(10.dp, shape, ambientColor = MalekPlayColors.NeonGlow)
+            .shadow(10.dp, shape, ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f))
             .clip(shape)
             .border(
                 1.dp,
                 Brush.linearGradient(
                     listOf(
-                        MalekPlayColors.PurpleBright.copy(alpha = 0.48f),
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.48f),
                         Color.White.copy(alpha = 0.08f),
-                        MalekPlayColors.PurpleDeep.copy(alpha = 0.34f)
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
                     )
                 ),
                 shape
@@ -442,7 +442,7 @@ private fun AlbumCard(album: AlbumSummary) {
                     Text(
                         text = stringResource(R.string.music_track_count, album.trackCount),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MalekPlayColors.PurpleSoft,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -541,9 +541,9 @@ private fun ArtistGenreRow(
                 1.dp,
                 Brush.linearGradient(
                     listOf(
-                        MalekPlayColors.PurpleBright.copy(alpha = 0.42f),
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.42f),
                         Color.White.copy(alpha = 0.07f),
-                        MalekPlayColors.PurpleDeep.copy(alpha = 0.30f)
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.30f)
                     )
                 ),
                 shape
@@ -557,16 +557,16 @@ private fun ArtistGenreRow(
                 .clip(RoundedCornerShape(15.dp))
                 .background(
                     Brush.radialGradient(
-                        listOf(MalekPlayColors.NeonPurple.copy(alpha = 0.34f), MalekPlayColors.PurpleDeep.copy(alpha = 0.12f))
+                        listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.34f), MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.12f))
                     )
                 )
-                .border(1.dp, MalekPlayColors.NeonPurple.copy(alpha = 0.35f), RoundedCornerShape(15.dp)),
+                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(15.dp)),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = MalekPlayColors.PurpleSoft,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.size(24.dp)
             )
         }
