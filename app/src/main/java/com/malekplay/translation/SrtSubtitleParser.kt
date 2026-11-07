@@ -57,15 +57,19 @@ internal object SrtSubtitleParser {
         val blocks = text.replace("\r\n", "\n").replace('\r', '\n')
             .split(Regex("\n[\t ]*\n"))
             .filter { it.isNotBlank() }
+        val isWebVtt = blocks.firstOrNull()?.lineSequence()?.firstOrNull()
+            ?.trim()?.startsWith("WEBVTT", ignoreCase = true) == true
 
         return blocks.mapIndexedNotNull { index, rawBlock ->
             val firstLine = rawBlock.lineSequence().firstOrNull()?.trim().orEmpty()
-            if (index == 0 && firstLine.startsWith("WEBVTT", ignoreCase = true)) {
+            if (isWebVtt && index == 0) {
                 return@mapIndexedNotNull null
             }
-            if (firstLine.startsWith("NOTE", ignoreCase = true) ||
-                firstLine.equals("STYLE", ignoreCase = true) ||
-                firstLine.equals("REGION", ignoreCase = true)
+            if (isWebVtt && (
+                firstLine.startsWith("NOTE", ignoreCase = true) ||
+                    firstLine.equals("STYLE", ignoreCase = true) ||
+                    firstLine.equals("REGION", ignoreCase = true)
+                )
             ) {
                 return@mapIndexedNotNull null
             }

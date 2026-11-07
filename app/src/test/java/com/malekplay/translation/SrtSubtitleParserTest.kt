@@ -110,10 +110,16 @@ Second cue
 
     @Test
     fun preservesSrtCommaTimestampsAndCueIdentifiers() {
-        val srt = "1\\n00:00:01,000 --> 00:00:02,000\\n<i>Hello</i>"
+        val srt = "1\n00:00:01,000 --> 00:00:02,000\n<i>Hello</i>"
         val cues = SrtSubtitleParser.splitBlocks(srt)
         assertEquals(1, cues.size)
         assertEquals(srt, cues.single())
+    }
+
+    @Test
+    fun doesNotTreatSrtCueTextAsWebVttMetadata() {
+        val srt = "1\\n00:00:01,000 --> 00:00:02,000\\nNOTE this is spoken dialogue"
+        assertEquals(1, SrtSubtitleParser.splitBlocks(srt).size)
     }
 
 }
