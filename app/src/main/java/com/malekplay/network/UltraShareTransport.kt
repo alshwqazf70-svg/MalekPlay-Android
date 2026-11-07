@@ -149,6 +149,18 @@ object UltraShareTransport {
             .joinToString("") { "%02x".format(it) }
     }
 
+    internal fun completedReceiptFileName(
+        markerContent: String,
+        expectedSize: Long,
+        expectedDigestHex: String
+    ): String? = runCatching {
+        val fields = markerContent.split(':', limit = 3)
+        if (fields.size != 3 || fields[0].toLongOrNull() != expectedSize ||
+            fields[1] != expectedDigestHex
+        ) return null
+        sanitizeFileName(fields[2])
+    }.getOrNull()
+
     suspend fun send(
         resolver: ContentResolver,
         uri: Uri,
@@ -298,16 +310,18 @@ object UltraShareTransport {
                 val receiptMarker = File(destinationDirectory, ".ultrashare-$transferId.received")
                 val expectedDigestHex = expectedDigest.joinToString("") { "%02x".format(it) }
                 val completedReceipt = receiptMarker.takeIf { it.isFile }?.let { marker ->
-                    runCatching {
-                        val fields = marker.readText(Charsets.UTF_8).split(':', limit = 3)
-                        if (fields.size != 3 || fields[0].toLongOrNull() != size ||
-                            fields[1] != expectedDigestHex
-                        ) return@runCatching null
-                        val completedFile = File(destinationDirectory, sanitizeFileName(fields[2]))
-                        if (!completedFile.isFile || completedFile.length() != size) return@runCatching null
-                        val actual = FileInputStream(completedFile).use { digestStreamRaw(it) }
-                        completedFile.takeIf { MessageDigest.isEqual(expectedDigest, actual) }
-                    }.getOrNull()
+                    UltraShareTransport.completedReceiptFileName(
+                        marker.readText(Charsets.UTF_8),
+                        size,
+                        expectedDigestHex
+                    )?.let { safeName ->
+                        val completedFile = File(destinationDirectory, safeName)
+                        if (!completedFile.isFile || completedFile.length() != size) null
+                        else {
+                            val actual = FileInputStream(completedFile).use { digestStreamRaw(it) }
+                            completedFile.takeIf { MessageDigest.isEqual(expectedDigest, actual) }
+                        }
+                    }
                 }
                 if (completedReceipt != null) {
                     val offsetPayload = ByteArrayOutputStream().use { bytes ->
