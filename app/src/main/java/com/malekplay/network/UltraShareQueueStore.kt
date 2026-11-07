@@ -47,6 +47,28 @@ object UltraShareQueueStore {
         context.applicationContext.ultraShareQueueDataStore.edit { it[QUEUE] = encode(entries) }
     }
 
+    /**
+     * Adds a new transfer batch without deleting earlier history.
+     * URIs in the new batch are reset to pending; unrelated history is retained.
+     */
+    suspend fun enqueue(context: Context, uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
+            val existing = decode(preferences[QUEUE].orEmpty())
+            val incoming = uris.distinctBy { it.toString() }
+            val incomingUris = incoming.mapTo(mutableSetOf()) { it.toString() }
+            val retained = existing.filterNot { it.uri in incomingUris }
+            val added = incoming.map { uri ->
+                UltraShareQueueEntry(
+                    uri = uri.toString(),
+                    displayName = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "ملف",
+                    status = STATUS_PENDING
+                )
+            }
+            preferences[QUEUE] = encode(retained + added)
+        }
+    }
+
     suspend fun update(
         context: Context,
         uri: Uri,
