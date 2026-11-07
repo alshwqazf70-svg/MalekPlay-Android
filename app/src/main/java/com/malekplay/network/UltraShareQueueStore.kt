@@ -127,10 +127,12 @@ object UltraShareQueueStore {
     suspend fun skip(context: Context, uri: Uri) {
         context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
             val entries = decode(preferences[QUEUE].orEmpty()).map { entry ->
-                if (entry.uri == uri.toString() && entry.status == STATUS_PENDING) {
+                if (entry.uri == uri.toString() &&
+                    (entry.status == STATUS_PENDING || entry.status == STATUS_FAILED)
+                ) {
                     entry.copy(
                         status = STATUS_SKIPPED,
-                        error = "تخطّى المستخدم هذا الملف من الطابور."
+                        error = "استبعد المستخدم هذا الملف من طابور الاستئناف."
                     )
                 } else entry
             }
