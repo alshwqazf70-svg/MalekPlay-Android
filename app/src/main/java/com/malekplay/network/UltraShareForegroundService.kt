@@ -131,16 +131,16 @@ class UltraShareForegroundService : Service() {
                                     destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
                                     onProgress = { progress ->
                                         val nextState = currentState().copy(progress = progress, error = null)
-                                        UltraShareReceivedHistoryStore.record(
+                                        publish(nextState)
+                                        updateNotification(progress)
+                                    }
+                                )
+                                UltraShareReceivedHistoryStore.record(
                                     context = this@UltraShareForegroundService,
                                     file = received.file,
                                     fileName = received.fileName,
                                     mimeType = received.mimeType,
                                     sizeBytes = received.sizeBytes
-                                )
-                                publish(nextState)
-                                        updateNotification(progress)
-                                    }
                                 )
                                 publish(
                                     currentState().copy(
