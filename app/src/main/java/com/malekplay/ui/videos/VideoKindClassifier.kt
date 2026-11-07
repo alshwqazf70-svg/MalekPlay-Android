@@ -30,6 +30,7 @@ internal object VideoKindClassifier {
         val episode = numbers.lastOrNull()?.toIntOrNull() ?: return null
         val rawSeries = normalized.removeRange(match.range)
             .replace(Regex("""(?i)\b(1080p|720p|2160p|480p|4k|hevc|x264|x265|web[ ._-]?dl|bluray)\b"""), " ")
+            .replace(Regex("""(?i)\.(mkv|mp4|avi|mov|webm|m4v|ts|3gp)$"""), " ")
             .replace(Regex("""[._\-\[\]()]+"""), " ")
             .trim()
             .ifBlank { folderName.ifBlank { folderPath.substringBeforeLast('/') } }
