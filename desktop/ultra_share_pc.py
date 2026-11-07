@@ -187,6 +187,29 @@ def hash_file(path: Path) -> bytes:
     return digest.digest()
 
 
+def find_completed_receipt(
+    directory: Path, transfer_id: str, size: int, digest: bytes
+) -> Path | None:
+    receipt = directory / f".ultrashare-{transfer_id}.received"
+    if not receipt.is_file():
+        return None
+    try:
+        receipt_size, receipt_digest, receipt_name = receipt.read_text("utf-8").split(":", 2)
+        candidate = directory / safe_name(receipt_name)
+        if (
+            int(receipt_size) == size
+            and receipt_digest == digest.hex()
+            and candidate.is_file()
+            and candidate.stat().st_size == size
+            and hmac.compare_digest(hash_file(candidate), digest)
+        ):
+            return candidate
+    except (OSError, ValueError):
+        pass
+    receipt.unlink(missing_ok=True)
+    return None
+
+
 def unique_destination(directory: Path, filename: str) -> Path:
     original = directory / filename
     if not original.exists():
@@ -339,24 +362,7 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
         expected_marker = f"{size}:{expected_digest.hex()}"
         # If the previous acknowledgement was lost, confirm the already verified
         # destination instead of creating a second copy of the same file.
-        completed: Path | None = None
-        if receipt.is_file():
-            try:
-                receipt_size, receipt_digest, receipt_name = receipt.read_text("utf-8").split(":", 2)
-                candidate = directory / safe_name(receipt_name)
-                if (
-                    int(receipt_size) == size
-                    and receipt_digest == expected_digest.hex()
-                    and candidate.is_file()
-                    and candidate.stat().st_size == size
-                    and hmac.compare_digest(hash_file(candidate), expected_digest)
-                ):
-                    completed = candidate
-            except (OSError, ValueError):
-                completed = None
-            if completed is None:
-                receipt.unlink(missing_ok=True)
-
+        completed = find_completed_receipt(directory, transfer_id, size, expected_digest)
         if completed is not None:
             write_frame(connection, send_key, nonce_prefix, 0, struct.pack(">q", size))
             end = read_frame(connection, receive_key, nonce_prefix, 1, 64)
