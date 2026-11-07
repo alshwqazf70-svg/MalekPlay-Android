@@ -74,7 +74,7 @@ fun LocalFolderScreen(
     }
 
     Scaffold(
-        containerColor = MalekPlayColors.Background,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
@@ -117,9 +117,9 @@ fun LocalFolderScreen(
         }
     ) { padding ->
         if (selectionMode) {
-            androidx.compose.material3.Surface(color = MalekPlayColors.PurpleDeep.copy(alpha = 0.35f), modifier = Modifier.fillMaxWidth().padding(padding).padding(horizontal = 12.dp, vertical = 6.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
+            androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f), modifier = Modifier.fillMaxWidth().padding(padding).padding(horizontal = 12.dp, vertical = 6.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${selectedUris.size} ملف محدد", modifier = Modifier.weight(1f), color = MalekPlayColors.TextPrimary)
+                    Text("${selectedUris.size} ملف محدد", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onPrimaryContainer)
                     androidx.compose.material3.TextButton(onClick = { selectedUris.clear() }) { Text("إلغاء") }
                     androidx.compose.material3.TextButton(onClick = { onSendMedia(items.filter { it.media.uri in selectedUris }.map { it.media }) }) { Text("إرسال المحدد") }
                 }
@@ -174,7 +174,7 @@ private fun FolderItemRow(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(onClick = { if (selectionMode) onSelect() else onClick() }, onLongClick = onSelect)
-            .background(if (isSelected) MalekPlayColors.PurpleDeep.copy(alpha = 0.45f) else androidx.compose.ui.graphics.Color.Transparent)
+            .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
