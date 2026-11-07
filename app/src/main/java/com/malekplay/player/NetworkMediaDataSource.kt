@@ -330,8 +330,15 @@ internal fun readWithReconnect(
 ): Int {
     return try {
         read()
-    } catch (error: IOException) {
-        reconnect()
+    } catch (readFailure: IOException) {
+        try {
+            reconnect()
+        } catch (reconnectFailure: Exception) {
+            if (reconnectFailure !== readFailure) {
+                reconnectFailure.addSuppressed(readFailure)
+            }
+            throw reconnectFailure
+        }
         read()
     }
 }
