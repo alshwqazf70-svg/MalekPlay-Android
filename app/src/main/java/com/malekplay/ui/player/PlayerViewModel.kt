@@ -187,6 +187,8 @@ class PlayerViewModel @Inject constructor(
     private var lastGroups: List<Tracks.Group> = emptyList()
     private var currentMediaId: String? = null
     private val restoredTrackPreferenceIds = mutableSetOf<String>()
+    private val trackPreferenceRestoreInFlight = mutableSetOf<String>()
+    private val trackPreferencesByMediaId = mutableMapOf<String, TrackPreferenceEntity?>()
 
     // ---------------------------------------------------------- lifecycle
 
@@ -611,43 +613,67 @@ class PlayerViewModel @Inject constructor(
         restoreTrackPreferencesForCurrentMedia()
     }
 
-    /** Restores a file's remembered track choices once its current tracks are available. */
+    /**
+     * Restores remembered choices as soon as their matching tracks are exposed.
+     * Media3 may publish audio and text groups in separate callbacks, so keep
+     * retrying on later track changes instead of permanently consuming the first
+     * partial snapshot.
+     */
     private fun restoreTrackPreferencesForCurrentMedia() {
         val mediaId = currentMediaId?.takeIf(String::isNotBlank) ?: return
-        // Wait until Media3 has exposed at least one selectable track; the first
-        // tracks callback can legitimately arrive empty while the source buffers.
-        if (_audioTracks.value.isEmpty() && _textTracks.value.isEmpty()) return
-        if (!restoredTrackPreferenceIds.add(mediaId)) return
+        if (mediaId in restoredTrackPreferenceIds) return
+        val cachedPreference = trackPreferencesByMediaId[mediaId]
+        if (cachedPreference == null && mediaId in trackPreferencesByMediaId) {
+            restoredTrackPreferenceIds.add(mediaId)
+            return
+        }
+        if (!trackPreferenceRestoreInFlight.add(mediaId)) return
+
         viewModelScope.launch {
-            val preference = runCatchingCancellable {
-                mediaRepository.getTrackPreference(mediaId)
-            }.getOrNull() ?: return@launch
-            if (currentMediaId != mediaId) return@launch
-            val player = _controller.value ?: return@launch
-            val audio = _audioTracks.value.firstOrNull {
-                it.stableId != null && it.stableId == preference.audioTrackId
-            }
-            val subtitle = _textTracks.value.firstOrNull {
-                it.stableId != null && it.stableId == preference.subtitleTrackId
-            }
-            val builder = player.trackSelectionParameters.buildUpon()
-            audio?.let { descriptor ->
-                lastGroups.getOrNull(descriptor.groupIndex)?.let { group ->
-                    builder.setOverrideForType(
-                        TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
-                    )
+            try {
+                val preference = cachedPreference ?: runCatchingCancellable {
+                    mediaRepository.getTrackPreference(mediaId)
+                }.getOrNull().also { trackPreferencesByMediaId[mediaId] = it }
+                if (currentMediaId != mediaId) return@launch
+                if (preference == null) {
+                    restoredTrackPreferenceIds.add(mediaId)
+                    return@launch
                 }
-            }
-            subtitle?.let { descriptor ->
-                lastGroups.getOrNull(descriptor.groupIndex)?.let { group ->
-                    builder.setOverrideForType(
-                        TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
-                    )
+
+                val player = _controller.value ?: return@launch
+                val audio = _audioTracks.value.firstOrNull {
+                    it.stableId != null && it.stableId == preference.audioTrackId
                 }
+                val subtitle = _textTracks.value.firstOrNull {
+                    it.stableId != null && it.stableId == preference.subtitleTrackId
+                }
+                val builder = player.trackSelectionParameters.buildUpon()
+                audio?.let { descriptor ->
+                    lastGroups.getOrNull(descriptor.groupIndex)?.let { group ->
+                        builder.setOverrideForType(
+                            TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
+                        )
+                    }
+                }
+                subtitle?.let { descriptor ->
+                    lastGroups.getOrNull(descriptor.groupIndex)?.let { group ->
+                        builder.setOverrideForType(
+                            TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
+                        )
+                    }
+                }
+                builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !preference.isSubtitleEnabled)
+                player.trackSelectionParameters = builder.build()
+                _textTrackDisabled.value = !preference.isSubtitleEnabled
+
+                val audioResolved = preference.audioTrackId == null || audio != null
+                val subtitleResolved = preference.subtitleTrackId == null || subtitle != null
+                if (audioResolved && subtitleResolved) {
+                    restoredTrackPreferenceIds.add(mediaId)
+                }
+            } finally {
+                trackPreferenceRestoreInFlight.remove(mediaId)
             }
-            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !preference.isSubtitleEnabled)
-            player.trackSelectionParameters = builder.build()
-            _textTrackDisabled.value = !preference.isSubtitleEnabled
         }
     }
 
