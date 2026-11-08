@@ -27,6 +27,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -89,14 +90,14 @@ class UltraShareForegroundService : Service() {
             ACTION_PAUSE -> {
                 if (currentState().sending && currentState().queueTotal > 0 && sendJob != null) {
                     pauseRequested = true
-                    publish(currentState().copy(status = "جارٍ إيقاف طابور الإرسال مؤقتاً..."))
+                    updateState { current -> current.copy(status = "جارٍ إيقاف طابور الإرسال مؤقتاً...") }
                     sendJob?.cancel()
                 }
                 return START_NOT_STICKY
             }
             ACTION_REFRESH_ADDRESSES -> {
                 if (currentState().receiving) {
-                    publish(currentState().copy(localAddresses = findLocalIpv4Addresses()))
+                    updateState { current -> current.copy(localAddresses = findLocalIpv4Addresses()) }
                 }
             }
             ACTION_CANCEL_SEND -> {
@@ -119,7 +120,7 @@ class UltraShareForegroundService : Service() {
             ACTION_RECEIVE -> {
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
                 if (!UltraShareTransport.isValidPairingSecret(secret)) {
-                    publish(UltraShareServiceState(error = getString(R.string.ultra_share_transfer_failed)))
+                    updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
                     finishService()
                     return START_NOT_STICKY
                 }
@@ -143,10 +144,10 @@ class UltraShareForegroundService : Service() {
                         } catch (failure: Exception) {
                             // Receiving remains available through the displayed local IP
                             // even if another app/process already occupies the discovery port.
-                            publish(currentState().copy(
+                            updateState { current -> current.copy(
                                 status = "الاستقبال يعمل، لكن الاكتشاف التلقائي غير متاح. استخدم عنوان IP الظاهر يدوياً.",
                                 error = failure.localizedMessage ?: "تعذر تشغيل الاكتشاف التلقائي للأجهزة."
-                            ))
+                            ) }
                         }
                     }
                     try {
@@ -158,8 +159,9 @@ class UltraShareForegroundService : Service() {
                                         destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
                                         onProgress = { progress ->
                                             beginTransfer(isReceiving = true)
-                                            val nextState = currentState().copy(progress = progress, receiveProgress = progress, error = null)
-                                            publish(nextState)
+                                            updateState { current ->
+                                                current.copy(progress = progress, receiveProgress = progress, error = null)
+                                            }
                                             updateNotification(progress)
                                         }
                                     )
@@ -210,15 +212,15 @@ class UltraShareForegroundService : Service() {
                             }
                         }
                     } catch (cancelled: CancellationException) {
-                        publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (currentState().sending) currentState().sendProgress else null, receiveProgress = null, status = getString(R.string.ultra_share_stopped)))
+                        updateState { current -> current.copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (current.sending) current.sendProgress else null, receiveProgress = null, status = getString(R.string.ultra_share_stopped)) }
                         throw cancelled
                     } catch (failure: Exception) {
-                        publish(currentState().copy(receiving = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)))
+                        updateState { current -> current.copy(receiving = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)) }
                     } finally {
                         advertisementJob?.cancel()
                         advertisementJob = null
                         receiveJob = null
-                        publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (currentState().sending) currentState().sendProgress else null, receiveProgress = null))
+                        updateState { current -> current.copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (current.sending) current.sendProgress else null, receiveProgress = null) }
                         finishService()
                     }
                 }
@@ -230,13 +232,13 @@ class UltraShareForegroundService : Service() {
                 val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
                 if (uri == null || host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
-                    publish(UltraShareServiceState(error = getString(R.string.ultra_share_transfer_failed)))
+                    updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
                     finishService()
                     return START_NOT_STICKY
                 }
                 if (sendJob != null) return START_NOT_STICKY
                 startForegroundCompat()
-                publish(currentState().copy(sending = true, status = getString(R.string.ultra_share_sending), error = null))
+                updateState { current -> current.copy(sending = true, status = getString(R.string.ultra_share_sending), error = null) }
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     try {
                         val metadata = readDocumentMetadata(uri)
@@ -250,20 +252,20 @@ class UltraShareForegroundService : Service() {
                             sizeBytes = metadata.third,
                             onProgress = { progress ->
                                 beginTransfer(isReceiving = false)
-                                publish(currentState().copy(progress = progress, sendProgress = progress))
+                                updateState { current -> current.copy(progress = progress, sendProgress = progress) }
                                 updateNotification(progress)
                             }
                         )
-                        publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().receiveProgress else null, sendProgress = null, status = getString(R.string.ultra_share_sent, metadata.first), error = null))
+                        updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, status = getString(R.string.ultra_share_sent, metadata.first), error = null) }
                     } catch (cancelled: CancellationException) {
-                        publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().receiveProgress else null, sendProgress = null, status = getString(R.string.ultra_share_cancel_transfer)))
+                        updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, status = getString(R.string.ultra_share_cancel_transfer)) }
                         throw cancelled
                     } catch (failure: Exception) {
-                        publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().receiveProgress else null, sendProgress = null, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)))
+                        updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)) }
                     } finally {
                         endTransfer(isReceiving = false)
                         sendJob = null
-                        publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().receiveProgress else null, sendProgress = null))
+                        updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null) }
                         finishService()
                     }
                 }
@@ -281,7 +283,7 @@ class UltraShareForegroundService : Service() {
                 val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
                 if (uri == null) {
-                    publish(currentState().copy(error = getString(R.string.ultra_share_transfer_failed)))
+                    updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
                     finishService()
                 } else {
                     startSendingQueue(listOf(uri), host, secret, replaceQueue = false)
@@ -418,6 +420,10 @@ class UltraShareForegroundService : Service() {
         cpuWakeLock = null
     }
 
+    private fun updateState(transform: (UltraShareServiceState) -> UltraShareServiceState) {
+        mutableState.update(transform)
+    }
+
     private fun publish(state: UltraShareServiceState) {
         mutableState.value = state
     }
@@ -431,13 +437,13 @@ class UltraShareForegroundService : Service() {
         replaceQueue: Boolean = true
     ) {
         if (uris.isEmpty() || host.isBlank() || !UltraShareTransport.isValidPrivateLanHost(host) || !UltraShareTransport.isValidPairingSecret(secret)) {
-            publish(UltraShareServiceState(error = getString(R.string.ultra_share_transfer_failed)))
+            updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
             finishService()
             return
         }
         if (sendJob != null) return
         startForegroundCompat()
-        publish(currentState().copy(sending = true, queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال", error = null))
+        updateState { current -> current.copy(sending = true, queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال", error = null) }
         val job = serviceScope.launch(start = CoroutineStart.LAZY) {
             var activeUri: Uri? = null
             var sent = 0
@@ -460,18 +466,18 @@ class UltraShareForegroundService : Service() {
                 totalBytes = metadataByUri.values.fold(0L) { total, metadata ->
                     if (Long.MAX_VALUE - total < metadata.third) Long.MAX_VALUE else total + metadata.third
                 }
-                publish(currentState().copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L))
+                updateState { current -> current.copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L) }
                 queue.forEachIndexed { index, uri ->
                     val storedStatus = UltraShareQueueStore.observe(this@UltraShareForegroundService)
                         .first().firstOrNull { it.uri == uri.toString() }?.status
                     if (storedStatus == UltraShareQueueStore.STATUS_SKIPPED) {
                         // Keep the original denominator: skipped bytes are not transferred,
                         // so the overall progress must not falsely reach 100%.
-                        publish(currentState().copy(
+                        updateState { current -> current.copy(
                             queueCompleted = index + 1,
                             queueTotal = queue.size,
                             queueTotalBytes = totalBytes
-                        ))
+                        ) }
                         return@forEachIndexed
                     }
                     activeUri = uri
@@ -483,12 +489,12 @@ class UltraShareForegroundService : Service() {
                         lastError = failure.localizedMessage ?: "تعذرت قراءة أحد الملفات."
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_FAILED, error = lastError)
                         activeUri = null
-                        publish(currentState().copy(
+                        updateState { current -> current.copy(
                             queueCompleted = index + 1,
                             queueTotal = queue.size,
                             queueTotalBytes = totalBytes,
                             queueTransferredBytes = completedBytes
-                        ))
+                        ) }
                         return@forEachIndexed
                     }
                     val claimed = UltraShareQueueStore.claimForSending(
@@ -498,24 +504,24 @@ class UltraShareForegroundService : Service() {
                     )
                     if (!claimed) {
                         activeUri = null
-                        publish(currentState().copy(
+                        updateState { current -> current.copy(
                             queueCompleted = index + 1,
                             queueTotal = queue.size,
                             queueTotalBytes = totalBytes,
                             queueTransferredBytes = completedBytes
-                        ))
+                        ) }
                         return@forEachIndexed
                     }
-                    publish(currentState().copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = if (currentState().receiving) currentState().receiveProgress else null, sendProgress = null))
+                    updateState { current -> current.copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null) }
                     try {
                         sendWithRetry(uri, host, secret, metadata) { progress ->
                             beginTransfer(isReceiving = false)
-                            publish(currentState().copy(
+                            updateState { current -> current.copy(
                                 progress = progress,
                                 sendProgress = progress,
                                 queueCurrentName = metadata.first,
                                 queueTransferredBytes = minOf(totalBytes, completedBytes + progress.transferredBytes)
-                            ))
+                            ) }
                             updateNotification(progress)
                         }
                         sent++
@@ -533,36 +539,36 @@ class UltraShareForegroundService : Service() {
                         endTransfer(isReceiving = false)
                     }
                     activeUri = null
-                    publish(currentState().copy(
+                    updateState { current -> current.copy(
                         queueCompleted = index + 1,
                         queueTotal = queue.size,
-                        progress = if (currentState().receiving) currentState().receiveProgress else null,
+                        progress = if (current.receiving) current.receiveProgress else null,
                         sendProgress = null,
                         queueTotalBytes = totalBytes,
                         queueTransferredBytes = completedBytes
-                    ))
+                    ) }
                 }
-                publish(currentState().copy(sending = false, status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null))
+                updateState { current -> current.copy(sending = false, status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null) }
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) {
                     activeUri?.let { uri ->
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_PENDING, error = "أُوقف النقل؛ يمكن استئنافه.")
                     }
                 }
-                publish(currentState().copy(
+                updateState { current -> current.copy(
                     sending = false,
-                    progress = if (currentState().receiving) currentState().receiveProgress else null,
+                    progress = if (current.receiving) current.receiveProgress else null,
                     sendProgress = null,
                     queueTransferredBytes = completedBytes,
                     status = if (pauseRequested)
                         "أُوقف الطابور مؤقتاً بعد إكمال " + sent + " ملفات؛ يمكنك استئناف المتبقي."
                     else "أُوقف طابور الإرسال بعد إكمال " + sent + " ملفات"
-                ))
+                ) }
                 throw cancelled
             } finally {
                 sendJob = null
                 pauseRequested = false
-                publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().receiveProgress else null, sendProgress = null, queueCurrentName = null))
+                updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, queueCurrentName = null) }
                 finishService()
             }
         }
@@ -595,9 +601,9 @@ class UltraShareForegroundService : Service() {
             } catch (failure: IOException) {
                 if (retry >= 2) throw failure
                 retry++
-                publish(currentState().copy(
+                updateState { current -> current.copy(
                     status = "انقطع الاتصال؛ إعادة المحاولة تلقائياً " + retry + " من 2"
-                ))
+                ) }
                 kotlinx.coroutines.delay(retry * 1_000L)
             }
         }
