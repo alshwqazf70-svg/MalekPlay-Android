@@ -132,6 +132,8 @@ fun MusicScreen(
     val genres by remember(unknownArtist) { viewModel.genres(unknownArtist) }
         .collectAsStateWithLifecycle(initialValue = emptyList())
 
+    var tabIndex by remember { mutableIntStateOf(0) }
+    var searchQuery by remember { androidx.compose.runtime.mutableStateOf("") }
     val sortedSongs = remember(songs, settings.sortMode) {
         libraryViewModel.applySort(songs, settings.sortMode)
     }
@@ -158,8 +160,6 @@ fun MusicScreen(
         val q = searchQuery.trim()
         if (q.isBlank()) genres else genres.filter { it.name.contains(q, true) }
     }
-    var tabIndex by remember { mutableIntStateOf(0) }
-    var searchQuery by remember { androidx.compose.runtime.mutableStateOf("") }
     val selectedSongs = remember { mutableStateListOf<Uri>() }
     val songSelectionMode = selectedSongs.isNotEmpty()
     fun toggleSong(uri: Uri) { if (uri in selectedSongs) selectedSongs.remove(uri) else selectedSongs.add(uri) }
