@@ -56,16 +56,22 @@ class LibraryViewModel @Inject constructor(
     val seenNewMediaIds = settingsRepository.seenNewMediaIds
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    val newMediaBaselineMs = settingsRepository.newMediaBaselineMs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
     val folders = kotlinx.coroutines.flow.combine(
         mediaRepository.observeFolders(),
         allMedia,
-        seenNewMediaIds
-    ) { folderRows, mediaRows, seenIds ->
-        // A media item stays "new" until the user opens it. Age alone must
-        // never remove an unseen item from the badge count.
+        seenNewMediaIds,
+        newMediaBaselineMs
+    ) { folderRows, mediaRows, seenIds, baselineMs ->
+        // Only files added after the first app launch are candidates for "new".
+        // Once eligible, a file remains new indefinitely until the user opens it.
         folderRows.map { folder ->
-            val unseenCount = mediaRows.count { row ->
-                row.media.folderPath == folder.path && row.media.id !in seenIds
+            val unseenCount = if (baselineMs <= 0L) 0 else mediaRows.count { row ->
+                row.media.folderPath == folder.path &&
+                    row.media.addedAtMs >= baselineMs &&
+                    row.media.id !in seenIds
             }
             folder.copy(newItemCount = unseenCount)
         }
@@ -82,7 +88,10 @@ class LibraryViewModel @Inject constructor(
         )
 
     init {
-        refresh(force = false)
+        viewModelScope.launch {
+            settingsRepository.ensureNewMediaBaseline()
+            refresh(force = false)
+        }
     }
 
     /** Explicit user refresh forces a scan. */
