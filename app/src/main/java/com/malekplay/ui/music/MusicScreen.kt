@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Card
@@ -41,6 +42,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -133,7 +135,31 @@ fun MusicScreen(
     val sortedSongs = remember(songs, settings.sortMode) {
         libraryViewModel.applySort(songs, settings.sortMode)
     }
+    val visibleSongs = remember(sortedSongs, searchQuery) {
+        val q = searchQuery.trim()
+        if (q.isBlank()) sortedSongs else sortedSongs.filter { item ->
+            item.media.displayTitle.contains(q, ignoreCase = true) ||
+                item.media.artist.orEmpty().contains(q, ignoreCase = true) ||
+                item.media.album.orEmpty().contains(q, ignoreCase = true) ||
+                item.media.folderName.contains(q, ignoreCase = true)
+        }
+    }
+    val visibleAlbums = remember(albums, searchQuery) {
+        val q = searchQuery.trim()
+        if (q.isBlank()) albums else albums.filter {
+            it.name.contains(q, true) || it.artist.contains(q, true)
+        }
+    }
+    val visibleArtists = remember(artists, searchQuery) {
+        val q = searchQuery.trim()
+        if (q.isBlank()) artists else artists.filter { it.name.contains(q, true) }
+    }
+    val visibleGenres = remember(genres, searchQuery) {
+        val q = searchQuery.trim()
+        if (q.isBlank()) genres else genres.filter { it.name.contains(q, true) }
+    }
     var tabIndex by remember { mutableIntStateOf(0) }
+    var searchQuery by remember { androidx.compose.runtime.mutableStateOf("") }
     val selectedSongs = remember { mutableStateListOf<Uri>() }
     val songSelectionMode = selectedSongs.isNotEmpty()
     fun toggleSong(uri: Uri) { if (uri in selectedSongs) selectedSongs.remove(uri) else selectedSongs.add(uri) }
@@ -195,6 +221,16 @@ fun MusicScreen(
             }
         }
 
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+            placeholder = { Text("ابحث في الأغاني والألبومات والفنانين والأنواع") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = "بحث") }
+        )
+
         TabRow(
             selectedTabIndex = tabIndex,
             containerColor = Color.Transparent,
@@ -224,7 +260,7 @@ fun MusicScreen(
         }
         when (tabIndex) {
             0 -> SongsTab(
-                songs = sortedSongs,
+                songs = visibleSongs,
                 unknownArtist = unknownArtist,
                 onOpenMedia = onOpenMedia,
                 onSendMedia = onSendMedia,
@@ -235,9 +271,9 @@ fun MusicScreen(
                 onDeleted = libraryViewModel::refresh
             )
 
-            1 -> AlbumsTab(albums = albums)
-            2 -> ArtistsTab(artists = artists)
-            else -> GenresTab(genres = genres)
+            1 -> AlbumsTab(albums = visibleAlbums)
+            2 -> ArtistsTab(artists = visibleArtists)
+            else -> GenresTab(genres = visibleGenres)
         }
     }
 }
