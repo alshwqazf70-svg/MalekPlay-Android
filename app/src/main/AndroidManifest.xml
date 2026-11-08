@@ -4,6 +4,9 @@
 
     <!-- Network streaming -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Camera is used only when the user starts the Ultra Share QR scanner. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
@@ -57,7 +60,6 @@
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
-        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode" />
 
         <service
             android:name=".network.UltraShareForegroundService"
