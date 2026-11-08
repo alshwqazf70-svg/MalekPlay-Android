@@ -31,7 +31,19 @@ internal object LocalSubtitleResolver {
         )
         val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} = ?"
         val selectionArgs = arrayOf("$folder/")
-        val videoBase = basename(video.title).lowercase(Locale.ROOT)
+        // Use the real MediaStore filename, not a possibly different embedded metadata title.
+        val actualVideoName = runCatching {
+            context.contentResolver.query(
+                video.uri,
+                arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull().orEmpty().ifBlank { video.title }
+        val videoBase = basename(actualVideoName).lowercase(Locale.ROOT)
         if (videoBase.isBlank()) return null
 
         return runCatching {
