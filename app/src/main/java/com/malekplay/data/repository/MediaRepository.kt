@@ -82,6 +82,7 @@ class MediaRepository @Inject constructor(
                     audioCount = row.audioCount,
                     totalBytes = row.totalBytes,
                     lastAddedMs = row.lastAddedMs,
+                    newItemCount = row.newItemCount,
                     sampleUri = row.sampleUri?.let { Uri.parse(it) }
                 )
             }
