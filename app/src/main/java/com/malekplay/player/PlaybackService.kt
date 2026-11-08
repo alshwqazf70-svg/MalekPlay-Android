@@ -12,6 +12,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.RemoteCastPlayer
 import com.malekplay.player.cast.CastMediaHttpServer
+import com.malekplay.player.cast.LocalMediaBridgeRegistry
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
@@ -119,6 +120,7 @@ class PlaybackService : MediaSessionService() {
         // It exposes tokenized, seekable LAN URLs rather than leaking content:// URIs.
         val mediaBridge = CastMediaHttpServer(this)
         castMediaHttpServer = mediaBridge
+        LocalMediaBridgeRegistry.attach(mediaBridge)
         val remotePlayer = RemoteCastPlayer.Builder(this)
             .setMediaItemConverter(CastMediaHttpServer.LocalMediaItemConverter(mediaBridge))
             .build()
@@ -145,7 +147,10 @@ class PlaybackService : MediaSessionService() {
             release()
         }
         mediaSession = null
-        castMediaHttpServer?.close()
+        castMediaHttpServer?.let { bridge ->
+            LocalMediaBridgeRegistry.detach(bridge)
+            bridge.close()
+        }
         castMediaHttpServer = null
         // Audio effects share the application's active audio session. Their lifetime
         // follows the playback service, not the transient player screen ViewModel.
