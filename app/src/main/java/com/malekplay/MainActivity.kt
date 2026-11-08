@@ -50,7 +50,8 @@ class MainActivity : ComponentActivity() {
             MalekPlayTheme(
                 mode = settings.themeMode,
                 accent = settings.accent,
-                dynamicColor = settings.dynamicColor
+                dynamicColor = settings.dynamicColor,
+                textColorMode = settings.textColorMode
             ) {
                 MalekPlayNavHost(externalUri = externalUri)
             }
