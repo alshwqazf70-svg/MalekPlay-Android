@@ -131,6 +131,9 @@ fun LocalScreen(
                 if (granted != hasPermission) {
                     hasPermission = granted
                     if (granted) viewModel.refresh()
+                } else if (granted) {
+                    // Pick up files received through Ultra Share when returning to the library.
+                    viewModel.refreshIfStale()
                 }
             }
         }
