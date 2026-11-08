@@ -25,6 +25,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
@@ -43,17 +44,25 @@ import com.malekplay.R
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.library.LibraryViewModel
+import com.malekplay.ui.player.PlayerViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun KidsModeScreen(
     onBack: () -> Unit,
     onPlay: (MediaItem) -> Unit,
-    viewModel: LibraryViewModel = hiltViewModel()
+    viewModel: LibraryViewModel = hiltViewModel(),
+    playerViewModel: PlayerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val manager = remember(context) { ParentalControlManager(context) }
     val enabled = manager.isEnabled
+    val playerController by playerViewModel.controller.collectAsStateWithLifecycle()
+
+    // A previous media session may outlive the Activity. Always clear it when Kids Mode opens.
+    LaunchedEffect(enabled, playerController) {
+        if (enabled && playerController != null) playerViewModel.stopForParentalMode()
+    }
     val media by viewModel.allMedia.collectAsStateWithLifecycle()
     var selected by remember(manager) { mutableStateOf(manager.allowedMediaIds) }
     var showParentDialog by remember { mutableStateOf(false) }
