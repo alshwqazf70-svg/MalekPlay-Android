@@ -77,4 +77,13 @@ class ParentalControlManagerTest {
         assertFalse(manager.verifyPin("4826"))
     }
 
+    @Test
+    fun arabicIndicPinDigitsAreAcceptedConsistently() {
+        manager.setPin("٤٨٢٦")
+
+        assertTrue(manager.verifyPin("٤٨٢٦"))
+        assertTrue(manager.verifyPin("4826"))
+        assertFalse(manager.verifyPin("٤٨٢٧"))
+    }
+
 }
