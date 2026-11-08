@@ -669,40 +669,53 @@ fun UltraShareScreen(
             }
         }
 
-        // Zapya-inspired quick connection hub: create a receiving group, join by QR, or discover nearby peers.
+        // Zapya-inspired connection landing: two primary actions and quick nearby methods.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            OutlinedButton(
+                onClick = { if (!state.receiving) viewModel.startReceiving() },
+                modifier = Modifier.weight(1f).height(94.dp),
+                enabled = !state.sending && !state.receiving
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Icon(Icons.Filled.Wifi, contentDescription = null, modifier = Modifier.size(28.dp))
+                    Text("إنشاء مجموعة", style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Text("استقبال الملفات", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                }
+            }
+            OutlinedButton(
+                onClick = ::scanQrWithCamera,
+                modifier = Modifier.weight(1f).height(94.dp),
+                enabled = !state.sending && !state.receiving
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Icon(Icons.Filled.QrCode, contentDescription = null, modifier = Modifier.size(28.dp))
+                    Text("الانضمام", style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Text("مسح رمز QR", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                }
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedButton(
-                onClick = { if (!state.receiving) viewModel.startReceiving() },
-                modifier = Modifier.weight(1f).height(76.dp),
-                enabled = !state.sending && !state.receiving
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.Wifi, contentDescription = null)
-                    Text("إنشاء مجموعة", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                }
-            }
-            OutlinedButton(
-                onClick = ::scanQrWithCamera,
-                modifier = Modifier.weight(1f).height(76.dp),
-                enabled = !state.sending && !state.receiving
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.QrCode, contentDescription = null)
-                    Text("الانضمام عبر QR", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                }
-            }
-            OutlinedButton(
                 onClick = viewModel::scanNearbyDevices,
-                modifier = Modifier.weight(1f).height(76.dp),
+                modifier = Modifier.weight(1f),
                 enabled = !state.sending && !state.receiving && !state.scanning
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.Wifi, contentDescription = null)
-                    Text("الأجهزة القريبة", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                }
+                Icon(Icons.Filled.Wifi, contentDescription = null)
+                Text("الأجهزة القريبة", style = MaterialTheme.typography.labelMedium)
+            }
+            OutlinedButton(
+                onClick = ::requestWifiDirectScan,
+                modifier = Modifier.weight(1f),
+                enabled = !state.sending && !state.scanning
+            ) {
+                Icon(Icons.Filled.Wifi, contentDescription = null)
+                Text("Wi-Fi Direct", style = MaterialTheme.typography.labelMedium)
             }
         }
 
