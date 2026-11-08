@@ -87,7 +87,7 @@ fun LocalFolderScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = stringResource(R.string.lib_file_count, items.size),
+                            text = "${items.size} ملف  •  ${items.count { it.media.isVideo }} فيديو  •  ${items.count { it.media.isAudio }} موسيقى",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -189,17 +189,55 @@ private fun FolderItemRow(
         )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = item.media.displayTitle,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = item.media.displayTitle,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(7.dp))
+                androidx.compose.material3.Surface(
+                    color = if (item.media.isVideo) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(7.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (item.media.isVideo) Icons.Filled.Movie else Icons.Filled.MusicNote,
+                            contentDescription = null,
+                            modifier = Modifier.size(13.dp),
+                            tint = if (item.media.isVideo) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            text = if (item.media.isVideo) "فيديو" else "موسيقى",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (item.media.isVideo) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+            }
             val details = buildList {
+                if (item.media.isAudio) {
+                    item.media.artist?.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }?.let(::add)
+                    item.media.album?.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }?.let(::add)
+                } else {
+                    formatResolution(item.media.width, item.media.height)
+                        .takeIf { it.isNotBlank() }?.let(::add)
+                }
                 add(formatDuration(item.media.durationMs))
                 add(formatBytes(item.media.sizeBytes))
-                formatResolution(item.media.width, item.media.height)
-                    .takeIf { it.isNotBlank() }?.let { add(it) }
             }.joinToString(" • ")
             Text(
                 text = details,
