@@ -109,6 +109,7 @@ fun MalekPlayTheme(
     mode: AppThemeMode = AppThemeMode.DARK,
     accent: String = "amethyst",
     dynamicColor: Boolean = false,
+    textColorMode: String = "aurora",
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -119,7 +120,7 @@ fun MalekPlayTheme(
     }
     val seed = MalekPlayColors.accentFor(accent)
 
-    val colorScheme = if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    val baseScheme = if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         when (effectiveMode) {
             AppThemeMode.AMOLED -> amoledScheme(seed)
             AppThemeMode.DARK -> dynamicDarkColorScheme(context)
@@ -134,6 +135,29 @@ fun MalekPlayTheme(
             AppThemeMode.SYSTEM -> darkScheme(seed)
         }
     }
+
+    // Black text needs a light canvas; white text needs a dark canvas to remain readable.
+    val textBase = when (textColorMode) {
+        "black" -> lightScheme(seed)
+        "white" -> darkScheme(seed)
+        else -> baseScheme
+    }
+    val chosenText = when (textColorMode) {
+        "white" -> Color.White
+        "black" -> Color(0xFF111111)
+        "gold" -> Color(0xFFFFD166)
+        "purple" -> MalekPlayColors.PurpleBright
+        "cyan" -> Color(0xFF64DCEB)
+        "mint" -> Color(0xFF69D5A8)
+        "pink" -> Color(0xFFFF8FB1)
+        else -> null
+    }
+    val colorScheme = if (chosenText == null) textBase else textBase.copy(
+        onBackground = chosenText,
+        onSurface = chosenText,
+        onSurfaceVariant = chosenText.copy(alpha = 0.82f),
+        onSurfaceVariant = chosenText.copy(alpha = 0.82f)
+    )
 
     MaterialTheme(
         colorScheme = colorScheme,
