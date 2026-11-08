@@ -251,7 +251,8 @@ fun VideoPlayerScreen(
             // season/episode order; movies retain the normal library queue.
             val discoveredQueue = viewModel.loadVideoQueue()
             val videoQueue = if (parentalControl.isEnabled) {
-                discoveredQueue.filter { parentalControl.isMediaAllowed(it.id) }
+                val approvedIds = parentalControl.allowedMediaIds
+                discoveredQueue.filter { it.id in approvedIds }
             } else discoveredQueue
             val selectedEpisode = VideoKindClassifier.episodeSortKey(
                 item.displayTitle, item.folderName, item.folderPath
