@@ -143,15 +143,16 @@ fun MalekPlayTheme(
         "white" -> darkScheme(seed)
         else -> baseScheme
     }
+    val isLightCanvas = effectiveMode == AppThemeMode.LIGHT
     val chosenText = when (textColorMode) {
-        "aurora" -> if (effectiveMode == AppThemeMode.LIGHT) Color(0xFF7026A8) else MalekPlayColors.PurpleBright
+        "aurora" -> if (isLightCanvas) Color(0xFF7026A8) else MalekPlayColors.PurpleBright
         "white" -> Color.White
         "black" -> Color(0xFF111111)
-        "gold" -> Color(0xFFFFD166)
-        "purple" -> MalekPlayColors.PurpleBright
-        "cyan" -> Color(0xFF64DCEB)
-        "mint" -> Color(0xFF69D5A8)
-        "pink" -> Color(0xFFFF8FB1)
+        "gold" -> if (isLightCanvas) Color(0xFF946200) else Color(0xFFFFD166)
+        "purple" -> if (isLightCanvas) Color(0xFF7026A8) else MalekPlayColors.PurpleBright
+        "cyan" -> if (isLightCanvas) Color(0xFF087E8B) else Color(0xFF64DCEB)
+        "mint" -> if (isLightCanvas) Color(0xFF167A55) else Color(0xFF69D5A8)
+        "pink" -> if (isLightCanvas) Color(0xFFB42363) else Color(0xFFFF8FB1)
         else -> null
     }
     val secondaryText = when (textColorMode) {
