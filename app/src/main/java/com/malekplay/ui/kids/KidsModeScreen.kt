@@ -199,7 +199,11 @@ fun KidsModeScreen(
             if (saveError) Text(stringResource(R.string.kids_save_error), color = MaterialTheme.colorScheme.error)
             if (enabled) {
                 if (filteredMedia.isEmpty()) {
-                    Text(stringResource(R.string.kids_no_approved_media), modifier = Modifier.padding(16.dp))
+                    Text(
+                        if (searchQuery.isNotBlank()) "لا توجد نتائج تطابق البحث."
+                        else stringResource(R.string.kids_no_approved_media),
+                        modifier = Modifier.padding(16.dp)
+                    )
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(filteredMedia, key = { it.media.id }) { entry ->
@@ -229,6 +233,8 @@ fun KidsModeScreen(
                             Text(stringResource(R.string.kids_refresh_library))
                         }
                     }
+                } else if (filteredMedia.isEmpty()) {
+                    Text("لا توجد وسائط تطابق البحث أو نوع التصفية.", modifier = Modifier.padding(16.dp))
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         items(filteredMedia, key = { it.media.id }) { libraryItem ->
