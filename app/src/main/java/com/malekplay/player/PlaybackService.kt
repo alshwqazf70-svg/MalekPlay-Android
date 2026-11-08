@@ -118,7 +118,7 @@ class PlaybackService : MediaSessionService() {
         // notification controls and the video UI now share one local/remote Player.
         // The bridge starts lazily only when a local file is handed to a Cast receiver.
         // It exposes tokenized, seekable LAN URLs rather than leaking content:// URIs.
-        val mediaBridge = CastMediaHttpServer(this)
+        val mediaBridge = CastMediaHttpServer(this, buildDataSourceFactory())
         castMediaHttpServer = mediaBridge
         LocalMediaBridgeRegistry.attach(mediaBridge)
         val remotePlayer = RemoteCastPlayer.Builder(this)
