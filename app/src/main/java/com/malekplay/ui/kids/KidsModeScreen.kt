@@ -47,7 +47,8 @@ import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.library.LibraryViewModel
 import com.malekplay.ui.player.PlayerViewModel
 
-@OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
+@UnstableApi
 @Composable
 fun KidsModeScreen(
     onBack: () -> Unit,
