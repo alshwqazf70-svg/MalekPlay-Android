@@ -135,15 +135,23 @@ fun MusicScreen(
     var tabIndex by remember { mutableIntStateOf(0) }
     var searchQuery by remember { androidx.compose.runtime.mutableStateOf("") }
     // Sorting and filtering thousands of songs must not run during Compose recomposition.
-    // produceState cancels obsolete work when the query, library, or sort order changes.
-    val visibleSongs by produceState(
+    // Sort only when the library/order changes; keystrokes then filter the sorted snapshot
+    // without repeating an O(n log n) sort on every character.
+    val sortedSongs by produceState(
         initialValue = emptyList<LibraryItem>(),
-        songs, settings.sortMode, searchQuery
+        songs, settings.sortMode
     ) {
         value = withContext(Dispatchers.Default) {
-            val sorted = libraryViewModel.applySort(songs, settings.sortMode)
+            libraryViewModel.applySort(songs, settings.sortMode)
+        }
+    }
+    val visibleSongs by produceState(
+        initialValue = emptyList<LibraryItem>(),
+        sortedSongs, searchQuery
+    ) {
+        value = withContext(Dispatchers.Default) {
             val q = searchQuery.trim()
-            if (q.isBlank()) sorted else sorted.filter { item ->
+            if (q.isBlank()) sortedSongs else sortedSongs.filter { item ->
                 item.media.displayTitle.contains(q, ignoreCase = true) ||
                     item.media.artist.orEmpty().contains(q, ignoreCase = true) ||
                     item.media.album.orEmpty().contains(q, ignoreCase = true) ||
