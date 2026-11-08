@@ -397,7 +397,7 @@ class UltraShareForegroundService : Service() {
                 val credentials = runCatching {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         val config = reservation.softApConfiguration
-                        config.ssid to (config.passphrase ?: "")
+                        config.ssid.orEmpty() to (config.passphrase ?: "")
                     } else {
                         @Suppress("DEPRECATION")
                         val config = reservation.wifiConfiguration
