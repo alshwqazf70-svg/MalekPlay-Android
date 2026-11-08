@@ -91,7 +91,8 @@ object UltraShareTransport {
         val file: File,
         val fileName: String,
         val sizeBytes: Long,
-        val mimeType: String
+        val mimeType: String,
+        val publishedUri: Uri? = null
     )
 
     /** Generates a compact, human-friendly one-time numeric pairing PIN. */
