@@ -152,7 +152,8 @@ fun AudioPlayerScreen(
             // exposes previous/next commands to the notification and lock screen.
             val discoveredQueue = viewModel.loadAudioQueue()
             val audioQueue = if (parentalControl.isEnabled) {
-                discoveredQueue.filter { parentalControl.isMediaAllowed(it.id) }
+                val approvedIds = parentalControl.allowedMediaIds
+                discoveredQueue.filter { it.id in approvedIds }
             } else discoveredQueue
             val selectedIndex = audioQueue.indexOfFirst { it.id == item.id }
             if (selectedIndex >= 0) {
