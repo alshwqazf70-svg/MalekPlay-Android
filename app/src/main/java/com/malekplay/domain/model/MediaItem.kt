@@ -78,6 +78,7 @@ data class MediaFolder(
     val audioCount: Int,
     val totalBytes: Long,
     val lastAddedMs: Long,
+    val newItemCount: Int,
     val sampleUri: Uri?
 )
 
