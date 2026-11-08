@@ -134,31 +134,48 @@ fun MusicScreen(
 
     var tabIndex by remember { mutableIntStateOf(0) }
     var searchQuery by remember { androidx.compose.runtime.mutableStateOf("") }
-    val sortedSongs = remember(songs, settings.sortMode) {
-        libraryViewModel.applySort(songs, settings.sortMode)
-    }
-    val visibleSongs = remember(sortedSongs, searchQuery) {
-        val q = searchQuery.trim()
-        if (q.isBlank()) sortedSongs else sortedSongs.filter { item ->
-            item.media.displayTitle.contains(q, ignoreCase = true) ||
-                item.media.artist.orEmpty().contains(q, ignoreCase = true) ||
-                item.media.album.orEmpty().contains(q, ignoreCase = true) ||
-                item.media.folderName.contains(q, ignoreCase = true)
+    // Sorting and filtering thousands of songs must not run during Compose recomposition.
+    // produceState cancels obsolete work when the query, library, or sort order changes.
+    val visibleSongs by produceState(
+        initialValue = emptyList<LibraryItem>(),
+        songs, settings.sortMode, searchQuery
+    ) {
+        value = withContext(Dispatchers.Default) {
+            val sorted = libraryViewModel.applySort(songs, settings.sortMode)
+            val q = searchQuery.trim()
+            if (q.isBlank()) sorted else sorted.filter { item ->
+                item.media.displayTitle.contains(q, ignoreCase = true) ||
+                    item.media.artist.orEmpty().contains(q, ignoreCase = true) ||
+                    item.media.album.orEmpty().contains(q, ignoreCase = true) ||
+                    item.media.folderName.contains(q, ignoreCase = true)
+            }
         }
     }
-    val visibleAlbums = remember(albums, searchQuery) {
-        val q = searchQuery.trim()
-        if (q.isBlank()) albums else albums.filter {
-            it.name.contains(q, true) || it.artist.contains(q, true)
+    val visibleAlbums by produceState(
+        initialValue = emptyList<AlbumSummary>(), albums, searchQuery
+    ) {
+        value = withContext(Dispatchers.Default) {
+            val q = searchQuery.trim()
+            if (q.isBlank()) albums else albums.filter {
+                it.name.contains(q, true) || it.artist.contains(q, true)
+            }
         }
     }
-    val visibleArtists = remember(artists, searchQuery) {
-        val q = searchQuery.trim()
-        if (q.isBlank()) artists else artists.filter { it.name.contains(q, true) }
+    val visibleArtists by produceState(
+        initialValue = emptyList<ArtistSummary>(), artists, searchQuery
+    ) {
+        value = withContext(Dispatchers.Default) {
+            val q = searchQuery.trim()
+            if (q.isBlank()) artists else artists.filter { it.name.contains(q, true) }
+        }
     }
-    val visibleGenres = remember(genres, searchQuery) {
-        val q = searchQuery.trim()
-        if (q.isBlank()) genres else genres.filter { it.name.contains(q, true) }
+    val visibleGenres by produceState(
+        initialValue = emptyList<GenreSummary>(), genres, searchQuery
+    ) {
+        value = withContext(Dispatchers.Default) {
+            val q = searchQuery.trim()
+            if (q.isBlank()) genres else genres.filter { it.name.contains(q, true) }
+        }
     }
     val selectedSongs = remember { mutableStateListOf<Uri>() }
     val songSelectionMode = selectedSongs.isNotEmpty()
