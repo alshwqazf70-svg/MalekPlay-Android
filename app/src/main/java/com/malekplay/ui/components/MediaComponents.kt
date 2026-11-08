@@ -273,6 +273,22 @@ fun MediaThumbnail(
                 )
             }
         }
+
+        // Always-visible media-type marker; artwork must never hide whether this is video or audio.
+        Box(
+            modifier = Modifier.align(Alignment.TopStart).padding(7.dp)
+                .size(28.dp).shadow(4.dp, CircleShape)
+                .clip(CircleShape).background(Color.Black.copy(alpha = 0.72f))
+                .border(1.dp, Color.White.copy(alpha = 0.55f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (media.isVideo) Icons.Filled.Movie else Icons.Filled.MusicNote,
+                contentDescription = if (media.isVideo) "فيديو" else "موسيقى",
+                tint = Color.White,
+                modifier = Modifier.size(17.dp)
+            )
+        }
     }
 }
 
