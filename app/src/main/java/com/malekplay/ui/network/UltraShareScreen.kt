@@ -109,6 +109,8 @@ data class UltraShareUiState(
     val scanning: Boolean = false,
     val discoveredPeers: List<UltraShareDiscovery.Peer> = emptyList(),
     val progress: UltraShareTransport.Progress? = null,
+    val sendProgress: UltraShareTransport.Progress? = null,
+    val receiveProgress: UltraShareTransport.Progress? = null,
     val receivedFile: UltraShareTransport.ReceivedFile? = null,
     val status: String? = null,
     val error: String? = null,
@@ -169,6 +171,8 @@ class UltraShareViewModel @Inject constructor(
                     receiving = serviceState.receiving,
                     sending = serviceState.sending,
                     progress = serviceState.progress,
+                    sendProgress = serviceState.sendProgress,
+                    receiveProgress = serviceState.receiveProgress,
                     receivedFile = serviceState.receivedFile ?: current.receivedFile,
                     status = serviceState.status ?: current.status,
                     error = serviceState.error,
@@ -1180,33 +1184,11 @@ fun UltraShareScreen(
             }
         }
 
-        state.progress?.let { progress ->
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("نقل جارٍ الآن", color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                            Text(progress.fileName, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        Text("${(progress.fraction * 100).toInt()}%", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
-                    }
-                    LinearProgressIndicator(progress = { progress.fraction }, modifier = Modifier.fillMaxWidth())
-                    Text(
-                        stringResource(
-                            R.string.ultra_share_progress,
-                            (progress.fraction * 100).toInt(),
-                            formatTransferBytes(progress.transferredBytes),
-                            formatTransferBytes(progress.totalBytes),
-                            formatTransferBytes(progress.bytesPerSecond),
-                            if (progress.bytesPerSecond > 0L) formatTransferEta(
-                                ((progress.totalBytes - progress.transferredBytes).coerceAtLeast(0L) / progress.bytesPerSecond)
-                            ) else stringResource(R.string.ultra_share_eta_calculating)
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
-            }
+        state.sendProgress?.let { progress ->
+            UltraShareProgressCard(title = "الإرسال إلى الجهاز الآخر", progress = progress)
+        }
+        state.receiveProgress?.let { progress ->
+            UltraShareProgressCard(title = "الاستقبال من الجهاز الآخر", progress = progress)
         }
 
         state.receivedFile?.let { received ->
@@ -1315,6 +1297,43 @@ fun UltraShareScreen(
         )
         UltraShareHelpCard()
         Spacer(Modifier.height(12.dp))
+    }
+}
+
+
+@Composable
+private fun UltraShareProgressCard(
+    title: String,
+    progress: UltraShareTransport.Progress
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Text(progress.fileName, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text("${(progress.fraction * 100).toInt()}%", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
+            }
+            LinearProgressIndicator(progress = { progress.fraction }, modifier = Modifier.fillMaxWidth())
+            Text(
+                stringResource(
+                    R.string.ultra_share_progress,
+                    (progress.fraction * 100).toInt(),
+                    formatTransferBytes(progress.transferredBytes),
+                    formatTransferBytes(progress.totalBytes),
+                    formatTransferBytes(progress.bytesPerSecond),
+                    if (progress.bytesPerSecond > 0L) formatTransferEta(
+                        ((progress.totalBytes - progress.transferredBytes).coerceAtLeast(0L) / progress.bytesPerSecond)
+                    ) else stringResource(R.string.ultra_share_eta_calculating)
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
     }
 }
 
