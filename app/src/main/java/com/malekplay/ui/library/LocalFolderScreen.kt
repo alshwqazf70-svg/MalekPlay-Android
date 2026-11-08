@@ -230,7 +230,7 @@ private fun FolderItemRow(
             }
             val details = buildList {
                 if (item.media.isAudio) {
-                    item.media.artist?.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }?.let(::add)
+                    item.media.artist?.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }?.let { add(it) }
                     item.media.album?.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }?.let(::add)
                 } else {
                     formatResolution(item.media.width, item.media.height)
