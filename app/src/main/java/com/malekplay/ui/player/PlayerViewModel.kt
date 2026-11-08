@@ -146,6 +146,8 @@ class PlayerViewModel @Inject constructor(
     private val _stats = MutableStateFlow(PlaybackStats())
     private val _videoUpscalingEnabled = MutableStateFlow(false)
     val videoUpscalingEnabled: StateFlow<Boolean> = _videoUpscalingEnabled.asStateFlow()
+    private val _videoUpscalingError = MutableStateFlow<String?>(null)
+    val videoUpscalingError: StateFlow<String?> = _videoUpscalingError.asStateFlow()
     val stats: StateFlow<PlaybackStats> = _stats.asStateFlow()
 
     private val _playerError = MutableStateFlow<String?>(null)
@@ -355,6 +357,7 @@ class PlayerViewModel @Inject constructor(
     /** Requests GPU Lanczos resampling from the playback service, which owns the real ExoPlayer. */
     fun setVideoUpscalingEnabled(enabled: Boolean) {
         val player = _controller.value ?: return
+        _videoUpscalingError.value = null
         val args = Bundle().apply {
             putBoolean(PlaybackVideoEffects.KEY_ENABLED, enabled)
         }
@@ -362,16 +365,24 @@ class PlayerViewModel @Inject constructor(
             player.sendCustomCommand(PlaybackVideoEffects.COMMAND, args)
         }.getOrNull() ?: run {
             _videoUpscalingEnabled.value = false
+            _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_gpu_upscaling_unavailable)
             return
         }
         future.addListener(
             {
                 val result = runCatching { future.get() }.getOrNull()
-                _videoUpscalingEnabled.value =
-                    enabled && result?.resultCode == SessionResult.RESULT_SUCCESS
+                val success = result?.resultCode == SessionResult.RESULT_SUCCESS
+                _videoUpscalingEnabled.value = enabled && success
+                if (!success) {
+                    _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_gpu_upscaling_unavailable)
+                }
             },
             ContextCompat.getMainExecutor(app)
         )
+    }
+
+    fun clearVideoUpscalingError() {
+        _videoUpscalingError.value = null
     }
 
     // ------------------------------------------------------------ playback

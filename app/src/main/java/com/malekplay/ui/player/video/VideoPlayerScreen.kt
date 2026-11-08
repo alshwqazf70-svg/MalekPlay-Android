@@ -197,6 +197,7 @@ fun VideoPlayerScreen(
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val isBuffering by viewModel.isBuffering.collectAsStateWithLifecycle()
     val videoUpscalingEnabled by viewModel.videoUpscalingEnabled.collectAsStateWithLifecycle()
+    val videoUpscalingError by viewModel.videoUpscalingError.collectAsStateWithLifecycle()
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
     val durationMs by viewModel.durationMs.collectAsStateWithLifecycle()
     val bufferedMs by viewModel.bufferedMs.collectAsStateWithLifecycle()
@@ -410,6 +411,13 @@ fun VideoPlayerScreen(
     }
     var onlineEpisode by remember(title) {
         mutableStateOf(detectedEpisode?.let { it.groupValues[2].ifBlank { it.groupValues[4] } }.orEmpty())
+    }
+
+    LaunchedEffect(videoUpscalingError) {
+        videoUpscalingError?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.clearVideoUpscalingError()
+        }
     }
 
     LaunchedEffect(subtitleTranslationError) {

@@ -29,7 +29,6 @@ import io.github.peerless2012.ass.media.render.AssVideoEffectRegistry
 import io.github.peerless2012.ass.media.type.AssRenderType
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
-import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -71,7 +70,6 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var localExoPlayer: ExoPlayer? = null
-    private var castPlayerInstance: CastPlayer? = null
     private var videoUpscalingEnabled = false
     private var castMediaHttpServer: CastMediaHttpServer? = null
     private lateinit var profileStore: NetworkProfileStore
@@ -143,7 +141,6 @@ class PlaybackService : MediaSessionService() {
             .setRemotePlayer(remotePlayer)
             .build()
 
-        castPlayerInstance = castPlayer
         castPlayer.addListener(progressListener)
         castPlayer.addListener(videoEffectRouteListener)
         player.addListener(localVideoEffectListener)
@@ -169,7 +166,6 @@ class PlaybackService : MediaSessionService() {
         }
         mediaSession = null
         localExoPlayer = null
-        castPlayerInstance = null
         videoUpscalingEnabled = false
         castMediaHttpServer?.let { bridge ->
             LocalMediaBridgeRegistry.detach(bridge)
@@ -195,9 +191,9 @@ class PlaybackService : MediaSessionService() {
             } else {
                 MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_SESSION_COMMANDS
             }
-            val commands = defaults.buildUpon()
-                .add(PlaybackVideoEffects.COMMAND)
-                .build()
+            val commands = defaults.buildUpon().apply {
+                if (controller.isTrusted) add(PlaybackVideoEffects.COMMAND)
+            }.build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
                 .setAvailableSessionCommands(commands)
                 .build()
