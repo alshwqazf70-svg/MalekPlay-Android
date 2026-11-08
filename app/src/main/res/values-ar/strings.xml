@@ -363,4 +363,6 @@
     <string name="kids_parent_access">دخول الوالد</string>
     <string name="kids_parent_pin_prompt">أدخل رمز الوالد للخروج من وضع الأطفال.</string>
     <string name="kids_parent_exit">الخروج من وضع الأطفال</string>
+    <string name="kids_save_error">تعذر حفظ قائمة المحتوى المعتمد. حاول مرة أخرى.</string>
+    <string name="kids_refresh_library">تحديث مكتبة الوسائط</string>
 </resources>
