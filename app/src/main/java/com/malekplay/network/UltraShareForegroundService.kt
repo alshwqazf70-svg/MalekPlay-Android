@@ -152,6 +152,12 @@ class UltraShareForegroundService : Service() {
                                     // only while bytes are actively being transferred.
                                     releaseTransferLocks()
                                 }
+                                // Publish to the user's public Downloads folder automatically on Android 10+.
+                                val publishedUri = UltraShareReceivedPublisher.publish(
+                                    this@UltraShareForegroundService,
+                                    received
+                                )
+                                val published = received.copy(publishedUri = publishedUri)
                                 UltraShareReceivedHistoryStore.record(
                                     context = this@UltraShareForegroundService,
                                     file = received.file,
@@ -163,8 +169,10 @@ class UltraShareForegroundService : Service() {
                                     currentState().copy(
                                         receiving = true,
                                         progress = null,
-                                        receivedFile = received,
-                                        status = getString(R.string.ultra_share_received, received.fileName),
+                                        receivedFile = published,
+                                        status = if (publishedUri != null) {
+                                            "تم الاستلام والحفظ تلقائياً في التنزيلات: ${received.fileName}"
+                                        } else getString(R.string.ultra_share_received, received.fileName),
                                         error = null
                                     )
                                 )
