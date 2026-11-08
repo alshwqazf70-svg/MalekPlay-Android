@@ -150,9 +150,8 @@ class UltraShareForegroundService : Service() {
                                         }
                                     )
                                 } finally {
-                                    // The receiver may wait for a peer for hours. Hold wake locks
-                                    // only while bytes are actively being transferred.
-                                    releaseTransferLocks()
+                                    // Another direction may still be transferring concurrently.
+                                    releaseTransferLocksIfIdle()
                                 }
                                 // Publish to the user's public Downloads folder automatically on Android 10+.
                                 val publishedUri = UltraShareReceivedPublisher.publish(
@@ -374,6 +373,10 @@ class UltraShareForegroundService : Service() {
         }
     }
 
+    private fun releaseTransferLocksIfIdle() {
+        if (sendJob == null && receiveJob == null) releaseTransferLocks()
+    }
+
     private fun releaseTransferLocks() {
         runCatching { wifiLock?.takeIf { it.isHeld }?.release() }
         runCatching { cpuWakeLock?.takeIf { it.isHeld }?.release() }
@@ -492,7 +495,7 @@ class UltraShareForegroundService : Service() {
                         lastError = metadata.first + ": " + (failure.localizedMessage ?: "فشل الإرسال.")
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
                     } finally {
-                        releaseTransferLocks()
+                        releaseTransferLocksIfIdle()
                     }
                     activeUri = null
                     publish(currentState().copy(
