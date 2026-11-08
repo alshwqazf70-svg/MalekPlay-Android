@@ -354,6 +354,11 @@ fun VideoPlayerScreen(
     var showDlnaPicker by remember { mutableStateOf(false) }
     var activeDlnaDevice by remember { mutableStateOf<DiscoveredNetworkDevice?>(null) }
     var remoteDlnaPlaying by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentVideoId) {
+        activeDlnaDevice = null
+        remoteDlnaPlaying = false
+    }
     val detectedEpisode = remember(title) {
         Regex("(?i)(?:S(\\d{1,2})[ ._-]*E(\\d{1,2})|(\\d{1,2})x(\\d{1,2}))").find(title)
     }
