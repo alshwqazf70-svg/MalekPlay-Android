@@ -350,7 +350,8 @@ class PlayerViewModel @Inject constructor(
         val requestedMediaId = items[requestedIndex].id
         // Enforce the parent allowlist at the playback boundary, not only in UI lists.
         val safeItems = if (parentalControl.isEnabled) {
-            items.filter { parentalControl.isMediaAllowed(it.id) }
+            val approvedIds = parentalControl.allowedMediaIds
+            items.filter { it.id in approvedIds }
         } else items
         val safeIndex = safeItems.indexOfFirst { it.id == requestedMediaId }
         if (safeIndex < 0) {
