@@ -63,6 +63,8 @@ class UltraShareForegroundService : Service() {
     private val transferLockGuard = Any()
     private var wifiLock: WifiManager.WifiLock? = null
     private var cpuWakeLock: PowerManager.WakeLock? = null
+    private var sendTransferActive = false
+    private var receiveTransferActive = false
 
     override fun onCreate() {
         super.onCreate()
@@ -153,15 +155,15 @@ class UltraShareForegroundService : Service() {
                                         pairingSecret = secret,
                                         destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
                                         onProgress = { progress ->
-                                            acquireTransferLocks()
+                                            beginTransfer(isReceiving = true)
                                             val nextState = currentState().copy(progress = progress, error = null)
                                             publish(nextState)
                                             updateNotification(progress)
                                         }
                                     )
                                 } finally {
-                                    // Another direction may still be transferring concurrently.
-                                    releaseTransferLocksIfIdle()
+                                    // Release the receive-side lock after this file, without affecting an active send.
+                                    endTransfer(isReceiving = true)
                                 }
                                 // Publish to the user's public Downloads folder automatically on Android 10+.
                                 val publishedUri = UltraShareReceivedPublisher.publish(
@@ -243,7 +245,7 @@ class UltraShareForegroundService : Service() {
                             mimeType = metadata.second,
                             sizeBytes = metadata.third,
                             onProgress = { progress ->
-                                acquireTransferLocks()
+                                beginTransfer(isReceiving = false)
                                 publish(currentState().copy(progress = progress))
                                 updateNotification(progress)
                             }
@@ -255,8 +257,9 @@ class UltraShareForegroundService : Service() {
                     } catch (failure: Exception) {
                         publish(currentState().copy(sending = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)))
                     } finally {
+                        endTransfer(isReceiving = false)
                         sendJob = null
-                        publish(currentState().copy(sending = false, progress = null))
+                        publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().progress else null))
                         finishService()
                     }
                 }
@@ -367,8 +370,9 @@ class UltraShareForegroundService : Service() {
         stopSelf()
     }
 
-    private fun acquireTransferLocks() {
+    private fun beginTransfer(isReceiving: Boolean) {
         synchronized(transferLockGuard) {
+            if (isReceiving) receiveTransferActive = true else sendTransferActive = true
             runCatching {
                 if (wifiLock?.isHeld != true) {
                     val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
@@ -390,9 +394,10 @@ class UltraShareForegroundService : Service() {
         }
     }
 
-    private fun releaseTransferLocksIfIdle() {
+    private fun endTransfer(isReceiving: Boolean) {
         synchronized(transferLockGuard) {
-            if (sendJob == null && receiveJob == null) releaseTransferLocksLocked()
+            if (isReceiving) receiveTransferActive = false else sendTransferActive = false
+            if (!sendTransferActive && !receiveTransferActive) releaseTransferLocksLocked()
         }
     }
 
@@ -401,6 +406,8 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun releaseTransferLocksLocked() {
+        sendTransferActive = false
+        receiveTransferActive = false
         runCatching { wifiLock?.takeIf { it.isHeld }?.release() }
         runCatching { cpuWakeLock?.takeIf { it.isHeld }?.release() }
         wifiLock = null
@@ -498,7 +505,7 @@ class UltraShareForegroundService : Service() {
                     publish(currentState().copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = null))
                     try {
                         sendWithRetry(uri, host, secret, metadata) { progress ->
-                            acquireTransferLocks()
+                            beginTransfer(isReceiving = false)
                             publish(currentState().copy(
                                 progress = progress,
                                 queueCurrentName = metadata.first,
@@ -518,7 +525,7 @@ class UltraShareForegroundService : Service() {
                         lastError = metadata.first + ": " + (failure.localizedMessage ?: "فشل الإرسال.")
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
                     } finally {
-                        releaseTransferLocksIfIdle()
+                        endTransfer(isReceiving = false)
                     }
                     activeUri = null
                     publish(currentState().copy(
