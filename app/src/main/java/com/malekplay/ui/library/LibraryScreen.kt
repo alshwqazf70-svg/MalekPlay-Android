@@ -60,7 +60,9 @@ import com.malekplay.ui.components.MediaGridCard
 import com.malekplay.ui.components.MediaThumbnail
 import com.malekplay.ui.components.MediaDeleteButton
 import com.malekplay.ui.components.PlaylistPickerDialog
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 
 private enum class LibraryFilter { ALL, WATCHING, FAVOURITES }
 
@@ -90,13 +92,20 @@ fun LibraryScreen(
         }
     }
     val rawItems by mediaFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val visibleItems = remember(rawItems, filter, settings.sortMode) {
-        val chosen = when (filter) {
-            LibraryFilter.ALL -> rawItems
-            LibraryFilter.WATCHING -> rawItems.filter { it.isInProgress }
-            LibraryFilter.FAVOURITES -> rawItems.filter { it.isFavourite }
+    // Large-list filtering and sorting can take long enough to cause dropped frames
+    // on mid-range phones. Keep this work cancellable and off the main thread.
+    val visibleItems by produceState(
+        initialValue = emptyList<LibraryItem>(),
+        rawItems, filter, settings.sortMode
+    ) {
+        value = withContext(Dispatchers.Default) {
+            val chosen = when (filter) {
+                LibraryFilter.ALL -> rawItems
+                LibraryFilter.WATCHING -> rawItems.filter { it.isInProgress }
+                LibraryFilter.FAVOURITES -> rawItems.filter { it.isFavourite }
+            }
+            viewModel.applySort(chosen, settings.sortMode)
         }
-        viewModel.applySort(chosen, settings.sortMode)
     }
 
     BackHandler(folder != null || searching || filter != LibraryFilter.ALL) {
