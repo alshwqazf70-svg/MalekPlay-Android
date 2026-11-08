@@ -404,6 +404,7 @@ class PlayerViewModel @Inject constructor(
      * network stream. The Uri doubles as the media id so progress still sticks.
      */
     fun playExternalUri(uri: Uri, startPositionMs: Long = 0L, speed: Float = 1f) {
+        playbackGeneration++
         if (parentalControl.isEnabled) {
             _playerError.value = "في وضع الأطفال يمكن تشغيل المحتوى الذي اعتمده الوالد فقط."
             return
@@ -430,6 +431,7 @@ class PlayerViewModel @Inject constructor(
 
     /** Clears any previously playing item before entering the restricted kids experience. */
     fun stopForParentalMode() {
+        playbackGeneration++
         val player = _controller.value ?: return
         player.playWhenReady = false
         player.stop()
