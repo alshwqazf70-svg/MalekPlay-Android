@@ -178,12 +178,11 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun startReceiving() {
-        if (_state.value.receiving || _state.value.sending) return
+        if (_state.value.receiving) return
         val secret = UltraShareTransport.createPairingSecret()
         _state.value = _state.value.copy(
             pairingSecret = secret,
             receiving = true,
-            sending = false,
             progress = null,
             error = null,
             status = context.getString(R.string.ultra_share_waiting)
@@ -324,7 +323,7 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun send(uri: Uri, host: String, secret: String) {
-        if (_state.value.sending || _state.value.receiving) return
+        if (_state.value.sending) return
         runCatching {
             UltraShareForegroundService.startSending(context, uri, host, secret)
             _state.value = _state.value.copy(
@@ -342,7 +341,7 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun sendBatch(uris: List<Uri>, host: String, secret: String): Boolean {
-        if (uris.isEmpty() || _state.value.sending || _state.value.receiving ||
+        if (uris.isEmpty() || _state.value.sending ||
             host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)
         ) return false
         return runCatching {
@@ -364,7 +363,7 @@ class UltraShareViewModel @Inject constructor(
 
     fun resumePendingBatch(host: String, secret: String) {
         if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret) ||
-            _state.value.sending || _state.value.receiving
+            _state.value.sending
         ) return
         viewModelScope.launch {
             val pendingUris = UltraShareQueueStore.pending(context).map { it.parsedUri }
@@ -377,7 +376,7 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun retryFile(entry: UltraShareQueueEntry, host: String, secret: String) {
-        if (_state.value.sending || _state.value.receiving ||
+        if (_state.value.sending ||
             host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret) ||
             entry.status != UltraShareQueueStore.STATUS_FAILED
         ) return
@@ -688,7 +687,7 @@ fun UltraShareScreen(
             OutlinedButton(
                 onClick = { if (!state.receiving) viewModel.startReceiving() },
                 modifier = Modifier.weight(1f).height(94.dp),
-                enabled = !state.sending && !state.receiving
+                enabled = !state.receiving
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Icon(Icons.Filled.Wifi, contentDescription = null, modifier = Modifier.size(28.dp))
@@ -699,7 +698,7 @@ fun UltraShareScreen(
             OutlinedButton(
                 onClick = ::scanQrWithCamera,
                 modifier = Modifier.weight(1f).height(94.dp),
-                enabled = !state.sending && !state.receiving
+                enabled = !state.sending
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Icon(Icons.Filled.QrCode, contentDescription = null, modifier = Modifier.size(28.dp))
@@ -715,7 +714,7 @@ fun UltraShareScreen(
             OutlinedButton(
                 onClick = viewModel::scanNearbyDevices,
                 modifier = Modifier.weight(1f),
-                enabled = !state.sending && !state.receiving && !state.scanning
+                enabled = !state.sending && !state.scanning
             ) {
                 Icon(Icons.Filled.Wifi, contentDescription = null)
                 Text("الأجهزة القريبة", style = MaterialTheme.typography.labelMedium)
@@ -789,7 +788,7 @@ fun UltraShareScreen(
                 Button(
                     onClick = { if (state.receiving) viewModel.stopReceiving() else viewModel.startReceiving() },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending
+                    enabled = true
                 ) {
                     if (state.receiving) Text(stringResource(R.string.ultra_share_stop_receiving))
                     else Text(stringResource(R.string.ultra_share_start_receiving))
@@ -810,23 +809,23 @@ fun UltraShareScreen(
                     OutlinedButton(
                         onClick = { pickFiles.launch(arrayOf("video/*")) },
                         modifier = Modifier.weight(1f),
-                        enabled = !state.sending && !state.receiving
+                        enabled = !state.sending
                     ) { Text("فيديوهات") }
                     OutlinedButton(
                         onClick = { pickFiles.launch(arrayOf("audio/*")) },
                         modifier = Modifier.weight(1f),
-                        enabled = !state.sending && !state.receiving
+                        enabled = !state.sending
                     ) { Text("موسيقى") }
                     OutlinedButton(
                         onClick = { pickFiles.launch(arrayOf("*/*")) },
                         modifier = Modifier.weight(1f),
-                        enabled = !state.sending && !state.receiving
+                        enabled = !state.sending
                     ) { Text("ملفات") }
                 }
                 OutlinedButton(
                     onClick = viewModel::scanNearbyDevices,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending && !state.receiving && !state.scanning
+                    enabled = !state.sending && !state.scanning
                 ) {
                     if (state.scanning) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Filled.Wifi, contentDescription = null)
@@ -886,7 +885,7 @@ fun UltraShareScreen(
                 OutlinedButton(
                     onClick = ::scanQrWithCamera,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending && !state.receiving
+                    enabled = !state.sending
                 ) {
                     Icon(Icons.Filled.QrCode, contentDescription = null)
                     Text("مسح QR بالكاميرا", modifier = Modifier.padding(start = 8.dp))
@@ -894,7 +893,7 @@ fun UltraShareScreen(
                 OutlinedButton(
                     onClick = { scanQrImage.launch(arrayOf("image/*")) },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending && !state.receiving
+                    enabled = !state.sending
                 ) {
                     Icon(Icons.Filled.QrCode, contentDescription = null)
                     Text(stringResource(R.string.ultra_share_scan_qr), modifier = Modifier.padding(start = 8.dp))
@@ -902,7 +901,7 @@ fun UltraShareScreen(
                 OutlinedButton(
                     onClick = ::pastePairingDetails,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending && !state.receiving
+                    enabled = !state.sending
                 ) {
                     Icon(Icons.Filled.ContentCopy, contentDescription = null)
                     Text(stringResource(R.string.ultra_share_paste_pairing), modifier = Modifier.padding(start = 8.dp))
@@ -921,7 +920,7 @@ fun UltraShareScreen(
                                 TextButton(onClick = { pendingMediaUris = emptyList() }, enabled = !state.sending) { Text("إفراغ") }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { pickFiles.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f), enabled = !state.sending && !state.receiving) {
+                                OutlinedButton(onClick = { pickFiles.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
                                     Text("إضافة ملفات")
                                 }
                                 Button(
@@ -931,7 +930,7 @@ fun UltraShareScreen(
                                         }
                                     },
                                     modifier = Modifier.weight(1f),
-                                    enabled = !state.sending && !state.receiving && host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
+                                    enabled = !state.sending && host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
                                 ) {
                                     Icon(Icons.Filled.Send, contentDescription = null)
                                     Text("إرسال الآن", modifier = Modifier.padding(start = 6.dp))
@@ -944,7 +943,7 @@ fun UltraShareScreen(
                     }
                 }
                 if (pendingMediaUris.isEmpty()) {
-                    OutlinedButton(onClick = { pickFiles.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending && !state.receiving) {
+                    OutlinedButton(onClick = { pickFiles.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
                         Icon(Icons.Filled.Send, contentDescription = null)
                         Text("اختيار ملفات للإرسال", modifier = Modifier.padding(start = 8.dp))
                     }
@@ -1034,7 +1033,7 @@ fun UltraShareScreen(
                                     }
                                 }
                                     if (entry.status == UltraShareQueueStore.STATUS_FAILED) {
-                                        TextButton(onClick = { viewModel.retryFile(entry, host.trim(), secret.trim()) }, enabled = !state.sending && !state.receiving && host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)) {
+                                        TextButton(onClick = { viewModel.retryFile(entry, host.trim(), secret.trim()) }, enabled = !state.sending && host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)) {
                                             Text("إعادة المحاولة")
                                         }
                                     }

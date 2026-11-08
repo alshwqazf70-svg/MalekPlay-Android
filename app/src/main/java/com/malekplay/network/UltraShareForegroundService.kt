@@ -55,7 +55,8 @@ data class UltraShareServiceState(
  */
 class UltraShareForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var transferJob: Job? = null
+    private var receiveJob: Job? = null
+    private var sendJob: Job? = null
     @Volatile private var pauseRequested = false
     private var advertisementJob: Job? = null
     private lateinit var notificationManager: NotificationManager
@@ -81,10 +82,10 @@ class UltraShareForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PAUSE -> {
-                if (currentState().sending && currentState().queueTotal > 0 && transferJob != null) {
+                if (currentState().sending && currentState().queueTotal > 0 && sendJob != null) {
                     pauseRequested = true
                     publish(currentState().copy(status = "جارٍ إيقاف طابور الإرسال مؤقتاً..."))
-                    transferJob?.cancel()
+                    sendJob?.cancel()
                 }
                 return START_NOT_STICKY
             }
@@ -94,10 +95,11 @@ class UltraShareForegroundService : Service() {
                 }
             }
             ACTION_STOP, ACTION_CANCEL -> {
-                if (transferJob == null) startForegroundCompat()
-                transferJob?.cancel()
+                if (sendJob == null && receiveJob == null) startForegroundCompat()
+                sendJob?.cancel()
+                receiveJob?.cancel()
                 advertisementJob?.cancel()
-                if (transferJob == null) finishService()
+                if (sendJob == null && receiveJob == null) finishService()
                 return START_NOT_STICKY
             }
             ACTION_RECEIVE -> {
@@ -107,11 +109,11 @@ class UltraShareForegroundService : Service() {
                     finishService()
                     return START_NOT_STICKY
                 }
-                if (transferJob != null) return START_NOT_STICKY
+                if (receiveJob != null) return START_NOT_STICKY
                 startForegroundCompat()
                 val addresses = findLocalIpv4Addresses()
                 publish(
-                    UltraShareServiceState(
+                    currentState().copy(
                         pairingSecret = secret,
                         localAddresses = addresses,
                         receiving = true,
@@ -199,12 +201,12 @@ class UltraShareForegroundService : Service() {
                     } finally {
                         advertisementJob?.cancel()
                         advertisementJob = null
-                        transferJob = null
-                        publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = null))
+                        receiveJob = null
+                        publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (currentState().sending) currentState().progress else null))
                         finishService()
                     }
                 }
-                transferJob = job
+                receiveJob = job
                 job.start()
             }
             ACTION_SEND -> {
@@ -216,9 +218,9 @@ class UltraShareForegroundService : Service() {
                     finishService()
                     return START_NOT_STICKY
                 }
-                if (transferJob != null) return START_NOT_STICKY
+                if (sendJob != null) return START_NOT_STICKY
                 startForegroundCompat()
-                publish(UltraShareServiceState(sending = true, status = getString(R.string.ultra_share_sending)))
+                publish(currentState().copy(sending = true, status = getString(R.string.ultra_share_sending), error = null))
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     try {
                         val metadata = readDocumentMetadata(uri)
@@ -243,12 +245,12 @@ class UltraShareForegroundService : Service() {
                     } catch (failure: Exception) {
                         publish(currentState().copy(sending = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)))
                     } finally {
-                        transferJob = null
+                        sendJob = null
                         publish(currentState().copy(sending = false, progress = null))
                         finishService()
                     }
                 }
-                transferJob = job
+                sendJob = job
                 job.start()
             }
             ACTION_SEND_BATCH -> {
@@ -293,7 +295,8 @@ class UltraShareForegroundService : Service() {
                 error = "أوقف Android خدمة النقل بعد بلوغ الحد الزمني المسموح. يمكنك بدء النقل مجدداً."
             )
         )
-        transferJob?.cancel()
+        sendJob?.cancel()
+        receiveJob?.cancel()
         advertisementJob?.cancel()
         releaseTransferLocks()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -306,7 +309,8 @@ class UltraShareForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        transferJob?.cancel()
+        sendJob?.cancel()
+        receiveJob?.cancel()
         advertisementJob?.cancel()
         serviceScope.cancel()
         releaseTransferLocks()
@@ -346,6 +350,8 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun finishService() {
+        // Keep the foreground service alive while either direction still owns a socket.
+        if (sendJob != null || receiveJob != null) return
         releaseTransferLocks()
         stopForeground(true)
         stopSelf()
@@ -392,9 +398,9 @@ class UltraShareForegroundService : Service() {
             finishService()
             return
         }
-        if (transferJob != null) return
+        if (sendJob != null) return
         startForegroundCompat()
-        publish(UltraShareServiceState(sending = true, queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال"))
+        publish(currentState().copy(sending = true, queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال", error = null))
         val job = serviceScope.launch(start = CoroutineStart.LAZY) {
             var activeUri: Uri? = null
             var sent = 0
@@ -514,13 +520,13 @@ class UltraShareForegroundService : Service() {
                 ))
                 throw cancelled
             } finally {
-                transferJob = null
+                sendJob = null
                 pauseRequested = false
-                publish(currentState().copy(sending = false, progress = null, queueCurrentName = null))
+                publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().progress else null, queueCurrentName = null))
                 finishService()
             }
         }
-        transferJob = job
+        sendJob = job
         job.start()
     }
     private suspend fun sendWithRetry(
