@@ -13,7 +13,6 @@ import androidx.media3.common.util.UnstableApi
 import com.google.android.gms.cast.MediaQueueItem
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
-import java.io.FileInputStream
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.InetSocketAddress
@@ -73,7 +72,7 @@ class CastMediaHttpServer(
         }
     }
 
-    /** Returns a receiver-reachable URL for a local content/file URI. */
+    /** Returns a receiver-reachable URL for any media scheme supported by the playback DataSource. */
     @Synchronized
     fun urlFor(uri: Uri, mimeType: String? = null): Uri {
         val scheme = uri.scheme?.lowercase()
@@ -229,11 +228,16 @@ class CastMediaHttpServer(
             }
 
             val buffer = ByteArray(64 * 1024)
+            var zeroReads = 0
             if (knownCount == null) {
                 while (true) {
                     val read = mediaSource.read(buffer, 0, buffer.size)
                     if (read == C.RESULT_END_OF_INPUT) break
-                    if (read <= 0) continue
+                    if (read == 0) {
+                        if (++zeroReads > 3) throw IOException("Upstream media made no read progress")
+                        continue
+                    }
+                    zeroReads = 0
                     output.write(Integer.toHexString(read).toByteArray(StandardCharsets.US_ASCII))
                     output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
                     output.write(buffer, 0, read)
@@ -245,7 +249,11 @@ class CastMediaHttpServer(
                 while (remaining > 0L) {
                     val read = mediaSource.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
                     if (read == C.RESULT_END_OF_INPUT) throw IOException("Upstream media ended before its advertised length")
-                    if (read <= 0) continue
+                    if (read == 0) {
+                        if (++zeroReads > 3) throw IOException("Upstream media made no read progress")
+                        continue
+                    }
+                    zeroReads = 0
                     output.write(buffer, 0, read)
                     remaining -= read
                 }
