@@ -673,7 +673,9 @@ private fun PinDialog(
     onConfirm: (String) -> Boolean
 ) {
     var pin by remember { mutableStateOf("") }
+    var confirmationPin by remember { mutableStateOf("") }
     var wrong by remember { mutableStateOf(false) }
+    var mismatch by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -698,6 +700,28 @@ private fun PinDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     singleLine = true
                 )
+                if (!hasPin) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = confirmationPin,
+                        onValueChange = {
+                            confirmationPin = it.filter(Char::isDigit).take(8)
+                            mismatch = false
+                        },
+                        label = { Text("تأكيد رمز الوالد") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        singleLine = true
+                    )
+                }
+                if (mismatch) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "رمز التأكيد غير مطابق.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
                 if (wrong) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -711,6 +735,10 @@ private fun PinDialog(
         confirmButton = {
             TextButton(
                 onClick = {
+                    if (!hasPin && pin != confirmationPin) {
+                        mismatch = true
+                        return@TextButton
+                    }
                     if (!onConfirm(pin)) wrong = true
                 }
             ) {
