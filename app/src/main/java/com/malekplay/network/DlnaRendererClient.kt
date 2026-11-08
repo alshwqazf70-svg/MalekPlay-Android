@@ -8,6 +8,7 @@ import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 import java.nio.charset.StandardCharsets
 
 /**
@@ -20,6 +21,10 @@ class DlnaRendererClient(
     private val connectTimeoutMs: Int = 5_000,
     private val readTimeoutMs: Int = 8_000
 ) {
+    private val endpointCache = ConcurrentHashMap<String, AvTransportEndpoint>()
+
+    data class PlaybackPosition(val positionMs: Long, val durationMs: Long)
+
     suspend fun play(device: DiscoveredNetworkDevice, mediaUrl: String, title: String, mimeType: String) =
         withContext(Dispatchers.IO) {
             require(mediaUrl.startsWith("http://", true) || mediaUrl.startsWith("https://", true)) {
@@ -44,6 +49,45 @@ class DlnaRendererClient(
         command(device, "Seek", "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>$target</Target>")
     }
 
+    suspend fun getPosition(device: DiscoveredNetworkDevice): PlaybackPosition? =
+        withContext(Dispatchers.IO) {
+            val response = soap(
+                resolveAvTransportEndpoint(device),
+                "GetPositionInfo",
+                "<InstanceID>0</InstanceID>"
+            )
+            val parser = Xml.newPullParser().apply {
+                setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
+                setInput(ByteArrayInputStream(response.toByteArray(StandardCharsets.UTF_8)), "UTF-8")
+            }
+            var relativeTime: String? = null
+            var duration: String? = null
+            while (parser.eventType != XmlPullParser.END_DOCUMENT) {
+                if (parser.eventType == XmlPullParser.START_TAG) {
+                    when (parser.name) {
+                        "RelTime" -> relativeTime = parser.nextText()
+                        "TrackDuration" -> duration = parser.nextText()
+                    }
+                }
+                parser.next()
+            }
+            val positionMs = parseClockTime(relativeTime) ?: return@withContext null
+            val durationMs = parseClockTime(duration) ?: 0L
+            PlaybackPosition(positionMs, durationMs)
+        }
+
+    private fun parseClockTime(value: String?): Long? {
+        if (value.isNullOrBlank() || value == "NOT_IMPLEMENTED") return null
+        val parts = value.trim().split(':')
+        if (parts.size != 3) return null
+        return runCatching {
+            val hours = parts[0].toLong()
+            val minutes = parts[1].toLong()
+            val seconds = parts[2].toDouble()
+            ((hours * 3600 + minutes * 60) * 1000 + (seconds * 1000).toLong())
+        }.getOrNull()?.takeIf { it >= 0 }
+    }
+
     private suspend fun command(device: DiscoveredNetworkDevice, action: String, arguments: String) =
         withContext(Dispatchers.IO) { soap(resolveAvTransportEndpoint(device), action, arguments) }
 
@@ -54,6 +98,7 @@ class DlnaRendererClient(
             device.services.any { it.contains("MediaRenderer", true) }) {
             "الجهاز المكتشف لا يعلن خدمة DLNA MediaRenderer."
         }
+        endpointCache[device.id]?.let { return it }
         val description = device.descriptionUrl
             ?: throw IOException("لم يعلن التلفزيون رابط وصف UPnP؛ أعد اكتشاف الأجهزة.")
         val descriptionUrl = URL(description)
@@ -87,7 +132,9 @@ class DlnaRendererClient(
                         require(resolved.host.equals(device.host, ignoreCase = true)) {
                             "تم رفض عنوان تحكم DLNA خارج الجهاز المكتشف."
                         }
-                        return AvTransportEndpoint(resolved, serviceType!!)
+                        val endpoint = AvTransportEndpoint(resolved, serviceType!!)
+                        endpointCache[device.id] = endpoint
+                        return endpoint
                     }
                     inService = false
                 }
@@ -123,7 +170,7 @@ class DlnaRendererClient(
         } finally { connection.disconnect() }
     }
 
-    private fun soap(endpoint: AvTransportEndpoint, action: String, arguments: String) {
+    private fun soap(endpoint: AvTransportEndpoint, action: String, arguments: String): String {
         val url = endpoint.controlUrl
         val service = endpoint.serviceType
         val body = """<?xml version="1.0" encoding="utf-8"?>
@@ -147,7 +194,7 @@ class DlnaRendererClient(
                 }.getOrDefault("")
                 throw IOException("فشل أمر DLNA $action (HTTP $status): ${errorBody.take(300)}")
             }
-            connection.inputStream?.close()
+            return connection.inputStream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText().take(256_000) }.orEmpty()
         } finally { connection.disconnect() }
     }
 
