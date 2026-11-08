@@ -219,7 +219,7 @@ fun TrackPickerSheet(
 @Composable
 fun StatsSheet(
     stats: PlaybackStats,
-    displayHdrCapabilities: String,
+    displayHdrCapabilities: String = "غير متاح",
     onDismiss: () -> Unit
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState()) {
