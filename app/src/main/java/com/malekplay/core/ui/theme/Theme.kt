@@ -143,6 +143,7 @@ fun MalekPlayTheme(
         else -> baseScheme
     }
     val chosenText = when (textColorMode) {
+        "aurora" -> if (effectiveMode == AppThemeMode.LIGHT) Color(0xFF7026A8) else MalekPlayColors.PurpleBright
         "white" -> Color.White
         "black" -> Color(0xFF111111)
         "gold" -> Color(0xFFFFD166)
@@ -152,10 +153,14 @@ fun MalekPlayTheme(
         "pink" -> Color(0xFFFF8FB1)
         else -> null
     }
+    val secondaryText = when (textColorMode) {
+        "aurora" -> if (effectiveMode == AppThemeMode.LIGHT) Color(0xFF946200) else MalekPlayColors.Amber
+        else -> chosenText?.copy(alpha = 0.82f)
+    }
     val colorScheme = if (chosenText == null) textBase else textBase.copy(
         onBackground = chosenText,
         onSurface = chosenText,
-        onSurfaceVariant = chosenText.copy(alpha = 0.82f)
+        onSurfaceVariant = secondaryText ?: chosenText.copy(alpha = 0.82f)
     )
 
     MaterialTheme(
