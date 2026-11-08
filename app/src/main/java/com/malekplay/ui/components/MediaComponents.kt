@@ -88,12 +88,18 @@ import com.malekplay.domain.model.MediaFolder
 import com.malekplay.domain.model.MediaItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 // --------------------------------------------------------------- thumbnails
 
 // A small, byte-bounded cache prevents scrolling back through the library from
 // decoding the same artwork repeatedly while keeping memory use predictable.
+// Bound expensive MediaStore/codec thumbnail extraction on older phones.
+// Recheck the cache after acquiring a permit to avoid duplicate decodes.
+private val thumbnailLoadSemaphore = Semaphore(permits = 3)
+
 private val thumbnailCache = object : LruCache<String, Bitmap>(
     (Runtime.getRuntime().maxMemory() / 8L)
         .coerceAtMost(32L * 1024L * 1024L)
@@ -212,22 +218,24 @@ fun MediaThumbnail(
         "${targetSize.width}x${targetSize.height}"
     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = cacheKey) {
         value = thumbnailCache.get(cacheKey) ?: withContext(Dispatchers.IO) {
-            try {
-                val loaded = if (!media.isVideo) {
-                    loadMediaArtwork(
-                        context = context,
-                        artworkUri = media.artworkUri,
-                        mediaUri = media.uri,
-                        targetSize = maxOf(targetSize.width, targetSize.height)
-                    )
-                } else {
-                    loadVideoThumbnail(context, source, targetSize, media.durationMs)
+            thumbnailLoadSemaphore.withPermit {
+                thumbnailCache.get(cacheKey) ?: try {
+                    val loaded = if (!media.isVideo) {
+                        loadMediaArtwork(
+                            context = context,
+                            artworkUri = media.artworkUri,
+                            mediaUri = media.uri,
+                            targetSize = maxOf(targetSize.width, targetSize.height)
+                        )
+                    } else {
+                        loadVideoThumbnail(context, source, targetSize, media.durationMs)
+                    }
+                    loaded?.also { thumbnailCache.put(cacheKey, it) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
                 }
-                loaded?.also { thumbnailCache.put(cacheKey, it) }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                null
             }
         }
     }
