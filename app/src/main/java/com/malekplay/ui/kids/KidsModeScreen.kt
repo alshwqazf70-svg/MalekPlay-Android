@@ -125,6 +125,7 @@ fun KidsModeScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
             )
+            if (saveError) Text(stringResource(R.string.kids_save_error), color = MaterialTheme.colorScheme.error)
             if (enabled) {
                 if (approved.isEmpty()) {
                     Text(stringResource(R.string.kids_no_approved_media), modifier = Modifier.padding(16.dp))
@@ -204,7 +205,6 @@ fun KidsModeScreen(
                         singleLine = true
                     )
                     if (pinError) Text(stringResource(R.string.kids_pin_wrong), color = MaterialTheme.colorScheme.error)
-                    if (saveError) Text(stringResource(R.string.kids_save_error), color = MaterialTheme.colorScheme.error)
                 }
             },
             confirmButton = {
