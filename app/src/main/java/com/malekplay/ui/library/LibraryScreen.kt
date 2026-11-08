@@ -263,7 +263,7 @@ fun LibraryScreen(
                         gridItems(visibleItems, key = { it.media.id }) { item ->
                             MediaGridCard(
                                 item = item,
-                                onPlay = { onVideoClick(item) },
+                                onPlay = { viewModel.markNewMediaSeen(item.media.id); onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
                                 onAddToPlaylist = { playlistTarget = item.media },
                                 onDeleted = viewModel::refresh
@@ -278,7 +278,7 @@ fun LibraryScreen(
                         items(visibleItems, key = { it.media.id }) { item ->
                             PremiumVideoRow(
                                 item = item,
-                                onClick = { onVideoClick(item) },
+                                onClick = { viewModel.markNewMediaSeen(item.media.id); onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
                                 onAddToPlaylist = { playlistTarget = item.media },
                                 onDeleted = viewModel::refresh
@@ -351,7 +351,7 @@ private fun FolderTile(folder: MediaFolder, onClick: () -> Unit) {
                 }
             }
             Text("${folder.videoCount} فيديو • ${folder.audioCount} موسيقى", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
-            if (folder.newItemCount > 0) Text("${folder.newItemCount} ملف جديد خلال آخر 7 أيام", color = Color(0xFFE84D75), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            if (folder.newItemCount > 0) Text("${folder.newItemCount} ملف جديد لم تشاهده بعد", color = Color(0xFFE84D75), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
         }
     }
 }
