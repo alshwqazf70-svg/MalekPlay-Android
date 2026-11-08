@@ -67,6 +67,8 @@ data class TrackDescriptor(
 data class PlaybackStats(
     val videoCodec: String = "—",
     val videoMimeType: String? = null,
+    val videoCodecs: String? = null,
+    val videoColorTransfer: Int? = null,
     val width: Int = 0,
     val height: Int = 0,
     val frameRate: Float = 0f,
@@ -772,6 +774,8 @@ class PlayerViewModel @Inject constructor(
         _stats.value = PlaybackStats(
             videoCodec = com.malekplay.core.ui.util.DecoderInfo.shortCodec(video?.sampleMimeType),
             videoMimeType = video?.sampleMimeType,
+            videoCodecs = video?.codecs,
+            videoColorTransfer = video?.colorInfo?.colorTransfer,
             width = video?.width ?: 0,
             height = video?.height ?: 0,
             frameRate = video?.frameRate ?: 0f,
