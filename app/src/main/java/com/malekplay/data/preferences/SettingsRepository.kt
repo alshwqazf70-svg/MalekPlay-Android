@@ -81,7 +81,9 @@ class SettingsRepository(private val context: Context) {
     suspend fun ensureNewMediaBaseline(): Long {
         var baseline = 0L
         context.malekPlayDataStore.edit { prefs ->
-            baseline = prefs[Keys.NEW_MEDIA_BASELINE_MS] ?: System.currentTimeMillis().also {
+            baseline = prefs[Keys.NEW_MEDIA_BASELINE_MS] ?: (System.currentTimeMillis() / 1_000L * 1_000L).also {
+                // MediaStore DATE_ADDED has second precision; align the baseline
+                // so a file added in the same second is not accidentally missed.
                 prefs[Keys.NEW_MEDIA_BASELINE_MS] = it
             }
         }
