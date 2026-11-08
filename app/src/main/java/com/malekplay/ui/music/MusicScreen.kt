@@ -272,7 +272,7 @@ fun MusicScreen(
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("${selectedSongs.size} أغنية محددة", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                 androidx.compose.material3.TextButton(onClick = { selectedSongs.clear() }) { Text("إلغاء") }
-                androidx.compose.material3.TextButton(onClick = { onSendMedia(sortedSongs.filter { it.media.uri in selectedSongs }.map { it.media }) }) { Text("إرسال المحدد") }
+                androidx.compose.material3.TextButton(onClick = { onSendMedia(visibleSongs.filter { it.media.uri in selectedSongs }.map { it.media }) }) { Text("إرسال المحدد") }
             }
         }
         when (tabIndex) {
