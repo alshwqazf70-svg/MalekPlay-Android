@@ -187,7 +187,7 @@ private fun FolderItemRow(
         MediaThumbnail(
             media = item.media,
             modifier = Modifier.size(76.dp, 56.dp),
-            targetSize = androidx.compose.ui.geometry.Size(304f, 224f),
+            targetSize = android.util.Size(304, 224),
             cornerRadius = 9.dp
         )
         Spacer(modifier = Modifier.width(12.dp))
