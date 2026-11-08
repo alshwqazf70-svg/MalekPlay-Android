@@ -276,7 +276,7 @@ fun MediaThumbnail(
 
         // Always-visible media-type marker; artwork must never hide whether this is video or audio.
         Box(
-            modifier = Modifier.align(Alignment.TopStart).padding(7.dp)
+            modifier = Modifier.align(Alignment.BottomStart).padding(7.dp)
                 .size(28.dp).shadow(4.dp, CircleShape)
                 .clip(CircleShape).background(Color.Black.copy(alpha = 0.72f))
                 .border(1.dp, Color.White.copy(alpha = 0.55f), CircleShape),
