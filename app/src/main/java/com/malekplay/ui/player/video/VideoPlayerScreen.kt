@@ -354,10 +354,31 @@ fun VideoPlayerScreen(
     var showDlnaPicker by remember { mutableStateOf(false) }
     var activeDlnaDevice by remember { mutableStateOf<DiscoveredNetworkDevice?>(null) }
     var remoteDlnaPlaying by remember { mutableStateOf(false) }
+    var remotePositionMs by remember { mutableLongStateOf(0L) }
+    var remoteDurationMs by remember { mutableLongStateOf(0L) }
+    val dlnaClient = remember { DlnaRendererClient() }
+    val displayedPositionMs = if (activeDlnaDevice != null) remotePositionMs else positionMs
+    val displayedDurationMs = if (activeDlnaDevice != null && remoteDurationMs > 0L) remoteDurationMs else durationMs
 
     LaunchedEffect(currentVideoId) {
         activeDlnaDevice = null
         remoteDlnaPlaying = false
+        remotePositionMs = 0L
+        remoteDurationMs = 0L
+    }
+
+    LaunchedEffect(activeDlnaDevice) {
+        val remote = activeDlnaDevice ?: return@LaunchedEffect
+        while (true) {
+            runCatching { dlnaClient.getPosition(remote) }
+                .onSuccess { position ->
+                    if (position != null) {
+                        remotePositionMs = position.positionMs
+                        remoteDurationMs = position.durationMs
+                    }
+                }
+            delay(1_000L)
+        }
     }
     val detectedEpisode = remember(title) {
         Regex("(?i)(?:S(\\d{1,2})[ ._-]*E(\\d{1,2})|(\\d{1,2})x(\\d{1,2}))").find(title)
@@ -676,8 +697,8 @@ fun VideoPlayerScreen(
 
                     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     PlayerSeekRow(
-                        positionMs = positionMs,
-                        durationMs = durationMs,
+                        positionMs = displayedPositionMs,
+                        durationMs = displayedDurationMs,
                         bufferedMs = bufferedMs,
                         onScrubFinished = { targetMs ->
                             val remote = activeDlnaDevice
@@ -685,7 +706,7 @@ fun VideoPlayerScreen(
                                 viewModel.seekTo(targetMs)
                             } else {
                                 scope.launch {
-                                    runCatching { DlnaRendererClient().seek(remote, targetMs) }
+                                    runCatching { dlnaClient.seek(remote, targetMs) }
                                         .onFailure { failure ->
                                             Toast.makeText(context, failure.message ?: "تعذر تقديم الفيديو على التلفزيون.", Toast.LENGTH_LONG).show()
                                         }
@@ -701,7 +722,15 @@ fun VideoPlayerScreen(
                         isPlaying = if (activeDlnaDevice != null) remoteDlnaPlaying else isPlaying,
                         hasNext = currentIndex < queue.lastIndex,
                         hasPrevious = currentIndex > 0,
-                        onPrevious = viewModel::seekToPrevious,
+                        onPrevious = {
+                            val remote = activeDlnaDevice
+                            if (remote != null) {
+                                scope.launch { runCatching { dlnaClient.stop(remote) } }
+                                activeDlnaDevice = null
+                                remoteDlnaPlaying = false
+                            }
+                            viewModel.seekToPrevious()
+                        },
                         onPlayPause = {
                             val remote = activeDlnaDevice
                             if (remote == null) {
@@ -709,8 +738,7 @@ fun VideoPlayerScreen(
                             } else {
                                 scope.launch {
                                     runCatching {
-                                        val client = DlnaRendererClient()
-                                        if (remoteDlnaPlaying) client.pause(remote) else client.resume(remote)
+                                        if (remoteDlnaPlaying) dlnaClient.pause(remote) else dlnaClient.resume(remote)
                                     }.onSuccess {
                                         remoteDlnaPlaying = !remoteDlnaPlaying
                                     }.onFailure { failure ->
@@ -719,7 +747,15 @@ fun VideoPlayerScreen(
                                 }
                             }
                         },
-                        onNext = viewModel::seekToNext,
+                        onNext = {
+                            val remote = activeDlnaDevice
+                            if (remote != null) {
+                                scope.launch { runCatching { dlnaClient.stop(remote) } }
+                                activeDlnaDevice = null
+                                remoteDlnaPlaying = false
+                            }
+                            viewModel.seekToNext()
+                        },
                         onQueue = { showQueue = true },
                         onPip = { viewModel.pipController.request() },
                         onLock = { locked = true }
@@ -1056,7 +1092,7 @@ fun VideoPlayerScreen(
                             ?: context.contentResolver.getType(originalUri)
                             ?: "video/mp4"
                         runCatching {
-                            DlnaRendererClient().play(
+                            dlnaClient.play(
                                 device = device,
                                 mediaUrl = receiverUri.toString(),
                                 title = currentVideoTitle,
