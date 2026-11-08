@@ -157,10 +157,27 @@ fun MalekPlayTheme(
         "aurora" -> if (effectiveMode == AppThemeMode.LIGHT) Color(0xFF946200) else MalekPlayColors.Amber
         else -> chosenText?.copy(alpha = 0.82f)
     }
+    // Route the selected palette through every semantic text color token.
+    // This covers screens that explicitly request primary/secondary/tertiary
+    // text colors instead of relying only on the typography defaults.
+    val readableOnText = if (chosenText != null && chosenText.luminance() > 0.48f) {
+        Color(0xFF17121D)
+    } else {
+        Color.White
+    }
     val colorScheme = if (chosenText == null) textBase else textBase.copy(
+        primary = chosenText,
+        onPrimary = readableOnText,
+        secondary = chosenText,
+        onSecondary = readableOnText,
+        tertiary = chosenText,
+        onTertiary = readableOnText,
         onBackground = chosenText,
         onSurface = chosenText,
-        onSurfaceVariant = secondaryText ?: chosenText.copy(alpha = 0.82f)
+        onSurfaceVariant = secondaryText ?: chosenText.copy(alpha = 0.82f),
+        onPrimaryContainer = chosenText,
+        onSecondaryContainer = chosenText,
+        onTertiaryContainer = chosenText
     )
 
     MaterialTheme(
