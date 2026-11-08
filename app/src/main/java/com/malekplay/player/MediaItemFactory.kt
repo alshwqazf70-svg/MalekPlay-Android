@@ -34,7 +34,7 @@ fun DomainMedia.toMedia3Item(automaticSubtitle: LocalSubtitleResolver.Match? = n
             listOf(
                 MediaItem.SubtitleConfiguration.Builder(match.uri)
                     .setMimeType(match.mimeType)
-                    .setLanguage("und")
+                    .setLanguage(match.language)
                     .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
                     .build()
             )
