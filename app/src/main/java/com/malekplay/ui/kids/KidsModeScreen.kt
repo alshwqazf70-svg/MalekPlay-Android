@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
@@ -31,6 +32,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -42,10 +44,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import com.malekplay.R
+import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.library.LibraryViewModel
 import com.malekplay.ui.player.PlayerViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @UnstableApi
@@ -67,16 +72,53 @@ fun KidsModeScreen(
     }
     val media by viewModel.allMedia.collectAsStateWithLifecycle()
     var selected by remember(manager) { mutableStateOf(manager.allowedMediaIds) }
+    var searchQuery by remember { mutableStateOf("") }
+    var mediaFilter by remember { mutableStateOf("all") }
     var showParentDialog by remember { mutableStateOf(false) }
     var parentPin by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf(false) }
-    val validMediaIds = remember(media) {
-        media.asSequence().map { it.media }.filter { it.isVideo || it.isAudio }.map { it.id }.toSet()
+
+    // Keep sorting/filtering of a very large family library off the main thread.
+    // Sorting is performed only when the underlying library changes, not per keystroke.
+    val sortedMedia by produceState(
+        initialValue = emptyList<LibraryItem>(), media
+    ) {
+        value = withContext(Dispatchers.Default) {
+            media.sortedBy { it.media.title.lowercase() }
+        }
     }
-    val approved = remember(media, selected, enabled) {
-        media.map { it.media }.filter { it.id in selected && (it.isVideo || it.isAudio) }
-            .sortedBy { it.title.lowercase() }
+    val validMediaIds by produceState(
+        initialValue = emptySet<String>(), media
+    ) {
+        value = withContext(Dispatchers.Default) {
+            media.asSequence().map { it.media }
+                .filter { it.isVideo || it.isAudio }
+                .map { it.id }.toSet()
+        }
+    }
+    val filteredMedia by produceState(
+        initialValue = emptyList<LibraryItem>(),
+        sortedMedia, selected, enabled, searchQuery, mediaFilter
+    ) {
+        value = withContext(Dispatchers.Default) {
+            val query = searchQuery.trim()
+            sortedMedia.filter { entry ->
+                val item = entry.media
+                val typeMatches = when (mediaFilter) {
+                    "video" -> item.isVideo
+                    "audio" -> item.isAudio
+                    else -> true
+                }
+                val approvalMatches = !enabled || item.id in selected
+                val queryMatches = query.isBlank() ||
+                    item.displayTitle.contains(query, ignoreCase = true) ||
+                    item.folderName.contains(query, ignoreCase = true) ||
+                    item.artist.orEmpty().contains(query, ignoreCase = true) ||
+                    item.album.orEmpty().contains(query, ignoreCase = true)
+                typeMatches && approvalMatches && queryMatches && (item.isVideo || item.isAudio)
+            }
+        }
     }
 
     // A child cannot navigate back into the parent area using the system back button.
@@ -121,19 +163,47 @@ fun KidsModeScreen(
             Text(
                 text = stringResource(
                     if (enabled) R.string.kids_library_summary else R.string.kids_choose_summary,
-                    if (enabled) approved.size else selected.size
+                    if (enabled) filteredMedia.size else selected.size
                 ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
             )
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("ابحث في مكتبة الأطفال") }
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = mediaFilter == "all",
+                    onClick = { mediaFilter = "all" },
+                    label = { Text("الكل") }
+                )
+                FilterChip(
+                    selected = mediaFilter == "video",
+                    onClick = { mediaFilter = "video" },
+                    label = { Text("الفيديو") }
+                )
+                FilterChip(
+                    selected = mediaFilter == "audio",
+                    onClick = { mediaFilter = "audio" },
+                    label = { Text("الصوت") }
+                )
+            }
             if (saveError) Text(stringResource(R.string.kids_save_error), color = MaterialTheme.colorScheme.error)
             if (enabled) {
-                if (approved.isEmpty()) {
+                if (filteredMedia.isEmpty()) {
                     Text(stringResource(R.string.kids_no_approved_media), modifier = Modifier.padding(16.dp))
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        items(approved, key = { it.id }) { item ->
+                        items(filteredMedia, key = { it.media.id }) { entry ->
+                            val item = entry.media
                             Row(
                                 Modifier.fillMaxWidth().clickable { onPlay(item) }.padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -161,7 +231,7 @@ fun KidsModeScreen(
                     }
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        items(media, key = { it.media.id }) { libraryItem ->
+                        items(filteredMedia, key = { it.media.id }) { libraryItem ->
                             val item = libraryItem.media
                             Row(
                                 Modifier.fillMaxWidth().clickable {
