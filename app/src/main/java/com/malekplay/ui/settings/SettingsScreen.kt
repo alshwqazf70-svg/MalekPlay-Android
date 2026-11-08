@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.viewModelScope
 import com.malekplay.BuildConfig
 import com.malekplay.R
@@ -114,6 +115,7 @@ class BackupViewModel @Inject constructor(
     }
 }
 
+@OptIn(UnstableApi::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
