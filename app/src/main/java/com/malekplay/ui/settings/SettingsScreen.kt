@@ -115,7 +115,7 @@ class BackupViewModel @Inject constructor(
     }
 }
 
-@OptIn(UnstableApi::class)
+@UnstableApi
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
