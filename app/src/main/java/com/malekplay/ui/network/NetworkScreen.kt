@@ -841,6 +841,7 @@ private fun SourcesList(
         Column(
             modifier = modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(20.dp)
                 .clip(emptyShape)
                 .background(Brush.verticalGradient(listOf(Color(0xFF21192D), Color(0xFF17131F), Color(0xFF100E16))))
