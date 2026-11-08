@@ -715,7 +715,7 @@ fun UltraShareScreen(
             OutlinedButton(
                 onClick = viewModel::scanNearbyDevices,
                 modifier = Modifier.weight(1f),
-                enabled = !state.sending && !state.scanning
+                enabled = !state.scanning
             ) {
                 Icon(Icons.Filled.Wifi, contentDescription = null)
                 Text("الأجهزة القريبة", style = MaterialTheme.typography.labelMedium)
@@ -729,6 +729,12 @@ fun UltraShareScreen(
                 Text("Wi-Fi Direct", style = MaterialTheme.typography.labelMedium)
             }
         }
+
+        Text(
+            "الاتصال الأساسي عبر شبكة Wi-Fi المحلية أو نقطة اتصال أحد الهاتفين؛ لا يشترط Wi-Fi Direct، فهو خيار إضافي فقط.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall
+        )
 
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -826,7 +832,7 @@ fun UltraShareScreen(
                 OutlinedButton(
                     onClick = viewModel::scanNearbyDevices,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending && !state.scanning
+                    enabled = !state.scanning
                 ) {
                     if (state.scanning) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Filled.Wifi, contentDescription = null)
