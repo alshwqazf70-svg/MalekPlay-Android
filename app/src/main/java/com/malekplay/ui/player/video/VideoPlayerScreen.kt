@@ -453,8 +453,39 @@ fun VideoPlayerScreen(
         seekDeltaMs += (deltaFraction * FULL_SWIPE_SEEK_MS).toLong()
     }
 
+    fun seekByPlayback(deltaMs: Long) {
+        val remote = activeDlnaDevice
+        if (remote == null) {
+            viewModel.seekBy(deltaMs)
+        } else {
+            scope.launch {
+                runCatching { dlnaClient.seek(remote, (remotePositionMs + deltaMs).coerceAtLeast(0L)) }
+                    .onFailure { failure ->
+                        Toast.makeText(context, failure.message ?: "تعذر تغيير موضع الفيديو على التلفزيون.", Toast.LENGTH_LONG).show()
+                    }
+            }
+        }
+    }
+
+    fun togglePlayback() {
+        val remote = activeDlnaDevice
+        if (remote == null) {
+            viewModel.togglePlayPause()
+        } else {
+            scope.launch {
+                runCatching {
+                    if (remoteDlnaPlaying) dlnaClient.pause(remote) else dlnaClient.resume(remote)
+                }.onSuccess {
+                    remoteDlnaPlaying = !remoteDlnaPlaying
+                }.onFailure { failure ->
+                    Toast.makeText(context, failure.message ?: "تعذر التحكم بالتلفزيون.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     fun commitSeek() {
-        if (seekDeltaMs != 0L) viewModel.seekBy(seekDeltaMs)
+        if (seekDeltaMs != 0L) seekByPlayback(seekDeltaMs)
         seekDeltaMs = 0L
     }
 
@@ -468,9 +499,9 @@ fun VideoPlayerScreen(
                     when (settings.gestureDoubleTap) {
                         GestureAction.SEEK -> {
                             val forward = fraction >= 0.5f
-                            viewModel.seekBy(if (forward) DOUBLE_TAP_SEEK_MS else -DOUBLE_TAP_SEEK_MS)
+                            seekByPlayback(if (forward) DOUBLE_TAP_SEEK_MS else -DOUBLE_TAP_SEEK_MS)
                         }
-                        GestureAction.PLAY_PAUSE -> viewModel.togglePlayPause()
+                        GestureAction.PLAY_PAUSE -> togglePlayback()
                         else -> Unit
                     }
                 },
@@ -731,22 +762,7 @@ fun VideoPlayerScreen(
                             }
                             viewModel.seekToPrevious()
                         },
-                        onPlayPause = {
-                            val remote = activeDlnaDevice
-                            if (remote == null) {
-                                viewModel.togglePlayPause()
-                            } else {
-                                scope.launch {
-                                    runCatching {
-                                        if (remoteDlnaPlaying) dlnaClient.pause(remote) else dlnaClient.resume(remote)
-                                    }.onSuccess {
-                                        remoteDlnaPlaying = !remoteDlnaPlaying
-                                    }.onFailure { failure ->
-                                        Toast.makeText(context, failure.message ?: "تعذر التحكم بالتلفزيون.", Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            }
-                        },
+                        onPlayPause = ::togglePlayback,
                         onNext = {
                             val remote = activeDlnaDevice
                             if (remote != null) {
@@ -1042,7 +1058,12 @@ fun VideoPlayerScreen(
             BookmarksSheet(
                 bookmarks = bookmarks,
                 onSelect = { bookmark ->
-                    viewModel.seekTo(bookmark.positionMs)
+                    val remote = activeDlnaDevice
+                    if (remote == null) viewModel.seekTo(bookmark.positionMs)
+                    else scope.launch {
+                        runCatching { dlnaClient.seek(remote, bookmark.positionMs) }
+                            .onFailure { failure -> Toast.makeText(context, failure.message ?: "تعذر الانتقال إلى العلامة.", Toast.LENGTH_LONG).show() }
+                    }
                     showBookmarks = false
                 },
                 onDelete = viewModel::deleteBookmark,
