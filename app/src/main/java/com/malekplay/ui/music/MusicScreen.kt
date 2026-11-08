@@ -685,9 +685,7 @@ private fun Artwork(uri: Uri?, modifier: Modifier = Modifier, mediaUri: Uri? = n
                 if (decoded != null) {
                     if (cached == null) albumArtworkCache.put(cacheKey, decoded)
                     decoded.asImageBitmap()
-                } else {
-                    null
-                }
+                } else null
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -697,25 +695,39 @@ private fun Artwork(uri: Uri?, modifier: Modifier = Modifier, mediaUri: Uri? = n
     }
 
     val shape = RoundedCornerShape(8.dp)
-    if (bitmap != null) {
-        Image(
-            bitmap = bitmap!!,
-            contentDescription = null,
-            modifier = modifier.clip(shape),
-            contentScale = ContentScale.Fit
-        )
-    } else {
+    Box(modifier = modifier.clip(shape), contentAlignment = Alignment.Center) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+        } else {
+            Box(
+                modifier = Modifier.fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
         Box(
-            modifier = modifier
-                .clip(shape)
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            modifier = Modifier.align(Alignment.TopStart).padding(2.dp)
+                .size(18.dp).clip(RoundedCornerShape(5.dp))
+                .background(Color.Black.copy(alpha = 0.72f)),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Filled.MusicNote,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp)
+                contentDescription = "موسيقى",
+                tint = Color.White,
+                modifier = Modifier.size(12.dp)
             )
         }
     }
