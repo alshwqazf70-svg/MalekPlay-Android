@@ -23,7 +23,7 @@ To update the allowlist, the parent uses **Parent access**, enters the PIN to le
 - Audio/video next and previous queues are filtered to approved media.
 - Entering Kids Mode clears any existing Media3 queue, including a session that may have survived Activity recreation.
 - An empty allowlist fails closed: the child library remains empty and no media can be started.
-- PINs are stored as salted PBKDF2-HMAC-SHA256 hashes; repeated failed attempts trigger a temporary lockout.
+- PINs are stored as salted PBKDF2-HMAC-SHA256 hashes; Arabic-Indic and Western digits are normalized consistently, and repeated failed attempts trigger a temporary lockout.
 - Allowlist entries are bounded in count and identifier length. Stale IDs are removed when the parent next saves the current library selection.
 
 ## Known boundaries
@@ -43,4 +43,5 @@ To update the allowlist, the parent uses **Parent access**, enters the PIN to le
 - [ ] Open a media file from another app while Kids Mode is active and verify playback is blocked.
 - [ ] Force-stop and relaunch MalekPlay while Kids Mode is active; verify the child library opens and old playback does not resume.
 - [ ] Verify an incorrect PIN cannot exit Kids Mode and the lockout is applied after repeated failures.
+- [ ] Verify PIN entry accepts both Arabic-Indic digits (٤٨٢٦) and Western digits (4826).
 - [ ] Exit with the correct PIN; verify the parent returns to the normal app and can edit the allowlist.
