@@ -14,8 +14,9 @@ The allowlist stores stable library media IDs in the app's private SharedPrefere
 - The app starts directly in the Kids library while Kids Mode is enabled, including when launched through an external media intent.
 - Only items in the saved allowlist appear.
 - Opening a media player is checked again against the allowlist.
+- The central player boundary filters every queue and rejects unapproved single-item requests; external URIs from other apps are blocked while Kids Mode is active.
 - Audio and video next/previous queues are filtered to approved IDs, so notification and lock-screen controls cannot advance into unapproved local media.
-- Existing playback is stopped and its queue cleared when the parent enables Kids Mode.
+- Existing playback is stopped and its queue cleared when the parent enables Kids Mode and whenever the Kids library is entered after app recreation.
 
 ## Parent exit
 The child screen consumes the normal Back action. A parent must use the in-app Parent access action and enter the PIN. The existing PIN verifier uses a random salt, PBKDF2-HMAC-SHA256, constant-time hash comparison, and a temporary lockout after repeated failures.
@@ -28,4 +29,4 @@ The child screen consumes the normal Back action. A parent must use the in-app P
 - A parent should verify the selected files and supervise initial use. Media metadata and filenames are not a content-rating system.
 
 ## Verification status
-Robolectric tests cover allowlist persistence, fail-closed behavior, and PIN-gated enable/disable. Device-level navigation, notification controls, and Android background-service behavior still require validation in the final test build.
+Robolectric tests cover allowlist persistence and replacement, malformed identifier rejection, fail-closed behavior, PIN-gated enable/disable, and temporary lockout after repeated incorrect PINs. Device-level navigation, notification controls, and Android background-service behavior still require validation in the final test build.
