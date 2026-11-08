@@ -186,15 +186,12 @@ class PlaybackService : MediaSessionService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
-            val defaults = if (controller.isTrusted) {
-                MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
-            } else {
-                MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_SESSION_COMMANDS
-            }
-            val commands = defaults.buildUpon().apply {
+            // Start from the supported default session commands for every controller.
+            // The custom GPU effect command is exposed only to trusted app controllers.
+            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().apply {
                 if (controller.isTrusted) add(PlaybackVideoEffects.COMMAND)
             }.build()
-            return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(commands)
                 .build()
         }
@@ -224,7 +221,7 @@ class PlaybackService : MediaSessionService() {
 
     private val videoEffectRouteListener = object : Player.Listener {
         override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) {
-            if (deviceInfo.playbackType == C.PLAYBACK_TYPE_REMOTE) {
+            if (deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                 videoUpscalingEnabled = false
                 localExoPlayer?.let { AssVideoEffectRegistry.setAdditionalEffects(it, emptyList()) }
             }
