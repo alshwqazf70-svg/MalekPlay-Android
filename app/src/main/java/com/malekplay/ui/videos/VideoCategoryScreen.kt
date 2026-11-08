@@ -18,11 +18,13 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -58,6 +60,7 @@ fun VideoCategoryScreen(
 ) {
     val videos by viewModel.videos.collectAsStateWithLifecycle()
     var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
     val selectedMedia = remember { mutableStateListOf<Uri>() }
     val selectionMode = selectedMedia.isNotEmpty()
     fun toggleSelection(uri: Uri) { if (uri in selectedMedia) selectedMedia.remove(uri) else selectedMedia.add(uri) }
@@ -76,9 +79,15 @@ fun VideoCategoryScreen(
     val unclassifiedCount = remember(classified) {
         classified.count { it.second == VideoKind.UNCLASSIFIED }
     }
-    val filtered = remember(classified, series) {
-        classified.filter { (_, kind) ->
-            if (series) kind == VideoKind.SERIES else kind != VideoKind.SERIES
+    val filtered = remember(classified, series, searchQuery) {
+        val q = searchQuery.trim()
+        classified.filter { (item, kind) ->
+            val inCategory = if (series) kind == VideoKind.SERIES else kind != VideoKind.SERIES
+            val matches = q.isBlank() ||
+                item.media.displayTitle.contains(q, ignoreCase = true) ||
+                item.media.folderName.contains(q, ignoreCase = true) ||
+                item.media.folderPath.contains(q, ignoreCase = true)
+            inCategory && matches
         }.map { it.first }
     }
 
@@ -185,6 +194,15 @@ fun VideoCategoryScreen(
                         fontWeight = FontWeight.SemiBold
                     )
                 }
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    placeholder = { Text(if (series) "ابحث عن مسلسل أو حلقة..." else "ابحث عن فيلم...") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = "بحث") }
+                )
                 if (selectionMode) {
                     androidx.compose.material3.Surface(color = colors.primaryContainer.copy(alpha = 0.85f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
                         androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
