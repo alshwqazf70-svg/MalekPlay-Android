@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.malekplay.core.ui.theme.AppThemeMode
 import com.malekplay.domain.model.EqualizerPreset
@@ -31,6 +32,7 @@ private val Context.malekPlayDataStore by preferencesDataStore(
 class SettingsRepository(private val context: Context) {
 
     private object Keys {
+        val SEEN_NEW_MEDIA_IDS = stringSetPreferencesKey("seen_new_media_ids")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val ACCENT = stringPreferencesKey("accent")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
@@ -63,6 +65,18 @@ class SettingsRepository(private val context: Context) {
 
         val SORT_MODE = stringPreferencesKey("sort_mode")
         val VIEW_MODE = stringPreferencesKey("view_mode")
+    }
+
+    val seenNewMediaIds: Flow<Set<String>> = context.malekPlayDataStore.data
+        .catch { error -> if (error is java.io.IOException) emit(emptyPreferences()) else throw error }
+        .map { it[Keys.SEEN_NEW_MEDIA_IDS] ?: emptySet() }
+
+    suspend fun markNewMediaSeen(mediaId: String) {
+        if (mediaId.isBlank()) return
+        context.malekPlayDataStore.edit { prefs ->
+            val current = prefs[Keys.SEEN_NEW_MEDIA_IDS] ?: emptySet()
+            if (mediaId !in current) prefs[Keys.SEEN_NEW_MEDIA_IDS] = current + mediaId
+        }
     }
 
     val settings: Flow<PlayerSettings> = context.malekPlayDataStore.data
