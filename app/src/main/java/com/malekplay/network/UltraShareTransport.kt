@@ -7,6 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -61,7 +63,8 @@ internal fun readStreamWithProgress(
 
 object UltraShareTransport {
     const val DEFAULT_PORT = 38741
-    const val CHUNK_BYTES = 256 * 1024
+    const val CHUNK_BYTES = 1024 * 1024
+    private const val SOCKET_BUFFER_BYTES = 1024 * 1024
     const val MAX_FILE_BYTES = 100L * 1024 * 1024 * 1024
     private const val MAGIC = 0x4D505531 // MPU1
     private const val VERSION = 1
@@ -226,8 +229,10 @@ object UltraShareTransport {
         Socket().use { socket ->
             socket.connect(InetSocketAddress(targetAddress, port), SOCKET_TIMEOUT_MS)
             socket.soTimeout = SOCKET_TIMEOUT_MS
-            val input = DataInputStream(socket.getInputStream())
-            val output = DataOutputStream(socket.getOutputStream())
+            socket.sendBufferSize = SOCKET_BUFFER_BYTES
+            socket.receiveBufferSize = SOCKET_BUFFER_BYTES
+            val input = DataInputStream(BufferedInputStream(socket.getInputStream(), SOCKET_BUFFER_BYTES))
+            val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), SOCKET_BUFFER_BYTES))
 
             check(input.readInt() == MAGIC) { "الجهاز الآخر لا يشغّل MalekPlay Ultra Share." }
             val challenge = ByteArray(CHALLENGE_BYTES).also(input::readFully)
@@ -269,7 +274,7 @@ object UltraShareTransport {
                     val wanted = minOf(buffer.size.toLong(), sizeBytes - transferred).toInt()
                     read = readAtMost(source, buffer, wanted)
                     check(read > 0) { "انتهى الملف قبل اكتمال نقله." }
-                    writeEncryptedFrame(output, sendKey, noncePrefix, sequence++, buffer.copyOf(read))
+                    writeEncryptedFrame(output, sendKey, noncePrefix, sequence++, buffer, 0, read)
                     transferred += read
                     onProgress(progress(safeName, transferred, sizeBytes, startedAt, false, offset))
                 }
@@ -319,8 +324,10 @@ object UltraShareTransport {
                 // Do not let an unauthenticated LAN peer hold the single receiver
                 // socket indefinitely while slowly sending the pairing proof.
                 socket.soTimeout = HANDSHAKE_TIMEOUT_MS
-                val input = DataInputStream(socket.getInputStream())
-                val output = DataOutputStream(socket.getOutputStream())
+                socket.receiveBufferSize = SOCKET_BUFFER_BYTES
+                socket.sendBufferSize = SOCKET_BUFFER_BYTES
+                val input = DataInputStream(BufferedInputStream(socket.getInputStream(), SOCKET_BUFFER_BYTES))
+                val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), SOCKET_BUFFER_BYTES))
 
                 output.writeInt(MAGIC)
                 val challenge = ByteArray(CHALLENGE_BYTES).also(SecureRandom()::nextBytes)
@@ -585,11 +592,14 @@ object UltraShareTransport {
         key: ByteArray,
         noncePrefix: ByteArray,
         sequence: Long,
-        plain: ByteArray
+        plain: ByteArray,
+        plainOffset: Int = 0,
+        plainLength: Int = plain.size
     ) {
+        require(plainOffset >= 0 && plainLength >= 0 && plainOffset <= plain.size - plainLength)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce(noncePrefix, sequence)))
-        val encrypted = cipher.doFinal(plain)
+        val encrypted = cipher.doFinal(plain, plainOffset, plainLength)
         output.writeInt(encrypted.size)
         output.write(encrypted)
         output.flush()
