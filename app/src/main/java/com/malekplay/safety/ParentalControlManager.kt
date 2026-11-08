@@ -25,9 +25,10 @@ class ParentalControlManager(context: Context) {
     }
 
     fun setPin(pin: String) = synchronized(PIN_LOCK) {
-        require(isValidPin(pin)) { "يجب أن يتكون رمز PIN من 4 إلى 8 أرقام" }
+        val normalizedPin = normalizePin(pin)
+        require(isValidPin(normalizedPin)) { "يجب أن يتكون رمز PIN من 4 إلى 8 أرقام" }
         val salt = ByteArray(SALT_LENGTH).also(SecureRandom()::nextBytes)
-        val hash = derive(pin, salt)
+        val hash = derive(normalizedPin, salt)
         try {
             check(prefs.edit()
                 .putString(KEY_SALT, salt.toHex())
@@ -42,7 +43,8 @@ class ParentalControlManager(context: Context) {
     }
 
     fun verifyPin(pin: String): Boolean = synchronized(PIN_LOCK) {
-        if (!isValidPin(pin)) return@synchronized false
+        val normalizedPin = normalizePin(pin)
+        if (!isValidPin(normalizedPin)) return@synchronized false
         val now = System.currentTimeMillis()
         if (now < prefs.getLong(KEY_LOCK_UNTIL, 0L)) return@synchronized false
 
@@ -51,7 +53,7 @@ class ParentalControlManager(context: Context) {
         val expected = prefs.getString(KEY_HASH, null)?.hexToBytes()
             ?.takeIf { it.size == HASH_LENGTH } ?: return@synchronized false
         val actual = try {
-            derive(pin, salt)
+            derive(normalizedPin, salt)
         } finally {
             salt.fill(0)
         }
@@ -83,6 +85,13 @@ class ParentalControlManager(context: Context) {
     fun disableAfterPin(pin: String): Boolean = synchronized(PIN_LOCK) {
         if (!verifyPin(pin)) return@synchronized false
         prefs.edit().putBoolean(KEY_ENABLED, false).commit()
+    }
+
+    private fun normalizePin(pin: String): String = buildString(pin.length) {
+        pin.forEach { character ->
+            val digit = Character.digit(character, 10)
+            append(if (digit in 0..9) ('0'.code + digit).toChar() else character)
+        }
     }
 
     private fun isValidPin(pin: String): Boolean = pin.matches(Regex("[0-9]{4,8}"))
