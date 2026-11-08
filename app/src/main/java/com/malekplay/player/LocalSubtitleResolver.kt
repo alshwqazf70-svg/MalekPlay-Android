@@ -15,7 +15,7 @@ import java.util.Locale
  * suffix (Movie.ar.srt / Movie.en.srt), never an unrelated file in Downloads.
  */
 object LocalSubtitleResolver {
-    data class Match(val uri: Uri, val mimeType: String)
+    data class Match(val uri: Uri, val mimeType: String, val language: String)
     private val supportedExtensions = setOf("srt", "ass", "ssa", "vtt")
 
     fun findMatchingSubtitle(context: Context, video: DomainMedia): Match? {
@@ -75,7 +75,7 @@ object LocalSubtitleResolver {
                         "vtt" -> MimeTypes.TEXT_VTT
                         else -> return@let null
                     }
-                    Match(uri, mime)
+                    Match(uri, mime, languageFor(videoBase, cursor.getString(nameColumn).orEmpty()))
                 }
             }
         }.getOrNull()
@@ -83,6 +83,24 @@ object LocalSubtitleResolver {
 
     private fun basename(name: String): String =
         name.substringAfterLast('/').substringBeforeLast('.', name).trim()
+
+    private fun languageFor(videoBase: String, subtitleName: String): String {
+        val subtitleBase = basename(subtitleName).lowercase(Locale.ROOT)
+        val suffix = subtitleBase.removePrefix(videoBase)
+            .trimStart('.', ' ', '_', '-', '[', '(')
+        val token = suffix.takeWhile { it.isLetter() }
+        return when (token) {
+            "ar", "ara", "arabic" -> "ar"
+            "en", "eng", "english" -> "en"
+            "fr", "fre", "fra", "french" -> "fr"
+            "es", "spa", "spanish" -> "es"
+            "de", "ger", "deu", "german" -> "de"
+            "it", "ita", "italian" -> "it"
+            "tr", "tur", "turkish" -> "tr"
+            "ru", "rus", "russian" -> "ru"
+            else -> "und"
+        }
+    }
 
     private fun extensionPriority(extension: String): Int = when (extension) {
         "srt" -> 0
