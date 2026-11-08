@@ -95,9 +95,8 @@ val MalekPlayTypography = Typography(
 
 
 /**
- * Applies one continuous metallic gold → orange → pink → violet brush to
- * every Material typography role. TextStyle's brush is retained even when a
- * screen supplies a semantic color, so all labels share the brand treatment.
+ * Applies the selected global text palette to every Material typography role.
+ * The Aurora metallic brush remains the default only when no solid palette is selected.
  */
 fun malekPlayTypography(isDark: Boolean, textColor: Color? = null): Typography {
     val brush = MalekPlayGradients.textBrush(isDark)
