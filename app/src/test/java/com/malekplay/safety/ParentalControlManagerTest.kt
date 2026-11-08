@@ -31,6 +31,7 @@ class ParentalControlManagerTest {
         assertEquals(setOf("video-1", "song-2"), manager.allowedMediaIds)
         assertTrue(manager.isMediaAllowed("video-1"))
         assertFalse(manager.isMediaAllowed("not-approved"))
+        assertFalse(manager.isMediaAllowed("x".repeat(513)))
 
         val secondInstance = ParentalControlManager(context)
         assertEquals(setOf("video-1", "song-2"), secondInstance.allowedMediaIds)
@@ -38,6 +39,10 @@ class ParentalControlManagerTest {
         val mutableSnapshot = manager.allowedMediaIds.toMutableSet()
         mutableSnapshot.clear()
         assertEquals(setOf("video-1", "song-2"), manager.allowedMediaIds)
+
+        manager.setAllowedMediaIds(setOf("song-3"))
+        assertFalse(manager.isMediaAllowed("video-1"))
+        assertTrue(manager.isMediaAllowed("song-3"))
     }
 
     @Test
