@@ -14,7 +14,7 @@ import java.util.Locale
  * Matching is deliberately conservative: exact video basename or a language
  * suffix (Movie.ar.srt / Movie.en.srt), never an unrelated file in Downloads.
  */
-internal object LocalSubtitleResolver {
+object LocalSubtitleResolver {
     data class Match(val uri: Uri, val mimeType: String)
     private val supportedExtensions = setOf("srt", "ass", "ssa", "vtt")
 
