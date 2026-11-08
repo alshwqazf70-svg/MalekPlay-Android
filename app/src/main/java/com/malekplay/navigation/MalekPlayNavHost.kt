@@ -153,9 +153,11 @@ fun MalekPlayNavHost(
             }
         ) {
             composable(Screen.KidsMode.route) {
+                // Capture the entry mode: parent exit flips the stored flag before invoking onBack.
+                val enteredAsKidsMode = parentalControl.isEnabled
                 KidsModeScreen(
                     onBack = {
-                        if (parentalControl.isEnabled) {
+                        if (enteredAsKidsMode) {
                             navController.navigate(Screen.Home.route) {
                                 popUpTo(Screen.KidsMode.route) { inclusive = true }
                                 launchSingleTop = true
