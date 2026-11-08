@@ -11,6 +11,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -198,7 +199,7 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun stopReceiving() {
-        UltraShareForegroundService.cancel(context)
+        UltraShareForegroundService.stopReceiving(context)
         _state.value = _state.value.copy(
             receiving = false,
             pairingSecret = "",
@@ -442,7 +443,7 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun cancelSending() {
-        UltraShareForegroundService.cancel(context)
+        UltraShareForegroundService.cancelSending(context)
         _state.value = _state.value.copy(
             progress = null,
             status = context.getString(R.string.ultra_share_send_cancelled)
@@ -1051,7 +1052,7 @@ fun UltraShareScreen(
                         OutlinedButton(
                             onClick = { viewModel.resumePendingBatch(host.trim(), secret.trim()) },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !state.receiving && host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
+                            enabled = host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
                         ) { Text("استئناف الملفات المتبقية") }
                     }
                     if (!state.sending) {
@@ -1109,6 +1110,12 @@ fun UltraShareScreen(
                     }
                     Text(received.fileName, color = MaterialTheme.colorScheme.onSurface)
                     Text(formatTransferBytes(received.sizeBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (received.publishedUri != null) "الموقع العام: التنزيلات / MalekPlay / Received"
+                        else "الموقع الداخلي: ${received.file.parentFile?.absolutePath.orEmpty()}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
                     if (received.publishedUri != null) {
                         Text(
                             "حُفظ تلقائياً في التنزيلات / MalekPlay / Received",
@@ -1157,8 +1164,33 @@ fun UltraShareScreen(
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(entry.fileName, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(formatTransferBytes(entry.sizeBytes) + " • " + java.text.DateFormat.getDateTimeInstance().format(java.util.Date(entry.receivedAtEpochMs)), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    if (entry.publishedUri != null) "التنزيلات / MalekPlay / Received"
+                                    else entry.file.parentFile?.absolutePath.orEmpty(),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
-                            Text(if (entry.isAvailable) "متاح" else "غير موجود", color = if (entry.isAvailable) Color(0xFF65D6A2) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(if (entry.isAvailable) "متاح" else "غير موجود", color = if (entry.isAvailable) Color(0xFF65D6A2) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                                TextButton(
+                                    enabled = entry.isAvailable,
+                                    onClick = {
+                                        runCatching {
+                                            val fileUri = entry.publishedUri?.let(Uri::parse)
+                                                ?: FileProvider.getUriForFile(context, context.packageName + ".fileprovider", entry.file)
+                                            val intent = Intent(Intent.ACTION_VIEW)
+                                                .setDataAndType(fileUri, entry.mimeType)
+                                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            context.startActivity(intent)
+                                        }.onFailure {
+                                            Toast.makeText(context, "تعذر فتح الملف؛ تحقق من وجود تطبيق يدعم هذا النوع.", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                ) { Text("فتح") }
+                            }
                         }
                     }
                     if (state.receivedHistory.size > 10) {
@@ -1221,7 +1253,7 @@ private fun UltraShareHelpCard() {
             }
             if (expanded) {
                 Text("استقبال الملفات على هذا الهاتف:", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                Text("1. اضغط «إنشاء مجموعة» أو «بدء الاستقبال» واترك صفحة MalekPlay مفتوحة أثناء تجهيز الربط.\n2. اعرض رمز QR أو رمز الاقتران ذي 12 رقماً وعنوان الشبكة.\n3. على الهاتف المرسل امسح الرمز من «الانضمام»، أو أدخل عنوان الجهاز ورمز الاقتران يدوياً.\n4. بعد اكتمال النقل ستجد الملف في التنزيلات / MalekPlay / Received.")
+                Text("1. اضغط «إنشاء مجموعة» أو «بدء الاستقبال» واترك صفحة MalekPlay مفتوحة أثناء تجهيز الربط.\n2. اعرض رمز QR أو رمز الاقتران ذي 12 رقماً وعنوان الشبكة.\n3. على الهاتف المرسل امسح الرمز من «الانضمام»، أو أدخل عنوان الجهاز ورمز الاقتران يدوياً.\n4. على Android 10 فأحدث تُنشر نسخة في التنزيلات / MalekPlay / Received؛ وعلى الإصدارات الأقدم يظهر المسار الداخلي في سجل الملفات المستلمة.")
                 Text("إرسال الملفات من هذا الهاتف:", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                 Text("1. اختر «فيديوهات» أو «موسيقى» أو «ملفات».\n2. اضغط «الأجهزة القريبة» واختر الجهاز المكتشف، أو استخدم «Wi-Fi Direct» عند الحاجة.\n3. إذا لم يظهر الجهاز، أدخل عنوانه في خانة المضيف ورمز الاقتران في خانته.\n4. اضغط «إرسال الآن» لمتابعة الطابور والتقدم والسرعة.")
                 Text("إذا تعذر الاتصال: تأكد أن الجهازين على الشبكة المحلية نفسها، وأن الاستقبال يعمل، وأن عنوان المضيف والرمز صحيحان. يمكن استخدام نقطة اتصال الهاتف المستقبل بدلاً من الراوتر. لا تشارك رمز الاقتران مع أشخاص غير موثوقين.", color = MaterialTheme.colorScheme.onSurfaceVariant)
