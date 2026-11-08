@@ -67,6 +67,7 @@ fun LocalFolderScreen(
         .collectAsStateWithLifecycle(initialValue = emptyList<LibraryItem>())
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val seenNewMediaIds by viewModel.seenNewMediaIds.collectAsStateWithLifecycle()
+    val newMediaBaselineMs by viewModel.newMediaBaselineMs.collectAsStateWithLifecycle()
     val selectedUris = remember { mutableStateListOf<android.net.Uri>() }
     val selectionMode = selectedUris.isNotEmpty()
     fun toggleSelection(uri: android.net.Uri) { if (uri in selectedUris) selectedUris.remove(uri) else selectedUris.add(uri) }
@@ -88,7 +89,7 @@ fun LocalFolderScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "${items.size} ملف  •  ${items.count { it.media.isVideo }} فيديو  •  ${items.count { it.media.isAudio }} موسيقى  •  ${items.count { System.currentTimeMillis() - it.media.addedAtMs <= 604800000L && it.media.id !in seenNewMediaIds }} جديد",
+                            text = "${items.size} ملف  •  ${items.count { it.media.isVideo }} فيديو  •  ${items.count { it.media.isAudio }} موسيقى  •  ${items.count { newMediaBaselineMs > 0L && it.media.addedAtMs >= newMediaBaselineMs && it.media.id !in seenNewMediaIds }} جديد",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -150,7 +151,7 @@ fun LocalFolderScreen(
             items(items = items.sortedByDescending { it.media.addedAtMs }, key = { it.media.id }) { item ->
                 FolderItemRow(
                     item = item,
-                    isNew = System.currentTimeMillis() - item.media.addedAtMs <= 604800000L && item.media.id !in seenNewMediaIds,
+                    isNew = newMediaBaselineMs > 0L && item.media.addedAtMs >= newMediaBaselineMs && item.media.id !in seenNewMediaIds,
                     onClick = { viewModel.markNewMediaSeen(item.media.id); onOpenMedia(item.media) },
                     onSend = { toggleSelection(item.media.uri) },
                     selectionMode = selectionMode,
