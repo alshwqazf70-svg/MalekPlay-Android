@@ -63,7 +63,7 @@ internal fun readStreamWithProgress(
 
 object UltraShareTransport {
     const val DEFAULT_PORT = 38741
-    const val CHUNK_BYTES = 1024 * 1024
+    const val CHUNK_BYTES = 256 * 1024
     private const val SOCKET_BUFFER_BYTES = 1024 * 1024
     const val MAX_FILE_BYTES = 100L * 1024 * 1024 * 1024
     private const val MAGIC = 0x4D505531 // MPU1
