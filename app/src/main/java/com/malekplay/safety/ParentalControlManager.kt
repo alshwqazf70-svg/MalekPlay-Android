@@ -18,7 +18,7 @@ class ParentalControlManager(context: Context) {
     fun isMediaAllowed(mediaId: String): Boolean = mediaId.isNotBlank() && mediaId in allowedMediaIds
 
     fun setAllowedMediaIds(mediaIds: Set<String>) = synchronized(PIN_LOCK) {
-        val clean = mediaIds.asSequence().map { it.trim() }.filter(String::isNotEmpty).take(MAX_ALLOWED_MEDIA).toSet()
+        val clean = mediaIds.asSequence().map { it.trim() }\n            .filter { it.isNotEmpty() && it.length <= MAX_MEDIA_ID_LENGTH }\n            .take(MAX_ALLOWED_MEDIA).toSet()
         check(prefs.edit().putStringSet(KEY_ALLOWED_MEDIA, clean).commit()) { "تعذر حفظ قائمة محتوى الأطفال" }
     }
 
@@ -110,7 +110,7 @@ class ParentalControlManager(context: Context) {
         const val KEY_FAILURES = "pin_failures"
         const val KEY_LOCK_UNTIL = "pin_lock_until"
         const val KEY_ALLOWED_MEDIA = "allowed_media_ids"
-        const val MAX_ALLOWED_MEDIA = 10_000
+        const val MAX_ALLOWED_MEDIA = 10_000\n        const val MAX_MEDIA_ID_LENGTH = 512
         const val SALT_LENGTH = 16
         const val HASH_LENGTH = 32
         const val PBKDF2_ITERATIONS = 120_000
