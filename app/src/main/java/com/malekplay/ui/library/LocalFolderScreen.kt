@@ -51,6 +51,7 @@ import com.malekplay.core.ui.util.formatResolution
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.components.EmptyState
+import com.malekplay.ui.components.MediaThumbnail
 
 @Composable
 fun LocalFolderScreen(
@@ -178,13 +179,15 @@ private fun FolderItemRow(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = if (item.media.isVideo) Icons.Filled.Movie else Icons.Filled.MusicNote,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(36.dp)
+        // Show the real video frame or embedded album cover instead of a generic type icon.
+        // MediaThumbnail decodes off the main thread and falls back safely when artwork is unavailable.
+        MediaThumbnail(
+            media = item.media,
+            modifier = Modifier.size(76.dp, 56.dp),
+            targetSize = androidx.compose.ui.geometry.Size(304f, 224f),
+            cornerRadius = 9.dp
         )
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = item.media.displayTitle,
