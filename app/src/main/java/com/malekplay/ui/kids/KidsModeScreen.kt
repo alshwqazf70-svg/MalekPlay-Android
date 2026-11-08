@@ -97,9 +97,12 @@ fun KidsModeScreen(
                 .map { it.id }.toSet()
         }
     }
+    // Selection changes must not trigger a full-library refilter while the parent
+    // is choosing approvals; the allowlist matters only after Kids Mode is enabled.
+    val activeAllowlist = if (enabled) selected else emptySet()
     val filteredMedia by produceState(
         initialValue = emptyList<LibraryItem>(),
-        sortedMedia, selected, enabled, searchQuery, mediaFilter
+        sortedMedia, activeAllowlist, enabled, searchQuery, mediaFilter
     ) {
         value = withContext(Dispatchers.Default) {
             val query = searchQuery.trim()
@@ -110,7 +113,7 @@ fun KidsModeScreen(
                     "audio" -> item.isAudio
                     else -> true
                 }
-                val approvalMatches = !enabled || item.id in selected
+                val approvalMatches = !enabled || item.id in activeAllowlist
                 val queryMatches = query.isBlank() ||
                     item.displayTitle.contains(query, ignoreCase = true) ||
                     item.folderName.contains(query, ignoreCase = true) ||
