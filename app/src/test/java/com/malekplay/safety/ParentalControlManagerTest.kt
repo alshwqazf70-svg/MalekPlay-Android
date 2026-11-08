@@ -26,7 +26,7 @@ class ParentalControlManagerTest {
 
     @Test
     fun approvedMediaListIsPersistedAndCopiedSafely() {
-        manager.setAllowedMediaIds(setOf("video-1", "song-2", " ", "video-1"))
+        manager.setAllowedMediaIds(setOf("video-1", "song-2", " ", "video-1", "x".repeat(513)))
 
         assertEquals(setOf("video-1", "song-2"), manager.allowedMediaIds)
         assertTrue(manager.isMediaAllowed("video-1"))
@@ -40,7 +40,7 @@ class ParentalControlManagerTest {
     fun emptyAllowlistFailsClosed() {
         assertTrue(manager.allowedMediaIds.isEmpty())
         assertFalse(manager.isMediaAllowed("any-media"))
-        assertFalse(manager.isMediaAllowed(""))
+        assertFalse(manager.isMediaAllowed(""))\n        assertFalse(manager.isMediaAllowed("content://not-approved"))
     }
 
     @Test
