@@ -1123,11 +1123,6 @@ fun UltraShareScreen(
                         style = MaterialTheme.typography.labelSmall
                     )
                     if (received.publishedUri != null) {
-                        Text(
-                            "حُفظ تلقائياً في التنزيلات / MalekPlay / Received",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall
-                        )
                         Button(
                             onClick = {
                                 val intent = Intent(Intent.ACTION_VIEW)
@@ -1185,7 +1180,7 @@ fun UltraShareScreen(
                                     enabled = entry.isAvailable,
                                     onClick = {
                                         runCatching {
-                                            val fileUri = entry.publishedUri?.let(Uri::parse)
+                                            val fileUri = entry.publishedUri?.let { Uri.parse(it) }
                                                 ?: FileProvider.getUriForFile(context, context.packageName + ".fileprovider", entry.file)
                                             val intent = Intent(Intent.ACTION_VIEW)
                                                 .setDataAndType(fileUri, entry.mimeType)
