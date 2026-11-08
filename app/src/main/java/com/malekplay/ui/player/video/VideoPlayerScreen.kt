@@ -139,6 +139,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 /** Video fit modes cycled by the control rail. */
 @UnstableApi
@@ -338,6 +339,7 @@ fun VideoPlayerScreen(
     var railExpanded by remember { mutableStateOf(false) }
     var aspect by remember { mutableIntStateOf(AspectMode.FIT.ordinal) }
     val aspectMode = AspectMode.entries[aspect]
+    var videoZoom by remember { mutableFloatStateOf(1f) }
 
     var showSpeed by remember { mutableStateOf(false) }
     var showSleep by remember { mutableStateOf(false) }
@@ -362,6 +364,7 @@ fun VideoPlayerScreen(
     val displayedDurationMs = if (activeDlnaDevice != null && remoteDurationMs > 0L) remoteDurationMs else durationMs
 
     LaunchedEffect(currentVideoId) {
+        videoZoom = 1f
         activeDlnaDevice = null
         remoteDlnaPlaying = false
         remotePositionMs = 0L
@@ -496,6 +499,7 @@ fun VideoPlayerScreen(
         Modifier.pointerInput(settings) {
             detectPlayerGestures(
                 onTap = { chromeVisible = !chromeVisible },
+                onPinch = { factor -> videoZoom = PlayerZoomPolicy.scaleBy(videoZoom, factor) },
                 onDoubleTap = { fraction ->
                     when (settings.gestureDoubleTap) {
                         GestureAction.SEEK -> {
@@ -590,6 +594,8 @@ fun VideoPlayerScreen(
             update = { view ->
                 view.player = controller
                 view.resizeMode = aspectMode.resizeMode
+                view.scaleX = videoZoom
+                view.scaleY = videoZoom
                 applySubtitleStyle(view, settings)
                 playerView = view
             },
@@ -1331,6 +1337,7 @@ private suspend fun PointerInputScope.detectPlayerGestures(
     onDoubleTap: (Float) -> Unit,
     onLongPressStart: () -> Unit,
     onLongPressEnd: () -> Unit,
+    onPinch: (Float) -> Unit,
     onDragStart: () -> Unit,
     onDrag: (Float, Float, Float) -> Unit,
     onDragEnd: () -> Unit
@@ -1345,6 +1352,8 @@ private suspend fun PointerInputScope.detectPlayerGestures(
         var longPressed = false
         var longPressTriggered = false
         var dragging = false
+        var pinching = false
+        var previousPinchDistance = 0f
         var origin = down.position
         var previous = down.position
 
@@ -1361,6 +1370,34 @@ private suspend fun PointerInputScope.detectPlayerGestures(
         while (true) {
             val event = awaitPointerEvent()
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            val pressedPointers = event.changes.filter { it.pressed }
+            if (pressedPointers.size >= 2) {
+                pinching = true
+                dragging = false
+                lastTapMs = 0L
+                tapJob?.cancel()
+                longPressJob.cancel()
+                if (longPressed) {
+                    longPressed = false
+                    onLongPressEnd()
+                }
+                val first = pressedPointers[0].position
+                val second = pressedPointers[1].position
+                val deltaX = first.x - second.x
+                val deltaY = first.y - second.y
+                val distance = sqrt(deltaX * deltaX + deltaY * deltaY)
+                if (previousPinchDistance > 0f && distance > 0f) {
+                    onPinch(distance / previousPinchDistance)
+                }
+                previousPinchDistance = distance
+                pressedPointers.forEach { it.consume() }
+                continue
+            }
+            if (pinching) {
+                event.changes.forEach { it.consume() }
+                if (!change.pressed) break
+                continue
+            }
             if (!change.pressed) break
 
             val dxTotal = change.position.x - origin.x
@@ -1398,6 +1435,7 @@ private suspend fun PointerInputScope.detectPlayerGestures(
         }
 
         when {
+            pinching -> Unit
             dragging -> onDragEnd()
             longPressTriggered -> Unit
             else -> {
