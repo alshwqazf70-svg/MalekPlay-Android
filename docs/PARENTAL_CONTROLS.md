@@ -17,6 +17,7 @@ To update the allowlist, the parent uses **Parent access**, enters the PIN to le
 ## Enforcement points
 
 - The child library is built from the approved IDs only.
+- Playback queue filtering takes one immutable allowlist snapshot per queue, avoiding repeated preference reads while scanning large libraries.
 - Video and audio navigation routes reject IDs that are not approved while Kids Mode is enabled.
 - The central PlayerViewModel filters every queue again at the playback boundary. If the requested current item is not approved, the queue is not started.
 - External URIs opened from another app are rejected while Kids Mode is enabled because they have not been explicitly selected from the local library.
