@@ -122,7 +122,7 @@ class PlaybackService : MediaSessionService() {
         castMediaHttpServer = mediaBridge
         LocalMediaBridgeRegistry.attach(mediaBridge)
         val remotePlayer = RemoteCastPlayer.Builder(this)
-            .setMediaItemConverter(CastMediaHttpServer.LocalMediaItemConverter(mediaBridge))
+            .setMediaItemConverter(CastMediaHttpServer.BridgeMediaItemConverter(mediaBridge))
             .build()
         val castPlayer = CastPlayer.Builder(this)
             .setLocalPlayer(player)
