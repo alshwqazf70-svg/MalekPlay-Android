@@ -341,8 +341,17 @@ private fun FolderTile(folder: MediaFolder, onClick: () -> Unit) {
         ) { Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary) }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(folder.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${folder.videoCount} فيديو • ${folder.audioCount} صوت", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(folder.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (folder.newItemCount > 0) {
+                    Spacer(Modifier.width(4.dp))
+                    Box(Modifier.clip(CircleShape).background(Color(0xFFE84D75)).padding(horizontal = 7.dp, vertical = 3.dp)) {
+                        Text(folder.newItemCount.toString(), color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Text("${folder.videoCount} فيديو • ${folder.audioCount} موسيقى", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+            if (folder.newItemCount > 0) Text("${folder.newItemCount} ملف جديد خلال آخر 7 أيام", color = Color(0xFFE84D75), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
         }
     }
 }
