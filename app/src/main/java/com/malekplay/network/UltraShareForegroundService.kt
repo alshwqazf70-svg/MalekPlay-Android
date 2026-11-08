@@ -8,11 +8,14 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.OpenableColumns
 import androidx.core.app.NotificationCompat
@@ -42,6 +45,9 @@ data class UltraShareServiceState(
     val progress: UltraShareTransport.Progress? = null,
     val sendProgress: UltraShareTransport.Progress? = null,
     val receiveProgress: UltraShareTransport.Progress? = null,
+    val hotspotSsid: String? = null,
+    val hotspotPassword: String? = null,
+    val hotspotStarting: Boolean = false,
     val receivedFile: UltraShareTransport.ReceivedFile? = null,
     val status: String? = null,
     val error: String? = null,
@@ -62,6 +68,8 @@ class UltraShareForegroundService : Service() {
     @Volatile private var sendJob: Job? = null
     @Volatile private var pauseRequested = false
     private var advertisementJob: Job? = null
+    private var hotspotReservation: WifiManager.LocalOnlyHotspotReservation? = null
+    private var hotspotCallback: WifiManager.LocalOnlyHotspotCallback? = null
     private lateinit var notificationManager: NotificationManager
     private val transferLockGuard = Any()
     private var wifiLock: WifiManager.WifiLock? = null
@@ -109,11 +117,20 @@ class UltraShareForegroundService : Service() {
                 advertisementJob?.cancel()
                 return START_NOT_STICKY
             }
+            ACTION_START_HOTSPOT -> {
+                startLocalHotspot()
+                return START_NOT_STICKY
+            }
+            ACTION_STOP_HOTSPOT -> {
+                stopLocalHotspot()
+                return START_NOT_STICKY
+            }
             ACTION_STOP, ACTION_CANCEL -> {
                 if (sendJob == null && receiveJob == null) startForegroundCompat()
                 sendJob?.cancel()
                 receiveJob?.cancel()
                 advertisementJob?.cancel()
+                stopLocalHotspot()
                 if (sendJob == null && receiveJob == null) finishService()
                 return START_NOT_STICKY
             }
@@ -310,6 +327,9 @@ class UltraShareForegroundService : Service() {
         receiveJob?.cancel()
         advertisementJob?.cancel()
         releaseTransferLocks()
+        runCatching { hotspotReservation?.close() }
+        hotspotReservation = null
+        hotspotCallback = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -325,8 +345,103 @@ class UltraShareForegroundService : Service() {
         advertisementJob?.cancel()
         serviceScope.cancel()
         releaseTransferLocks()
+        runCatching { hotspotReservation?.close() }
+        hotspotReservation = null
+        hotspotCallback = null
         if (::notificationManager.isInitialized) notificationManager.cancel(NOTIFICATION_ID)
         super.onDestroy()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startLocalHotspot() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            updateState { it.copy(error = "إنشاء نقطة اتصال داخل MalekPlay يتطلب Android 8 أو أحدث. استخدم نقطة اتصال النظام يدوياً.") }
+            return
+        }
+        if (hotspotReservation != null || currentState().hotspotStarting) return
+        val wifiManager = getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        if (wifiManager == null) {
+            updateState { it.copy(error = "خدمة Wi-Fi غير متاحة على هذا الجهاز.") }
+            return
+        }
+        updateState { it.copy(hotspotStarting = true, error = null, status = "جارٍ إنشاء شبكة MalekPlay المحلية...") }
+        val callback = object : WifiManager.LocalOnlyHotspotCallback() {
+            override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
+                hotspotReservation = reservation
+                val credentials = runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        val config = reservation.softApConfiguration
+                        config.ssid to (config.passphrase ?: "")
+                    } else {
+                        @Suppress("DEPRECATION")
+                        val config = reservation.wifiConfiguration
+                        config?.SSID?.trim('"').orEmpty() to config?.preSharedKey?.trim('"').orEmpty()
+                    }
+                }.getOrDefault("" to "")
+                updateState { current ->
+                    current.copy(
+                        hotspotStarting = false,
+                        hotspotSsid = credentials.first.takeIf { it.isNotBlank() },
+                        hotspotPassword = credentials.second,
+                        localAddresses = findLocalIpv4Addresses(),
+                        status = if (credentials.first.isNotBlank()) "تم إنشاء شبكة MalekPlay المحلية. صِل الجهاز الآخر بها ثم ابحث عن الأجهزة القريبة."
+                        else "تم إنشاء نقطة الاتصال، لكن تعذر قراءة بياناتها. افتح إعدادات Wi-Fi لعرضها.",
+                        error = null
+                    )
+                }
+            }
+
+            override fun onStopped() {
+                hotspotReservation = null
+                hotspotCallback = null
+                updateState { current ->
+                    current.copy(
+                        hotspotStarting = false,
+                        hotspotSsid = null,
+                        hotspotPassword = null,
+                        status = "أوقِفت نقطة اتصال MalekPlay."
+                    )
+                }
+                finishService()
+            }
+
+            override fun onFailed(reason: Int) {
+                hotspotReservation = null
+                hotspotCallback = null
+                val message = when (reason) {
+                    WifiManager.LocalOnlyHotspotCallback.ERROR_INCOMPATIBLE_MODE ->
+                        "تعذر إنشاء الشبكة لأن نقطة اتصال النظام أو وضع Wi-Fi الحالي غير متوافق. أوقف نقطة الاتصال الأخرى أو استخدم شبكة Wi-Fi مشتركة."
+                    WifiManager.LocalOnlyHotspotCallback.ERROR_TETHERING_DISALLOWED ->
+                        "النظام أو سياسة الجهاز تمنع إنشاء نقطة اتصال محلية."
+                    WifiManager.LocalOnlyHotspotCallback.ERROR_NO_CHANNEL ->
+                        "لا تتوفر قناة Wi-Fi لإنشاء نقطة الاتصال حالياً."
+                    else -> "تعذر إنشاء نقطة اتصال MalekPlay. جرّب إيقاف نقطة اتصال النظام ثم أعد المحاولة."
+                }
+                updateState { it.copy(hotspotStarting = false, hotspotSsid = null, hotspotPassword = null, error = message) }
+                finishService()
+            }
+        }
+        hotspotCallback = callback
+        try {
+            wifiManager.startLocalOnlyHotspot(callback, Handler(Looper.getMainLooper()))
+        } catch (failure: SecurityException) {
+            hotspotCallback = null
+            updateState { it.copy(hotspotStarting = false, error = "يلزم منح إذن الأجهزة القريبة لإنشاء شبكة Wi-Fi محلية.") }
+            finishService()
+        } catch (failure: Exception) {
+            hotspotCallback = null
+            updateState { it.copy(hotspotStarting = false, error = failure.localizedMessage ?: "تعذر بدء نقطة الاتصال.") }
+            finishService()
+        }
+    }
+
+    private fun stopLocalHotspot() {
+        val reservation = hotspotReservation
+        hotspotReservation = null
+        hotspotCallback = null
+        runCatching { reservation?.close() }
+        updateState { it.copy(hotspotStarting = false, hotspotSsid = null, hotspotPassword = null) }
+        finishService()
     }
 
     private fun startForegroundCompat() {
@@ -362,7 +477,7 @@ class UltraShareForegroundService : Service() {
 
     private fun finishService() {
         // Keep the foreground service alive while either direction still owns a socket.
-        if (sendJob != null || receiveJob != null) return
+        if (sendJob != null || receiveJob != null || hotspotReservation != null || currentState().hotspotStarting) return
         releaseTransferLocks()
         stopForeground(true)
         stopSelf()
@@ -666,6 +781,8 @@ class UltraShareForegroundService : Service() {
         const val ACTION_CANCEL = "com.malekplay.ultrashare.CANCEL"
         const val ACTION_CANCEL_SEND = "com.malekplay.ultrashare.CANCEL_SEND"
         const val ACTION_STOP_RECEIVING = "com.malekplay.ultrashare.STOP_RECEIVING"
+        const val ACTION_START_HOTSPOT = "com.malekplay.ultrashare.START_HOTSPOT"
+        const val ACTION_STOP_HOTSPOT = "com.malekplay.ultrashare.STOP_HOTSPOT"
         const val ACTION_PAUSE = "com.malekplay.ultrashare.PAUSE"
         const val ACTION_REFRESH_ADDRESSES = "com.malekplay.ultrashare.REFRESH_ADDRESSES"
         const val ACTION_RECEIVE = "com.malekplay.ultrashare.RECEIVE"
@@ -728,6 +845,14 @@ class UltraShareForegroundService : Service() {
 
         fun stopReceiving(context: Context) {
             context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_STOP_RECEIVING))
+        }
+
+        fun startHotspot(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_START_HOTSPOT))
+        }
+
+        fun stopHotspot(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_STOP_HOTSPOT))
         }
 
         fun stop(context: Context) {
