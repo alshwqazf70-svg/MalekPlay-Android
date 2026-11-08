@@ -150,6 +150,7 @@ fun LocalFolderScreen(
             items(items = items.sortedByDescending { it.media.addedAtMs }, key = { it.media.id }) { item ->
                 FolderItemRow(
                     item = item,
+                    isNew = System.currentTimeMillis() - item.media.addedAtMs <= 604800000L && item.media.id !in seenNewMediaIds,
                     onClick = { viewModel.markNewMediaSeen(item.media.id); onOpenMedia(item.media) },
                     onSend = { toggleSelection(item.media.uri) },
                     selectionMode = selectionMode,
@@ -165,6 +166,7 @@ fun LocalFolderScreen(
 @Composable
 private fun FolderItemRow(
     item: LibraryItem,
+    isNew: Boolean,
     onClick: () -> Unit,
     onSend: () -> Unit,
     selectionMode: Boolean,
@@ -203,7 +205,7 @@ private fun FolderItemRow(
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(7.dp))
-                if (System.currentTimeMillis() - item.media.addedAtMs <= 604800000L && item.media.id !in seenNewMediaIds) {
+                if (isNew) {
                     androidx.compose.material3.Surface(
                         color = androidx.compose.ui.graphics.Color(0xFFE84D75),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
