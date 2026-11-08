@@ -155,8 +155,13 @@ fun MalekPlayNavHost(
             composable(Screen.KidsMode.route) {
                 KidsModeScreen(
                     onBack = {
-                        navController.navigate(Screen.Home.route) {
-                            popUpTo(Screen.KidsMode.route) { inclusive = true }
+                        if (parentalControl.isEnabled) {
+                            navController.navigate(Screen.Home.route) {
+                                popUpTo(Screen.KidsMode.route) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        } else {
+                            navController.popBackStack()
                         }
                     },
                     onPlay = { item -> navController.openMedia(item) }
