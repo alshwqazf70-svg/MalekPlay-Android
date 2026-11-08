@@ -55,6 +55,7 @@ object LocalSubtitleResolver {
                 val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
                 var bestId: Long? = null
                 var bestExtension: String? = null
+                var bestName: String? = null
                 var bestScore = Int.MAX_VALUE
                 while (cursor.moveToNext()) {
                     val name = cursor.getString(nameColumn).orEmpty()
@@ -65,6 +66,7 @@ object LocalSubtitleResolver {
                         bestScore = score
                         bestId = cursor.getLong(idColumn)
                         bestExtension = extension
+                        bestName = name
                     }
                 }
                 bestId?.let { id ->
@@ -75,7 +77,7 @@ object LocalSubtitleResolver {
                         "vtt" -> MimeTypes.TEXT_VTT
                         else -> return@let null
                     }
-                    Match(uri, mime, languageFor(videoBase, cursor.getString(nameColumn).orEmpty()))
+                    Match(uri, mime, languageFor(videoBase, bestName.orEmpty()))
                 }
             }
         }.getOrNull()
