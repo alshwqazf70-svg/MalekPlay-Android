@@ -24,7 +24,8 @@ data class UltraShareReceivedEntry(
     val fileName: String,
     val mimeType: String,
     val sizeBytes: Long,
-    val receivedAtEpochMs: Long
+    val receivedAtEpochMs: Long,
+    val publishedUri: String? = null
 ) {
     val file: File get() = File(filePath)
     val isAvailable: Boolean get() = file.isFile && file.length() == sizeBytes
@@ -45,7 +46,8 @@ object UltraShareReceivedHistoryStore {
         fileName: String,
         mimeType: String,
         sizeBytes: Long,
-        receivedAtEpochMs: Long = System.currentTimeMillis()
+        receivedAtEpochMs: Long = System.currentTimeMillis(),
+        publishedUri: String? = null
     ) {
         require(file.isFile && file.length() == sizeBytes) {
             "لا يمكن حفظ سجل ملف مستلم غير مكتمل أو غير موجود."
@@ -58,7 +60,8 @@ object UltraShareReceivedHistoryStore {
             fileName = fileName,
             mimeType = mimeType.ifBlank { "application/octet-stream" },
             sizeBytes = sizeBytes,
-            receivedAtEpochMs = receivedAtEpochMs
+            receivedAtEpochMs = receivedAtEpochMs,
+            publishedUri = publishedUri
         )
         context.applicationContext.ultraShareReceivedHistoryDataStore.edit { preferences ->
             val old = decode(preferences[HISTORY].orEmpty())
@@ -86,6 +89,7 @@ object UltraShareReceivedHistoryStore {
                 put("mime", entry.mimeType)
                 put("size", entry.sizeBytes)
                 put("receivedAt", entry.receivedAtEpochMs)
+                entry.publishedUri?.let { put("publishedUri", it) }
             })
         }
     }.toString()
@@ -107,7 +111,8 @@ object UltraShareReceivedHistoryStore {
                         fileName = name,
                         mimeType = item.optString("mime").ifBlank { "application/octet-stream" },
                         sizeBytes = size,
-                        receivedAtEpochMs = receivedAt
+                        receivedAtEpochMs = receivedAt,
+                        publishedUri = item.optString("publishedUri").takeIf { it.isNotBlank() && it != "null" }
                     )
                 )
             }
