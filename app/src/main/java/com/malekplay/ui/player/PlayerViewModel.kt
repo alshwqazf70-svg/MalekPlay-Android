@@ -159,6 +159,7 @@ class PlayerViewModel @Inject constructor(
     private val _subtitleTranslationError = MutableStateFlow<String?>(null)
     val subtitleTranslationError: StateFlow<String?> = _subtitleTranslationError.asStateFlow()
     private var translationSourceSubtitleUri: Uri? = null
+    private var playbackGeneration: Long = 0L
 
     private val _sleepTimerEndsAtMs = MutableStateFlow(0L)
     val sleepTimerEndsAtMs: StateFlow<Long> = _sleepTimerEndsAtMs.asStateFlow()
@@ -367,12 +368,31 @@ class PlayerViewModel @Inject constructor(
         currentMediaId = nextMediaId
         _currentItemId.value = nextMediaId
         _playerError.value = null
-        player.setMediaItems(safeItems.map { it.toMedia3Item() }, safeIndex, startPositionMs.coerceAtLeast(0L))
-        player.shuffleModeEnabled = shuffle
-        player.setPlaybackSpeed(PlaybackValuePolicy.normalizeSpeed(speed))
-        player.prepare()
-        player.playWhenReady = true
-        refreshStats()
+
+        // Resolve companion subtitles off the main thread for every video in the queue.
+        // A generation guard prevents a slow folder scan from replacing a newer playback request.
+        val requestGeneration = ++playbackGeneration
+        viewModelScope.launch {
+            val preparedItems = withContext(Dispatchers.IO) {
+                safeItems.map { media ->
+                    val subtitle = if (media.isVideo) {
+                        LocalSubtitleResolver.findMatchingSubtitle(app, media)
+                    } else null
+                    media to subtitle
+                }
+            }
+            if (requestGeneration != playbackGeneration || _controller.value !== player) return@launch
+            player.setMediaItems(
+                preparedItems.map { (media, subtitle) -> media.toMedia3Item(subtitle) },
+                safeIndex,
+                startPositionMs.coerceAtLeast(0L)
+            )
+            player.shuffleModeEnabled = shuffle
+            player.setPlaybackSpeed(PlaybackValuePolicy.normalizeSpeed(speed))
+            player.prepare()
+            player.playWhenReady = true
+            refreshStats()
+        }
     }
 
     /** Convenience wrapper for the common "open this one file" case. */
