@@ -99,23 +99,29 @@ val MalekPlayTypography = Typography(
  * every Material typography role. TextStyle's brush is retained even when a
  * screen supplies a semantic color, so all labels share the brand treatment.
  */
-fun malekPlayTypography(isDark: Boolean): Typography {
+fun malekPlayTypography(isDark: Boolean, textColor: Color? = null): Typography {
     val brush = MalekPlayGradients.textBrush(isDark)
+    // A selected text palette must replace the default metallic brush;
+    // otherwise TextStyle.brush takes precedence over TextStyle.color.
+    val applyTextPalette: (TextStyle) -> TextStyle = { style ->
+        if (textColor == null) style.copy(brush = brush)
+        else style.copy(brush = null, color = textColor)
+    }
     return MalekPlayTypography.copy(
-        displayLarge = MalekPlayTypography.displayLarge.copy(brush = brush),
-        displayMedium = MalekPlayTypography.displayMedium.copy(brush = brush),
-        displaySmall = MalekPlayTypography.displaySmall.copy(brush = brush),
-        headlineLarge = MalekPlayTypography.headlineLarge.copy(brush = brush),
-        headlineMedium = MalekPlayTypography.headlineMedium.copy(brush = brush),
-        headlineSmall = MalekPlayTypography.headlineSmall.copy(brush = brush),
-        titleLarge = MalekPlayTypography.titleLarge.copy(brush = brush),
-        titleMedium = MalekPlayTypography.titleMedium.copy(brush = brush),
-        titleSmall = MalekPlayTypography.titleSmall.copy(brush = brush),
-        bodyLarge = MalekPlayTypography.bodyLarge.copy(brush = brush),
-        bodyMedium = MalekPlayTypography.bodyMedium.copy(brush = brush),
-        bodySmall = MalekPlayTypography.bodySmall.copy(brush = brush),
-        labelLarge = MalekPlayTypography.labelLarge.copy(brush = brush),
-        labelMedium = MalekPlayTypography.labelMedium.copy(brush = brush),
-        labelSmall = MalekPlayTypography.labelSmall.copy(brush = brush)
+        displayLarge = applyTextPalette(MalekPlayTypography.displayLarge),
+        displayMedium = applyTextPalette(MalekPlayTypography.displayMedium),
+        displaySmall = applyTextPalette(MalekPlayTypography.displaySmall),
+        headlineLarge = applyTextPalette(MalekPlayTypography.headlineLarge),
+        headlineMedium = applyTextPalette(MalekPlayTypography.headlineMedium),
+        headlineSmall = applyTextPalette(MalekPlayTypography.headlineSmall),
+        titleLarge = applyTextPalette(MalekPlayTypography.titleLarge),
+        titleMedium = applyTextPalette(MalekPlayTypography.titleMedium),
+        titleSmall = applyTextPalette(MalekPlayTypography.titleSmall),
+        bodyLarge = applyTextPalette(MalekPlayTypography.bodyLarge),
+        bodyMedium = applyTextPalette(MalekPlayTypography.bodyMedium),
+        bodySmall = applyTextPalette(MalekPlayTypography.bodySmall),
+        labelLarge = applyTextPalette(MalekPlayTypography.labelLarge),
+        labelMedium = applyTextPalette(MalekPlayTypography.labelMedium),
+        labelSmall = applyTextPalette(MalekPlayTypography.labelSmall)
     )
 }
