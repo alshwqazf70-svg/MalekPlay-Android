@@ -9,6 +9,7 @@ import com.malekplay.MainActivity
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.cast.CastPlayer
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
@@ -109,8 +110,14 @@ class PlaybackService : MediaSessionService() {
                 renderersFactory = renderersFactory
             )
 
-        player.addListener(progressListener)
-        mediaSession = MediaSession.Builder(this, player)
+        // CastPlayer wraps the existing ASS-capable ExoPlayer. MediaController,
+        // notification controls and the video UI now share one local/remote Player.
+        val castPlayer = CastPlayer.Builder(this)
+            .setLocalPlayer(player)
+            .build()
+
+        castPlayer.addListener(progressListener)
+        mediaSession = MediaSession.Builder(this, castPlayer)
             .setSessionActivity(buildSessionActivityIntent())
             .build()
     }
