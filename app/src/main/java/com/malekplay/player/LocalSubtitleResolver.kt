@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import androidx.media3.common.MimeTypes
 import com.malekplay.domain.model.MediaItem as DomainMedia
 import java.util.Locale
 
@@ -14,9 +15,10 @@ import java.util.Locale
  * suffix (Movie.ar.srt / Movie.en.srt), never an unrelated file in Downloads.
  */
 internal object LocalSubtitleResolver {
+    data class Match(val uri: Uri, val mimeType: String)
     private val supportedExtensions = setOf("srt", "ass", "ssa", "vtt")
 
-    fun findMatchingSubtitle(context: Context, video: DomainMedia): Uri? {
+    fun findMatchingSubtitle(context: Context, video: DomainMedia): Match? {
         if (!video.isVideo || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
         val folder = video.folderPath.trim().trim('/')
         if (folder.isBlank() || folder.startsWith("bucket:")) return null
@@ -40,6 +42,7 @@ internal object LocalSubtitleResolver {
                 val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
                 val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
                 var bestId: Long? = null
+                var bestExtension: String? = null
                 var bestScore = Int.MAX_VALUE
                 while (cursor.moveToNext()) {
                     val name = cursor.getString(nameColumn).orEmpty()
@@ -55,9 +58,19 @@ internal object LocalSubtitleResolver {
                     if (score < bestScore) {
                         bestScore = score
                         bestId = cursor.getLong(idColumn)
+                        bestExtension = extension
                     }
                 }
-                bestId?.let { ContentUris.withAppendedId(collection, it) }
+                bestId?.let { id ->
+                    val uri = ContentUris.withAppendedId(collection, id)
+                    val mime = when (bestExtension) {
+                        "srt" -> MimeTypes.APPLICATION_SUBRIP
+                        "ass", "ssa" -> MimeTypes.TEXT_SSA
+                        "vtt" -> MimeTypes.TEXT_VTT
+                        else -> return@let null
+                    }
+                    Match(uri, mime)
+                }
             }
         }.getOrNull()
     }
