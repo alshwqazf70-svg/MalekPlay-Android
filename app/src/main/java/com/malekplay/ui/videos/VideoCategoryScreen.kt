@@ -151,12 +151,23 @@ fun VideoCategoryScreen(
         }
     ) { padding ->
         if (filtered.isEmpty()) {
-            EmptyState(
-                title = stringResource(R.string.video_category_empty_title, title),
-                body = stringResource(R.string.video_category_empty_body),
-                icon = Icons.Filled.Movie,
-                modifier = Modifier.fillMaxSize().padding(padding)
-            )
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    placeholder = { Text(if (series) "ابحث عن مسلسل أو حلقة..." else "ابحث عن فيلم...") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = "بحث") }
+                )
+                EmptyState(
+                    title = if (searchQuery.isBlank()) stringResource(R.string.video_category_empty_title, title) else "لا توجد نتائج مطابقة",
+                    body = if (searchQuery.isBlank()) stringResource(R.string.video_category_empty_body) else "جرّب اسماً آخر أو امسح عبارة البحث.",
+                    icon = Icons.Filled.Movie,
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                )
+            }
         } else {
             Column(
                 Modifier.fillMaxSize()
