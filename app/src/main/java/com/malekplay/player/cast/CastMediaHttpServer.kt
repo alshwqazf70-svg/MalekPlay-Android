@@ -216,8 +216,7 @@ class CastMediaHttpServer(
                 return
             }
 
-            if (source == null) {
-                source = upstreamFactory.createDataSource()
+            val mediaSource = source ?: upstreamFactory.createDataSource().also { created ->
                 val spec = if (parsed != null) {
                     DataSpec.Builder()
                         .setUri(uri)
@@ -225,13 +224,14 @@ class CastMediaHttpServer(
                         .setLength(knownCount!!)
                         .build()
                 } else DataSpec(uri)
-                source.open(spec)
+                created.open(spec)
+                source = created
             }
 
             val buffer = ByteArray(64 * 1024)
             if (knownCount == null) {
                 while (true) {
-                    val read = source.read(buffer, 0, buffer.size)
+                    val read = mediaSource.read(buffer, 0, buffer.size)
                     if (read == C.RESULT_END_OF_INPUT) break
                     if (read <= 0) continue
                     output.write(Integer.toHexString(read).toByteArray(StandardCharsets.US_ASCII))
@@ -243,7 +243,7 @@ class CastMediaHttpServer(
             } else {
                 var remaining = knownCount
                 while (remaining > 0L) {
-                    val read = source.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                    val read = mediaSource.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
                     if (read == C.RESULT_END_OF_INPUT) throw IOException("Upstream media ended before its advertised length")
                     if (read <= 0) continue
                     output.write(buffer, 0, read)
