@@ -119,6 +119,7 @@ class UltraShareForegroundService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_START_HOTSPOT -> {
+                startForegroundCompat()
                 startLocalHotspot()
                 return START_NOT_STICKY
             }
@@ -378,12 +379,14 @@ class UltraShareForegroundService : Service() {
     private fun startLocalHotspot() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             updateState { it.copy(error = "إنشاء نقطة اتصال داخل MalekPlay يتطلب Android 8 أو أحدث. استخدم نقطة اتصال النظام يدوياً.") }
+            finishService()
             return
         }
         if (hotspotReservation != null || currentState().hotspotStarting) return
         val wifiManager = getSystemService(Context.WIFI_SERVICE) as? WifiManager
         if (wifiManager == null) {
             updateState { it.copy(error = "خدمة Wi-Fi غير متاحة على هذا الجهاز.") }
+            finishService()
             return
         }
         updateState { it.copy(hotspotStarting = true, error = null, status = "جارٍ إنشاء شبكة MalekPlay المحلية...") }
