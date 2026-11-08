@@ -40,13 +40,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.util.UnstableApi
 import com.malekplay.R
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.library.LibraryViewModel
 import com.malekplay.ui.player.PlayerViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
 @Composable
 fun KidsModeScreen(
     onBack: () -> Unit,
