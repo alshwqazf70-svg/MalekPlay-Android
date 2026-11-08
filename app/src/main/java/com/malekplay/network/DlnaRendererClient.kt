@@ -25,13 +25,13 @@ class DlnaRendererClient(
             require(mediaUrl.startsWith("http://", true) || mediaUrl.startsWith("https://", true)) {
                 "يجب أن يكون رابط الوسائط HTTP أو HTTPS ويمكن للتلفزيون الوصول إليه."
             }
-            val controlUrl = resolveAvTransportControlUrl(device)
-            soap(controlUrl, "SetAVTransportURI", """
+            val endpoint = resolveAvTransportEndpoint(device)
+            soap(endpoint, "SetAVTransportURI", """
                 <InstanceID>0</InstanceID>
                 <CurrentURI>${xmlEscape(mediaUrl)}</CurrentURI>
                 <CurrentURIMetaData>${xmlEscape(didlMetadata(title, mediaUrl, mimeType))}</CurrentURIMetaData>
             """.trimIndent())
-            soap(controlUrl, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
+            soap(endpoint, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
         }
 
     suspend fun pause(device: DiscoveredNetworkDevice) = command(device, "Pause", "<InstanceID>0</InstanceID>")
@@ -45,9 +45,11 @@ class DlnaRendererClient(
     }
 
     private suspend fun command(device: DiscoveredNetworkDevice, action: String, arguments: String) =
-        withContext(Dispatchers.IO) { soap(resolveAvTransportControlUrl(device), action, arguments) }
+        withContext(Dispatchers.IO) { soap(resolveAvTransportEndpoint(device), action, arguments) }
 
-    private fun resolveAvTransportControlUrl(device: DiscoveredNetworkDevice): URL {
+    private data class AvTransportEndpoint(val controlUrl: URL, val serviceType: String)
+
+    private fun resolveAvTransportEndpoint(device: DiscoveredNetworkDevice): AvTransportEndpoint {
         require(device.kind == NetworkDeviceKind.MEDIA_RENDERER ||
             device.services.any { it.contains("MediaRenderer", true) }) {
             "الجهاز المكتشف لا يعلن خدمة DLNA MediaRenderer."
@@ -67,11 +69,9 @@ class DlnaRendererClient(
         var serviceType: String? = null
         var controlPath: String? = null
         var inService = false
-        var depth = 0
         while (parser.eventType != XmlPullParser.END_DOCUMENT) {
             when (parser.eventType) {
                 XmlPullParser.START_TAG -> {
-                    depth++
                     when (parser.name) {
                         "service" -> { inService = true; serviceType = null; controlPath = null }
                         "serviceType" -> if (inService) serviceType = parser.nextText().trim()
@@ -81,14 +81,16 @@ class DlnaRendererClient(
                 XmlPullParser.END_TAG -> if (parser.name == "service" && inService) {
                     if (serviceType?.contains(":service:AVTransport:", true) == true && !controlPath.isNullOrBlank()) {
                         val resolved = URL(descriptionUrl, controlPath)
+                        require(resolved.protocol == "http" || resolved.protocol == "https") {
+                            "بروتوكول رابط تحكم DLNA غير مدعوم."
+                        }
                         require(resolved.host.equals(device.host, ignoreCase = true)) {
                             "تم رفض عنوان تحكم DLNA خارج الجهاز المكتشف."
                         }
-                        return resolved
+                        return AvTransportEndpoint(resolved, serviceType!!) 
                     }
                     inService = false
-                    depth--
-                } else depth--
+                }
             }
             parser.next()
         }
@@ -121,8 +123,9 @@ class DlnaRendererClient(
         } finally { connection.disconnect() }
     }
 
-    private fun soap(url: URL, action: String, arguments: String) {
-        val service = "urn:schemas-upnp-org:service:AVTransport:1"
+    private fun soap(endpoint: AvTransportEndpoint, action: String, arguments: String) {
+        val url = endpoint.controlUrl
+        val service = endpoint.serviceType
         val body = """<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
               <s:Body><u:$action xmlns:u="$service">$arguments</u:$action></s:Body>
