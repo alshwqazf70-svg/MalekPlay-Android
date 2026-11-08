@@ -352,6 +352,7 @@ fun VideoPlayerScreen(
     var showTranslationLanguages by remember { mutableStateOf(false) }
     var showOnlineSubtitles by remember { mutableStateOf(false) }
     var showDlnaPicker by remember { mutableStateOf(false) }
+    var showRemoteOutputDialog by remember { mutableStateOf(false) }
     var activeDlnaDevice by remember { mutableStateOf<DiscoveredNetworkDevice?>(null) }
     var remoteDlnaPlaying by remember { mutableStateOf(false) }
     var remotePositionMs by remember { mutableLongStateOf(0L) }
@@ -689,7 +690,10 @@ fun VideoPlayerScreen(
                     onBack = onBack,
                     onAudioTrack = { showAudioTracks = true },
                     onSubtitles = { showTextTracks = true },
-                    onNetworkOutput = { showDlnaPicker = true },
+                    onNetworkOutput = {
+                        if (activeDlnaDevice == null) showDlnaPicker = true
+                        else showRemoteOutputDialog = true
+                    },
                     onMore = { showMenu = true },
                     modifier = Modifier.statusBarsPadding()
                 )
@@ -1080,6 +1084,36 @@ fun VideoPlayerScreen(
                     showQueue = false
                 },
                 onDismiss = { showQueue = false }
+            )
+        }
+
+        if (showRemoteOutputDialog) {
+            val remote = activeDlnaDevice
+            AlertDialog(
+                onDismissRequest = { showRemoteOutputDialog = false },
+                title = { Text("الفيديو يُعرض على التلفزيون") },
+                text = { Text(remote?.name ?: "جهاز DLNA") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showRemoteOutputDialog = false
+                            if (remote != null) {
+                                scope.launch {
+                                    runCatching { dlnaClient.stop(remote) }
+                                    controller?.let { local ->
+                                        local.seekTo(remotePositionMs)
+                                        local.play()
+                                    }
+                                    activeDlnaDevice = null
+                                    remoteDlnaPlaying = false
+                                }
+                            }
+                        }
+                    ) { Text("إيقاف الإرسال والعودة للهاتف") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRemoteOutputDialog = false }) { Text("متابعة على التلفزيون") }
+                }
             )
         }
 
