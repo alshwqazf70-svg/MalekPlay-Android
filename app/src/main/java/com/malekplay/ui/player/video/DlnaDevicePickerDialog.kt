@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.malekplay.network.DiscoveredNetworkDevice
 import com.malekplay.network.NetworkDeviceKind
 import com.malekplay.network.NetworkDiscoveryClient
+import kotlinx.coroutines.CancellationException
 
 @Composable
 fun DlnaDevicePickerDialog(
@@ -45,6 +46,8 @@ fun DlnaDevicePickerDialog(
                 device.kind == NetworkDeviceKind.MEDIA_RENDERER ||
                     device.services.any { it.contains("MediaRenderer", ignoreCase = true) }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (failure: Exception) {
             error = failure.message ?: "تعذر البحث عن أجهزة التلفزيون على الشبكة."
             devices = emptyList()
