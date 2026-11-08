@@ -73,6 +73,9 @@ class LibraryViewModel @Inject constructor(
     /** Explicit user refresh forces a scan; screen entry uses the short cache window. */
     fun refresh() = refresh(force = true)
 
+    /** Refreshes only when the cached MediaStore scan is stale (e.g. after returning from file sharing). */
+    fun refreshIfStale() = refresh(force = false)
+
     private fun refresh(force: Boolean) {
         viewModelScope.launch {
             if (!refreshMutex.tryLock()) return@launch
