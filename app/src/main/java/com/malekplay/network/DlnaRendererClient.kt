@@ -27,8 +27,14 @@ class DlnaRendererClient(
 
     suspend fun play(device: DiscoveredNetworkDevice, mediaUrl: String, title: String, mimeType: String) =
         withContext(Dispatchers.IO) {
-            require(mediaUrl.startsWith("http://", true) || mediaUrl.startsWith("https://", true)) {
+            val mediaUri = URL(mediaUrl)
+            require(mediaUri.protocol.equals("http", true) || mediaUri.protocol.equals("https", true)) {
                 "يجب أن يكون رابط الوسائط HTTP أو HTTPS ويمكن للتلفزيون الوصول إليه."
+            }
+            if (mediaUri.protocol.equals("http", true)) {
+                require(isPrivateLanHost(mediaUri.host)) {
+                    "روابط HTTP مسموحة فقط لخادم البث المحلي على الشبكة الخاصة."
+                }
             }
             val endpoint = resolveAvTransportEndpoint(device)
             soap(endpoint, "SetAVTransportURI", """
@@ -99,6 +105,9 @@ class DlnaRendererClient(
             "الجهاز المكتشف لا يعلن خدمة DLNA MediaRenderer."
         }
         endpointCache[device.id]?.let { return it }
+        require(isPrivateLanHost(device.host)) {
+            "أوامر DLNA مسموحة لأجهزة الشبكة المحلية فقط."
+        }
         val description = device.descriptionUrl
             ?: throw IOException("لم يعلن التلفزيون رابط وصف UPnP؛ أعد اكتشاف الأجهزة.")
         val descriptionUrl = URL(description)
