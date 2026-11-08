@@ -6,6 +6,9 @@ import android.net.Uri
 import androidx.media3.cast.DefaultMediaItemConverter
 import androidx.media3.cast.MediaItemConverter
 import androidx.media3.common.MediaItem
+import androidx.media3.common.C
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.common.util.UnstableApi
 import com.google.android.gms.cast.MediaQueueItem
 import java.io.BufferedInputStream
@@ -31,12 +34,17 @@ import java.util.concurrent.atomic.AtomicBoolean
  * registered content/file URIs. It supports HEAD and single-byte-range GETs,
  * which are required for receiver probing and seeking.
  */
-class CastMediaHttpServer(context: Context) : AutoCloseable {
+class CastMediaHttpServer(
+    context: Context,
+    private val upstreamFactory: DataSource.Factory
+) : AutoCloseable {
     private val resolver: ContentResolver = context.applicationContext.contentResolver
     private val random = SecureRandom()
     private val token = ByteArray(32).also(random::nextBytes).joinToString("") { "%02x".format(it) }
     private val uriById = ConcurrentHashMap<String, Uri>()
     private val idByUri = ConcurrentHashMap<String, String>()
+    private val lengthByUri = ConcurrentHashMap<String, Long>()
+    private val mimeByUri = ConcurrentHashMap<String, String>()
     private val running = AtomicBoolean(false)
     private val workers = Executors.newFixedThreadPool(4)
     @Volatile private var serverSocket: ServerSocket? = null
@@ -67,11 +75,17 @@ class CastMediaHttpServer(context: Context) : AutoCloseable {
 
     /** Returns a receiver-reachable URL for a local content/file URI. */
     @Synchronized
-    fun urlFor(uri: Uri): Uri {
+    fun urlFor(uri: Uri, mimeType: String? = null): Uri {
         val scheme = uri.scheme?.lowercase()
-        require(scheme == ContentResolver.SCHEME_CONTENT || scheme == ContentResolver.SCHEME_FILE) {
-            "Only local content:// and file:// media can be bridged"
-        }
+        require(
+            scheme == ContentResolver.SCHEME_CONTENT ||
+                scheme == ContentResolver.SCHEME_FILE ||
+                scheme == "https" ||
+                scheme == "maleksmb" ||
+                scheme == "maleksftp" ||
+                scheme == "malekdlna-http" ||
+                scheme == "malekdlna-https"
+        ) { "Unsupported upstream media scheme: $scheme" }
         ensureStarted()
         val key = uri.toString()
         val id = idByUri.getOrPut(key) {
@@ -79,6 +93,7 @@ class CastMediaHttpServer(context: Context) : AutoCloseable {
             uriById[newId] = uri
             newId
         }
+        mimeType?.takeIf { it.isNotBlank() }?.let { mimeByUri[key] = it }
         return Uri.parse("${baseUrl}/media/${token}/${id}")
     }
 
@@ -140,59 +155,104 @@ class CastMediaHttpServer(context: Context) : AutoCloseable {
     }
 
     private fun serveMedia(output: BufferedOutputStream, method: String, uri: Uri, range: String?) {
-        val descriptor = resolver.openAssetFileDescriptor(uri, "r")
-            ?: run { respond(output, 404, "Media Not Found"); return }
-        descriptor.use { afd ->
-            val length = when {
-                afd.length >= 0 -> afd.length
-                afd.parcelFileDescriptor.statSize >= 0 -> afd.parcelFileDescriptor.statSize - afd.startOffset
-                else -> -1L
+        val key = uri.toString()
+        var totalLength = lengthByUri[key]
+        var source: DataSource? = null
+        try {
+            if (range == null && method == "GET") {
+                source = upstreamFactory.createDataSource()
+                val openedLength = source.open(DataSpec(uri))
+                if (openedLength >= 0L) {
+                    totalLength = openedLength
+                    lengthByUri[key] = openedLength
+                }
+            } else if (totalLength == null) {
+                val probe = upstreamFactory.createDataSource()
+                try {
+                    val measured = probe.open(DataSpec(uri))
+                    if (measured >= 0L) {
+                        totalLength = measured
+                        lengthByUri[key] = measured
+                    }
+                } finally {
+                    probe.close()
+                }
             }
-            if (length < 0) {
+
+            if (range != null && totalLength == null) {
                 respond(output, 416, "Range Not Satisfiable", "Accept-Ranges" to "none")
                 return
             }
-            val parsed = parseRange(range, length)
+
+            val parsed = if (range != null) parseRange(range, totalLength ?: 0L) else null
             if (range != null && parsed == null) {
                 respond(
                     output, 416, "Range Not Satisfiable",
-                    "Content-Range" to "bytes */$length",
+                    "Content-Range" to "bytes */${totalLength ?: 0L}",
                     "Accept-Ranges" to "bytes"
                 )
                 return
             }
+
             val start = parsed?.first ?: 0L
-            val end = parsed?.last ?: (length - 1L)
-            val count = if (length == 0L) 0L else end - start + 1L
-            val status = if (parsed == null) 200 else 206
-            val mime = resolver.getType(uri) ?: "application/octet-stream"
+            val knownCount = if (parsed != null) parsed.last - parsed.first + 1L else totalLength
+            val status = if (parsed != null) 206 else 200
+            val mime = mimeByUri[key] ?: resolver.getType(uri) ?: "application/octet-stream"
             val headers = linkedMapOf(
                 "Content-Type" to mime,
-                "Content-Length" to count.toString(),
-                "Accept-Ranges" to "bytes",
+                "Accept-Ranges" to if (totalLength != null) "bytes" else "none",
                 "Cache-Control" to "no-store",
                 "Access-Control-Allow-Origin" to "*",
                 "Connection" to "close"
             )
-            if (status == 206) headers["Content-Range"] = "bytes $start-$end/$length"
+            if (knownCount != null) headers["Content-Length"] = knownCount.toString()
+            else headers["Transfer-Encoding"] = "chunked"
+            if (status == 206 && parsed != null) {
+                headers["Content-Range"] = "bytes ${parsed.first}-${parsed.last}/${totalLength}"
+            }
             writeHeaders(output, status, if (status == 206) "Partial Content" else "OK", headers)
-            if (method == "HEAD" || count == 0L) {
+            if (method == "HEAD") {
                 output.flush()
                 return
             }
-            FileInputStream(afd.parcelFileDescriptor.fileDescriptor).use { stream ->
-                val channel = stream.channel
-                channel.position(afd.startOffset + start)
-                val buffer = ByteArray(64 * 1024)
-                var remaining = count
-                while (remaining > 0) {
-                    val read = stream.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                    if (read < 0) break
+
+            if (source == null) {
+                source = upstreamFactory.createDataSource()
+                val spec = if (parsed != null) {
+                    DataSpec.Builder()
+                        .setUri(uri)
+                        .setPosition(start)
+                        .setLength(knownCount!!)
+                        .build()
+                } else DataSpec(uri)
+                source.open(spec)
+            }
+
+            val buffer = ByteArray(64 * 1024)
+            if (knownCount == null) {
+                while (true) {
+                    val read = source.read(buffer, 0, buffer.size)
+                    if (read == C.RESULT_END_OF_INPUT) break
+                    if (read <= 0) continue
+                    output.write(Integer.toHexString(read).toByteArray(StandardCharsets.US_ASCII))
+                    output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
+                    output.write(buffer, 0, read)
+                    output.write("\r\n".toByteArray(StandardCharsets.US_ASCII))
+                }
+                output.write("0\r\n\r\n".toByteArray(StandardCharsets.US_ASCII))
+            } else {
+                var remaining = knownCount
+                while (remaining > 0L) {
+                    val read = source.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                    if (read == C.RESULT_END_OF_INPUT) throw IOException("Upstream media ended before its advertised length")
+                    if (read <= 0) continue
                     output.write(buffer, 0, read)
                     remaining -= read
                 }
-                output.flush()
             }
+            output.flush()
+        } finally {
+            runCatching { source?.close() }
         }
     }
 
@@ -203,6 +263,8 @@ class CastMediaHttpServer(context: Context) : AutoCloseable {
         baseUrl = null
         uriById.clear()
         idByUri.clear()
+        lengthByUri.clear()
+        mimeByUri.clear()
         workers.shutdownNow()
     }
 
@@ -289,12 +351,10 @@ class CastMediaHttpServer(context: Context) : AutoCloseable {
         override fun toMediaQueueItem(mediaItem: MediaItem): MediaQueueItem {
             val local = mediaItem.localConfiguration ?: return delegate.toMediaQueueItem(mediaItem)
             val scheme = local.uri.scheme?.lowercase()
-            if (scheme != ContentResolver.SCHEME_CONTENT && scheme != ContentResolver.SCHEME_FILE) {
-                return delegate.toMediaQueueItem(mediaItem)
-            }
+            if (scheme == "http") return delegate.toMediaQueueItem(mediaItem)
             val bridged = MediaItem.Builder()
                 .setMediaId(mediaItem.mediaId)
-                .setUri(server.urlFor(local.uri))
+                .setUri(server.urlFor(local.uri, local.mimeType))
                 .setMimeType(local.mimeType)
                 .setMediaMetadata(mediaItem.mediaMetadata)
                 .build()
@@ -330,8 +390,8 @@ object LocalMediaBridgeRegistry {
         if (activeServer === server) activeServer = null
     }
 
-    fun urlFor(uri: Uri): Uri? {
+    fun urlFor(uri: Uri, mimeType: String? = null): Uri? {
         val server = activeServer ?: return null
-        return runCatching { server.urlFor(uri) }.getOrNull()
+        return runCatching { server.urlFor(uri, mimeType) }.getOrNull()
     }
 }
