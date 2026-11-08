@@ -79,7 +79,7 @@ class DlnaRendererClient(
                     }
                 }
                 XmlPullParser.END_TAG -> if (parser.name == "service" && inService) {
-                    if (serviceType?.contains(":service:AVTransport:", true) == true && !controlPath.isNullOrBlank()) {
+                    if (serviceType?.matches(Regex("urn:schemas-upnp-org:service:AVTransport:[0-9]+", RegexOption.IGNORE_CASE)) == true && !controlPath.isNullOrBlank()) {
                         val resolved = URL(descriptionUrl, controlPath)
                         require(resolved.protocol == "http" || resolved.protocol == "https") {
                             "بروتوكول رابط تحكم DLNA غير مدعوم."
@@ -87,7 +87,7 @@ class DlnaRendererClient(
                         require(resolved.host.equals(device.host, ignoreCase = true)) {
                             "تم رفض عنوان تحكم DLNA خارج الجهاز المكتشف."
                         }
-                        return AvTransportEndpoint(resolved, serviceType!!) 
+                        return AvTransportEndpoint(resolved, serviceType!!)
                     }
                     inService = false
                 }
