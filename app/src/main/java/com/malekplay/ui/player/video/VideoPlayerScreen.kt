@@ -352,6 +352,8 @@ fun VideoPlayerScreen(
     var showTranslationLanguages by remember { mutableStateOf(false) }
     var showOnlineSubtitles by remember { mutableStateOf(false) }
     var showDlnaPicker by remember { mutableStateOf(false) }
+    var activeDlnaDevice by remember { mutableStateOf<DiscoveredNetworkDevice?>(null) }
+    var remoteDlnaPlaying by remember { mutableStateOf(false) }
     val detectedEpisode = remember(title) {
         Regex("(?i)(?:S(\\d{1,2})[ ._-]*E(\\d{1,2})|(\\d{1,2})x(\\d{1,2}))").find(title)
     }
@@ -672,18 +674,46 @@ fun VideoPlayerScreen(
                         positionMs = positionMs,
                         durationMs = durationMs,
                         bufferedMs = bufferedMs,
-                        onScrubFinished = viewModel::seekTo
+                        onScrubFinished = { targetMs ->
+                            val remote = activeDlnaDevice
+                            if (remote == null) {
+                                viewModel.seekTo(targetMs)
+                            } else {
+                                scope.launch {
+                                    runCatching { DlnaRendererClient().seek(remote, targetMs) }
+                                        .onFailure { failure ->
+                                            Toast.makeText(context, failure.message ?: "تعذر تقديم الفيديو على التلفزيون.", Toast.LENGTH_LONG).show()
+                                        }
+                                }
+                            }
+                        }
                     )
                     }
 
 
                     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     PlayerMainControls(
-                        isPlaying = isPlaying,
+                        isPlaying = if (activeDlnaDevice != null) remoteDlnaPlaying else isPlaying,
                         hasNext = currentIndex < queue.lastIndex,
                         hasPrevious = currentIndex > 0,
                         onPrevious = viewModel::seekToPrevious,
-                        onPlayPause = viewModel::togglePlayPause,
+                        onPlayPause = {
+                            val remote = activeDlnaDevice
+                            if (remote == null) {
+                                viewModel.togglePlayPause()
+                            } else {
+                                scope.launch {
+                                    runCatching {
+                                        val client = DlnaRendererClient()
+                                        if (remoteDlnaPlaying) client.pause(remote) else client.resume(remote)
+                                    }.onSuccess {
+                                        remoteDlnaPlaying = !remoteDlnaPlaying
+                                    }.onFailure { failure ->
+                                        Toast.makeText(context, failure.message ?: "تعذر التحكم بالتلفزيون.", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+                        },
                         onNext = viewModel::seekToNext,
                         onQueue = { showQueue = true },
                         onPip = { viewModel.pipController.request() },
@@ -1028,7 +1058,10 @@ fun VideoPlayerScreen(
                                 mimeType = mimeType
                             )
                         }.onSuccess {
-                            Toast.makeText(context, "تم إرسال أمر التشغيل إلى ${device.name}", Toast.LENGTH_LONG).show()
+                            activeDlnaDevice = device
+                            remoteDlnaPlaying = true
+                            controller?.pause()
+                            Toast.makeText(context, "تم إرسال أمر التشغيل إلى " + device.name, Toast.LENGTH_LONG).show()
                         }.onFailure { failure ->
                             Toast.makeText(
                                 context,
