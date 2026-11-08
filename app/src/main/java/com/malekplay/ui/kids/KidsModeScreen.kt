@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
@@ -267,6 +268,7 @@ fun KidsModeScreen(
                     }
                 }
             }
+            KidsModeHelpCard(enabled = enabled)
         }
     }
 
@@ -303,5 +305,27 @@ fun KidsModeScreen(
                 }
             }
         )
+    }
+}
+
+
+@Composable
+private fun KidsModeHelpCard(enabled: Boolean) {
+    var expanded by remember { mutableStateOf(false) }
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("دليل وضع الأطفال", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "إخفاء الشرح" else "اضغط لعرض طريقة الإعداد والاستخدام")
+            }
+            if (expanded) {
+                if (!enabled) {
+                    Text("1. ابحث عن الفيديوهات أو المقاطع الصوتية باستخدام خانة البحث.\n2. استخدم «الكل» أو «الفيديو» أو «الصوت» لتصفية المكتبة.\n3. ضع علامة بجانب كل عنصر تريد السماح للطفل بمشاهدته أو سماعه.\n4. اضغط «حفظ الاختيار» أعلى الشاشة؛ ستُحفظ العناصر المحددة ويُفعّل وضع الأطفال.")
+                } else {
+                    Text("1. سيظهر للطفل فقط المحتوى الذي سمح به ولي الأمر.\n2. يمكن البحث والتبديل بين «الكل» و«الفيديو» و«الصوت».\n3. اضغط على العنصر لتشغيله.\n4. للخروج إلى مساحة الوالدين اضغط «دخول الوالدين» وأدخل رمز PIN ثم اختر «خروج وضع الأطفال».")
+                }
+                Text("تنبيه مهم: هذا الوضع يقيّد المحتوى داخل MalekPlay فقط، ولا يحوّل الهاتف إلى وضع قفل كامل؛ يمكن للطفل استخدام أزرار النظام أو فتح تطبيقات أخرى خارج MalekPlay. احتفظ برمز PIN ولا تشاركه.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
