@@ -28,7 +28,8 @@ class UltraShareReceivedHistoryStoreTest {
                 fileName = "sample.bin",
                 mimeType = "application/octet-stream",
                 sizeBytes = 4L,
-                receivedAtEpochMs = 1_800_000_000_000L
+                receivedAtEpochMs = 1_800_000_000_000L,
+                publishedUri = "content://media/external/downloads/42"
             )
             val entry = UltraShareReceivedHistoryStore.observe(context).first().single()
             assertEquals("sample.bin", entry.fileName)
@@ -36,6 +37,7 @@ class UltraShareReceivedHistoryStoreTest {
             assertEquals("application/octet-stream", entry.mimeType)
             assertTrue(entry.isAvailable)
             assertEquals(1_800_000_000_000L, entry.receivedAtEpochMs)
+            assertEquals("content://media/external/downloads/42", entry.publishedUri)
 
             UltraShareReceivedHistoryStore.remove(context, entry.id)
             assertTrue(UltraShareReceivedHistoryStore.observe(context).first().isEmpty())
