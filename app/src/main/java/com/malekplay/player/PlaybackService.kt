@@ -249,7 +249,7 @@ class PlaybackService : MediaSessionService() {
         val player = localExoPlayer ?: return false
         val sessionPlayer = mediaSession?.player ?: return false
         if (enabled) {
-            if (sessionPlayer.deviceInfo.playbackType == C.PLAYBACK_TYPE_REMOTE) return false
+            if (sessionPlayer.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) return false
             if (player.currentMediaItem?.localConfiguration?.drmConfiguration != null) return false
             if (player.currentTracks.groups.none { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }) return false
             val size = player.videoSize
@@ -267,7 +267,7 @@ class PlaybackService : MediaSessionService() {
         }
         val sessionPlayer = mediaSession?.player ?: return false
         val videoSize = player.videoSize
-        if (sessionPlayer.deviceInfo.playbackType == C.PLAYBACK_TYPE_REMOTE ||
+        if (sessionPlayer.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE ||
             player.currentMediaItem?.localConfiguration?.drmConfiguration != null ||
             player.currentTracks.groups.none { it.isSelected && it.type == C.TRACK_TYPE_VIDEO } ||
             videoSize.width <= 0 || videoSize.height <= 0
