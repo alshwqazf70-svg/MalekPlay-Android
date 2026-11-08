@@ -34,6 +34,7 @@ class SettingsRepository(private val context: Context) {
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val ACCENT = stringPreferencesKey("accent")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        val TEXT_COLOR_MODE = stringPreferencesKey("text_color_mode")
 
         val RESUME = booleanPreferencesKey("resume_playback")
         val DEFAULT_SPEED = floatPreferencesKey("default_speed")
@@ -88,6 +89,7 @@ class SettingsRepository(private val context: Context) {
             .getOrDefault(AppThemeMode.SYSTEM),
         accent = this[Keys.ACCENT]?.takeIf { it.isNotBlank() } ?: "amethyst",
         dynamicColor = this[Keys.DYNAMIC_COLOR] ?: false,
+        textColorMode = this[Keys.TEXT_COLOR_MODE]?.takeIf { it in setOf("aurora", "white", "black", "gold", "purple", "cyan", "mint", "pink") } ?: "aurora",
 
         resumePlayback = this[Keys.RESUME] ?: true,
         defaultSpeed = PlaybackValuePolicy.normalizeSpeed(this[Keys.DEFAULT_SPEED] ?: 1f),
@@ -135,6 +137,7 @@ class SettingsRepository(private val context: Context) {
         this[Keys.THEME_MODE] = s.themeMode.name
         this[Keys.ACCENT] = s.accent
         this[Keys.DYNAMIC_COLOR] = s.dynamicColor
+        this[Keys.TEXT_COLOR_MODE] = s.textColorMode.takeIf { it in setOf("aurora", "white", "black", "gold", "purple", "cyan", "mint", "pink") } ?: "aurora"
 
         this[Keys.RESUME] = s.resumePlayback
         this[Keys.DEFAULT_SPEED] = PlaybackValuePolicy.normalizeSpeed(s.defaultSpeed)
