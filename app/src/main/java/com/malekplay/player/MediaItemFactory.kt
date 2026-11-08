@@ -17,7 +17,7 @@ import com.malekplay.domain.model.MediaItem as DomainMedia
  * action, always build items with the same metadata (title, artwork, mime).
  */
 @UnstableApi
-fun DomainMedia.toMedia3Item(): MediaItem = MediaItem.Builder()
+fun DomainMedia.toMedia3Item(automaticSubtitleUri: Uri? = null): MediaItem = MediaItem.Builder()
     .setMediaId(id)
     .setUri(uri)
     .setMimeType(mimeType.takeIf { it.isNotBlank() })
@@ -28,6 +28,26 @@ fun DomainMedia.toMedia3Item(): MediaItem = MediaItem.Builder()
             .setAlbumTitle(album)
             .setArtworkUri(artworkUri)
             .build()
+    )
+    .setSubtitleConfigurations(
+        automaticSubtitleUri?.let { uri ->
+            val extension = uri.lastPathSegment.orEmpty().substringAfterLast('.', "").lowercase(Locale.ROOT)
+            val mimeType = when (extension) {
+                "ass", "ssa" -> MimeTypes.TEXT_SSA
+                "srt" -> MimeTypes.APPLICATION_SUBRIP
+                "vtt" -> MimeTypes.TEXT_VTT
+                else -> null
+            }
+            mimeType?.let {
+                listOf(
+                    MediaItem.SubtitleConfiguration.Builder(uri)
+                        .setMimeType(it)
+                        .setLanguage("und")
+                        .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
+                        .build()
+                )
+            }.orEmpty()
+        }.orEmpty()
     )
     .build()
 
