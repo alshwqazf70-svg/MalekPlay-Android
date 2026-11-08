@@ -3,4 +3,6 @@
     <cache-path name="subtitles" path="." />
     <cache-path name="shared" path="." />
     <external-path name="external" path="." />
+    <external-files-path name="app_external_files" path="." />
+    <files-path name="app_internal_files" path="." />
 </paths>
