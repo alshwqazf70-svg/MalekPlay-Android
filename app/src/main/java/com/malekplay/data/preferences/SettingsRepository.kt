@@ -33,6 +33,7 @@ class SettingsRepository(private val context: Context) {
 
     private object Keys {
         val SEEN_NEW_MEDIA_IDS = stringSetPreferencesKey("seen_new_media_ids")
+        val NEW_MEDIA_BASELINE_MS = longPreferencesKey("new_media_baseline_ms")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val ACCENT = stringPreferencesKey("accent")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
@@ -70,6 +71,22 @@ class SettingsRepository(private val context: Context) {
     val seenNewMediaIds: Flow<Set<String>> = context.malekPlayDataStore.data
         .catch { error -> if (error is java.io.IOException) emit(emptyPreferences()) else throw error }
         .map { it[Keys.SEEN_NEW_MEDIA_IDS] ?: emptySet() }
+
+    /** Timestamp captured once, so existing library items are not all labeled new on first launch. */
+    val newMediaBaselineMs: Flow<Long> = context.malekPlayDataStore.data
+        .catch { error -> if (error is java.io.IOException) emit(emptyPreferences()) else throw error }
+        .map { it[Keys.NEW_MEDIA_BASELINE_MS] ?: 0L }
+
+    /** Creates the baseline exactly once and keeps it stable across app restarts. */
+    suspend fun ensureNewMediaBaseline(): Long {
+        var baseline = 0L
+        context.malekPlayDataStore.edit { prefs ->
+            baseline = prefs[Keys.NEW_MEDIA_BASELINE_MS] ?: System.currentTimeMillis().also {
+                prefs[Keys.NEW_MEDIA_BASELINE_MS] = it
+            }
+        }
+        return baseline
+    }
 
     suspend fun markNewMediaSeen(mediaId: String) {
         if (mediaId.isBlank()) return
