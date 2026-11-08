@@ -32,6 +32,7 @@ import com.malekplay.player.PlaybackValuePolicy
 import com.malekplay.player.mediaItemFromUri
 import com.malekplay.player.audio.AudioEffectsController
 import com.malekplay.player.toMedia3Item
+import com.malekplay.safety.ParentalControlManager
 import com.malekplay.translation.SubtitleTranslationEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -175,6 +176,7 @@ class PlayerViewModel @Inject constructor(
     val favouriteIds: StateFlow<Set<String>> = userDataRepository.observeFavouriteIds()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    private val parentalControl by lazy(LazyThreadSafetyMode.NONE) { ParentalControlManager(app) }
     private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
     private var tickerJob: Job? = null
     private var sleepTimerJob: Job? = null
@@ -344,17 +346,27 @@ class PlayerViewModel @Inject constructor(
     ) {
         val player = _controller.value ?: return
         if (items.isEmpty()) return
-        val safeIndex = startIndex.coerceIn(0, items.lastIndex)
-        _queue.value = items
+        val requestedIndex = startIndex.coerceIn(0, items.lastIndex)
+        val requestedMediaId = items[requestedIndex].id
+        // Enforce the parent allowlist at the playback boundary, not only in UI lists.
+        val safeItems = if (parentalControl.isEnabled) {
+            items.filter { parentalControl.isMediaAllowed(it.id) }
+        } else items
+        val safeIndex = safeItems.indexOfFirst { it.id == requestedMediaId }
+        if (safeIndex < 0) {
+            _playerError.value = "هذا المحتوى غير معتمد في وضع الأطفال."
+            return
+        }
+        _queue.value = safeItems
         _currentIndex.value = safeIndex
-        _queueSize.value = items.size
-        val nextMediaId = items[safeIndex].id
+        _queueSize.value = safeItems.size
+        val nextMediaId = safeItems[safeIndex].id
         clearSubtitleTranslationSource()
         restoredTrackPreferenceIds.remove(nextMediaId)
         currentMediaId = nextMediaId
         _currentItemId.value = nextMediaId
         _playerError.value = null
-        player.setMediaItems(items.map { it.toMedia3Item() }, safeIndex, startPositionMs.coerceAtLeast(0L))
+        player.setMediaItems(safeItems.map { it.toMedia3Item() }, safeIndex, startPositionMs.coerceAtLeast(0L))
         player.shuffleModeEnabled = shuffle
         player.setPlaybackSpeed(PlaybackValuePolicy.normalizeSpeed(speed))
         player.prepare()
@@ -371,6 +383,10 @@ class PlayerViewModel @Inject constructor(
      * network stream. The Uri doubles as the media id so progress still sticks.
      */
     fun playExternalUri(uri: Uri, startPositionMs: Long = 0L, speed: Float = 1f) {
+        if (parentalControl.isEnabled) {
+            _playerError.value = "في وضع الأطفال يمكن تشغيل المحتوى الذي اعتمده الوالد فقط."
+            return
+        }
         val player = _controller.value ?: return
         _queue.value = emptyList()
         val nextMediaId = uri.toString()
