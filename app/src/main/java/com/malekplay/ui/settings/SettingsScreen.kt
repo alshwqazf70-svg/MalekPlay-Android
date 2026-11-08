@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -285,6 +286,66 @@ fun SettingsScreen(
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "لون الأحرف والنصوص",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "اختر اللون الذي يريح عينيك. الأسود يفعّل خلفية فاتحة، والأبيض يفعّل خلفية داكنة.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                val textPalettes = listOf(
+                    Triple("aurora", "الذهبي والبنفسجي", androidx.compose.ui.graphics.Color(0xFFC084FC)),
+                    Triple("white", "أبيض", androidx.compose.ui.graphics.Color.White),
+                    Triple("black", "أسود", androidx.compose.ui.graphics.Color(0xFF111111)),
+                    Triple("gold", "ذهبي", androidx.compose.ui.graphics.Color(0xFFFFD166)),
+                    Triple("purple", "بنفسجي", androidx.compose.ui.graphics.Color(0xFFC084FC)),
+                    Triple("cyan", "سماوي", androidx.compose.ui.graphics.Color(0xFF64DCEB)),
+                    Triple("mint", "نعناعي", androidx.compose.ui.graphics.Color(0xFF69D5A8)),
+                    Triple("pink", "وردي", androidx.compose.ui.graphics.Color(0xFFFF8FB1))
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    textPalettes.forEach { (id, label, swatch) ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.width(76.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.size(38.dp).clip(CircleShape)
+                                    .background(swatch)
+                                    .then(
+                                        if (settings.textColorMode == id) Modifier.border(
+                                            3.dp, MaterialTheme.colorScheme.primary, CircleShape
+                                        ) else Modifier.border(
+                                            1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape
+                                        )
+                                    )
+                                    .clickable { viewModel.update { it.copy(textColorMode = id) } },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (settings.textColorMode == id) {
+                                    Icon(Icons.Filled.Check, contentDescription = null,
+                                        tint = if (id == "black" || id == "gold") androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White,
+                                        modifier = Modifier.size(19.dp))
+                                }
+                            }
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 2
+                            )
                         }
                     }
                 }
