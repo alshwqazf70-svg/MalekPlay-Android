@@ -28,11 +28,11 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Short-lived, token-protected LAN bridge for local media sent to a Cast receiver.
+ * Short-lived, token-protected LAN bridge for media sent to Cast and DLNA receivers.
  *
- * The server binds only to a private IPv4 address and serves only explicitly
- * registered content/file URIs. It supports HEAD and single-byte-range GETs,
- * which are required for receiver probing and seeking.
+ * The bridge reads through the same Media3 DataSource factory as local playback,
+ * so SMB/SFTP/WebDAV credentials stay on the phone. It supports HEAD, byte ranges,
+ * and chunked responses when the upstream source has no known length.
  */
 class CastMediaHttpServer(
     context: Context,
@@ -345,7 +345,7 @@ class CastMediaHttpServer(
     private data class ByteRange(val first: Long, val last: Long)
 
     @UnstableApi
-    class LocalMediaItemConverter(private val server: CastMediaHttpServer) : MediaItemConverter {
+    class BridgeMediaItemConverter(private val server: CastMediaHttpServer) : MediaItemConverter {
         private val delegate = DefaultMediaItemConverter()
 
         override fun toMediaQueueItem(mediaItem: MediaItem): MediaQueueItem {
