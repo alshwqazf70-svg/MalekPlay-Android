@@ -323,7 +323,11 @@ fun SettingsScreen(
                         ) {
                             Box(
                                 modifier = Modifier.size(38.dp).clip(CircleShape)
-                                    .background(swatch)
+                                    .background(
+                                        if (id == "aurora") androidx.compose.ui.graphics.Brush.linearGradient(
+                                            listOf(androidx.compose.ui.graphics.Color(0xFFFFD166), androidx.compose.ui.graphics.Color(0xFFC084FC))
+                                        ) else androidx.compose.ui.graphics.Brush.linearGradient(listOf(swatch, swatch))
+                                    )
                                     .then(
                                         if (settings.textColorMode == id) Modifier.border(
                                             3.dp, MaterialTheme.colorScheme.primary, CircleShape
