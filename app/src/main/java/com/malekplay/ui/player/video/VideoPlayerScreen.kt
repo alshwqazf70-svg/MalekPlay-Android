@@ -217,6 +217,7 @@ fun VideoPlayerScreen(
     val sleepEndsAt by viewModel.sleepTimerEndsAtMs.collectAsStateWithLifecycle()
     val inPip by viewModel.pipController.inPip.collectAsStateWithLifecycle()
 
+
     val eqAvailable by viewModel.audioEffects.available.collectAsStateWithLifecycle()
     val bandCount by viewModel.audioEffects.bandCount.collectAsStateWithLifecycle()
     val levelRange by viewModel.audioEffects.levelRange.collectAsStateWithLifecycle()
@@ -348,6 +349,15 @@ fun VideoPlayerScreen(
     var showAudioTracks by remember { mutableStateOf(false) }
     var showTextTracks by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
+    val displayHdrCapabilities = remember(showStats, activity) {
+        if (!showStats) "—"
+        else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) "غير متاح على هذا الإصدار"
+        else runCatching {
+            HdrInfoPolicy.displayCapabilities(
+                activity?.window?.decorView?.display?.hdrCapabilities?.supportedHdrTypes
+            )
+        }.getOrDefault("غير معروف")
+    }
     var showSubtitleStyle by remember { mutableStateOf(false) }
     var showEqualizer by remember { mutableStateOf(false) }
     var showBookmarks by remember { mutableStateOf(false) }
@@ -1012,7 +1022,11 @@ fun VideoPlayerScreen(
         }
 
         if (showStats) {
-            StatsSheet(stats = stats, onDismiss = { showStats = false })
+            StatsSheet(
+                stats = stats,
+                displayHdrCapabilities = displayHdrCapabilities,
+                onDismiss = { showStats = false }
+            )
         }
 
         if (showSubtitleStyle) {
