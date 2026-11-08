@@ -174,7 +174,8 @@ class UltraShareForegroundService : Service() {
                                     file = received.file,
                                     fileName = received.fileName,
                                     mimeType = received.mimeType,
-                                    sizeBytes = received.sizeBytes
+                                    sizeBytes = received.sizeBytes,
+                                    publishedUri = publishedUri?.toString()
                                 )
                                 publish(
                                     currentState().copy(
