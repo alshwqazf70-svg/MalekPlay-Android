@@ -53,8 +53,24 @@ class LibraryViewModel @Inject constructor(
     val audio = mediaRepository.observeAudio()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val folders = mediaRepository.observeFolders()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val seenNewMediaIds = settingsRepository.seenNewMediaIds
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val folders = kotlinx.coroutines.flow.combine(
+        mediaRepository.observeFolders(),
+        allMedia,
+        seenNewMediaIds
+    ) { folderRows, mediaRows, seenIds ->
+        val cutoff = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
+        folderRows.map { folder ->
+            val unseenCount = mediaRows.count { row ->
+                row.media.folderPath == folder.path &&
+                    row.media.addedAtMs >= cutoff &&
+                    row.media.id !in seenIds
+            }
+            folder.copy(newItemCount = unseenCount)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val continueWatching = mediaRepository.observeContinueWatching(5)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -94,6 +110,10 @@ class LibraryViewModel @Inject constructor(
     fun search(query: String) = mediaRepository.observeSearch(query)
 
     fun folderContents(path: String) = mediaRepository.observeFolder(path)
+
+    fun markNewMediaSeen(mediaId: String) {
+        viewModelScope.launch { settingsRepository.markNewMediaSeen(mediaId) }
+    }
 
     fun toggleFavourite(mediaId: String) {
         viewModelScope.launch { userDataRepository.toggleFavourite(mediaId) }
