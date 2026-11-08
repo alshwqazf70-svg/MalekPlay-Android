@@ -363,4 +363,6 @@
     <string name="kids_parent_access">Parent access</string>
     <string name="kids_parent_pin_prompt">Enter the parent PIN to leave Kids Mode.</string>
     <string name="kids_parent_exit">Exit Kids Mode</string>
+    <string name="kids_save_error">Could not save the approved media list. Please try again.</string>
+    <string name="kids_refresh_library">Refresh library</string>
 </resources>
