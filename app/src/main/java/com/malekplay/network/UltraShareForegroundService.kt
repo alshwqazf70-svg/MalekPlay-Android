@@ -487,13 +487,25 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun updateNotification(progress: UltraShareTransport.Progress) {
-        notificationManager.notify(NOTIFICATION_ID, buildNotification(progress))
+        val current = currentState()
+        // A single notification progress bar cannot truthfully represent two simultaneous
+        // transfers. Show a neutral concurrent status instead of oscillating percentages.
+        val visibleProgress = when {
+            current.sending && current.receiving -> null
+            current.sending -> current.sendProgress ?: progress.takeUnless { it.receiving }
+            current.receiving -> current.receiveProgress ?: progress.takeIf { it.receiving }
+            else -> progress
+        }
+        notificationManager.notify(NOTIFICATION_ID, buildNotification(visibleProgress))
     }
 
     private fun buildNotification(progress: UltraShareTransport.Progress?): Notification {
-        val text = progress?.let {
-            "${it.fileName} • ${(it.fraction * 100).toInt()}%"
-        } ?: getString(R.string.ultra_share_notification_active)
+        val current = currentState()
+        val text = when {
+            current.sending && current.receiving -> "الإرسال والاستقبال يعملان معاً"
+            progress != null -> "${progress.fileName} • ${(progress.fraction * 100).toInt()}%"
+            else -> getString(R.string.ultra_share_notification_active)
+        }
         val cancelIntent = PendingIntent.getService(this, 38742, Intent(this, UltraShareForegroundService::class.java).setAction(ACTION_CANCEL), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_ultra_share_notification)
