@@ -39,6 +39,8 @@ data class UltraShareServiceState(
     val receiving: Boolean = false,
     val sending: Boolean = false,
     val progress: UltraShareTransport.Progress? = null,
+    val sendProgress: UltraShareTransport.Progress? = null,
+    val receiveProgress: UltraShareTransport.Progress? = null,
     val receivedFile: UltraShareTransport.ReceivedFile? = null,
     val status: String? = null,
     val error: String? = null,
@@ -55,8 +57,8 @@ data class UltraShareServiceState(
  */
 class UltraShareForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var receiveJob: Job? = null
-    private var sendJob: Job? = null
+    @Volatile private var receiveJob: Job? = null
+    @Volatile private var sendJob: Job? = null
     @Volatile private var pauseRequested = false
     private var advertisementJob: Job? = null
     private lateinit var notificationManager: NotificationManager
@@ -156,7 +158,7 @@ class UltraShareForegroundService : Service() {
                                         destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
                                         onProgress = { progress ->
                                             beginTransfer(isReceiving = true)
-                                            val nextState = currentState().copy(progress = progress, error = null)
+                                            val nextState = currentState().copy(progress = progress, receiveProgress = progress, error = null)
                                             publish(nextState)
                                             updateNotification(progress)
                                         }
@@ -182,7 +184,8 @@ class UltraShareForegroundService : Service() {
                                 publish(
                                     currentState().copy(
                                         receiving = true,
-                                        progress = null,
+                                        progress = if (currentState().sending) currentState().sendProgress else null,
+                                        receiveProgress = null,
                                         receivedFile = published,
                                         status = if (publishedUri != null) {
                                             "تم الاستلام والحفظ تلقائياً في التنزيلات: ${received.fileName}"
@@ -198,7 +201,8 @@ class UltraShareForegroundService : Service() {
                                 publish(
                                     currentState().copy(
                                         receiving = true,
-                                        progress = null,
+                                        progress = if (currentState().sending) currentState().sendProgress else null,
+                                        receiveProgress = null,
                                         error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)
                                     )
                                 )
@@ -206,7 +210,7 @@ class UltraShareForegroundService : Service() {
                             }
                         }
                     } catch (cancelled: CancellationException) {
-                        publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = null, status = getString(R.string.ultra_share_stopped)))
+                        publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (currentState().sending) currentState().sendProgress else null, receiveProgress = null, status = getString(R.string.ultra_share_stopped)))
                         throw cancelled
                     } catch (failure: Exception) {
                         publish(currentState().copy(receiving = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)))
@@ -214,7 +218,7 @@ class UltraShareForegroundService : Service() {
                         advertisementJob?.cancel()
                         advertisementJob = null
                         receiveJob = null
-                        publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (currentState().sending) currentState().progress else null))
+                        publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (currentState().sending) currentState().sendProgress else null, receiveProgress = null))
                         finishService()
                     }
                 }
@@ -246,20 +250,20 @@ class UltraShareForegroundService : Service() {
                             sizeBytes = metadata.third,
                             onProgress = { progress ->
                                 beginTransfer(isReceiving = false)
-                                publish(currentState().copy(progress = progress))
+                                publish(currentState().copy(progress = progress, sendProgress = progress))
                                 updateNotification(progress)
                             }
                         )
-                        publish(currentState().copy(sending = false, progress = null, status = getString(R.string.ultra_share_sent, metadata.first), error = null))
+                        publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().receiveProgress else null, sendProgress = null, status = getString(R.string.ultra_share_sent, metadata.first), error = null))
                     } catch (cancelled: CancellationException) {
-                        publish(currentState().copy(sending = false, progress = null, status = getString(R.string.ultra_share_cancel_transfer)))
+                        publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().receiveProgress else null, sendProgress = null, status = getString(R.string.ultra_share_cancel_transfer)))
                         throw cancelled
                     } catch (failure: Exception) {
-                        publish(currentState().copy(sending = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)))
+                        publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().receiveProgress else null, sendProgress = null, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)))
                     } finally {
                         endTransfer(isReceiving = false)
                         sendJob = null
-                        publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().progress else null))
+                        publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().receiveProgress else null, sendProgress = null))
                         finishService()
                     }
                 }
@@ -508,6 +512,7 @@ class UltraShareForegroundService : Service() {
                             beginTransfer(isReceiving = false)
                             publish(currentState().copy(
                                 progress = progress,
+                                sendProgress = progress,
                                 queueCurrentName = metadata.first,
                                 queueTransferredBytes = minOf(totalBytes, completedBytes + progress.transferredBytes)
                             ))
@@ -531,7 +536,8 @@ class UltraShareForegroundService : Service() {
                     publish(currentState().copy(
                         queueCompleted = index + 1,
                         queueTotal = queue.size,
-                        progress = null,
+                        progress = if (currentState().receiving) currentState().receiveProgress else null,
+                        sendProgress = null,
                         queueTotalBytes = totalBytes,
                         queueTransferredBytes = completedBytes
                     ))
@@ -545,7 +551,8 @@ class UltraShareForegroundService : Service() {
                 }
                 publish(currentState().copy(
                     sending = false,
-                    progress = null,
+                    progress = if (currentState().receiving) currentState().receiveProgress else null,
+                    sendProgress = null,
                     queueTransferredBytes = completedBytes,
                     status = if (pauseRequested)
                         "أُوقف الطابور مؤقتاً بعد إكمال " + sent + " ملفات؛ يمكنك استئناف المتبقي."
@@ -555,7 +562,7 @@ class UltraShareForegroundService : Service() {
             } finally {
                 sendJob = null
                 pauseRequested = false
-                publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().progress else null, queueCurrentName = null))
+                publish(currentState().copy(sending = false, progress = if (currentState().receiving) currentState().receiveProgress else null, sendProgress = null, queueCurrentName = null))
                 finishService()
             }
         }
