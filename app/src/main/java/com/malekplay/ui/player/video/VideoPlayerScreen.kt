@@ -126,6 +126,9 @@ import com.malekplay.ui.player.components.SpeedPickerDialog
 import com.malekplay.ui.player.components.StatsSheet
 import com.malekplay.ui.player.components.SubtitleStyleSheet
 import com.malekplay.ui.player.components.TrackPickerSheet
+import com.malekplay.network.DiscoveredNetworkDevice
+import com.malekplay.network.DlnaRendererClient
+import com.malekplay.player.cast.LocalMediaBridgeRegistry
 import com.malekplay.ui.settings.SettingsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -348,6 +351,7 @@ fun VideoPlayerScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showTranslationLanguages by remember { mutableStateOf(false) }
     var showOnlineSubtitles by remember { mutableStateOf(false) }
+    var showDlnaPicker by remember { mutableStateOf(false) }
     val detectedEpisode = remember(title) {
         Regex("(?i)(?:S(\\d{1,2})[ ._-]*E(\\d{1,2})|(\\d{1,2})x(\\d{1,2}))").find(title)
     }
@@ -626,6 +630,7 @@ fun VideoPlayerScreen(
                     onBack = onBack,
                     onAudioTrack = { showAudioTracks = true },
                     onSubtitles = { showTextTracks = true },
+                    onNetworkOutput = { showDlnaPicker = true },
                     onMore = { showMenu = true },
                     modifier = Modifier.statusBarsPadding()
                 )
@@ -983,6 +988,56 @@ fun VideoPlayerScreen(
                     showQueue = false
                 },
                 onDismiss = { showQueue = false }
+            )
+        }
+
+        if (showDlnaPicker) {
+            DlnaDevicePickerDialog(
+                onDismiss = { showDlnaPicker = false },
+                onDeviceSelected = { device: DiscoveredNetworkDevice ->
+                    showDlnaPicker = false
+                    scope.launch {
+                        val item = viewModel.currentMediaItem()
+                        val originalUri = item?.localConfiguration?.uri
+                        if (originalUri == null) {
+                            Toast.makeText(context, "لا يوجد فيديو حالي لإرساله.", Toast.LENGTH_LONG).show()
+                            return@launch
+                        }
+                        val scheme = originalUri.scheme?.lowercase()
+                        val receiverUri = when (scheme) {
+                            "content", "file" -> LocalMediaBridgeRegistry.urlFor(originalUri)
+                            "http", "https" -> originalUri
+                            else -> null
+                        }
+                        if (receiverUri == null) {
+                            Toast.makeText(
+                                context,
+                                "مصدر هذا الفيديو لا يمكن تقديمه للتلفزيون حالياً. المصادر المحلية وHTTP/HTTPS مدعومة في هذه المرحلة.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            return@launch
+                        }
+                        val mimeType = item.localConfiguration?.mimeType
+                            ?: context.contentResolver.getType(originalUri)
+                            ?: "video/mp4"
+                        runCatching {
+                            DlnaRendererClient().play(
+                                device = device,
+                                mediaUrl = receiverUri.toString(),
+                                title = currentVideoTitle,
+                                mimeType = mimeType
+                            )
+                        }.onSuccess {
+                            Toast.makeText(context, "تم إرسال أمر التشغيل إلى ${device.name}", Toast.LENGTH_LONG).show()
+                        }.onFailure { failure ->
+                            Toast.makeText(
+                                context,
+                                failure.message ?: "تعذر إرسال الفيديو إلى التلفزيون.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
             )
         }
     }
