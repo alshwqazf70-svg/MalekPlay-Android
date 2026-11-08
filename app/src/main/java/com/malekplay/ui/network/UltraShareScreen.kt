@@ -120,7 +120,10 @@ data class UltraShareUiState(
     val queueEntries: List<UltraShareQueueEntry> = emptyList(),
     val receivedHistory: List<UltraShareReceivedEntry> = emptyList(),
     val wifiDirectPeers: List<UltraShareWifiDirect.Peer> = emptyList(),
-    val wifiDirectHost: String? = null
+    val wifiDirectHost: String? = null,
+    val hotspotSsid: String? = null,
+    val hotspotPassword: String? = null,
+    val hotspotStarting: Boolean = false
 )
 
 @HiltViewModel
@@ -172,7 +175,10 @@ class UltraShareViewModel @Inject constructor(
                     queueTotal = serviceState.queueTotal,
                     queueCurrentName = serviceState.queueCurrentName,
                     queueTotalBytes = serviceState.queueTotalBytes,
-                    queueTransferredBytes = serviceState.queueTransferredBytes
+                    queueTransferredBytes = serviceState.queueTransferredBytes,
+                    hotspotSsid = serviceState.hotspotSsid,
+                    hotspotPassword = serviceState.hotspotPassword,
+                    hotspotStarting = serviceState.hotspotStarting
                 )
             }
         }
@@ -196,6 +202,14 @@ class UltraShareViewModel @Inject constructor(
                     error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
                 )
             }
+    }
+
+    fun startHotspot() {
+        UltraShareForegroundService.startHotspot(context)
+    }
+
+    fun stopHotspot() {
+        UltraShareForegroundService.stopHotspot(context)
     }
 
     fun stopReceiving() {
@@ -565,6 +579,27 @@ fun UltraShareScreen(
             Toast.makeText(context, "يلزم منح إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
         }
     }
+    val hotspotPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.all { it }) {
+            viewModel.startHotspot()
+        } else {
+            Toast.makeText(context, "يلزم منح إذن الأجهزة القريبة لإنشاء شبكة MalekPlay المحلية.", Toast.LENGTH_LONG).show()
+        }
+    }
+    fun requestLocalHotspot() {
+        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        val missing = required.filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) viewModel.startHotspot()
+        else hotspotPermissionLauncher.launch(missing.toTypedArray())
+    }
     fun requestWifiDirectScan() {
         val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
@@ -765,6 +800,64 @@ fun UltraShareScreen(
                     Text(stringResource(R.string.ultra_share_pairing_code), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                     Text(state.pairingSecret.chunked(3).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(stringResource(R.string.ultra_share_code_warning), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    if (state.hotspotSsid != null) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                        ) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("شبكة MalekPlay المحلية جاهزة", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                Text("اسم الشبكة: ${state.hotspotSsid}", color = MaterialTheme.colorScheme.onSurface)
+                                Text(
+                                    if (state.hotspotPassword.isNullOrBlank()) "كلمة المرور: بدون كلمة مرور"
+                                    else "كلمة المرور: ${state.hotspotPassword}",
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "صِل الهاتف الآخر بهذه الشبكة، ثم افتح MalekPlay واضغط «الأجهزة القريبة». هذه الشبكة مخصصة للنقل المحلي ولا توفر إنترنت.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                OutlinedButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                        clipboard?.setPrimaryClip(
+                                            ClipData.newPlainText(
+                                                "MalekPlay Wi-Fi",
+                                                "SSID: ${state.hotspotSsid}\nPassword: ${state.hotspotPassword.orEmpty()}"
+                                            )
+                                        )
+                                        Toast.makeText(context, "تم نسخ بيانات الشبكة.", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Filled.ContentCopy, contentDescription = null)
+                                    Text("نسخ بيانات الشبكة", modifier = Modifier.padding(start = 8.dp))
+                                }
+                                OutlinedButton(onClick = viewModel::stopHotspot, modifier = Modifier.fillMaxWidth()) {
+                                    Text("إيقاف نقطة الاتصال")
+                                }
+                            }
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = ::requestLocalHotspot,
+                            enabled = !state.hotspotStarting,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (state.hotspotStarting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Filled.Wifi, contentDescription = null)
+                            Text(
+                                if (state.hotspotStarting) "جارٍ إنشاء شبكة محلية..." else "إنشاء نقطة اتصال MalekPlay",
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                        Text(
+                            "أنشئ شبكة محلية من داخل التطبيق عند عدم توفر راوتر مشترك. قد يرفض Android ذلك إذا كانت نقطة اتصال أخرى تعمل بالفعل.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                     qrBitmap?.let { bitmap ->
                         val activeQrPayload = qrPayload ?: return@let
                         Image(
