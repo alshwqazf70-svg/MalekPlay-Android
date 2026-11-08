@@ -40,7 +40,8 @@ class ParentalControlManagerTest {
     fun emptyAllowlistFailsClosed() {
         assertTrue(manager.allowedMediaIds.isEmpty())
         assertFalse(manager.isMediaAllowed("any-media"))
-        assertFalse(manager.isMediaAllowed(""))\n        assertFalse(manager.isMediaAllowed("content://not-approved"))
+        assertFalse(manager.isMediaAllowed(""))
+        assertFalse(manager.isMediaAllowed("content://not-approved"))
     }
 
     @Test
