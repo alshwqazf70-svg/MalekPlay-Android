@@ -10,6 +10,8 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.RemoteCastPlayer
+import com.malekplay.player.cast.CastMediaHttpServer
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
@@ -57,6 +59,7 @@ import java.nio.charset.StandardCharsets
 class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
+    private var castMediaHttpServer: CastMediaHttpServer? = null
     private lateinit var profileStore: NetworkProfileStore
     private lateinit var credentialVault: NetworkCredentialVault
 
@@ -112,8 +115,16 @@ class PlaybackService : MediaSessionService() {
 
         // CastPlayer wraps the existing ASS-capable ExoPlayer. MediaController,
         // notification controls and the video UI now share one local/remote Player.
+        // The bridge starts lazily only when a local file is handed to a Cast receiver.
+        // It exposes tokenized, seekable LAN URLs rather than leaking content:// URIs.
+        val mediaBridge = CastMediaHttpServer(this)
+        castMediaHttpServer = mediaBridge
+        val remotePlayer = RemoteCastPlayer.Builder(this)
+            .setMediaItemConverter(CastMediaHttpServer.LocalMediaItemConverter(mediaBridge))
+            .build()
         val castPlayer = CastPlayer.Builder(this)
             .setLocalPlayer(player)
+            .setRemotePlayer(remotePlayer)
             .build()
 
         castPlayer.addListener(progressListener)
@@ -134,6 +145,8 @@ class PlaybackService : MediaSessionService() {
             release()
         }
         mediaSession = null
+        castMediaHttpServer?.close()
+        castMediaHttpServer = null
         // Audio effects share the application's active audio session. Their lifetime
         // follows the playback service, not the transient player screen ViewModel.
         audioEffectsController.release()
