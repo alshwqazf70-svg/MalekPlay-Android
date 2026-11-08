@@ -1099,9 +1099,34 @@ fun UltraShareScreen(
                     }
                     Text(received.fileName, color = MaterialTheme.colorScheme.onSurface)
                     Text(formatTransferBytes(received.sizeBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (received.publishedUri != null) {
+                        Text(
+                            "حُفظ تلقائياً في التنزيلات / MalekPlay / Received",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        Button(
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(received.publishedUri, received.mimeType)
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                runCatching { context.startActivity(intent) }
+                                    .onFailure {
+                                        Toast.makeText(context, "لا يوجد تطبيق مناسب لفتح هذا الملف.", Toast.LENGTH_LONG).show()
+                                    }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("فتح الملف المحفوظ")
+                        }
+                    }
                     OutlinedButton(onClick = { exportFile.launch(received.fileName) }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Filled.ContentCopy, contentDescription = null)
-                        Text(stringResource(R.string.ultra_share_save_to_device), modifier = Modifier.padding(start = 8.dp))
+                        Text(
+                            if (received.publishedUri != null) "حفظ نسخة في مكان آخر"
+                            else stringResource(R.string.ultra_share_save_to_device),
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
                     }
                 }
             }
