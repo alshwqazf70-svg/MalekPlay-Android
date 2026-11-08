@@ -3,6 +3,7 @@ package com.malekplay.ui.player
 import android.content.ComponentName
 import android.util.Log
 import android.content.Context
+import android.os.Bundle
 import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
@@ -17,6 +18,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import com.malekplay.data.local.entity.BookmarkEntity
 import com.malekplay.data.local.entity.TrackPreferenceEntity
@@ -29,6 +31,7 @@ import com.malekplay.network.OnlineSubtitleRepository
 import com.malekplay.player.LocalSubtitleResolver
 import com.malekplay.player.PipController
 import com.malekplay.player.PlaybackService
+import com.malekplay.player.PlaybackVideoEffects
 import com.malekplay.player.PlaybackValuePolicy
 import com.malekplay.player.mediaItemFromUri
 import com.malekplay.player.audio.AudioEffectsController
@@ -141,6 +144,8 @@ class PlayerViewModel @Inject constructor(
     val textTrackDisabled: StateFlow<Boolean> = _textTrackDisabled.asStateFlow()
 
     private val _stats = MutableStateFlow(PlaybackStats())
+    private val _videoUpscalingEnabled = MutableStateFlow(false)
+    val videoUpscalingEnabled: StateFlow<Boolean> = _videoUpscalingEnabled.asStateFlow()
     val stats: StateFlow<PlaybackStats> = _stats.asStateFlow()
 
     private val _playerError = MutableStateFlow<String?>(null)
@@ -282,6 +287,15 @@ class PlayerViewModel @Inject constructor(
 
         override fun onTracksChanged(tracks: Tracks) {
             refreshTracks(tracks)
+            if (tracks.groups.none { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }) {
+                _videoUpscalingEnabled.value = false
+            }
+        }
+
+        override fun onDeviceInfoChanged(deviceInfo: androidx.media3.common.DeviceInfo) {
+            if (deviceInfo.playbackType == C.PLAYBACK_TYPE_REMOTE) {
+                _videoUpscalingEnabled.value = false
+            }
         }
 
         override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
@@ -335,6 +349,29 @@ class PlayerViewModel @Inject constructor(
                 delay(TICK_INTERVAL_MS)
             }
         }
+    }
+
+
+    /** Requests GPU Lanczos resampling from the playback service, which owns the real ExoPlayer. */
+    fun setVideoUpscalingEnabled(enabled: Boolean) {
+        val player = _controller.value ?: return
+        val args = Bundle().apply {
+            putBoolean(PlaybackVideoEffects.KEY_ENABLED, enabled)
+        }
+        val future = runCatching {
+            player.sendCustomCommand(PlaybackVideoEffects.COMMAND, args)
+        }.getOrNull() ?: run {
+            _videoUpscalingEnabled.value = false
+            return
+        }
+        future.addListener(
+            {
+                val result = runCatching { future.get() }.getOrNull()
+                _videoUpscalingEnabled.value =
+                    enabled && result?.resultCode == SessionResult.RESULT_SUCCESS
+            },
+            ContextCompat.getMainExecutor(app)
+        )
     }
 
     // ------------------------------------------------------------ playback

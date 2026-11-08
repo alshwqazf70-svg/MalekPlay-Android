@@ -19,6 +19,11 @@ object AssVideoEffectRegistry {
     }
 
     @Synchronized
+    fun detach(player: ExoPlayer) {
+        managers.remove(player)
+    }
+
+    @Synchronized
     fun setAdditionalEffects(player: ExoPlayer, effects: List<Effect>) {
         managers[player]?.setAdditionalEffects(effects)
     }

@@ -196,6 +196,7 @@ fun VideoPlayerScreen(
     val controller by viewModel.controller.collectAsStateWithLifecycle()
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val isBuffering by viewModel.isBuffering.collectAsStateWithLifecycle()
+    val videoUpscalingEnabled by viewModel.videoUpscalingEnabled.collectAsStateWithLifecycle()
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
     val durationMs by viewModel.durationMs.collectAsStateWithLifecycle()
     val bufferedMs by viewModel.bufferedMs.collectAsStateWithLifecycle()
@@ -875,6 +876,30 @@ fun VideoPlayerScreen(
                         showMenu = false
                         viewModel.addBookmark(currentVideoId, positionMs, formatDuration(positionMs))
                     }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(
+                                if (videoUpscalingEnabled) R.string.player_gpu_upscaling_on
+                                else R.string.player_gpu_upscaling_off
+                            )
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        viewModel.setVideoUpscalingEnabled(!videoUpscalingEnabled)
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.player_noise_reduction_unavailable)) },
+                    enabled = false,
+                    onClick = {}
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.player_motion_smoothing_unavailable)) },
+                    enabled = false,
+                    onClick = {}
                 )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.player_bookmarks)) },
