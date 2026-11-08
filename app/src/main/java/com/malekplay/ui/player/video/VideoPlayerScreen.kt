@@ -75,6 +75,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -340,6 +341,7 @@ fun VideoPlayerScreen(
     var aspect by remember { mutableIntStateOf(AspectMode.FIT.ordinal) }
     val aspectMode = AspectMode.entries[aspect]
     var videoZoom by remember { mutableFloatStateOf(1f) }
+    val latestVideoZoom by rememberUpdatedState(videoZoom)
 
     var showSpeed by remember { mutableStateOf(false) }
     var showSleep by remember { mutableStateOf(false) }
@@ -499,7 +501,7 @@ fun VideoPlayerScreen(
         Modifier.pointerInput(settings) {
             detectPlayerGestures(
                 onTap = { chromeVisible = !chromeVisible },
-                onPinch = { factor -> videoZoom = PlayerZoomPolicy.scaleBy(videoZoom, factor) },
+                onPinch = { factor -> videoZoom = PlayerZoomPolicy.scaleBy(latestVideoZoom, factor) },
                 onDoubleTap = { fraction ->
                     when (settings.gestureDoubleTap) {
                         GestureAction.SEEK -> {
