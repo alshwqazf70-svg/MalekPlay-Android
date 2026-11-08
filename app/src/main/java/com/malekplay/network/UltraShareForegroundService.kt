@@ -506,7 +506,7 @@ class UltraShareForegroundService : Service() {
                         ))
                         return@forEachIndexed
                     }
-                    publish(currentState().copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = null))
+                    publish(currentState().copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = if (currentState().receiving) currentState().receiveProgress else null, sendProgress = null))
                     try {
                         sendWithRetry(uri, host, secret, metadata) { progress ->
                             beginTransfer(isReceiving = false)
