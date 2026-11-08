@@ -34,6 +34,10 @@ class ParentalControlManagerTest {
 
         val secondInstance = ParentalControlManager(context)
         assertEquals(setOf("video-1", "song-2"), secondInstance.allowedMediaIds)
+
+        val mutableSnapshot = manager.allowedMediaIds.toMutableSet()
+        mutableSnapshot.clear()
+        assertEquals(setOf("video-1", "song-2"), manager.allowedMediaIds)
     }
 
     @Test
@@ -57,4 +61,15 @@ class ParentalControlManagerTest {
         assertTrue(manager.disableAfterPin("4826"))
         assertFalse(manager.isEnabled)
     }
+    @Test
+    fun repeatedWrongPinsTemporarilyBlockEvenTheCorrectPin() {
+        manager.setPin("4826")
+
+        repeat(5) {
+            assertFalse(manager.verifyPin("1111"))
+        }
+
+        assertFalse(manager.verifyPin("4826"))
+    }
+
 }
