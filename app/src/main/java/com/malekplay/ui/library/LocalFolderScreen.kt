@@ -66,6 +66,7 @@ fun LocalFolderScreen(
     val items by remember(folderPath) { viewModel.folderContents(folderPath) }
         .collectAsStateWithLifecycle(initialValue = emptyList<LibraryItem>())
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val seenNewMediaIds by viewModel.seenNewMediaIds.collectAsStateWithLifecycle()
     val selectedUris = remember { mutableStateListOf<android.net.Uri>() }
     val selectionMode = selectedUris.isNotEmpty()
     fun toggleSelection(uri: android.net.Uri) { if (uri in selectedUris) selectedUris.remove(uri) else selectedUris.add(uri) }
@@ -87,7 +88,7 @@ fun LocalFolderScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "${items.size} ملف  •  ${items.count { it.media.isVideo }} فيديو  •  ${items.count { it.media.isAudio }} موسيقى  •  ${items.count { System.currentTimeMillis() - it.media.addedAtMs <= 604800000L }} جديد",
+                            text = "${items.size} ملف  •  ${items.count { it.media.isVideo }} فيديو  •  ${items.count { it.media.isAudio }} موسيقى  •  ${items.count { System.currentTimeMillis() - it.media.addedAtMs <= 604800000L && it.media.id !in seenNewMediaIds }} جديد",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -149,7 +150,7 @@ fun LocalFolderScreen(
             items(items = items.sortedByDescending { it.media.addedAtMs }, key = { it.media.id }) { item ->
                 FolderItemRow(
                     item = item,
-                    onClick = { onOpenMedia(item.media) },
+                    onClick = { viewModel.markNewMediaSeen(item.media.id); onOpenMedia(item.media) },
                     onSend = { toggleSelection(item.media.uri) },
                     selectionMode = selectionMode,
                     isSelected = item.media.uri in selectedUris,
@@ -202,7 +203,7 @@ private fun FolderItemRow(
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(7.dp))
-                if (System.currentTimeMillis() - item.media.addedAtMs <= 604800000L) {
+                if (System.currentTimeMillis() - item.media.addedAtMs <= 604800000L && item.media.id !in seenNewMediaIds) {
                     androidx.compose.material3.Surface(
                         color = androidx.compose.ui.graphics.Color(0xFFE84D75),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
