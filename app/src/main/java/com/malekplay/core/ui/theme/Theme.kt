@@ -155,7 +155,6 @@ fun MalekPlayTheme(
     val colorScheme = if (chosenText == null) textBase else textBase.copy(
         onBackground = chosenText,
         onSurface = chosenText,
-        onSurfaceVariant = chosenText.copy(alpha = 0.82f),
         onSurfaceVariant = chosenText.copy(alpha = 0.82f)
     )
 
