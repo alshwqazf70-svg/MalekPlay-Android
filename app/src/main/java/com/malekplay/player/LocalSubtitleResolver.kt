@@ -48,13 +48,7 @@ internal object LocalSubtitleResolver {
                     val name = cursor.getString(nameColumn).orEmpty()
                     val extension = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
                     if (extension !in supportedExtensions) continue
-                    val subtitleBase = basename(name).lowercase(Locale.ROOT)
-                    val score = when {
-                        subtitleBase == videoBase -> 0
-                        subtitleBase.startsWith("$videoBase.") -> 1
-                        subtitleBase.startsWith("$videoBase ") -> 2
-                        else -> continue
-                    } + extensionPriority(extension)
+                    val score = matchingScore(videoBase, name) ?: continue
                     if (score < bestScore) {
                         bestScore = score
                         bestId = cursor.getLong(idColumn)
@@ -86,6 +80,17 @@ internal object LocalSubtitleResolver {
         else -> 10
     }
 
-    internal fun isSupportedSubtitleName(name: String): Boolean =
-        name.substringAfterLast('.', "").lowercase(Locale.ROOT) in supportedExtensions
+    internal fun matchingScore(videoTitleOrBase: String, subtitleName: String): Int? {
+        val videoBase = basename(videoTitleOrBase).lowercase(Locale.ROOT)
+        val extension = subtitleName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        if (videoBase.isBlank() || extension !in supportedExtensions) return null
+        val subtitleBase = basename(subtitleName).lowercase(Locale.ROOT)
+        val nameScore = when {
+            subtitleBase == videoBase -> 0
+            subtitleBase.startsWith("$videoBase.") -> 1
+            subtitleBase.startsWith("$videoBase ") -> 2
+            else -> return null
+        }
+        return nameScore * 10 + extensionPriority(extension)
+    }
 }
