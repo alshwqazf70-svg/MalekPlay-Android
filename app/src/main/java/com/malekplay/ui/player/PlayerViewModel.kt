@@ -26,6 +26,7 @@ import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem as DomainMedia
 import com.malekplay.network.OnlineSubtitle
 import com.malekplay.network.OnlineSubtitleRepository
+import com.malekplay.player.LocalSubtitleResolver
 import com.malekplay.player.PipController
 import com.malekplay.player.PlaybackService
 import com.malekplay.player.PlaybackValuePolicy
