@@ -176,6 +176,6 @@ dependencies {
     implementation(libs.sshj)
     implementation(libs.okhttp)
     implementation(libs.zxing.core)
-    // Google Play services QR scanner: avoids adding a permanent camera preview stack.
-    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // Standalone camera QR scanner; works without downloading a Google Play services module.
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }
