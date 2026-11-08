@@ -295,7 +295,7 @@ class PlayerViewModel @Inject constructor(
         }
 
         override fun onDeviceInfoChanged(deviceInfo: androidx.media3.common.DeviceInfo) {
-            if (deviceInfo.playbackType == C.PLAYBACK_TYPE_REMOTE) {
+            if (deviceInfo.playbackType == androidx.media3.common.DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                 _videoUpscalingEnabled.value = false
             }
         }
