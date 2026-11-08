@@ -1130,22 +1130,26 @@ fun VideoPlayerScreen(
                             return@launch
                         }
                         val scheme = originalUri.scheme?.lowercase()
+                        val mimeType = item.localConfiguration?.mimeType
+                            ?: context.contentResolver.getType(originalUri)
+                            ?: "video/mp4"
+                        // Proxy network credentials and private protocol URIs through the phone.
+                        // The TV receives only a short-lived tokenized LAN URL.
                         val receiverUri = when (scheme) {
-                            "content", "file" -> LocalMediaBridgeRegistry.urlFor(originalUri)
-                            "http", "https" -> originalUri
+                            "http" -> originalUri
+                            "content", "file", "https", "maleksmb", "maleksftp",
+                            "malekdlna-http", "malekdlna-https" ->
+                                LocalMediaBridgeRegistry.urlFor(originalUri, mimeType)
                             else -> null
                         }
                         if (receiverUri == null) {
                             Toast.makeText(
                                 context,
-                                "مصدر هذا الفيديو لا يمكن تقديمه للتلفزيون حالياً. المصادر المحلية وHTTP/HTTPS مدعومة في هذه المرحلة.",
+                                "مصدر هذا الفيديو لا يمكن تقديمه للتلفزيون. تحقق من أن المصدر مدعوم ومتاح على الهاتف.",
                                 Toast.LENGTH_LONG
                             ).show()
                             return@launch
                         }
-                        val mimeType = item.localConfiguration?.mimeType
-                            ?: context.contentResolver.getType(originalUri)
-                            ?: "video/mp4"
                         runCatching {
                             dlnaClient.play(
                                 device = device,
