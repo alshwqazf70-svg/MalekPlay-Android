@@ -37,6 +37,8 @@ class LibraryViewModel @Inject constructor(
     )
 
     private val refreshMutex = Mutex()
+    // If MediaStore changes during a scan, run one coalesced follow-up scan.
+    private var pendingMediaStoreRefresh = false
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
@@ -101,11 +103,19 @@ class LibraryViewModel @Inject constructor(
      * Refresh after MediaStore reports a change. A short throttle coalesces the
      * burst of notifications Android emits while one file is being indexed.
      */
-    fun refreshAfterMediaStoreChange() = refresh(force = false, minIntervalMs = 2_000L)
+    fun refreshAfterMediaStoreChange() =
+        refresh(force = false, minIntervalMs = 2_000L, retryIfBusy = true)
 
-    private fun refresh(force: Boolean, minIntervalMs: Long = 5 * 60 * 1_000L) {
+    private fun refresh(
+        force: Boolean,
+        minIntervalMs: Long = 5 * 60 * 1_000L,
+        retryIfBusy: Boolean = false
+    ) {
         viewModelScope.launch {
-            if (!refreshMutex.tryLock()) return@launch
+            if (!refreshMutex.tryLock()) {
+                if (retryIfBusy) pendingMediaStoreRefresh = true
+                return@launch
+            }
             _isRefreshing.value = true
             _error.value = null
             try {
@@ -117,7 +127,10 @@ class LibraryViewModel @Inject constructor(
                 _error.value = error.localizedMessage ?: "Could not refresh the library"
             } finally {
                 _isRefreshing.value = false
+                val runPendingRefresh = pendingMediaStoreRefresh
+                pendingMediaStoreRefresh = false
                 refreshMutex.unlock()
+                if (runPendingRefresh) refresh(force = true)
             }
         }
     }
