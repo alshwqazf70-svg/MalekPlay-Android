@@ -204,7 +204,7 @@ class UltraShareViewModel @Inject constructor(
             receiving = false,
             pairingSecret = "",
             localAddresses = emptyList(),
-            progress = null,
+            progress = if (_state.value.sending) UltraShareForegroundService.state.value.sendProgress else null,
             status = context.getString(R.string.ultra_share_stopped)
         )
     }
@@ -445,7 +445,7 @@ class UltraShareViewModel @Inject constructor(
     fun cancelSending() {
         UltraShareForegroundService.cancelSending(context)
         _state.value = _state.value.copy(
-            progress = null,
+            progress = if (_state.value.receiving) UltraShareForegroundService.state.value.receiveProgress else null,
             status = context.getString(R.string.ultra_share_send_cancelled)
         )
     }
