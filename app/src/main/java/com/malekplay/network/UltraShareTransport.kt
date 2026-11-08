@@ -65,6 +65,7 @@ object UltraShareTransport {
     const val DEFAULT_PORT = 38741
     const val CHUNK_BYTES = 256 * 1024
     private const val SOCKET_BUFFER_BYTES = 1024 * 1024
+    private const val DIGEST_BUFFER_BYTES = 1024 * 1024
     const val MAX_FILE_BYTES = 100L * 1024 * 1024 * 1024
     private const val MAGIC = 0x4D505531 // MPU1
     private const val VERSION = 1
@@ -541,7 +542,8 @@ object UltraShareTransport {
         expectedSize: Long
     ): ByteArray {
         val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(CHUNK_BYTES)
+        // Hashing is local disk I/O, independent from the negotiated wire-frame size.
+        val buffer = ByteArray(DIGEST_BUFFER_BYTES)
         var total = 0L
         while (true) {
             currentCoroutineContext().ensureActive()
@@ -557,7 +559,7 @@ object UltraShareTransport {
 
     private suspend fun digestStreamRaw(stream: InputStream): ByteArray {
         val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(CHUNK_BYTES)
+        val buffer = ByteArray(DIGEST_BUFFER_BYTES)
         while (true) {
             currentCoroutineContext().ensureActive()
             val count = stream.read(buffer)
