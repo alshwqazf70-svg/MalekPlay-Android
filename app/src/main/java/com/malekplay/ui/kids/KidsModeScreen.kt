@@ -68,6 +68,10 @@ fun KidsModeScreen(
     var showParentDialog by remember { mutableStateOf(false) }
     var parentPin by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf(false) }
+    val validMediaIds = remember(media) {
+        media.asSequence().map { it.media }.filter { it.isVideo || it.isAudio }.map { it.id }.toSet()
+    }
     val approved = remember(media, selected, enabled) {
         media.map { it.media }.filter { it.id in selected && (it.isVideo || it.isAudio) }
             .sortedBy { it.title.lowercase() }
@@ -97,8 +101,10 @@ fun KidsModeScreen(
                     } else {
                         TextButton(
                             onClick = {
-                                manager.setAllowedMediaIds(selected)
-                                onBack()
+                                saveError = !runCatching {
+                                    manager.setAllowedMediaIds(selected.intersect(validMediaIds))
+                                }.isSuccess
+                                if (!saveError) onBack()
                             }
                         ) { Text(stringResource(R.string.kids_save_selection)) }
                     }
@@ -144,7 +150,12 @@ fun KidsModeScreen(
                 }
             } else {
                 if (media.isEmpty()) {
-                    Text(stringResource(R.string.kids_no_media_found), modifier = Modifier.padding(16.dp))
+                    Column(Modifier.padding(16.dp)) {
+                        Text(stringResource(R.string.kids_no_media_found))
+                        TextButton(onClick = { viewModel.refresh() }) {
+                            Text(stringResource(R.string.kids_refresh_library))
+                        }
+                    }
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         items(media, key = { it.media.id }) { libraryItem ->
@@ -193,6 +204,7 @@ fun KidsModeScreen(
                         singleLine = true
                     )
                     if (pinError) Text(stringResource(R.string.kids_pin_wrong), color = MaterialTheme.colorScheme.error)
+                    if (saveError) Text(stringResource(R.string.kids_save_error), color = MaterialTheme.colorScheme.error)
                 }
             },
             confirmButton = {
