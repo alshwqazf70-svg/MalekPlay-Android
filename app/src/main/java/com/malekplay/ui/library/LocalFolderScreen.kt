@@ -87,7 +87,7 @@ fun LocalFolderScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "${items.size} ملف  •  ${items.count { it.media.isVideo }} فيديو  •  ${items.count { it.media.isAudio }} موسيقى",
+                            text = "${items.size} ملف  •  ${items.count { it.media.isVideo }} فيديو  •  ${items.count { it.media.isAudio }} موسيقى  •  ${items.count { System.currentTimeMillis() - it.media.addedAtMs <= 604800000L }} جديد",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -146,7 +146,7 @@ fun LocalFolderScreen(
                 .padding(contentPadding),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            items(items = items, key = { it.media.id }) { item ->
+            items(items = items.sortedByDescending { it.media.addedAtMs }, key = { it.media.id }) { item ->
                 FolderItemRow(
                     item = item,
                     onClick = { onOpenMedia(item.media) },
@@ -201,6 +201,21 @@ private fun FolderItemRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
+                Spacer(Modifier.width(7.dp))
+                if (System.currentTimeMillis() - item.media.addedAtMs <= 604800000L) {
+                    androidx.compose.material3.Surface(
+                        color = androidx.compose.ui.graphics.Color(0xFFE84D75),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "جديد",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = androidx.compose.ui.graphics.Color.White,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                    }
+                }
                 Spacer(Modifier.width(7.dp))
                 androidx.compose.material3.Surface(
                     color = if (item.media.isVideo) MaterialTheme.colorScheme.primaryContainer
