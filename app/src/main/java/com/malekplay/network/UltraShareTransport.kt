@@ -232,6 +232,8 @@ object UltraShareTransport {
             socket.soTimeout = SOCKET_TIMEOUT_MS
             socket.sendBufferSize = SOCKET_BUFFER_BYTES
             socket.receiveBufferSize = SOCKET_BUFFER_BYTES
+            socket.tcpNoDelay = true
+            socket.keepAlive = true
             val input = DataInputStream(BufferedInputStream(socket.getInputStream(), SOCKET_BUFFER_BYTES))
             val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), SOCKET_BUFFER_BYTES))
 
@@ -327,6 +329,8 @@ object UltraShareTransport {
                 socket.soTimeout = HANDSHAKE_TIMEOUT_MS
                 socket.receiveBufferSize = SOCKET_BUFFER_BYTES
                 socket.sendBufferSize = SOCKET_BUFFER_BYTES
+                socket.tcpNoDelay = true
+                socket.keepAlive = true
                 val input = DataInputStream(BufferedInputStream(socket.getInputStream(), SOCKET_BUFFER_BYTES))
                 val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), SOCKET_BUFFER_BYTES))
 
