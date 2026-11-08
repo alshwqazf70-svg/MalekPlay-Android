@@ -367,6 +367,10 @@ class UltraShareForegroundService : Service() {
         updateState { it.copy(hotspotStarting = true, error = null, status = "جارٍ إنشاء شبكة MalekPlay المحلية...") }
         val callback = object : WifiManager.LocalOnlyHotspotCallback() {
             override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
+                if (hotspotCallback !== this) {
+                    runCatching { reservation.close() }
+                    return
+                }
                 hotspotReservation = reservation
                 val credentials = runCatching {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -392,6 +396,7 @@ class UltraShareForegroundService : Service() {
             }
 
             override fun onStopped() {
+                if (hotspotCallback !== this) return
                 hotspotReservation = null
                 hotspotCallback = null
                 updateState { current ->
@@ -406,6 +411,7 @@ class UltraShareForegroundService : Service() {
             }
 
             override fun onFailed(reason: Int) {
+                if (hotspotCallback !== this) return
                 hotspotReservation = null
                 hotspotCallback = null
                 val message = when (reason) {
