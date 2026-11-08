@@ -30,6 +30,7 @@ import io.github.peerless2012.ass.media.type.AssRenderType
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import androidx.media3.session.SessionError
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import androidx.media3.session.MediaSessionService
@@ -203,17 +204,17 @@ class PlaybackService : MediaSessionService() {
             args: Bundle
         ): ListenableFuture<SessionResult> {
             if (customCommand.customAction != PlaybackVideoEffects.ACTION_UPSCALING) {
-                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
+                return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
             }
             if (!controller.isTrusted) {
-                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED))
+                return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
             }
             val requested = args.getBoolean(PlaybackVideoEffects.KEY_ENABLED, false)
             val accepted = setVideoUpscaling(requested)
             return Futures.immediateFuture(
                 SessionResult(
                     if (accepted) SessionResult.RESULT_SUCCESS
-                    else SessionResult.RESULT_ERROR_NOT_SUPPORTED
+                    else SessionError.ERROR_NOT_SUPPORTED
                 )
             )
         }
