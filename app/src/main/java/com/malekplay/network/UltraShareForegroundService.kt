@@ -68,8 +68,8 @@ class UltraShareForegroundService : Service() {
     @Volatile private var sendJob: Job? = null
     @Volatile private var pauseRequested = false
     private var advertisementJob: Job? = null
-    private var hotspotReservation: WifiManager.LocalOnlyHotspotReservation? = null
-    private var hotspotCallback: WifiManager.LocalOnlyHotspotCallback? = null
+    private var hotspotReservation: AutoCloseable? = null
+    private var hotspotCallback: Any? = null
     private lateinit var notificationManager: NotificationManager
     private val transferLockGuard = Any()
     private var wifiLock: WifiManager.WifiLock? = null
