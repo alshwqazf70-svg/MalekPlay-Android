@@ -61,12 +61,11 @@ class LibraryViewModel @Inject constructor(
         allMedia,
         seenNewMediaIds
     ) { folderRows, mediaRows, seenIds ->
-        val cutoff = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
+        // A media item stays "new" until the user opens it. Age alone must
+        // never remove an unseen item from the badge count.
         folderRows.map { folder ->
             val unseenCount = mediaRows.count { row ->
-                row.media.folderPath == folder.path &&
-                    row.media.addedAtMs >= cutoff &&
-                    row.media.id !in seenIds
+                row.media.folderPath == folder.path && row.media.id !in seenIds
             }
             folder.copy(newItemCount = unseenCount)
         }
@@ -86,16 +85,23 @@ class LibraryViewModel @Inject constructor(
         refresh(force = false)
     }
 
-    /** Explicit user refresh forces a scan; screen entry uses the short cache window. */
+    /** Explicit user refresh forces a scan. */
     fun refresh() = refresh(force = true)
 
-    private fun refresh(force: Boolean) {
+    /**
+     * Refresh after MediaStore reports a change. A short throttle coalesces the
+     * burst of notifications Android emits while one file is being indexed.
+     */
+    fun refreshAfterMediaStoreChange() = refresh(force = false, minIntervalMs = 2_000L)
+
+    private fun refresh(force: Boolean, minIntervalMs: Long = 5 * 60 * 1_000L) {
         viewModelScope.launch {
             if (!refreshMutex.tryLock()) return@launch
             _isRefreshing.value = true
             _error.value = null
             try {
-                if (force) mediaRepository.refresh() else mediaRepository.refreshIfStale()
+                if (force) mediaRepository.refresh()
+                else mediaRepository.refreshIfStale(minIntervalMs = minIntervalMs)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
