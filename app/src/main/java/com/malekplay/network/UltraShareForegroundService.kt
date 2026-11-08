@@ -127,14 +127,12 @@ class UltraShareForegroundService : Service() {
                 if (receiveJob != null) return START_NOT_STICKY
                 startForegroundCompat()
                 val addresses = findLocalIpv4Addresses()
-                publish(
-                    currentState().copy(
+                updateState { current -> current.copy(
                         pairingSecret = secret,
                         localAddresses = addresses,
                         receiving = true,
                         status = getString(R.string.ultra_share_waiting)
-                    )
-                )
+                    ) }
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     advertisementJob = launch {
                         try {
@@ -183,31 +181,27 @@ class UltraShareForegroundService : Service() {
                                     sizeBytes = received.sizeBytes,
                                     publishedUri = publishedUri?.toString()
                                 )
-                                publish(
-                                    currentState().copy(
+                                updateState { current -> current.copy(
                                         receiving = true,
-                                        progress = if (currentState().sending) currentState().sendProgress else null,
+                                        progress = if (current.sending) current.sendProgress else null,
                                         receiveProgress = null,
                                         receivedFile = published,
                                         status = if (publishedUri != null) {
                                             "تم الاستلام والحفظ تلقائياً في التنزيلات: ${received.fileName}"
                                         } else getString(R.string.ultra_share_received, received.fileName),
                                         error = null
-                                    )
-                                )
+                                    ) }
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (failure: Exception) {
                                 // Keep the receiver available after failures, but apply a small
                                 // global backoff so repeated bad pairing attempts cost more time.
-                                publish(
-                                    currentState().copy(
+                                updateState { current -> current.copy(
                                         receiving = true,
-                                        progress = if (currentState().sending) currentState().sendProgress else null,
+                                        progress = if (current.sending) current.sendProgress else null,
                                         receiveProgress = null,
                                         error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)
-                                    )
-                                )
+                                    ) }
                                 kotlinx.coroutines.delay(1_500)
                             }
                         }
@@ -304,16 +298,14 @@ class UltraShareForegroundService : Service() {
      * Stop all work immediately when the system reports that the limit was reached.
      */
     override fun onTimeout(startId: Int, fgsType: Int) {
-        publish(
-            currentState().copy(
+        updateState { current -> current.copy(
                 receiving = false,
                 sending = false,
                 pairingSecret = "",
                 localAddresses = emptyList(),
                 progress = null,
                 error = "أوقف Android خدمة النقل بعد بلوغ الحد الزمني المسموح. يمكنك بدء النقل مجدداً."
-            )
-        )
+            ) }
         sendJob?.cancel()
         receiveJob?.cancel()
         advertisementJob?.cancel()
