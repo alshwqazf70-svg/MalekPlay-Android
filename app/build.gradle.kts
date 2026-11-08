@@ -142,7 +142,7 @@ dependencies {
     implementation(libs.media3.session)
     implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.cast)
-    implementation(libs.assMedia)
+    implementation(project(":ass-media-local"))
 
     // Room
     implementation(libs.room.runtime)
