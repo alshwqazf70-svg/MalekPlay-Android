@@ -175,6 +175,7 @@ interface MediaDao {
                   SUM(CASE WHEN isVideo = 0 THEN 1 ELSE 0 END) AS audioCount,
                   SUM(sizeBytes) AS totalBytes,
                   MAX(addedAtMs) AS lastAddedMs,
+                  SUM(CASE WHEN addedAtMs >= (CAST(strftime('%s','now') AS INTEGER) * 1000 - 604800000) THEN 1 ELSE 0 END) AS newItemCount,
                   MIN(uri) AS sampleUri
            FROM media_items
            GROUP BY folderPath
@@ -256,6 +257,7 @@ data class FolderRow(
     val audioCount: Int,
     val totalBytes: Long,
     val lastAddedMs: Long,
+    val newItemCount: Int,
     val sampleUri: String?
 )
 
