@@ -52,6 +52,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +71,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.core.ui.util.MediaPermissions
+import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.domain.model.SortMode
 import com.malekplay.domain.model.ViewMode
@@ -80,6 +82,8 @@ import com.malekplay.ui.components.MediaListRow
 import com.malekplay.ui.components.SectionHeader
 import com.malekplay.ui.components.PlaylistPickerDialog
 import com.malekplay.ui.library.LibraryViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private enum class LocalTab { FOLDERS, VIDEOS, AUDIO }
 
@@ -112,11 +116,20 @@ fun LocalScreen(
 
     val searchFlow = remember(query) { viewModel.search(query) }
     val searchResults by searchFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val sortedVideos = remember(videos, settings.sortMode) {
-        viewModel.applySort(videos, settings.sortMode)
+    // Sort potentially large collections on a worker thread, never during a UI frame.
+    val sortedVideos by produceState(
+        initialValue = emptyList<LibraryItem>(), videos, settings.sortMode
+    ) {
+        value = withContext(Dispatchers.Default) {
+            viewModel.applySort(videos, settings.sortMode)
+        }
     }
-    val sortedAudio = remember(audio, settings.sortMode) {
-        viewModel.applySort(audio, settings.sortMode)
+    val sortedAudio by produceState(
+        initialValue = emptyList<LibraryItem>(), audio, settings.sortMode
+    ) {
+        value = withContext(Dispatchers.Default) {
+            viewModel.applySort(audio, settings.sortMode)
+        }
     }
 
     var hasPermission by remember { mutableStateOf(MediaPermissions.isGranted(context)) }
