@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - backup/before-updated-2.0
+      - performance/large-library-optimization
   workflow_dispatch:
 
 concurrency:
