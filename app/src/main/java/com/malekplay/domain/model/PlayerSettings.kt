@@ -43,6 +43,8 @@ data class PlayerSettings(
     val themeMode: AppThemeMode = AppThemeMode.DARK,
     val accent: String = "amethyst",
     val dynamicColor: Boolean = false,
+    /** Global text palette: aurora, white, black, gold, purple, cyan, mint, pink. */
+    val textColorMode: String = "aurora",
 
     // Playback
     val resumePlayback: Boolean = true,
