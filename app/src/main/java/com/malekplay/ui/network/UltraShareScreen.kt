@@ -669,6 +669,43 @@ fun UltraShareScreen(
             }
         }
 
+        // Zapya-inspired quick connection hub: create a receiving group, join by QR, or discover nearby peers.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = { if (!state.receiving) viewModel.startReceiving() },
+                modifier = Modifier.weight(1f).height(76.dp),
+                enabled = !state.sending && !state.receiving
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Filled.Wifi, contentDescription = null)
+                    Text("إنشاء مجموعة", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                }
+            }
+            OutlinedButton(
+                onClick = ::scanQrWithCamera,
+                modifier = Modifier.weight(1f).height(76.dp),
+                enabled = !state.sending && !state.receiving
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Filled.QrCode, contentDescription = null)
+                    Text("الانضمام عبر QR", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                }
+            }
+            OutlinedButton(
+                onClick = viewModel::scanNearbyDevices,
+                modifier = Modifier.weight(1f).height(76.dp),
+                enabled = !state.sending && !state.receiving && !state.scanning
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Filled.Wifi, contentDescription = null)
+                    Text("الأجهزة القريبة", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                }
+            }
+        }
+
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -741,6 +778,26 @@ fun UltraShareScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Send, contentDescription = null, tint = MalekPlayColors.PurpleBright)
                     Text(stringResource(R.string.ultra_share_send), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { pickFiles.launch(arrayOf("video/*")) },
+                        modifier = Modifier.weight(1f),
+                        enabled = !state.sending && !state.receiving
+                    ) { Text("فيديوهات") }
+                    OutlinedButton(
+                        onClick = { pickFiles.launch(arrayOf("audio/*")) },
+                        modifier = Modifier.weight(1f),
+                        enabled = !state.sending && !state.receiving
+                    ) { Text("موسيقى") }
+                    OutlinedButton(
+                        onClick = { pickFiles.launch(arrayOf("*/*")) },
+                        modifier = Modifier.weight(1f),
+                        enabled = !state.sending && !state.receiving
+                    ) { Text("ملفات") }
                 }
                 OutlinedButton(
                     onClick = viewModel::scanNearbyDevices,
