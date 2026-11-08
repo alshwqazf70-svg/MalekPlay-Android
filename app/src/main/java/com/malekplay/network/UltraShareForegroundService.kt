@@ -60,6 +60,7 @@ class UltraShareForegroundService : Service() {
     @Volatile private var pauseRequested = false
     private var advertisementJob: Job? = null
     private lateinit var notificationManager: NotificationManager
+    private val transferLockGuard = Any()
     private var wifiLock: WifiManager.WifiLock? = null
     private var cpuWakeLock: PowerManager.WakeLock? = null
 
@@ -93,6 +94,15 @@ class UltraShareForegroundService : Service() {
                 if (currentState().receiving) {
                     publish(currentState().copy(localAddresses = findLocalIpv4Addresses()))
                 }
+            }
+            ACTION_CANCEL_SEND -> {
+                sendJob?.cancel()
+                return START_NOT_STICKY
+            }
+            ACTION_STOP_RECEIVING -> {
+                receiveJob?.cancel()
+                advertisementJob?.cancel()
+                return START_NOT_STICKY
             }
             ACTION_STOP, ACTION_CANCEL -> {
                 if (sendJob == null && receiveJob == null) startForegroundCompat()
@@ -357,27 +367,39 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun acquireTransferLocks() {
-        runCatching {
-            val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            wifiLock = manager.createWifiLock(WifiManager.WIFI_MODE_FULL, "MalekPlay:UltraShare").apply {
-                setReferenceCounted(false)
-                if (!isHeld) acquire()
+        synchronized(transferLockGuard) {
+            runCatching {
+                if (wifiLock?.isHeld != true) {
+                    val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                    wifiLock = manager.createWifiLock(WifiManager.WIFI_MODE_FULL, "MalekPlay:UltraShare").apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
+                }
             }
-        }
-        runCatching {
-            val manager = getSystemService(POWER_SERVICE) as PowerManager
-            cpuWakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MalekPlay:UltraShare").apply {
-                setReferenceCounted(false)
-                if (!isHeld) acquire()
+            runCatching {
+                if (cpuWakeLock?.isHeld != true) {
+                    val manager = getSystemService(POWER_SERVICE) as PowerManager
+                    cpuWakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MalekPlay:UltraShare").apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
+                }
             }
         }
     }
 
     private fun releaseTransferLocksIfIdle() {
-        if (sendJob == null && receiveJob == null) releaseTransferLocks()
+        synchronized(transferLockGuard) {
+            if (sendJob == null && receiveJob == null) releaseTransferLocksLocked()
+        }
     }
 
     private fun releaseTransferLocks() {
+        synchronized(transferLockGuard) { releaseTransferLocksLocked() }
+    }
+
+    private fun releaseTransferLocksLocked() {
         runCatching { wifiLock?.takeIf { it.isHeld }?.release() }
         runCatching { cpuWakeLock?.takeIf { it.isHeld }?.release() }
         wifiLock = null
@@ -629,6 +651,8 @@ class UltraShareForegroundService : Service() {
         private const val EXTRA_URIS = "uris"
         const val ACTION_STOP = "com.malekplay.ultrashare.STOP"
         const val ACTION_CANCEL = "com.malekplay.ultrashare.CANCEL"
+        const val ACTION_CANCEL_SEND = "com.malekplay.ultrashare.CANCEL_SEND"
+        const val ACTION_STOP_RECEIVING = "com.malekplay.ultrashare.STOP_RECEIVING"
         const val ACTION_PAUSE = "com.malekplay.ultrashare.PAUSE"
         const val ACTION_REFRESH_ADDRESSES = "com.malekplay.ultrashare.REFRESH_ADDRESSES"
         const val ACTION_RECEIVE = "com.malekplay.ultrashare.RECEIVE"
@@ -683,6 +707,14 @@ class UltraShareForegroundService : Service() {
 
         fun cancel(context: Context) {
             context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_CANCEL))
+        }
+
+        fun cancelSending(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_CANCEL_SEND))
+        }
+
+        fun stopReceiving(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_STOP_RECEIVING))
         }
 
         fun stop(context: Context) {
