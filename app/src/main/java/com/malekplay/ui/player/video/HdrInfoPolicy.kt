@@ -6,7 +6,7 @@ package com.malekplay.ui.player.video
  */
 internal object HdrInfoPolicy {
     fun displayCapabilities(types: IntArray?): String {
-        val labels = types.orEmpty().mapNotNull { type ->
+        val labels = types?.toList().orEmpty().mapNotNull { type ->
             when (type) {
                 1 -> "Dolby Vision"
                 2 -> "HDR10"
