@@ -340,7 +340,7 @@ fun SettingsScreen(
                             ) {
                                 if (settings.textColorMode == id) {
                                     Icon(Icons.Filled.Check, contentDescription = null,
-                                        tint = if (id == "black" || id == "gold") androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White,
+                                        tint = if (id == "gold") androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White,
                                         modifier = Modifier.size(19.dp))
                                 }
                             }
