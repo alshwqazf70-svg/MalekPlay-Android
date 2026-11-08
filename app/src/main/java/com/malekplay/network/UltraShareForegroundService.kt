@@ -322,6 +322,12 @@ class UltraShareForegroundService : Service() {
                 pairingSecret = "",
                 localAddresses = emptyList(),
                 progress = null,
+                sendProgress = null,
+                receiveProgress = null,
+                hotspotStarting = false,
+                hotspotActive = false,
+                hotspotSsid = null,
+                hotspotPassword = null,
                 error = "أوقف Android خدمة النقل بعد بلوغ الحد الزمني المسموح. يمكنك بدء النقل مجدداً."
             ) }
         sendJob?.cancel()
@@ -349,6 +355,21 @@ class UltraShareForegroundService : Service() {
         runCatching { hotspotReservation?.close() }
         hotspotReservation = null
         hotspotCallback = null
+        updateState { current ->
+            current.copy(
+                receiving = false,
+                sending = false,
+                pairingSecret = "",
+                localAddresses = emptyList(),
+                progress = null,
+                sendProgress = null,
+                receiveProgress = null,
+                hotspotStarting = false,
+                hotspotActive = false,
+                hotspotSsid = null,
+                hotspotPassword = null
+            )
+        }
         if (::notificationManager.isInitialized) notificationManager.cancel(NOTIFICATION_ID)
         super.onDestroy()
     }
