@@ -313,3 +313,25 @@ class CastMediaHttpServer(context: Context) : AutoCloseable {
         }
     }
 }
+
+/**
+ * Narrow in-process access to the playback service's LAN bridge.
+ * The service owns its lifetime; UI callers never create a second listener.
+ */
+object LocalMediaBridgeRegistry {
+    @Volatile
+    private var activeServer: CastMediaHttpServer? = null
+
+    fun attach(server: CastMediaHttpServer) {
+        activeServer = server
+    }
+
+    fun detach(server: CastMediaHttpServer) {
+        if (activeServer === server) activeServer = null
+    }
+
+    fun urlFor(uri: Uri): Uri? {
+        val server = activeServer ?: return null
+        return runCatching { server.urlFor(uri) }.getOrNull()
+    }
+}
