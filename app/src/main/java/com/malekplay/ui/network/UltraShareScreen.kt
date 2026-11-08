@@ -73,6 +73,7 @@ import androidx.lifecycle.viewModelScope
 import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareTransport
+import com.malekplay.data.repository.MediaRepository
 import com.malekplay.network.UltraShareDiscovery
 import com.malekplay.network.UltraShareQueueEntry
 import com.malekplay.network.UltraShareReceivedEntry
@@ -123,7 +124,8 @@ data class UltraShareUiState(
 
 @HiltViewModel
 class UltraShareViewModel @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val mediaRepository: MediaRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(UltraShareUiState())
     val state = _state.asStateFlow()
@@ -147,6 +149,15 @@ class UltraShareViewModel @Inject constructor(
         viewModelScope.launch {
             UltraShareForegroundService.state.collect { serviceState ->
                 val current = _state.value
+                val received = serviceState.receivedFile
+                if (received?.publishedUri != null &&
+                    received.file.absolutePath != current.receivedFile?.file?.absolutePath
+                ) {
+                    // Refresh Room after MediaStore publication so received video/audio appears in My Library.
+                    viewModelScope.launch(Dispatchers.IO) {
+                        runCatching { mediaRepository.refresh() }
+                    }
+                }
                 _state.value = current.copy(
                     pairingSecret = serviceState.pairingSecret,
                     localAddresses = serviceState.localAddresses,
