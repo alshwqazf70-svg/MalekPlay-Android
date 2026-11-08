@@ -383,7 +383,7 @@ class UltraShareForegroundService : Service() {
             return
         }
         if (hotspotReservation != null || currentState().hotspotStarting) return
-        val wifiManager = getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
         if (wifiManager == null) {
             updateState { it.copy(error = "خدمة Wi-Fi غير متاحة على هذا الجهاز.") }
             finishService()
