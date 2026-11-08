@@ -48,6 +48,7 @@ data class UltraShareServiceState(
     val hotspotSsid: String? = null,
     val hotspotPassword: String? = null,
     val hotspotStarting: Boolean = false,
+    val hotspotActive: Boolean = false,
     val receivedFile: UltraShareTransport.ReceivedFile? = null,
     val status: String? = null,
     val error: String? = null,
@@ -385,6 +386,7 @@ class UltraShareForegroundService : Service() {
                 updateState { current ->
                     current.copy(
                         hotspotStarting = false,
+                        hotspotActive = true,
                         hotspotSsid = credentials.first.takeIf { it.isNotBlank() },
                         hotspotPassword = credentials.second,
                         localAddresses = findLocalIpv4Addresses(),
@@ -402,6 +404,7 @@ class UltraShareForegroundService : Service() {
                 updateState { current ->
                     current.copy(
                         hotspotStarting = false,
+                        hotspotActive = false,
                         hotspotSsid = null,
                         hotspotPassword = null,
                         status = "أوقِفت نقطة اتصال MalekPlay."
@@ -423,7 +426,7 @@ class UltraShareForegroundService : Service() {
                         "لا تتوفر قناة Wi-Fi لإنشاء نقطة الاتصال حالياً."
                     else -> "تعذر إنشاء نقطة اتصال MalekPlay. جرّب إيقاف نقطة اتصال النظام ثم أعد المحاولة."
                 }
-                updateState { it.copy(hotspotStarting = false, hotspotSsid = null, hotspotPassword = null, error = message) }
+                updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null, error = message) }
                 finishService()
             }
         }
@@ -446,7 +449,7 @@ class UltraShareForegroundService : Service() {
         hotspotReservation = null
         hotspotCallback = null
         runCatching { reservation?.close() }
-        updateState { it.copy(hotspotStarting = false, hotspotSsid = null, hotspotPassword = null) }
+        updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null) }
         finishService()
     }
 
