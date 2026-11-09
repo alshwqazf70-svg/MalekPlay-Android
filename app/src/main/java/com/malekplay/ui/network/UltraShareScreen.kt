@@ -1719,7 +1719,7 @@ fun UltraShareScreen(
         Spacer(Modifier.height(12.dp))
     }
 }
-
+}
 
 @Composable
 private fun UltraShareSessionRoom(
