@@ -18,6 +18,7 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
 import javax.crypto.Mac
@@ -57,6 +58,7 @@ object UltraShareControlChannel {
         val socket: Socket,
         val input: DataInputStream,
         val output: DataOutputStream,
+        val peerName: String,
         val lock: Any = Any(),
         var heartbeat: Job? = null
     )
@@ -67,6 +69,7 @@ object UltraShareControlChannel {
     suspend fun serveOnce(
         pairingSecret: String,
         port: Int = DEFAULT_PORT,
+        localPeerName: String = "MalekPlay Android",
         onSessionClosed: suspend (Request) -> Unit = {},
         onRequest: suspend (Request) -> Decision
     ) = withContext(Dispatchers.IO) {
@@ -88,7 +91,7 @@ object UltraShareControlChannel {
                         client.soTimeout = HANDSHAKE_TIMEOUT_MS
                         client.tcpNoDelay = true
                         client.keepAlive = true
-                        handleIncoming(client, pairingSecret, onRequest, onSessionClosed)
+                        handleIncoming(client, pairingSecret, localPeerName, onRequest, onSessionClosed)
                     }
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     throw cancelled
@@ -151,12 +154,16 @@ object UltraShareControlChannel {
             val nonce = encrypted.copyOfRange(0, NONCE_BYTES)
             val ciphertext = encrypted.copyOfRange(NONCE_BYTES, encrypted.size)
             val response = decrypt(key, nonce, ciphertext)
-            require(response == "ACCEPT|$requestId" || response == "REJECT|$requestId") {
-                "استجابة قبول الاتصال غير صالحة."
-            }
-            if (response.startsWith("ACCEPT|")) {
+            val responseParts = response.split('|', limit = 3)
+            require(responseParts.size >= 2 && responseParts[1] == requestId &&
+                (responseParts[0] == "ACCEPT" || responseParts[0] == "REJECT")
+            ) { "استجابة قبول الاتصال غير صالحة." }
+            if (responseParts[0] == "ACCEPT") {
+                val remoteName = responseParts.getOrNull(2)?.let {
+                    runCatching { String(Base64.getUrlDecoder().decode(it), Charsets.UTF_8) }.getOrNull()
+                }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
                 socket.soTimeout = SESSION_TIMEOUT_MS
-                val session = ClientSession(socket, input, output)
+                val session = ClientSession(socket, input, output, remoteName)
                 clientSessions[host] = session
                 session.heartbeat = CoroutineScope(Dispatchers.IO).launch {
                     while (isActive && !socket.isClosed) {
@@ -196,6 +203,8 @@ object UltraShareControlChannel {
         serverSessions.remove(host)?.let { socket -> runCatching { socket.close() } }
     }
 
+    fun sessionPeerName(host: String): String? = clientSessions[host]?.peerName
+
     fun isSessionActive(host: String): Boolean =
         clientSessions[host]?.socket?.isConnected == true &&
             clientSessions[host]?.socket?.isClosed == false
@@ -203,6 +212,7 @@ object UltraShareControlChannel {
     private suspend fun handleIncoming(
         socket: Socket,
         pairingSecret: String,
+        localPeerName: String,
         onRequest: suspend (Request) -> Decision,
         onSessionClosed: suspend (Request) -> Unit
     ) {
@@ -241,7 +251,7 @@ object UltraShareControlChannel {
             peerAddress = socket.inetAddress.hostAddress.orEmpty()
         )
         val decision = withTimeoutOrNull(30_000L) { onRequest(request) } ?: Decision.REJECTED
-        val payload = (if (decision == Decision.ACCEPTED) "ACCEPT|" else "REJECT|") + requestId
+        val encodedLocalName = Base64.getUrlEncoder().withoutPadding().encodeToString(localPeerName.take(96).toByteArray(Charsets.UTF_8))\n        val payload = if (decision == Decision.ACCEPTED) "ACCEPT|$requestId|$encodedLocalName" else "REJECT|$requestId"
         val nonce = ByteArray(NONCE_BYTES).also(SecureRandom()::nextBytes)
         val ciphertext = encrypt(key, nonce, payload)
         val frame = nonce + ciphertext
