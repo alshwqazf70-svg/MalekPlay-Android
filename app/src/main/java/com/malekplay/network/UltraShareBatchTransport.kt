@@ -150,7 +150,7 @@ object UltraShareBatchTransport {
         resolver: ContentResolver,
         sources: List<Source>,
         host: String,
-        port: Int = UltraShareTransport.DEFAULT_PORT,
+        port: Int = DEFAULT_PORT,
         pairingSecret: String,
         onProgress: (FileProgress) -> Unit = {}
     ): BatchOutcome = withContext(Dispatchers.IO) {
