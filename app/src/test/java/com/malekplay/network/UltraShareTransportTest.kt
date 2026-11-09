@@ -193,4 +193,24 @@ class UltraShareTransportTest {
     }
 
 
+    @Test
+    fun completedReceiptIsSyncedAndAtomicallyPublishedFromTemporaryFile() {
+        val directory = createTempDir(prefix = "ultrashare-receipt-test")
+        try {
+            val temporary = java.io.File(directory, "receipt.tmp")
+            val marker = java.io.File(directory, "receipt.received")
+            val expected = "4096:" + "ab".repeat(32) + ":movie.mp4"
+
+            writeUltraShareReceiptAtomically(temporary, marker, expected)
+
+            assertTrue(marker.isFile)
+            assertEquals(expected, marker.readText(Charsets.UTF_8))
+            assertFalse(temporary.exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+
+
 }
