@@ -34,6 +34,18 @@ class UltraShareBatchProtocolTest {
         assertEquals(results, UltraShareBatchProtocol.validateResults(manifest, results))
     }
 
+    @Test fun zeroByteFilesRemainValidManifestEntries() {
+        val empty = UltraShareBatchProtocol.newEntry(
+            name = "empty.bin",
+            mimeType = "application/octet-stream",
+            sizeBytes = 0L,
+            sha256 = java.security.MessageDigest.getInstance("SHA-256").digest(ByteArray(0))
+        )
+        val manifest = UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(empty))
+        val decoded = UltraShareBatchProtocol.decode(UltraShareBatchProtocol.encode(manifest))
+        assertEquals(0L, decoded.entries.single().sizeBytes)
+    }
+
     @Test fun rejectsDuplicateFileIds() {
         val item = entry("one.bin", "alpha")
         val duplicate = item.copy(name = "two.bin")
