@@ -1302,9 +1302,6 @@ fun UltraShareScreen(
         }
 
         if (activeMode == "send") {
-        }
-
-        if (activeMode == "send") {
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
