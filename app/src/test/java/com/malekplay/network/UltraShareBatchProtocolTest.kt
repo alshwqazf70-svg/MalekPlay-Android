@@ -103,4 +103,11 @@ class UltraShareBatchProtocolTest {
         assertEquals(UltraShareTransport.DEFAULT_PORT + 1, UltraShareBatchTransport.DEFAULT_PORT)
         assertEquals(4, UltraShareBatchTransport.DEFAULT_MAX_PEERS)
     }
+    @Test fun pairingAcknowledgementRequiresBothValidSecretAndApprovedSession() {
+        assertTrue(UltraShareBatchTransport.isPeerSessionAuthorized(authenticated = true, sessionActive = true))
+        assertTrue(!UltraShareBatchTransport.isPeerSessionAuthorized(authenticated = false, sessionActive = true))
+        assertTrue(!UltraShareBatchTransport.isPeerSessionAuthorized(authenticated = true, sessionActive = false))
+        assertTrue(!UltraShareBatchTransport.isPeerSessionAuthorized(authenticated = false, sessionActive = false))
+    }
+
 }
