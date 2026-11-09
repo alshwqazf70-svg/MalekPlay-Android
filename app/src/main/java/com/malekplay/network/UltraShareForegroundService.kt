@@ -738,94 +738,184 @@ class UltraShareForegroundService : Service() {
                     if (Long.MAX_VALUE - total < metadata.third) Long.MAX_VALUE else total + metadata.third
                 }
                 updateState { current -> current.copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L) }
-                queue.forEachIndexed { index, uri ->
-                    val storedStatus = UltraShareQueueStore.observe(this@UltraShareForegroundService)
+                var useLegacyV1 = false
+                val v2Candidates = ArrayList<Pair<Uri, UltraShareBatchTransport.Source>>()
+                queue.forEach { uri ->
+                    val status = UltraShareQueueStore.observe(this@UltraShareForegroundService)
                         .first().firstOrNull { it.uri == uri.toString() }?.status
-                    if (storedStatus == UltraShareQueueStore.STATUS_SKIPPED) {
-                        // Keep the original denominator: skipped bytes are not transferred,
-                        // so the overall progress must not falsely reach 100%.
-                        updateState { current -> current.copy(
-                            queueCompleted = index + 1,
-                            queueTotal = queue.size,
-                            queueTotalBytes = totalBytes
-                        ) }
-                        return@forEachIndexed
-                    }
-                    activeUri = uri
-                    val metadata = try {
-                        metadataByUri[uri] ?: readDocumentMetadata(uri)
-                    } catch (failure: Exception) {
-                        // Preserve the original total so failed bytes remain visible as incomplete.
+                    if (status == UltraShareQueueStore.STATUS_SKIPPED) return@forEach
+                    val metadata = runCatching { metadataByUri[uri] ?: readDocumentMetadata(uri) }.getOrElse { failure ->
                         failed++
                         lastError = failure.localizedMessage ?: "تعذرت قراءة أحد الملفات."
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_FAILED, error = lastError)
-                        activeUri = null
-                        updateState { current -> current.copy(
-                            queueCompleted = index + 1,
-                            queueTotal = queue.size,
-                            queueTotalBytes = totalBytes,
-                            queueTransferredBytes = completedBytes
-                        ) }
-                        return@forEachIndexed
+                        return@forEach
                     }
-                    val claimed = UltraShareQueueStore.claimForSending(
-                        this@UltraShareForegroundService,
-                        uri,
-                        metadata.first
+                    val claimed = UltraShareQueueStore.claimForSending(this@UltraShareForegroundService, uri, metadata.first)
+                    if (!claimed) return@forEach
+                    val fileId = java.util.UUID.randomUUID().toString()
+                    v2Candidates += uri to UltraShareBatchTransport.Source(
+                        uri = uri,
+                        name = metadata.first,
+                        mimeType = metadata.second,
+                        sizeBytes = metadata.third,
+                        fileId = fileId
                     )
-                    if (!claimed) {
-                        activeUri = null
-                        updateState { current -> current.copy(
-                            queueCompleted = index + 1,
-                            queueTotal = queue.size,
-                            queueTotalBytes = totalBytes,
-                            queueTransferredBytes = completedBytes
-                        ) }
-                        return@forEachIndexed
-                    }
-                    updateState { current -> current.copy(
-                        queueCurrentName = metadata.first,
-                        queueCompleted = index,
-                        queueTotal = queue.size,
-                        progress = if (current.receiving) current.receiveProgress else null,
-                        sendProgress = null,
-                        status = "جارٍ تجهيز وفحص " + metadata.first + " قبل الإرسال..."
-                    ) }
+                }
+                if (v2Candidates.isNotEmpty()) {
                     try {
-                        // Protect long source hashing, connection setup, and retries too.
                         beginTransfer(isReceiving = false)
-                        sendWithRetry(uri, host, secret, metadata) { progress ->
+                        val batch = sendBatchWithRetry(v2Candidates.map { it.second }, host, secret) { progress ->
+                            val completedBefore = completedBytes
                             updateState { current -> current.copy(
-                                progress = progress,
-                                sendProgress = progress,
-                                queueCurrentName = metadata.first,
-                                queueTransferredBytes = minOf(totalBytes, completedBytes + progress.transferredBytes)
+                                progress = UltraShareTransport.Progress(
+                                    progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                    progress.bytesPerSecond, false
+                                ),
+                                sendProgress = UltraShareTransport.Progress(
+                                    progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                    progress.bytesPerSecond, false
+                                ),
+                                queueCurrentName = progress.fileName,
+                                queueTransferredBytes = minOf(totalBytes, completedBefore + progress.transferredBytes),
+                                status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
                             ) }
-                            updateNotification(progress)
                         }
-                        sent++
-                        completedBytes = if (Long.MAX_VALUE - completedBytes < metadata.third) Long.MAX_VALUE else completedBytes + metadata.third
-                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_COMPLETED)
+                        val uriById = v2Candidates.associate { it.second.fileId to it.first }
+                        batch.files.forEachIndexed { index, outcome ->
+                            val uri = uriById[outcome.fileId] ?: return@forEachIndexed
+                            val metadata = metadataByUri[uri] ?: readDocumentMetadata(uri)
+                            if (outcome.status == UltraShareBatchProtocol.FileStatus.COMPLETED) {
+                                sent++
+                                completedBytes = if (Long.MAX_VALUE - completedBytes < metadata.third) Long.MAX_VALUE else completedBytes + metadata.third
+                                UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_COMPLETED)
+                            } else {
+                                failed++
+                                lastError = outcome.error ?: "فشل إرسال ${metadata.first}"
+                                UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
+                            }
+                            updateState { current -> current.copy(
+                                queueCompleted = index + 1,
+                                queueTotal = queue.size,
+                                queueTotalBytes = totalBytes,
+                                queueTransferredBytes = completedBytes
+                            ) }
+                        }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
+                    } catch (failure: java.net.ConnectException) {
+                        // An older installed receiver has no v2 listener. Return claimed
+                        // entries to pending and use the compatible v1 per-file path.
+                        useLegacyV1 = true
+                        v2Candidates.forEach { (uri, source) ->
+                            UltraShareQueueStore.update(
+                                this@UltraShareForegroundService, uri, source.name,
+                                UltraShareQueueStore.STATUS_PENDING, "المستقبل لا يدعم V2؛ استخدام V1."
+                            )
+                        }
                     } catch (failure: Exception) {
-                        failed++
-                        // Do not shrink the denominator on failure; otherwise the bar can
-                        // report 100% even though this file still needs a retry.
-                        lastError = metadata.first + ": " + (failure.localizedMessage ?: "فشل الإرسال.")
-                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
+                        failed += v2Candidates.size
+                        lastError = failure.localizedMessage ?: "فشلت جلسة V2."
+                        v2Candidates.forEach { (uri, source) ->
+                            UltraShareQueueStore.update(
+                                this@UltraShareForegroundService, uri, source.name,
+                                UltraShareQueueStore.STATUS_FAILED, lastError
+                            )
+                        }
                     } finally {
                         endTransfer(isReceiving = false)
                     }
-                    activeUri = null
-                    updateState { current -> current.copy(
-                        queueCompleted = index + 1,
-                        queueTotal = queue.size,
-                        progress = if (current.receiving) current.receiveProgress else null,
-                        sendProgress = null,
-                        queueTotalBytes = totalBytes,
-                        queueTransferredBytes = completedBytes
-                    ) }
+                }
+                if (useLegacyV1 || v2Candidates.isEmpty()) {
+                    queue.forEachIndexed { index, uri ->
+                        val storedStatus = UltraShareQueueStore.observe(this@UltraShareForegroundService)
+                            .first().firstOrNull { it.uri == uri.toString() }?.status
+                        if (storedStatus == UltraShareQueueStore.STATUS_SKIPPED) {
+                            // Keep the original denominator: skipped bytes are not transferred,
+                            // so the overall progress must not falsely reach 100%.
+                            updateState { current -> current.copy(
+                                queueCompleted = index + 1,
+                                queueTotal = queue.size,
+                                queueTotalBytes = totalBytes
+                            ) }
+                            return@forEachIndexed
+                        }
+                        activeUri = uri
+                        val metadata = try {
+                            metadataByUri[uri] ?: readDocumentMetadata(uri)
+                        } catch (failure: Exception) {
+                            // Preserve the original total so failed bytes remain visible as incomplete.
+                            failed++
+                            lastError = failure.localizedMessage ?: "تعذرت قراءة أحد الملفات."
+                            UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_FAILED, error = lastError)
+                            activeUri = null
+                            updateState { current -> current.copy(
+                                queueCompleted = index + 1,
+                                queueTotal = queue.size,
+                                queueTotalBytes = totalBytes,
+                                queueTransferredBytes = completedBytes
+                            ) }
+                            return@forEachIndexed
+                        }
+                        val claimed = UltraShareQueueStore.claimForSending(
+                            this@UltraShareForegroundService,
+                            uri,
+                            metadata.first
+                        )
+                        if (!claimed) {
+                            activeUri = null
+                            updateState { current -> current.copy(
+                                queueCompleted = index + 1,
+                                queueTotal = queue.size,
+                                queueTotalBytes = totalBytes,
+                                queueTransferredBytes = completedBytes
+                            ) }
+                            return@forEachIndexed
+                        }
+                        updateState { current -> current.copy(
+                            queueCurrentName = metadata.first,
+                            queueCompleted = index,
+                            queueTotal = queue.size,
+                            progress = if (current.receiving) current.receiveProgress else null,
+                            sendProgress = null,
+                            status = "جارٍ تجهيز وفحص " + metadata.first + " قبل الإرسال..."
+                        ) }
+                        try {
+                            // Protect long source hashing, connection setup, and retries too.
+                            beginTransfer(isReceiving = false)
+                            sendWithRetry(uri, host, secret, metadata) { progress ->
+                                updateState { current -> current.copy(
+                                    progress = progress,
+                                    sendProgress = progress,
+                                    queueCurrentName = metadata.first,
+                                    queueTransferredBytes = minOf(totalBytes, completedBytes + progress.transferredBytes)
+                                ) }
+                                updateNotification(progress)
+                            }
+                            sent++
+                            completedBytes = if (Long.MAX_VALUE - completedBytes < metadata.third) Long.MAX_VALUE else completedBytes + metadata.third
+                            UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_COMPLETED)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            failed++
+                            // Do not shrink the denominator on failure; otherwise the bar can
+                            // report 100% even though this file still needs a retry.
+                            lastError = metadata.first + ": " + (failure.localizedMessage ?: "فشل الإرسال.")
+                            UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
+                        } finally {
+                            endTransfer(isReceiving = false)
+                        }
+                        activeUri = null
+                        updateState { current -> current.copy(
+                            queueCompleted = index + 1,
+                            queueTotal = queue.size,
+                            progress = if (current.receiving) current.receiveProgress else null,
+                            sendProgress = null,
+                            queueTotalBytes = totalBytes,
+                            queueTransferredBytes = completedBytes
+                        ) }
+                    }
+    
                 }
                 updateState { current -> current.copy(sending = false, status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null) }
             } catch (cancelled: CancellationException) {
@@ -854,6 +944,37 @@ class UltraShareForegroundService : Service() {
         sendJob = job
         job.start()
     }
+    private suspend fun sendBatchWithRetry(
+        sources: List<UltraShareBatchTransport.Source>,
+        host: String,
+        secret: String,
+        onProgress: (UltraShareBatchTransport.FileProgress) -> Unit
+    ): UltraShareBatchTransport.BatchOutcome {
+        var retry = 0
+        while (true) {
+            try {
+                return UltraShareBatchTransport.sendBatch(
+                    resolver = contentResolver,
+                    sources = sources,
+                    host = host,
+                    pairingSecret = secret,
+                    onProgress = onProgress
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: java.net.ConnectException) {
+                throw failure
+            } catch (failure: IOException) {
+                if (retry >= 2) throw failure
+                retry++
+                updateState { current -> current.copy(
+                    status = "انقطع اتصال جلسة V2؛ استئناف الدفعة تلقائياً ${retry} من 2"
+                ) }
+                kotlinx.coroutines.delay(retry * 1_000L)
+            }
+        }
+    }
+
     private suspend fun sendWithRetry(
         uri: Uri,
         host: String,
