@@ -222,6 +222,9 @@ object UltraShareControlChannel {
         clientSessions[host]?.socket?.isConnected == true &&
             clientSessions[host]?.socket?.isClosed == false
 
+    fun isServerSessionActive(host: String): Boolean =
+        serverSessions[host]?.isConnected == true && serverSessions[host]?.isClosed == false
+
     private suspend fun handleIncoming(
         socket: Socket,
         pairingSecret: String,
