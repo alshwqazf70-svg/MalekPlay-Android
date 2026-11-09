@@ -959,8 +959,12 @@ fun UltraShareScreen(
                         TextButton(onClick = {
                             viewModel.clearApprovedConnection()
                             host = peer.host
-                            Toast.makeText(context, "تم اختيار الجهاز؛ امسح QR أو أدخل رمز الاقتران الظاهر على جهاز الاستقبال.", Toast.LENGTH_LONG).show()
-                        }) { Text("اختيار") }
+                            if (UltraShareTransport.isValidPairingSecret(secret)) {
+                                viewModel.requestConnection(peer.host, secret.trim())
+                            } else {
+                                Toast.makeText(context, "تم اختيار الجهاز. امسح QR أو أدخل رمز الاقتران الآمن لبدء الطلب تلقائياً.", Toast.LENGTH_LONG).show()
+                            }
+                        }) { Text(if (state.approvedPeerHost == peer.host) "متصل ✓" else "اتصال") }
                     }
                 }
                 state.wifiDirectPeers.forEach { peer ->
@@ -1156,7 +1160,15 @@ fun UltraShareScreen(
                     Text(stringResource(if (state.scanning) R.string.ultra_share_searching else R.string.ultra_share_find_devices), modifier = Modifier.padding(start = 8.dp))
                 }
                 state.discoveredPeers.forEach { peer ->
-                    TextButton(onClick = { host = peer.host }) {
+                    TextButton(onClick = {
+                        viewModel.clearApprovedConnection()
+                        host = peer.host
+                        if (UltraShareTransport.isValidPairingSecret(secret)) {
+                            viewModel.requestConnection(peer.host, secret.trim())
+                        } else {
+                            Toast.makeText(context, "أدخل رمز الاقتران أو امسح QR؛ سيبدأ طلب الاتصال فور اختيار الجهاز.", Toast.LENGTH_LONG).show()
+                        }
+                    }) {
                         Text(
                             stringResource(R.string.ultra_share_peer_select, peer.name, peer.host),
                             color = MalekPlayColors.PurpleBright
