@@ -14,6 +14,11 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +63,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -981,6 +987,14 @@ fun UltraShareScreen(
             }
         }
 
+        UltraShareSessionRoom(
+            state = state,
+            activeMode = activeMode,
+            localDeviceName = Build.MODEL?.take(40)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+            remoteHost = host,
+            selectedMediaCount = pendingMediaUris.size
+        )
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1691,6 +1705,272 @@ fun UltraShareScreen(
     }
 }
 
+
+@Composable
+private fun UltraShareSessionRoom(
+    state: UltraShareUiState,
+    activeMode: String,
+    localDeviceName: String,
+    remoteHost: String,
+    selectedMediaCount: Int
+) {
+    val isSendingRoom = activeMode == "send"
+    val activePeer = state.activePeers.firstOrNull()
+    val remoteName = activePeer?.name
+        ?: state.pendingConnection?.peerName
+        ?: when {
+            state.requestingConnection -> "جارٍ التحقق من الجهاز"
+            remoteHost.isNotBlank() -> remoteHost
+            isSendingRoom -> "بانتظار جهاز الاستقبال"
+            else -> "بانتظار جهاز الإرسال"
+        }
+    val connected = activePeer != null || state.approvedPeerHost != null
+    val pairingPending = state.requestingConnection || state.pendingConnection != null
+    val transferring = state.sending || state.sendProgress != null || state.receiveProgress != null
+    val sendCompleted = !state.sending && state.queueTotal > 0 && state.queueCompleted >= state.queueTotal
+    val receiveCompleted = !isSendingRoom && state.receivedFile != null
+    val pulseTransition = rememberInfiniteTransition(label = "ultraSharePairingPulse")
+    val pulse by pulseTransition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(tween(durationMillis = 850), repeatMode = RepeatMode.Reverse),
+        label = "ultraSharePairingScale"
+    )
+    val status = when {
+        state.sending -> "يتم إرسال الوسائط إلى الجهاز الآخر"
+        state.receiveProgress != null -> "يتم استقبال الوسائط من الجهاز الآخر"
+        state.sendProgress != null -> "جارٍ نقل العنصر الحالي"
+        state.pendingConnection != null -> "طلب اتصال وارد — بانتظار موافقتك"
+        state.requestingConnection -> "جارٍ التحقق من الاقتران — ننتظر رد الجهاز الآخر"
+        connected -> "اتصال موثّق — الجهازان جاهزان للنقل"
+        !isSendingRoom && state.receiving -> "هذا الهاتف ظاهر وجاهز لاستقبال الوسائط"
+        !isSendingRoom -> "ابدأ الاستقبال لعرض رمز الربط واستقبال الوسائط"
+        selectedMediaCount > 0 -> "${selectedMediaCount} عنصر وسائط محدد — اختر جهاز الاستقبال"
+        state.scanning -> "نبحث عن أجهزة MalekPlay القريبة"
+        else -> "اختر الوسائط ثم اربط الجهازين"
+    }
+    val statusColor = when {
+        transferring -> MalekPlayColors.PurpleBright
+        connected -> Color(0xFF65D6A2)
+        pairingPending -> Color(0xFFFFC66D)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val senderName = if (isSendingRoom) localDeviceName else remoteName
+    val receiverName = if (isSendingRoom) remoteName else localDeviceName
+    val progress = if (isSendingRoom) state.sendProgress else state.receiveProgress
+    val overallFraction = if (state.queueTotalBytes > 0L) {
+        (state.queueTransferredBytes.toDouble() / state.queueTotalBytes.toDouble()).toFloat().coerceIn(0f, 1f)
+    } else null
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("غرفة الاتصال والنقل", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
+                    Text("هوية الطرفين وحالة الجلسة", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                }
+                Box(
+                    modifier = Modifier.background(statusColor.copy(alpha = 0.14f), androidx.compose.foundation.shape.RoundedCornerShape(18.dp)).padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        when {
+                            transferring -> "نقل نشط"
+                            connected -> "متصل"
+                            pairingPending -> "اقتران"
+                            else -> "استعداد"
+                        },
+                        color = statusColor,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                UltraShareIdentityTile(
+                    modifier = Modifier.weight(1f),
+                    name = senderName,
+                    role = "المرسل",
+                    isLocal = isSendingRoom,
+                    isActive = connected || (transferring && isSendingRoom)
+                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Box(
+                        modifier = Modifier.size(48.dp).scale(if (pairingPending) pulse else 1f)
+                            .background(
+                                Brush.radialGradient(
+                                    listOf(
+                                        MalekPlayColors.PurpleBright.copy(alpha = if (pairingPending) 0.34f else 0.22f),
+                                        MalekPlayColors.PurpleDeep.copy(alpha = 0.12f)
+                                    )
+                                ),
+                                androidx.compose.foundation.shape.CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (pairingPending) {
+                            CircularProgressIndicator(Modifier.fillMaxSize(), color = MalekPlayColors.PurpleBright, strokeWidth = 2.dp)
+                        }
+                        Icon(Icons.Filled.Wifi, contentDescription = null, tint = if (connected) Color(0xFF65D6A2) else MalekPlayColors.PurpleBright, modifier = Modifier.size(23.dp))
+                    }
+                    Text(
+                        when {
+                            transferring -> "نقل"
+                            connected -> "آمن"
+                            pairingPending -> "ربط"
+                            else -> "قريب"
+                        },
+                        color = statusColor,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                UltraShareIdentityTile(
+                    modifier = Modifier.weight(1f),
+                    name = receiverName,
+                    role = "المستقبل",
+                    isLocal = !isSendingRoom,
+                    isActive = connected || (transferring && !isSendingRoom)
+                )
+            }
+            Text(status, color = statusColor, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            if (selectedMediaCount > 0 && isSendingRoom && !state.sending) {
+                Text("${selectedMediaCount} عنصر وسائط جاهز للإرسال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+            }
+            progress?.let { current ->
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(current.fileName, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)
+                        Text("${(current.fraction * 100).toInt()}%", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
+                    }
+                    LinearProgressIndicator(progress = { current.fraction.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    Text(
+                        "${formatTransferBytes(current.transferredBytes)} / ${formatTransferBytes(current.totalBytes)} • ${formatTransferBytes(current.bytesPerSecond)}/s",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+            if (overallFraction != null && isSendingRoom) {
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    LinearProgressIndicator(progress = { overallFraction }, modifier = Modifier.fillMaxWidth())
+                    Text(
+                        "تقدم الدفعة: ${state.queueCompleted} / ${state.queueTotal} • ${formatTransferBytes(state.queueTransferredBytes)} / ${formatTransferBytes(state.queueTotalBytes)}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+            if (state.queueEntries.isNotEmpty() && isSendingRoom) {
+                val completed = state.queueEntries.count { it.status == UltraShareQueueStore.STATUS_COMPLETED }
+                val failed = state.queueEntries.count { it.status == UltraShareQueueStore.STATUS_FAILED }
+                val waiting = state.queueEntries.count {
+                    it.status == UltraShareQueueStore.STATUS_PENDING || it.status == UltraShareQueueStore.STATUS_SENDING
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    UltraShareQueueCount("مكتمل $completed", Color(0xFF65D6A2), Modifier.weight(1f))
+                    UltraShareQueueCount("جارٍ/منتظر $waiting", MalekPlayColors.PurpleBright, Modifier.weight(1f))
+                    UltraShareQueueCount("فشل $failed", MaterialTheme.colorScheme.error, Modifier.weight(1f))
+                }
+            }
+            if (sendCompleted && isSendingRoom) {
+                UltraShareCompletionPanel(
+                    title = "اكتمل إرسال الوسائط",
+                    subtitle = "اكتمل نقل ${state.queueCompleted} من ${state.queueTotal} عنصر بنجاح.",
+                    detail = "يمكنك الآن إرسال دفعة أخرى أو العودة إلى مكتبة الوسائط."
+                )
+            }
+            if (receiveCompleted) {
+                val received = state.receivedFile!!
+                UltraShareCompletionPanel(
+                    title = "اكتمل استقبال الوسائط",
+                    subtitle = received.fileName,
+                    detail = formatTransferBytes(received.sizeBytes) + " • " +
+                        if (received.publishedUri != null) "حُفظ في التنزيلات / MalekPlay / Received" else "حُفظ داخل مساحة التطبيق"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UltraShareIdentityTile(
+    modifier: Modifier = Modifier,
+    name: String,
+    role: String,
+    isLocal: Boolean,
+    isActive: Boolean
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isActive) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Box(
+                modifier = Modifier.size(42.dp).background(
+                    Brush.linearGradient(
+                        listOf(
+                            MalekPlayColors.PurpleBright.copy(alpha = 0.30f),
+                            if (isActive) Color(0xFF65D6A2).copy(alpha = 0.22f) else MalekPlayColors.PurpleDeep.copy(alpha = 0.20f)
+                        )
+                    ),
+                    androidx.compose.foundation.shape.CircleShape
+                ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(name.firstOrNull()?.uppercase() ?: "M", color = if (isActive) Color(0xFF65D6A2) else MalekPlayColors.PurpleBright, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+            }
+            Text(name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(role, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+            Text(if (isLocal) "هذا الهاتف" else if (isActive) "متصل" else "بعيد", color = if (isActive) Color(0xFF65D6A2) else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+private fun UltraShareQueueCount(label: String, tint: Color, modifier: Modifier = Modifier) {
+    Text(
+        label,
+        modifier = modifier.background(tint.copy(alpha = 0.12f), androidx.compose.foundation.shape.RoundedCornerShape(10.dp)).padding(horizontal = 5.dp, vertical = 7.dp),
+        color = tint,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+    )
+}
+
+@Composable
+private fun UltraShareCompletionPanel(title: String, subtitle: String, detail: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF164A38))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF83E6B7), modifier = Modifier.size(30.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, color = Color.White, fontWeight = FontWeight.ExtraBold)
+                Text(subtitle, color = Color(0xFFE2FFF1), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(detail, color = Color(0xFFB6E8D2), style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
 
 @Composable
 private fun UltraShareProgressCard(
