@@ -764,8 +764,6 @@ class UltraShareForegroundService : Service() {
                 throw cancelled
             } finally {
                 sendJob = null
-                UltraShareControlChannel.closeSession(host)
-                disconnectApprovedPeer(host)
                 pauseRequested = false
                 updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, queueCurrentName = null) }
                 finishService()
