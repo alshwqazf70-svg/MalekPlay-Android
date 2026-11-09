@@ -590,11 +590,12 @@ fun UltraShareScreen(
     val state by viewModel.state.collectAsState()
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
+    fun isMediaUri(uri: Uri): Boolean = runCatching {
+        val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
+        mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/")
+    }.getOrDefault(false)
     var pendingMediaUris by remember(initialUris) {
-        mutableStateOf(initialUris.distinct().filter { uri ->
-            val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
-            mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/")
-        })
+        mutableStateOf(initialUris.distinct().filter(::isMediaUri))
     }
     var showDeviceRoom by remember { mutableStateOf(false) }
     val mediaMimeTypes = arrayOf("video/*", "audio/*", "image/*")
@@ -637,7 +638,11 @@ fun UltraShareScreen(
     }
 
     LaunchedEffect(initialUris) {
-        val notPersisted = initialUris.distinct().count { !persistReadGrant(it) }
+        val allowedInitialUris = initialUris.distinct().filter(::isMediaUri)
+        if (allowedInitialUris.size != initialUris.distinct().size) {
+            Toast.makeText(context, "تجاهل MalekPlay أي عنصر ليس فيديو أو موسيقى أو صورة.", Toast.LENGTH_LONG).show()
+        }
+        val notPersisted = allowedInitialUris.count { !persistReadGrant(it) }
         if (notPersisted > 0) {
             Toast.makeText(
                 context,
@@ -648,10 +653,7 @@ fun UltraShareScreen(
     }
 
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        val mediaUris = uris.filter { uri ->
-            val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
-            mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/")
-        }
+        val mediaUris = uris.filter(::isMediaUri)
         if (mediaUris.size != uris.size) {
             Toast.makeText(context, "يسمح MalekPlay بمشاركة الفيديوهات والموسيقى والصور فقط.", Toast.LENGTH_LONG).show()
         }
@@ -869,7 +871,7 @@ fun UltraShareScreen(
             OutlinedButton(
                 onClick = {
                     showDeviceRoom = true
-                    viewModel.scanNearbyDevices()
+                    if (!state.scanning) viewModel.scanNearbyDevices()
                     pickFiles.launch(mediaMimeTypes)
                 },
                 modifier = Modifier.weight(1f).height(94.dp),
