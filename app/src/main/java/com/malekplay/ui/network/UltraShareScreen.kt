@@ -232,7 +232,6 @@ class UltraShareViewModel @Inject constructor(
     fun scanNearbyDevices() {
         if (scanJob != null) {
             scanJob?.cancel()
-            scanJob = null
             _state.value = _state.value.copy(scanning = false, status = "تم إيقاف البحث عن الأجهزة.")
             return
         }
@@ -745,7 +744,7 @@ fun UltraShareScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            OutlinedButton(
+            Button(
                 onClick = { if (!state.receiving) viewModel.startReceiving() },
                 modifier = Modifier.weight(1f).height(94.dp),
                 enabled = !state.receiving
