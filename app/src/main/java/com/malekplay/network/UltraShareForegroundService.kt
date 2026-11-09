@@ -161,6 +161,7 @@ class UltraShareForegroundService : Service() {
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
+                currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
                 stopLocalHotspot()
                 if (sendJob == null && receiveJob == null) finishService()
                 return START_NOT_STICKY
@@ -367,6 +368,7 @@ class UltraShareForegroundService : Service() {
         advertisementJob?.cancel()
         controlJob?.cancel()
         pendingConnectionDecision?.cancel()
+        currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
         releaseTransferLocks()
         runCatching { hotspotReservation?.close() }
         hotspotReservation = null
@@ -381,6 +383,9 @@ class UltraShareForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        if (currentState().receiving) {
+            currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
+        }
         sendJob?.cancel()
         receiveJob?.cancel()
         advertisementJob?.cancel()
