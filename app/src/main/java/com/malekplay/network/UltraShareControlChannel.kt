@@ -82,10 +82,17 @@ object UltraShareControlChannel {
                 } catch (_: SocketTimeoutException) {
                     continue
                 }
-                socket.use { client ->
-                    client.soTimeout = HANDSHAKE_TIMEOUT_MS
-                    client.tcpNoDelay = true
-                    handleIncoming(client, pairingSecret, onRequest, onSessionClosed)
+                try {
+                    socket.use { client ->
+                        client.soTimeout = HANDSHAKE_TIMEOUT_MS
+                        client.tcpNoDelay = true
+                        client.keepAlive = true
+                        handleIncoming(client, pairingSecret, onRequest, onSessionClosed)
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // A malformed or disconnected peer must not take down the listener.
                 }
             }
         }
