@@ -32,7 +32,7 @@ object UltraShareDiscovery {
     )
 
     suspend fun advertiseWhileReceiving(
-        transferPort: Int = UltraShareTransport.DEFAULT_PORT
+        transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT
     ) = withContext(Dispatchers.IO) {
         require(transferPort in 1..65535)
         val peerId = UUID.randomUUID().toString()
