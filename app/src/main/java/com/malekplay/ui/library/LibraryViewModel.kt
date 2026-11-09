@@ -37,6 +37,8 @@ class LibraryViewModel @Inject constructor(
     )
 
     private val refreshMutex = Mutex()
+    // If MediaStore changes during a scan, run one coalesced follow-up scan.
+    private var pendingMediaStoreRefresh = false
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
@@ -53,8 +55,29 @@ class LibraryViewModel @Inject constructor(
     val audio = mediaRepository.observeAudio()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val folders = mediaRepository.observeFolders()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val seenNewMediaIds = settingsRepository.seenNewMediaIds
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val newMediaBaselineMs = settingsRepository.newMediaBaselineMs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
+    val folders = kotlinx.coroutines.flow.combine(
+        mediaRepository.observeFolders(),
+        allMedia,
+        seenNewMediaIds,
+        newMediaBaselineMs
+    ) { folderRows, mediaRows, seenIds, baselineMs ->
+        // Only files added after the first app launch are candidates for "new".
+        // Once eligible, a file remains new indefinitely until the user opens it.
+        folderRows.map { folder ->
+            val unseenCount = if (baselineMs <= 0L) 0 else mediaRows.count { row ->
+                row.media.folderPath == folder.path &&
+                    row.media.addedAtMs >= baselineMs &&
+                    row.media.id !in seenIds
+            }
+            folder.copy(newItemCount = unseenCount)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val continueWatching = mediaRepository.observeContinueWatching(5)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -67,26 +90,47 @@ class LibraryViewModel @Inject constructor(
         )
 
     init {
-        refresh(force = false)
+        viewModelScope.launch {
+            settingsRepository.ensureNewMediaBaseline()
+            refresh(force = false)
+        }
     }
 
-    /** Explicit user refresh forces a scan; screen entry uses the short cache window. */
+    /** Explicit user refresh forces a scan. */
     fun refresh() = refresh(force = true)
 
-    private fun refresh(force: Boolean) {
+    /**
+     * Refresh after MediaStore reports a change. A short throttle coalesces the
+     * burst of notifications Android emits while one file is being indexed.
+     */
+    fun refreshAfterMediaStoreChange() =
+        refresh(force = false, minIntervalMs = 2_000L, retryIfBusy = true)
+
+    private fun refresh(
+        force: Boolean,
+        minIntervalMs: Long = 5 * 60 * 1_000L,
+        retryIfBusy: Boolean = false
+    ) {
         viewModelScope.launch {
-            if (!refreshMutex.tryLock()) return@launch
+            if (!refreshMutex.tryLock()) {
+                if (retryIfBusy) pendingMediaStoreRefresh = true
+                return@launch
+            }
             _isRefreshing.value = true
             _error.value = null
             try {
-                if (force) mediaRepository.refresh() else mediaRepository.refreshIfStale()
+                if (force) mediaRepository.refresh()
+                else mediaRepository.refreshIfStale(minIntervalMs = minIntervalMs)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 _error.value = error.localizedMessage ?: "Could not refresh the library"
             } finally {
                 _isRefreshing.value = false
+                val runPendingRefresh = pendingMediaStoreRefresh
+                pendingMediaStoreRefresh = false
                 refreshMutex.unlock()
+                if (runPendingRefresh) refresh(force = true)
             }
         }
     }
@@ -94,6 +138,10 @@ class LibraryViewModel @Inject constructor(
     fun search(query: String) = mediaRepository.observeSearch(query)
 
     fun folderContents(path: String) = mediaRepository.observeFolder(path)
+
+    fun markNewMediaSeen(mediaId: String) {
+        viewModelScope.launch { settingsRepository.markNewMediaSeen(mediaId) }
+    }
 
     fun toggleFavourite(mediaId: String) {
         viewModelScope.launch { userDataRepository.toggleFavourite(mediaId) }

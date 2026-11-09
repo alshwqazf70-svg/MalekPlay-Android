@@ -133,15 +133,18 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    implementation(libs.compose.animation)
     implementation(libs.compose.icons.extended)
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Media3
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
+    implementation(libs.media3.effect)
     implementation(libs.media3.session)
     implementation(libs.media3.datasource.okhttp)
-    implementation(libs.assMedia)
+    implementation(libs.media3.cast)
+    implementation(project(":ass-media-local"))
 
     // Room
     implementation(libs.room.runtime)

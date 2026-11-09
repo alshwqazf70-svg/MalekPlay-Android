@@ -134,31 +134,56 @@ fun MusicScreen(
 
     var tabIndex by remember { mutableIntStateOf(0) }
     var searchQuery by remember { androidx.compose.runtime.mutableStateOf("") }
-    val sortedSongs = remember(songs, settings.sortMode) {
-        libraryViewModel.applySort(songs, settings.sortMode)
-    }
-    val visibleSongs = remember(sortedSongs, searchQuery) {
-        val q = searchQuery.trim()
-        if (q.isBlank()) sortedSongs else sortedSongs.filter { item ->
-            item.media.displayTitle.contains(q, ignoreCase = true) ||
-                item.media.artist.orEmpty().contains(q, ignoreCase = true) ||
-                item.media.album.orEmpty().contains(q, ignoreCase = true) ||
-                item.media.folderName.contains(q, ignoreCase = true)
+    // Sorting and filtering thousands of songs must not run during Compose recomposition.
+    // Sort only when the library/order changes; keystrokes then filter the sorted snapshot
+    // without repeating an O(n log n) sort on every character.
+    val sortedSongs by produceState(
+        initialValue = emptyList<LibraryItem>(),
+        songs, settings.sortMode
+    ) {
+        value = withContext(Dispatchers.Default) {
+            libraryViewModel.applySort(songs, settings.sortMode)
         }
     }
-    val visibleAlbums = remember(albums, searchQuery) {
-        val q = searchQuery.trim()
-        if (q.isBlank()) albums else albums.filter {
-            it.name.contains(q, true) || it.artist.contains(q, true)
+    val visibleSongs by produceState(
+        initialValue = emptyList<LibraryItem>(),
+        sortedSongs, searchQuery
+    ) {
+        value = withContext(Dispatchers.Default) {
+            val q = searchQuery.trim()
+            if (q.isBlank()) sortedSongs else sortedSongs.filter { item ->
+                item.media.displayTitle.contains(q, ignoreCase = true) ||
+                    item.media.artist.orEmpty().contains(q, ignoreCase = true) ||
+                    item.media.album.orEmpty().contains(q, ignoreCase = true) ||
+                    item.media.folderName.contains(q, ignoreCase = true)
+            }
         }
     }
-    val visibleArtists = remember(artists, searchQuery) {
-        val q = searchQuery.trim()
-        if (q.isBlank()) artists else artists.filter { it.name.contains(q, true) }
+    val visibleAlbums by produceState(
+        initialValue = emptyList<AlbumSummary>(), albums, searchQuery
+    ) {
+        value = withContext(Dispatchers.Default) {
+            val q = searchQuery.trim()
+            if (q.isBlank()) albums else albums.filter {
+                it.name.contains(q, true) || it.artist.contains(q, true)
+            }
+        }
     }
-    val visibleGenres = remember(genres, searchQuery) {
-        val q = searchQuery.trim()
-        if (q.isBlank()) genres else genres.filter { it.name.contains(q, true) }
+    val visibleArtists by produceState(
+        initialValue = emptyList<ArtistSummary>(), artists, searchQuery
+    ) {
+        value = withContext(Dispatchers.Default) {
+            val q = searchQuery.trim()
+            if (q.isBlank()) artists else artists.filter { it.name.contains(q, true) }
+        }
+    }
+    val visibleGenres by produceState(
+        initialValue = emptyList<GenreSummary>(), genres, searchQuery
+    ) {
+        value = withContext(Dispatchers.Default) {
+            val q = searchQuery.trim()
+            if (q.isBlank()) genres else genres.filter { it.name.contains(q, true) }
+        }
     }
     val selectedSongs = remember { mutableStateListOf<Uri>() }
     val songSelectionMode = selectedSongs.isNotEmpty()
@@ -255,7 +280,7 @@ fun MusicScreen(
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("${selectedSongs.size} أغنية محددة", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                 androidx.compose.material3.TextButton(onClick = { selectedSongs.clear() }) { Text("إلغاء") }
-                androidx.compose.material3.TextButton(onClick = { onSendMedia(sortedSongs.filter { it.media.uri in selectedSongs }.map { it.media }) }) { Text("إرسال المحدد") }
+                androidx.compose.material3.TextButton(onClick = { onSendMedia(songs.filter { it.media.uri in selectedSongs }.map { it.media }) }) { Text("إرسال المحدد") }
             }
         }
         when (tabIndex) {

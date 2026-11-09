@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - backup/before-updated-2.0
+      - performance/large-library-optimization
+      - feature/ultrashare-bidirectional-2026-11-08
+      - feature/zapya-engineering-analysis
   workflow_dispatch:
 
 concurrency:
@@ -49,8 +52,17 @@ jobs:
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Assemble ABI-specific debug APKs
-        run: ./gradlew --stacktrace --max-workers=2 -PenableAbiSplits=true :app:assembleDebug
+      - name: Assemble ABI-specific debug APKs (retry transient dependency downloads)
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            ./gradlew --stacktrace --max-workers=2 -PenableAbiSplits=true :app:assembleDebug && exit 0
+            if [ "$attempt" -lt 3 ]; then
+              echo "Gradle build attempt $attempt failed; retrying after transient dependency/network errors..."
+              sleep 20
+            fi
+          done
+          exit 1
 
       - name: Upload debug APKs
         uses: actions/upload-artifact@v4

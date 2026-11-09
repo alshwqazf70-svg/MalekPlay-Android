@@ -66,7 +66,7 @@ object UltraShareTransport {
     private const val MAGIC = 0x4D505531 // MPU1
     private const val VERSION = 1
     private const val SECRET_BYTES = 32
-    private const val PIN_LENGTH = 12
+    private const val PIN_LENGTH = 9
     private const val PIN_KDF_ITERATIONS = 210_000
     private const val PIN_SALT_BYTES = 16
     private const val CHALLENGE_BYTES = 32
@@ -97,10 +97,10 @@ object UltraShareTransport {
 
     /** Generates a compact, human-friendly one-time numeric pairing PIN. */
     fun createPairingSecret(): String {
-        // A 12-digit PIN provides about 40 bits of entropy while remaining easy
-        // to read aloud or display as four groups in the pairing screen.
-        val value = SecureRandom().nextLong().ushr(1) % 1_000_000_000_000L
-        return String.format(Locale.US, "%012d", value)
+        // A nine-digit one-time PIN is shared by Android and desktop clients.
+        // PBKDF2 strengthens the low-entropy human-entered code for each fresh challenge.
+        val value = SecureRandom().nextLong().ushr(1) % 1_000_000_000L
+        return String.format(Locale.US, "%09d", value)
     }
 
     fun isValidPairingSecret(value: String): Boolean =

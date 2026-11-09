@@ -71,8 +71,8 @@ If there is no Wi-Fi router, enable the phone's personal hotspot, connect the co
 
 ## Security and transfer behavior
 
-- Pairing uses the same **12-digit PIN** shown by the Android app. Both sides derive a 256-bit session secret with PBKDF2-HMAC-SHA256 (210,000 iterations) and a fresh challenge salt; HMAC-SHA256 proves possession without sending the PIN.
-- Legacy 64-character hexadecimal pairing keys are still accepted by the desktop utility, but the Android UI currently displays 12-digit PINs.
+- Pairing uses the same **9-digit PIN** shown by the Android app. Both sides derive a 256-bit session secret with PBKDF2-HMAC-SHA256 (210,000 iterations) and a fresh challenge salt; HMAC-SHA256 proves possession without sending the PIN.
+- Legacy 64-character hexadecimal pairing keys are still accepted by the desktop utility, but the Android UI currently displays 9-digit PINs.
 - File metadata and content frames are protected with AES-256-GCM.
 - SHA-256 verifies the completed file.
 - Interrupted transfers retain a partial file and resume from the receiver's partial length when the same file is sent again.

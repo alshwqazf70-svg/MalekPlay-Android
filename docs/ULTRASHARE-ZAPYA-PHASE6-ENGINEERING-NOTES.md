@@ -1,0 +1,111 @@
+# UltraShare — مراجعة هندسية بعد تحليل Zapya (9 نوفمبر 2026)
+
+
+### Desktop multi-file sending
+
+- The desktop companion now accepts multiple paths in one `send --file` invocation and sends them in the order selected on the command line.
+- It validates that every selected path is a regular file before opening the first network connection, preventing a missing later path from causing a partially-started batch.
+- Transfers remain sequential and each file retains the existing authenticated AES-GCM v1 handshake, resume offset, SHA-256 verification, and bounded retry behavior. This deliberately avoids claiming parallel-transfer speedups before device-level measurements.
+- Unit tests cover all-path prevalidation and stable send order. CI execution is pending confirmation; the code change alone is not a test result.
+
+
+### Discovery UX and Android send-path tuning
+
+- LAN discovery now runs as a bounded repeated scan (eight short windows) and updates the nearby-device list as devices appear; the same control can cancel the scan.
+- The nearby-device panel now presents LAN and Wi-Fi Direct peers together with explicit selection/connect actions. Selecting a LAN peer fills its host only; pairing still requires the receiver's QR/PIN so discovery never bypasses authentication.
+- Android source streams now use a 1 MiB read-ahead buffer before hashing and encryption. The v1 wire frame remains capped at 256 KiB for compatibility.
+- Android batches data frames in its existing 1 MiB buffered socket output instead of flushing after every 256 KiB frame; the end-of-transfer frame flushes the batch before waiting for the receiver's final integrity acknowledgement. This reduces avoidable flush overhead, but real speed gains must be measured on two physical devices.
+
+## نطاق الفحص
+
+تمت مراجعة تقرير المرحلة السادسة من مستودع التحليل الخاص، ثم ملفات النقل الحالية في فرع `feature/zapya-engineering-analysis` من MalekPlay:
+
+- `UltraShareTransport.kt`
+- `UltraShareForegroundService.kt`
+- `UltraShareQueueStore.kt`
+- اختبارات `UltraShareTransportTest.kt`
+
+هذه مراجعة ساكنة للكود والتفكيك؛ لا تعني أن اختبار هاتفين أو اختبار الأداء قد نجح.
+
+## نتائج Zapya التي يمكن الاعتماد عليها
+
+1. توجد استدعاءات مباشرة لـ AES-GCM في إنشاء إطار الملف واستقباله: `CreatNormalDataFrame -> AesGcmEncrypt` و`WriteBlockFrame -> AesGcmDecrypt`.
+2. مسار الملف يحتوي على فك ACK وإدارة إعادة الإرسال وتكييف الإرسال ضمن `HandleDFileFrame`، بما فيها `FileManagerSendRetranList` و`AdjustAckInterval` و`AdjustClientSendRateByAckDrop`.
+3. استدعاءات KCP المرصودة تقع في مسار DMsg؛ و`SendDataBlock` يختار KCP عندما يكون وضع الاتصال 2، ويستعمل `SocketSend` في الفرع الآخر. لا يوجد في هذه الأدلة ما يثبت أن حمولة الملفات تمر عبر KCP.
+4. واجهة Native المسماة `NSTACKX_DFileSendFilesWithRemotePath` تقبل مصفوفتَي مسارات وتتحقق من عدد العناصر حتى أقل من 501. أما مسار Java الذي تم تتبعه فيستدعيها بمصفوفة ملف واحد في كل مرة.
+
+## الحالة الحالية في UltraShare
+
+- نقل LAN عبر TCP socket.
+- تشفير AES-GCM لكل إطار، مع مفاتيح اتجاهية مشتقة من تحدي الاقتران.
+- التحقق من سلامة الملف عبر SHA-256.
+- حجم الكتلة الحالي 256 KiB، ومخازن socket بحجم 1 MiB.
+- طابور دائم بحالات pending/sending/completed/failed/skipped.
+- الاستئناف يعتمد على هوية محتوى تشمل الاسم والحجم وبصمة SHA-256، ثم إكمال ملف .part.
+- إيصال الاستلام يمنع إعادة إنشاء نسخة مكتملة عند تكرار المحاولة.
+- خدمة Foreground مستقلة عن شاشة النقل، مع Wi-Fi lock وpartial wake lock أثناء النقل الفعلي.
+- الإرسال المتعدد في التطبيق متتابع ملفاً بعد ملف، وليس تدفق ملفات متوازياً.
+
+## فجوات هندسية تستحق التطوير
+
+### 1. ACK على مستوى الإطار
+
+المرسل يكتب إطارات البيانات عبر TCP ثم ينتظر ACK تطبيقي نهائياً بعد أن يتحقق المستقبل من SHA-256 للملف كاملاً. لا يوجد حالياً ACK تطبيقي دوري لكل كتلة. TCP يتولى إعادة إرسال المقاطع أثناء بقاء الاتصال، بينما استئناف UltraShare يعالج إعادة الاتصال من آخر طول محفوظ على المستقبل.
+
+لا نضيف ACK لكل كتلة بشكل متسرع؛ التوقف بعد كل كتلة قد يضر throughput. التصميم المرشح هو نافذة ACK تراكمية محدودة بعدد/حجم معلوم من الإطارات، مع تأكيد offset محفوظ فعلياً على القرص، ومهلة وإعادة إرسال عند الحاجة. يجب أن يكون هذا تغيير بروتوكول بإصدار جديد مع توافق واضح، لا تغييراً صامتاً لبروتوكول v1.
+
+### 2. كلفة قراءة الملف مرتين
+
+يرسم `send()` بصمة SHA-256 كاملة قبل بدء الإرسال، ثم يعيد فتح المصدر لإرسال البيانات. هذا يوفر هوية استئناف دقيقة لكنه يضيف قراءة كاملة إضافية من المصدر. يجب قياس أثر ذلك على ملفات كبيرة وبطاقات التخزين قبل تغييره؛ لا نحذف البصمة المسبقة لأن ذلك يضعف سلامة الاستئناف.
+
+### 3. قياس السرعة وحجم الكتل
+
+لا توجد نتائج ميدانية كافية لاختيار حجم كتلة أفضل من 256 KiB. يجب اختبار 64/128/256/512 KiB و1 MiB على الجهازين نفسيهما والشبكة نفسها، مع تسجيل:
+- زمن ما قبل الإرسال (قراءة/بصمة المصدر).
+- زمن النقل الفعلي ومتوسط/ذروة MiB/s.
+- CPU والذاكرة والحرارة واستهلاك البطارية.
+- عدد مرات الانقطاع ونجاح الاستئناف وبصمة الملف النهائية.
+- اختلاف Wi-Fi Router عن Hotspot وWi-Fi Direct.
+
+### 4. دقة واجهة التقدم
+
+تقدم المرسل الحالي يرتفع عند كتابة الإطار إلى socket؛ ليس ACK تطبيقياً من المستقبل لكل كتلة. لا ينبغي وصف هذه القيمة بأنها bytes verified remotely. يمكن إبقاء مؤشر الإرسال الحالي، مع فصل حالة "أُرسل" عن "اكتمل التحقق والاستلام" في تصميم واجهة لاحق.
+
+## خطة التنفيذ التالية
+
+1. إبقاء بروتوكول v1 مستقراً حتى استكمال اختبارات التوافق الحالية.
+2. إضافة طبقة قياس قابلة للتكرار لحجم الكتل ومرحلة hashing ومرحلة النقل، دون تغيير تنسيق الإطارات.
+3. بناء اختبارات نقل محلية/آلية تغطي الانقطاع بعد كل كتلة، ملفاً فارغاً/صغيراً/كبيراً، المصدر الذي يتغير أثناء الإرسال، ملفاً مكتملاً مكرراً، ومصدر URI يفقد صلاحية القراءة.
+4. تصميم v2 بنافذة ACK تراكمية بعد ثبوت أن ACK التطبيق الحالي أو استئناف الملف لا يغطيان متطلبات الاعتمادية المطلوبة.
+5. بعد ذلك فقط نختبر إرسال عدة ملفات، فصل الشبكة، إطفاء الشاشة، إعادة الاتصال، ثم اختباراً واقعياً على هاتفين.
+
+## تعديلات متابعة منفذة في فرع التطوير
+
+1. تم نقل الحصول على Wi-Fi lock وpartial wake lock إلى ما قبل فحص بصمة الملف وفتح الاتصال في الإرسال الفردي وإرسال الطابور. سابقاً كان أول قفل قد لا يُطلب إلا بعد أول callback للتقدم، وهذا متأخر جداً مع ملفات كبيرة أو مصدر بطيء.
+2. أصبح الإرسال الفردي يستخدم نفس سياسة إعادة المحاولة المحدودة (محاولتان إضافيتان عند أخطاء I/O) المستخدمة في طابور الملفات، مع بقاء الإلغاء فورياً.
+3. أضيف خيار `chunkBytes` إلى واجهة المرسل مع إبقاء القيمة الافتراضية 256 KiB. يسمح الإصدار الحالي بقياسات 64/128/256 KiB فقط؛ لا يسمح بإطار أكبر من الحد الذي يقبله مستقبل v1. أضيفت اختبارات حدود لهذا الخيار.
+4. لم يتغير تنسيق الحزم أو الإصدار v1، ولم نضف ACK مرحلياً بعد. هذا يحافظ على التوافق مع النسخ الحالية حتى تصميم بروتوكول v2 واختباره.
+
+هذه التعديلات محفوظة في commits فرع التطوير. لم يُثبت بعد نجاح Gradle CI بعد هذه commits، لذلك تبقى اختبارات الوحدة والبناء مطلوبة قبل اعتمادها.
+
+5. أصبح المستقبل ينفذ `FileDescriptor.sync()` في كتلة `finally` عند إغلاق ملف الجزء، بما في ذلك الانقطاع أو الإلغاء أثناء استقبال الكتل. هذا يضمن دفع البيانات المكتوبة إلى التخزين قبل اعتماد طول ملف الجزء كنقطة استئناف. تتم المزامنة مرة واحدة لكل محاولة استقبال، لا بعد كل كتلة، لتقليل أثرها على السرعة.
+
+6. تمت معالجة قراءة التدفقات التي قد تعيد صفراً دون EOF داخل مسار حساب SHA-256 للملفات المستلمة مسبقاً؛ يستخدم الآن قارئاً يضمن التقدم بدلاً من الدوران بلا نهاية.
+7. تعرض الخدمة حالة تجهيز وفحص الملف قبل الإرسال، حتى لا يبدو التطبيق متجمداً خلال قراءة SHA-256 الأولية للملفات الكبيرة.
+
+8. طُبّق المبدأ نفسه على مستقبل الكمبيوتر في `desktop/ultra_share_pc.py`: مزامنة ملف الجزء إلى التخزين في `finally` عند نهاية المحاولة أو انقطاع الاتصال، مع مزامنة واحدة لكل محاولة للحفاظ على throughput. بذلك لا تختلف سياسة حفظ نقطة الاستئناف بين مستقبل Android ومستقبل الكمبيوتر.
+
+## حالة التحليل المصحح
+
+تم تحديث workflow الخاص بتحليل APK حتى لا يؤدي خروج JADX غير الصفري بسبب أخطاء فك جزئية إلى إيقاف بقية تحليل المكتبات الأصلية. سيُحفظ سجل JADX وعدد ملفات Java المستخرجة، ويستمر تحليل ARM64 وARMv7 حتى لو كانت نتائج JADX جزئية. لم يتم تأكيد نجاح التشغيل الجديد أو وجود artifact حتى الآن.
+
+## حالة البناء
+
+أُضيف فرع التطوير الحالي إلى فروع التشغيل التلقائي في Android GitHub Actions. هذا يتيح تشغيل فحوصات البناء عند تحديث الفرع، لكنه لا يعني أن البناء أو اختبارات النقل الواقعية قد نجحت.
+
+
+## تصحيح قرار تصميم بروتوكول v2
+
+تمت إضافة `docs/ULTRASHARE-PROTOCOL-V2-DESIGN.md` لتثبيت خطة التوافق والتنفيذ قبل تعديل wire protocol. ويصحح هذا التصميم التوصية الأولية أعلاه بشأن ACK التراكمي: بما أن المسار الحالي TCP، فإن TCP يتولى ترتيب المقاطع وإعادة إرسالها والتحكم بالازدحام. لا ينبغي إضافة ACK/إعادة إرسال لكل كتلة فوق TCP دون قياس يثبت فائدة واضحة؛ التصميم المقترح لـ v2 يركز على تفاوض القدرات، جلسة واحدة لعدة ملفات، قرارات استئناف لكل ملف، ونتائج تحقق نهائية. تبقى ACKs على حدود الجلسة/الملف، لا بعد كل إطار. أي نقل UDP مستقبلي يحتاج ملف نقل مستقلاً وآلية congestion control وselective ACK خاصة به.
+
+هذه وثيقة تصميم فقط وليست تنفيذ v2. لا يزال v1 هو البروتوكول المنفذ، ولم يتغير توافقه أو تنسيق إطاراته. لم يُشغّل Gradle build أو اختبارات أجهزة فعلية ضمن هذه الخطوة.

@@ -51,6 +51,7 @@ import com.malekplay.core.ui.util.DecoderInfo
 import com.malekplay.core.ui.util.formatBitrate
 import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.core.ui.util.formatSpeed
+import com.malekplay.ui.player.video.HdrInfoPolicy
 import com.malekplay.domain.model.EqualizerPreset
 import com.malekplay.domain.model.EQUALIZER_PRESETS
 import com.malekplay.domain.model.PlayerSettings
@@ -216,7 +217,11 @@ fun TrackPickerSheet(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatsSheet(stats: PlaybackStats, onDismiss: () -> Unit) {
+fun StatsSheet(
+    stats: PlaybackStats,
+    displayHdrCapabilities: String = "غير متاح",
+    onDismiss: () -> Unit
+) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState()) {
         Column(
             Modifier
@@ -233,6 +238,8 @@ fun StatsSheet(stats: PlaybackStats, onDismiss: () -> Unit) {
                 if (hardware) "  •  ${stringResource(R.string.player_hw)}" else "")
             StatsRow(stringResource(R.string.stats_resolution),
                 if (stats.width > 0) "${stats.width}×${stats.height}" else "—")
+            StatsRow("صيغة HDR للفيديو", HdrInfoPolicy.streamFormat(stats.videoCodecs, stats.videoColorTransfer))
+            StatsRow("قدرات HDR المعلنة للشاشة", displayHdrCapabilities)
             StatsRow(stringResource(R.string.stats_fps),
                 if (stats.frameRate > 0f) "%.2f fps".format(stats.frameRate) else "—")
             StatsRow(stringResource(R.string.stats_video), stats.videoCodec)

@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -840,6 +841,7 @@ private fun SourcesList(
         Column(
             modifier = modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(20.dp)
                 .clip(emptyShape)
                 .background(Brush.verticalGradient(listOf(Color(0xFF21192D), Color(0xFF17131F), Color(0xFF100E16))))
@@ -870,6 +872,7 @@ private fun SourcesList(
                 color = MalekPlayColors.TextPrimary,
                 textAlign = TextAlign.Center
             )
+            NetworkHelpFooter()
         }
         return
     }
@@ -923,6 +926,7 @@ private fun SourcesList(
                 }
             }
         }
+        item { NetworkHelpFooter() }
     }
 }
 
@@ -1312,3 +1316,36 @@ private val MEDIA_EXTENSIONS = setOf(
 
 private fun isMediaFile(name: String): Boolean =
     name.substringAfterLast('.').lowercase() in MEDIA_EXTENSIONS
+
+
+@Composable
+private fun NetworkHelpFooter() {
+    var sourcesExpanded by remember { mutableStateOf(false) }
+    var dlnaExpanded by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("مساعدة مصادر الشبكة", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                TextButton(onClick = { sourcesExpanded = !sourcesExpanded }) {
+                    Text(if (sourcesExpanded) "إخفاء الشرح" else "شرح إضافة SMB وWebDAV وSFTP")
+                }
+                if (sourcesExpanded) {
+                    Text("1. اضغط علامة «+» أعلى الصفحة.\n2. اختر البروتوكول الذي يقدمه جهازك: SMB لمشاركة مجلدات Windows أو NAS، وWebDAV لخادم WebDAV، وSFTP لخادم نقل ملفات آمن.\n3. أدخل عنوان IP أو اسم المضيف والمنفذ وبيانات الدخول. المنفذ الافتراضي يختار تلقائياً حسب البروتوكول.\n4. في SMB أدخل اسم المشاركة (Share). وفي SFTP اختر ملف known_hosts موثوقاً؛ لا تتجاوز التحقق من هوية الخادم.\n5. أدخل المسار واسم العرض ثم اضغط «حفظ». بعد ظهور المصدر اضغط «تصفح» لفتح المجلدات والوسائط.")
+                    Text("إذا فشل الاتصال: تحقق من أن الهاتف والخادم على شبكة تسمح بالتواصل بينهما، وأن المشاركة مفعّلة وصلاحيات الحساب صحيحة، وأن المنفذ والمسار واسم المشاركة صحيحة. استخدم بيانات خادم تثق به فقط.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("مساعدة خوادم DLNA", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                TextButton(onClick = { dlnaExpanded = !dlnaExpanded }) {
+                    Text(if (dlnaExpanded) "إخفاء الشرح" else "شرح اكتشاف وتصفح خادم DLNA")
+                }
+                if (dlnaExpanded) {
+                    Text("1. تأكد من تشغيل خادم DLNA أو مشاركة الوسائط على الكمبيوتر أو جهاز التخزين.\n2. ارجع إلى أعلى شاشة الشبكة وانتظر الاكتشاف التلقائي، أو اضغط «بحث» لتحديث الأجهزة.\n3. عند ظهور خادم الوسائط اضغط «فتح».\n4. افتح المجلدات بالضغط عليها، واستخدم زر الرجوع إلى المجلد الأب أو التحديث عند الحاجة.\n5. اضغط ملف الفيديو أو الصوت لتشغيله داخل MalekPlay.")
+                    Text("هذه الشاشة تتصفح محتوى خادم DLNA وتشغّله على الهاتف؛ لا تعني أن الهاتف يرسل الفيديو لاسلكياً إلى التلفاز. ميزة الإرسال إلى التلفاز (Cast) غير موجودة ضمن واجهات هذا الإصدار التي تم فحصها.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}

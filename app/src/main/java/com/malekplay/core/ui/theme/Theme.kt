@@ -13,6 +13,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
@@ -142,30 +143,48 @@ fun MalekPlayTheme(
         "white" -> darkScheme(seed)
         else -> baseScheme
     }
+    val isLightCanvas = effectiveMode == AppThemeMode.LIGHT
     val chosenText = when (textColorMode) {
-        "aurora" -> if (effectiveMode == AppThemeMode.LIGHT) Color(0xFF7026A8) else MalekPlayColors.PurpleBright
+        "aurora" -> if (isLightCanvas) Color(0xFF7026A8) else MalekPlayColors.PurpleBright
         "white" -> Color.White
         "black" -> Color(0xFF111111)
-        "gold" -> Color(0xFFFFD166)
-        "purple" -> MalekPlayColors.PurpleBright
-        "cyan" -> Color(0xFF64DCEB)
-        "mint" -> Color(0xFF69D5A8)
-        "pink" -> Color(0xFFFF8FB1)
+        "gold" -> if (isLightCanvas) Color(0xFF946200) else Color(0xFFFFD166)
+        "purple" -> if (isLightCanvas) Color(0xFF7026A8) else MalekPlayColors.PurpleBright
+        "cyan" -> if (isLightCanvas) Color(0xFF087E8B) else Color(0xFF64DCEB)
+        "mint" -> if (isLightCanvas) Color(0xFF167A55) else Color(0xFF69D5A8)
+        "pink" -> if (isLightCanvas) Color(0xFFB42363) else Color(0xFFFF8FB1)
         else -> null
     }
     val secondaryText = when (textColorMode) {
         "aurora" -> if (effectiveMode == AppThemeMode.LIGHT) Color(0xFF946200) else MalekPlayColors.Amber
         else -> chosenText?.copy(alpha = 0.82f)
     }
+    // Route the selected palette through every semantic text color token.
+    // This covers screens that explicitly request primary/secondary/tertiary
+    // text colors instead of relying only on the typography defaults.
+    val readableOnText = if (chosenText != null && chosenText.luminance() > 0.48f) {
+        Color(0xFF17121D)
+    } else {
+        Color.White
+    }
     val colorScheme = if (chosenText == null) textBase else textBase.copy(
+        primary = chosenText,
+        onPrimary = readableOnText,
+        secondary = chosenText,
+        onSecondary = readableOnText,
+        tertiary = chosenText,
+        onTertiary = readableOnText,
         onBackground = chosenText,
         onSurface = chosenText,
-        onSurfaceVariant = secondaryText ?: chosenText.copy(alpha = 0.82f)
+        onSurfaceVariant = secondaryText ?: chosenText.copy(alpha = 0.82f),
+        onPrimaryContainer = chosenText,
+        onSecondaryContainer = chosenText,
+        onTertiaryContainer = chosenText
     )
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = malekPlayTypography(effectiveMode != AppThemeMode.LIGHT),
+        typography = malekPlayTypography(effectiveMode != AppThemeMode.LIGHT, chosenText),
         shapes = MalekPlayShapes,
         content = content
     )

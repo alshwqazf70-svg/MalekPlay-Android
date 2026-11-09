@@ -1,14 +1,21 @@
 package com.malekplay.player
 
 import android.app.PendingIntent
+import android.os.Bundle
 import android.content.Intent
 import android.util.Log
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Effect
+import androidx.media3.common.DeviceInfo
 import androidx.media3.common.Player
 import com.malekplay.MainActivity
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.RemoteCastPlayer
+import com.malekplay.player.cast.CastMediaHttpServer
+import com.malekplay.player.cast.LocalMediaBridgeRegistry
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
@@ -16,9 +23,16 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.effect.LanczosResample
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
+import io.github.peerless2012.ass.media.render.AssVideoEffectRegistry
 import io.github.peerless2012.ass.media.type.AssRenderType
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import androidx.media3.session.SessionError
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import androidx.media3.session.MediaSessionService
 import com.malekplay.player.audio.AudioEffectsController
 import com.malekplay.network.NetworkCredentialVault
@@ -56,6 +70,9 @@ import java.nio.charset.StandardCharsets
 class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
+    private var localExoPlayer: ExoPlayer? = null
+    private var videoUpscalingEnabled = false
+    private var castMediaHttpServer: CastMediaHttpServer? = null
     private lateinit var profileStore: NetworkProfileStore
     private lateinit var credentialVault: NetworkCredentialVault
 
@@ -109,8 +126,27 @@ class PlaybackService : MediaSessionService() {
                 renderersFactory = renderersFactory
             )
 
-        player.addListener(progressListener)
-        mediaSession = MediaSession.Builder(this, player)
+        // CastPlayer wraps the existing ASS-capable ExoPlayer. MediaController,
+        // notification controls and the video UI now share one local/remote Player.
+        // The bridge starts lazily only when a local file is handed to a Cast receiver.
+        // It exposes tokenized, seekable LAN URLs rather than leaking content:// URIs.
+        localExoPlayer = player
+        val mediaBridge = CastMediaHttpServer(this, buildDataSourceFactory())
+        castMediaHttpServer = mediaBridge
+        LocalMediaBridgeRegistry.attach(mediaBridge)
+        val remotePlayer = RemoteCastPlayer.Builder(this)
+            .setMediaItemConverter(CastMediaHttpServer.BridgeMediaItemConverter(mediaBridge))
+            .build()
+        val castPlayer = CastPlayer.Builder(this)
+            .setLocalPlayer(player)
+            .setRemotePlayer(remotePlayer)
+            .build()
+
+        castPlayer.addListener(progressListener)
+        castPlayer.addListener(videoEffectRouteListener)
+        player.addListener(localVideoEffectListener)
+        mediaSession = MediaSession.Builder(this, castPlayer)
+            .setCallback(videoEffectSessionCallback)
             .setSessionActivity(buildSessionActivityIntent())
             .build()
     }
@@ -123,16 +159,139 @@ class PlaybackService : MediaSessionService() {
         val finalSave = saveCurrentProgress() ?: lastProgressSaveJob
         mediaSession?.run {
             player.removeListener(progressListener)
+            player.removeListener(videoEffectRouteListener)
+            localExoPlayer?.removeListener(localVideoEffectListener)
+            localExoPlayer?.let(AssVideoEffectRegistry::detach)
             player.release()
             release()
         }
         mediaSession = null
+        localExoPlayer = null
+        videoUpscalingEnabled = false
+        castMediaHttpServer?.let { bridge ->
+            LocalMediaBridgeRegistry.detach(bridge)
+            bridge.close()
+        }
+        castMediaHttpServer = null
         // Audio effects share the application's active audio session. Their lifetime
         // follows the playback service, not the transient player screen ViewModel.
         audioEffectsController.release()
         if (finalSave == null) serviceScope.cancel()
         else finalSave.invokeOnCompletion { serviceScope.cancel() }
         super.onDestroy()
+    }
+
+
+    private val videoEffectSessionCallback = object : MediaSession.Callback {
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): MediaSession.ConnectionResult {
+            // Start from the supported default session commands for every controller.
+            // The custom GPU effect command is exposed only to trusted app controllers.
+            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().apply {
+                if (controller.isTrusted) add(PlaybackVideoEffects.COMMAND)
+            }.build()
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(commands)
+                .build()
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle
+        ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction != PlaybackVideoEffects.ACTION_UPSCALING) {
+                return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+            }
+            if (!controller.isTrusted) {
+                return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
+            }
+            val requested = args.getBoolean(PlaybackVideoEffects.KEY_ENABLED, false)
+            val accepted = setVideoUpscaling(requested)
+            return Futures.immediateFuture(
+                SessionResult(
+                    if (accepted) SessionResult.RESULT_SUCCESS
+                    else SessionError.ERROR_NOT_SUPPORTED
+                )
+            )
+        }
+    }
+
+    private val videoEffectRouteListener = object : Player.Listener {
+        override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) {
+            if (deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
+                videoUpscalingEnabled = false
+                localExoPlayer?.let { AssVideoEffectRegistry.setAdditionalEffects(it, emptyList()) }
+            }
+        }
+    }
+
+    private val localVideoEffectListener = object : Player.Listener {
+        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            val hasVideo = tracks.groups.any { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }
+            if (!hasVideo) {
+                videoUpscalingEnabled = false
+                localExoPlayer?.let { AssVideoEffectRegistry.setAdditionalEffects(it, emptyList()) }
+            } else if (videoUpscalingEnabled) {
+                applyVideoUpscaling()
+            }
+        }
+
+        override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+            if (videoUpscalingEnabled) applyVideoUpscaling()
+        }
+    }
+
+    /** Enable only on local, clear, video playback. The GPU pipeline is never kept active for audio or Cast. */
+    private fun setVideoUpscaling(enabled: Boolean): Boolean {
+        val player = localExoPlayer ?: return false
+        val sessionPlayer = mediaSession?.player ?: return false
+        if (enabled) {
+            if (sessionPlayer.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) return false
+            if (player.currentMediaItem?.localConfiguration?.drmConfiguration != null) return false
+            if (player.currentTracks.groups.none { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }) return false
+            val size = player.videoSize
+            if (size.width <= 0 || size.height <= 0) return false
+        }
+        videoUpscalingEnabled = enabled
+        return applyVideoUpscaling()
+    }
+
+    private fun applyVideoUpscaling(): Boolean {
+        val player = localExoPlayer ?: return false
+        if (!videoUpscalingEnabled) {
+            AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
+            return true
+        }
+        val sessionPlayer = mediaSession?.player ?: return false
+        val videoSize = player.videoSize
+        if (sessionPlayer.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE ||
+            player.currentMediaItem?.localConfiguration?.drmConfiguration != null ||
+            player.currentTracks.groups.none { it.isSelected && it.type == C.TRACK_TYPE_VIDEO } ||
+            videoSize.width <= 0 || videoSize.height <= 0
+        ) {
+            videoUpscalingEnabled = false
+            AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
+            return false
+        }
+        val metrics = resources.displayMetrics
+        val targetLong = maxOf(metrics.widthPixels, metrics.heightPixels)
+        val targetShort = minOf(metrics.widthPixels, metrics.heightPixels)
+        val sourceLong = maxOf(videoSize.width, videoSize.height)
+        val sourceShort = minOf(videoSize.width, videoSize.height)
+        // Do not turn this into a downscaler: Lanczos is only enabled when both
+        // source dimensions are below the display target.
+        if (sourceLong >= targetLong || sourceShort >= targetShort) {
+            videoUpscalingEnabled = false
+            AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
+            return false
+        }
+        val effect: Effect = LanczosResample.scaleToFitWithFlexibleOrientation(targetLong, targetShort)
+        AssVideoEffectRegistry.setAdditionalEffects(player, listOf(effect))
+        return true
     }
 
     /** Progress belongs to the playback service, so it continues after player UI closes. */

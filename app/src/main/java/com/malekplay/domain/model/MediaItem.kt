@@ -26,8 +26,17 @@ data class MediaItem(
     val height: Int,
     val bitrate: Long
 ) {
-    /** Filename without its extension — nicer in lists. */
-    val displayTitle: String get() = titleWithoutExtension(title)
+    /**
+     * Human-friendly title for library rows. MediaStore titles are often copied
+     * from filenames, so normalize separators and whitespace without discarding
+     * meaningful words, numbers, or non-Latin characters.
+     */
+    val displayTitle: String
+        get() = titleWithoutExtension(title)
+            .replace('_', ' ')
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .ifBlank { "بدون عنوان" }
 
     /** Embedded album art when the file is audio with a known album id. */
     val artworkUri: Uri?
@@ -69,6 +78,7 @@ data class MediaFolder(
     val audioCount: Int,
     val totalBytes: Long,
     val lastAddedMs: Long,
+    val newItemCount: Int,
     val sampleUri: Uri?
 )
 

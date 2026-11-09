@@ -9,6 +9,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Wi-Fi Direct peer discovery permissions by Android generation -->
     <uses-permission
@@ -59,6 +60,16 @@
         android:theme="@style/Theme.MalekPlay"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
+
+        <!-- Google Cast discovery and the default media receiver configuration. -->
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="androidx.media3.cast.DefaultCastOptionsProvider" />
+
+        <!-- Allows Android's system media output switcher to discover Cast routes. -->
+        <receiver
+            android:name="androidx.mediarouter.media.MediaTransferReceiver"
+            android:exported="true" />
 
 
         <service

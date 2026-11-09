@@ -365,4 +365,9 @@
     <string name="kids_parent_exit">Exit Kids Mode</string>
     <string name="kids_save_error">Could not save the approved media list. Please try again.</string>
     <string name="kids_refresh_library">Refresh library</string>
+    <string name="player_gpu_upscaling_on">GPU upscaling: ON (Lanczos)</string>
+    <string name="player_gpu_upscaling_off">GPU upscaling: OFF</string>
+    <string name="player_noise_reduction_unavailable">Noise reduction: unavailable on this build</string>
+    <string name="player_motion_smoothing_unavailable">Motion smoothing: unavailable (frame interpolation required)</string>
+    <string name="player_gpu_upscaling_unavailable">GPU upscaling is unavailable for this video, protected content, remote playback, or when no upscaling is needed.</string>
 </resources>

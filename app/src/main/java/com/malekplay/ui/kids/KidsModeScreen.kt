@@ -14,6 +14,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
@@ -31,6 +33,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -42,10 +45,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import com.malekplay.R
+import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.library.LibraryViewModel
 import com.malekplay.ui.player.PlayerViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @UnstableApi
@@ -67,16 +73,56 @@ fun KidsModeScreen(
     }
     val media by viewModel.allMedia.collectAsStateWithLifecycle()
     var selected by remember(manager) { mutableStateOf(manager.allowedMediaIds) }
+    var searchQuery by remember { mutableStateOf("") }
+    var mediaFilter by remember { mutableStateOf("all") }
     var showParentDialog by remember { mutableStateOf(false) }
     var parentPin by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf(false) }
-    val validMediaIds = remember(media) {
-        media.asSequence().map { it.media }.filter { it.isVideo || it.isAudio }.map { it.id }.toSet()
+
+    // Keep sorting/filtering of a very large family library off the main thread.
+    // Sorting is performed only when the underlying library changes, not per keystroke.
+    val sortedMedia by produceState(
+        initialValue = emptyList<LibraryItem>(), media
+    ) {
+        value = withContext(Dispatchers.Default) {
+            media.sortedBy { it.media.title.lowercase() }
+        }
     }
-    val approved = remember(media, selected, enabled) {
-        media.map { it.media }.filter { it.id in selected && (it.isVideo || it.isAudio) }
-            .sortedBy { it.title.lowercase() }
+    val validMediaIds by produceState(
+        initialValue = emptySet<String>(), media
+    ) {
+        value = withContext(Dispatchers.Default) {
+            media.asSequence().map { it.media }
+                .filter { it.isVideo || it.isAudio }
+                .map { it.id }.toSet()
+        }
+    }
+    // Selection changes must not trigger a full-library refilter while the parent
+    // is choosing approvals; the allowlist matters only after Kids Mode is enabled.
+    val activeAllowlist = if (enabled) selected else emptySet()
+    val filteredMedia by produceState(
+        initialValue = emptyList<LibraryItem>(),
+        sortedMedia, activeAllowlist, enabled, searchQuery, mediaFilter
+    ) {
+        value = withContext(Dispatchers.Default) {
+            val query = searchQuery.trim()
+            sortedMedia.filter { entry ->
+                val item = entry.media
+                val typeMatches = when (mediaFilter) {
+                    "video" -> item.isVideo
+                    "audio" -> item.isAudio
+                    else -> true
+                }
+                val approvalMatches = !enabled || item.id in activeAllowlist
+                val queryMatches = query.isBlank() ||
+                    item.displayTitle.contains(query, ignoreCase = true) ||
+                    item.folderName.contains(query, ignoreCase = true) ||
+                    item.artist.orEmpty().contains(query, ignoreCase = true) ||
+                    item.album.orEmpty().contains(query, ignoreCase = true)
+                typeMatches && approvalMatches && queryMatches && (item.isVideo || item.isAudio)
+            }
+        }
     }
 
     // A child cannot navigate back into the parent area using the system back button.
@@ -121,19 +167,51 @@ fun KidsModeScreen(
             Text(
                 text = stringResource(
                     if (enabled) R.string.kids_library_summary else R.string.kids_choose_summary,
-                    if (enabled) approved.size else selected.size
+                    if (enabled) filteredMedia.size else selected.size
                 ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
             )
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("ابحث في مكتبة الأطفال") }
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = mediaFilter == "all",
+                    onClick = { mediaFilter = "all" },
+                    label = { Text("الكل") }
+                )
+                FilterChip(
+                    selected = mediaFilter == "video",
+                    onClick = { mediaFilter = "video" },
+                    label = { Text("الفيديو") }
+                )
+                FilterChip(
+                    selected = mediaFilter == "audio",
+                    onClick = { mediaFilter = "audio" },
+                    label = { Text("الصوت") }
+                )
+            }
             if (saveError) Text(stringResource(R.string.kids_save_error), color = MaterialTheme.colorScheme.error)
             if (enabled) {
-                if (approved.isEmpty()) {
-                    Text(stringResource(R.string.kids_no_approved_media), modifier = Modifier.padding(16.dp))
+                if (filteredMedia.isEmpty()) {
+                    Text(
+                        if (searchQuery.isNotBlank()) "لا توجد نتائج تطابق البحث."
+                        else stringResource(R.string.kids_no_approved_media),
+                        modifier = Modifier.padding(16.dp)
+                    )
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        items(approved, key = { it.id }) { item ->
+                    LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(filteredMedia, key = { it.media.id }) { entry ->
+                            val item = entry.media
                             Row(
                                 Modifier.fillMaxWidth().clickable { onPlay(item) }.padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -159,9 +237,11 @@ fun KidsModeScreen(
                             Text(stringResource(R.string.kids_refresh_library))
                         }
                     }
+                } else if (filteredMedia.isEmpty()) {
+                    Text("لا توجد وسائط تطابق البحث أو نوع التصفية.", modifier = Modifier.padding(16.dp))
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        items(media, key = { it.media.id }) { libraryItem ->
+                    LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        items(filteredMedia, key = { it.media.id }) { libraryItem ->
                             val item = libraryItem.media
                             Row(
                                 Modifier.fillMaxWidth().clickable {
@@ -188,6 +268,7 @@ fun KidsModeScreen(
                     }
                 }
             }
+            KidsModeHelpCard(enabled = enabled)
         }
     }
 
@@ -224,5 +305,27 @@ fun KidsModeScreen(
                 }
             }
         )
+    }
+}
+
+
+@Composable
+private fun KidsModeHelpCard(enabled: Boolean) {
+    var expanded by remember { mutableStateOf(false) }
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("دليل وضع الأطفال", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "إخفاء الشرح" else "اضغط لعرض طريقة الإعداد والاستخدام")
+            }
+            if (expanded) {
+                if (!enabled) {
+                    Text("1. ابحث عن الفيديوهات أو المقاطع الصوتية باستخدام خانة البحث.\n2. استخدم «الكل» أو «الفيديو» أو «الصوت» لتصفية المكتبة.\n3. ضع علامة بجانب كل عنصر تريد السماح للطفل بمشاهدته أو سماعه.\n4. اضغط «حفظ الاختيار» أعلى الشاشة؛ ستُحفظ العناصر المحددة ويُفعّل وضع الأطفال.")
+                } else {
+                    Text("1. سيظهر للطفل فقط المحتوى الذي سمح به ولي الأمر.\n2. يمكن البحث والتبديل بين «الكل» و«الفيديو» و«الصوت».\n3. اضغط على العنصر لتشغيله.\n4. للخروج إلى مساحة الوالدين اضغط «دخول الوالدين» وأدخل رمز PIN ثم اختر «خروج وضع الأطفال».")
+                }
+                Text("تنبيه مهم: هذا الوضع يقيّد المحتوى داخل MalekPlay فقط، ولا يحوّل الهاتف إلى وضع قفل كامل؛ يمكن للطفل استخدام أزرار النظام أو فتح تطبيقات أخرى خارج MalekPlay. احتفظ برمز PIN ولا تشاركه.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }

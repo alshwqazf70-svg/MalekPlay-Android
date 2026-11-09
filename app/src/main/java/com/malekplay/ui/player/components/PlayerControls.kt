@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
+
 package com.malekplay.ui.player.components
 
 import androidx.compose.animation.AnimatedVisibility
@@ -49,7 +51,12 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.media3.cast.MediaRouteButton
+import androidx.media3.common.util.UnstableApi
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -121,6 +128,7 @@ fun PlayerRoundButton(
 
 // ------------------------------------------------------------------ top bar
 
+@OptIn(UnstableApi::class)
 @Composable
 fun PlayerTopBar(
     title: String,
@@ -129,6 +137,7 @@ fun PlayerTopBar(
     onBack: () -> Unit,
     onAudioTrack: () -> Unit,
     onSubtitles: () -> Unit,
+    onNetworkOutput: () -> Unit,
     onMore: () -> Unit
 ) {
     Row(
@@ -139,8 +148,12 @@ fun PlayerTopBar(
         horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         PlayerRoundButton(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_back), onBack)
+        CompositionLocalProvider(LocalContentColor provides Color.White) {
+            MediaRouteButton(modifier = Modifier.size(42.dp))
+        }
         PlayerRoundButton(Icons.Filled.Audiotrack, stringResource(R.string.player_audio_track), onAudioTrack)
         PlayerRoundButton(Icons.Filled.Subtitles, stringResource(R.string.player_subtitle_track), onSubtitles)
+        PlayerRoundButton(Icons.Filled.Tv, "إرسال إلى التلفزيون عبر DLNA", onNetworkOutput)
         PlayerRoundButton(Icons.Filled.MoreVert, stringResource(R.string.player_more), onMore)
         Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(1.8f, fill = false)) {

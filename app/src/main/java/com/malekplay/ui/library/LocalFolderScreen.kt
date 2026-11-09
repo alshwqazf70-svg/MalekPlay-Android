@@ -51,6 +51,7 @@ import com.malekplay.core.ui.util.formatResolution
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.components.EmptyState
+import com.malekplay.ui.components.MediaThumbnail
 
 @Composable
 fun LocalFolderScreen(
@@ -65,6 +66,8 @@ fun LocalFolderScreen(
     val items by remember(folderPath) { viewModel.folderContents(folderPath) }
         .collectAsStateWithLifecycle(initialValue = emptyList<LibraryItem>())
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val seenNewMediaIds by viewModel.seenNewMediaIds.collectAsStateWithLifecycle()
+    val newMediaBaselineMs by viewModel.newMediaBaselineMs.collectAsStateWithLifecycle()
     val selectedUris = remember { mutableStateListOf<android.net.Uri>() }
     val selectionMode = selectedUris.isNotEmpty()
     fun toggleSelection(uri: android.net.Uri) { if (uri in selectedUris) selectedUris.remove(uri) else selectedUris.add(uri) }
@@ -86,7 +89,7 @@ fun LocalFolderScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = stringResource(R.string.lib_file_count, items.size),
+                            text = "${items.size} ملف  •  ${items.count { it.media.isVideo }} فيديو  •  ${items.count { it.media.isAudio }} موسيقى  •  ${items.count { newMediaBaselineMs > 0L && it.media.addedAtMs >= newMediaBaselineMs && it.media.id !in seenNewMediaIds }} جديد",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -145,10 +148,11 @@ fun LocalFolderScreen(
                 .padding(contentPadding),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            items(items = items, key = { it.media.id }) { item ->
+            items(items = items.sortedByDescending { it.media.addedAtMs }, key = { it.media.id }) { item ->
                 FolderItemRow(
                     item = item,
-                    onClick = { onOpenMedia(item.media) },
+                    isNew = newMediaBaselineMs > 0L && item.media.addedAtMs >= newMediaBaselineMs && item.media.id !in seenNewMediaIds,
+                    onClick = { viewModel.markNewMediaSeen(item.media.id); onOpenMedia(item.media) },
                     onSend = { toggleSelection(item.media.uri) },
                     selectionMode = selectionMode,
                     isSelected = item.media.uri in selectedUris,
@@ -163,6 +167,7 @@ fun LocalFolderScreen(
 @Composable
 private fun FolderItemRow(
     item: LibraryItem,
+    isNew: Boolean,
     onClick: () -> Unit,
     onSend: () -> Unit,
     selectionMode: Boolean,
@@ -178,25 +183,80 @@ private fun FolderItemRow(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = if (item.media.isVideo) Icons.Filled.Movie else Icons.Filled.MusicNote,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(36.dp)
+        // Show the real video frame or embedded album cover instead of a generic type icon.
+        // MediaThumbnail decodes off the main thread and falls back safely when artwork is unavailable.
+        MediaThumbnail(
+            media = item.media,
+            modifier = Modifier.size(76.dp, 56.dp),
+            targetSize = android.util.Size(304, 224),
+            cornerRadius = 9.dp
         )
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = item.media.displayTitle,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = item.media.displayTitle,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(7.dp))
+                if (isNew) {
+                    androidx.compose.material3.Surface(
+                        color = androidx.compose.ui.graphics.Color(0xFFE84D75),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "جديد",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = androidx.compose.ui.graphics.Color.White,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                    }
+                }
+                Spacer(Modifier.width(7.dp))
+                androidx.compose.material3.Surface(
+                    color = if (item.media.isVideo) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(7.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (item.media.isVideo) Icons.Filled.Movie else Icons.Filled.MusicNote,
+                            contentDescription = null,
+                            modifier = Modifier.size(13.dp),
+                            tint = if (item.media.isVideo) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            text = if (item.media.isVideo) "فيديو" else "موسيقى",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (item.media.isVideo) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+            }
             val details = buildList {
+                if (item.media.isAudio) {
+                    item.media.artist?.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }?.let { add(it) }
+                    item.media.album?.takeIf { it.isNotBlank() && !it.equals("<unknown>", true) }?.let(::add)
+                } else {
+                    formatResolution(item.media.width, item.media.height)
+                        .takeIf { it.isNotBlank() }?.let(::add)
+                }
                 add(formatDuration(item.media.durationMs))
                 add(formatBytes(item.media.sizeBytes))
-                formatResolution(item.media.width, item.media.height)
-                    .takeIf { it.isNotBlank() }?.let { add(it) }
             }.joinToString(" • ")
             Text(
                 text = details,

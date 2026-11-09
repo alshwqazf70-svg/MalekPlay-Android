@@ -3,6 +3,7 @@ package com.malekplay.ui.player
 import android.content.ComponentName
 import android.util.Log
 import android.content.Context
+import android.os.Bundle
 import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
@@ -17,6 +18,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import com.malekplay.data.local.entity.BookmarkEntity
 import com.malekplay.data.local.entity.TrackPreferenceEntity
@@ -26,8 +28,10 @@ import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem as DomainMedia
 import com.malekplay.network.OnlineSubtitle
 import com.malekplay.network.OnlineSubtitleRepository
+import com.malekplay.player.LocalSubtitleResolver
 import com.malekplay.player.PipController
 import com.malekplay.player.PlaybackService
+import com.malekplay.player.PlaybackVideoEffects
 import com.malekplay.player.PlaybackValuePolicy
 import com.malekplay.player.mediaItemFromUri
 import com.malekplay.player.audio.AudioEffectsController
@@ -66,6 +70,8 @@ data class TrackDescriptor(
 data class PlaybackStats(
     val videoCodec: String = "—",
     val videoMimeType: String? = null,
+    val videoCodecs: String? = null,
+    val videoColorTransfer: Int? = null,
     val width: Int = 0,
     val height: Int = 0,
     val frameRate: Float = 0f,
@@ -138,6 +144,10 @@ class PlayerViewModel @Inject constructor(
     val textTrackDisabled: StateFlow<Boolean> = _textTrackDisabled.asStateFlow()
 
     private val _stats = MutableStateFlow(PlaybackStats())
+    private val _videoUpscalingEnabled = MutableStateFlow(false)
+    val videoUpscalingEnabled: StateFlow<Boolean> = _videoUpscalingEnabled.asStateFlow()
+    private val _videoUpscalingError = MutableStateFlow<String?>(null)
+    val videoUpscalingError: StateFlow<String?> = _videoUpscalingError.asStateFlow()
     val stats: StateFlow<PlaybackStats> = _stats.asStateFlow()
 
     private val _playerError = MutableStateFlow<String?>(null)
@@ -184,6 +194,8 @@ class PlayerViewModel @Inject constructor(
     private var lastGroups: List<Tracks.Group> = emptyList()
     private var currentMediaId: String? = null
     private val restoredTrackPreferenceIds = mutableSetOf<String>()
+    private val trackPreferenceRestoreInFlight = mutableSetOf<String>()
+    private val trackPreferencesByMediaId = mutableMapOf<String, TrackPreferenceEntity?>()
 
     // ---------------------------------------------------------- lifecycle
 
@@ -277,6 +289,15 @@ class PlayerViewModel @Inject constructor(
 
         override fun onTracksChanged(tracks: Tracks) {
             refreshTracks(tracks)
+            if (tracks.groups.none { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }) {
+                _videoUpscalingEnabled.value = false
+            }
+        }
+
+        override fun onDeviceInfoChanged(deviceInfo: androidx.media3.common.DeviceInfo) {
+            if (deviceInfo.playbackType == androidx.media3.common.DeviceInfo.PLAYBACK_TYPE_REMOTE) {
+                _videoUpscalingEnabled.value = false
+            }
         }
 
         override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
@@ -330,6 +351,38 @@ class PlayerViewModel @Inject constructor(
                 delay(TICK_INTERVAL_MS)
             }
         }
+    }
+
+
+    /** Requests GPU Lanczos resampling from the playback service, which owns the real ExoPlayer. */
+    fun setVideoUpscalingEnabled(enabled: Boolean) {
+        val player = _controller.value ?: return
+        _videoUpscalingError.value = null
+        val args = Bundle().apply {
+            putBoolean(PlaybackVideoEffects.KEY_ENABLED, enabled)
+        }
+        val future = runCatching {
+            player.sendCustomCommand(PlaybackVideoEffects.COMMAND, args)
+        }.getOrNull() ?: run {
+            _videoUpscalingEnabled.value = false
+            _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_gpu_upscaling_unavailable)
+            return
+        }
+        future.addListener(
+            {
+                val result = runCatching { future.get() }.getOrNull()
+                val success = result?.resultCode == SessionResult.RESULT_SUCCESS
+                _videoUpscalingEnabled.value = enabled && success
+                if (!success) {
+                    _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_gpu_upscaling_unavailable)
+                }
+            },
+            ContextCompat.getMainExecutor(app)
+        )
+    }
+
+    fun clearVideoUpscalingError() {
+        _videoUpscalingError.value = null
     }
 
     // ------------------------------------------------------------ playback
@@ -608,43 +661,67 @@ class PlayerViewModel @Inject constructor(
         restoreTrackPreferencesForCurrentMedia()
     }
 
-    /** Restores a file's remembered track choices once its current tracks are available. */
+    /**
+     * Restores remembered choices as soon as their matching tracks are exposed.
+     * Media3 may publish audio and text groups in separate callbacks, so keep
+     * retrying on later track changes instead of permanently consuming the first
+     * partial snapshot.
+     */
     private fun restoreTrackPreferencesForCurrentMedia() {
         val mediaId = currentMediaId?.takeIf(String::isNotBlank) ?: return
-        // Wait until Media3 has exposed at least one selectable track; the first
-        // tracks callback can legitimately arrive empty while the source buffers.
-        if (_audioTracks.value.isEmpty() && _textTracks.value.isEmpty()) return
-        if (!restoredTrackPreferenceIds.add(mediaId)) return
+        if (mediaId in restoredTrackPreferenceIds) return
+        val cachedPreference = trackPreferencesByMediaId[mediaId]
+        if (cachedPreference == null && mediaId in trackPreferencesByMediaId) {
+            restoredTrackPreferenceIds.add(mediaId)
+            return
+        }
+        if (!trackPreferenceRestoreInFlight.add(mediaId)) return
+
         viewModelScope.launch {
-            val preference = runCatchingCancellable {
-                mediaRepository.getTrackPreference(mediaId)
-            }.getOrNull() ?: return@launch
-            if (currentMediaId != mediaId) return@launch
-            val player = _controller.value ?: return@launch
-            val audio = _audioTracks.value.firstOrNull {
-                it.stableId != null && it.stableId == preference.audioTrackId
-            }
-            val subtitle = _textTracks.value.firstOrNull {
-                it.stableId != null && it.stableId == preference.subtitleTrackId
-            }
-            val builder = player.trackSelectionParameters.buildUpon()
-            audio?.let { descriptor ->
-                lastGroups.getOrNull(descriptor.groupIndex)?.let { group ->
-                    builder.setOverrideForType(
-                        TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
-                    )
+            try {
+                val preference = cachedPreference ?: runCatchingCancellable {
+                    mediaRepository.getTrackPreference(mediaId)
+                }.getOrNull().also { trackPreferencesByMediaId[mediaId] = it }
+                if (currentMediaId != mediaId) return@launch
+                if (preference == null) {
+                    restoredTrackPreferenceIds.add(mediaId)
+                    return@launch
                 }
-            }
-            subtitle?.let { descriptor ->
-                lastGroups.getOrNull(descriptor.groupIndex)?.let { group ->
-                    builder.setOverrideForType(
-                        TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
-                    )
+
+                val player = _controller.value ?: return@launch
+                val audio = _audioTracks.value.firstOrNull {
+                    it.stableId != null && it.stableId == preference.audioTrackId
                 }
+                val subtitle = _textTracks.value.firstOrNull {
+                    it.stableId != null && it.stableId == preference.subtitleTrackId
+                }
+                val builder = player.trackSelectionParameters.buildUpon()
+                audio?.let { descriptor ->
+                    lastGroups.getOrNull(descriptor.groupIndex)?.let { group ->
+                        builder.setOverrideForType(
+                            TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
+                        )
+                    }
+                }
+                subtitle?.let { descriptor ->
+                    lastGroups.getOrNull(descriptor.groupIndex)?.let { group ->
+                        builder.setOverrideForType(
+                            TrackSelectionOverride(group.mediaTrackGroup, descriptor.trackIndex)
+                        )
+                    }
+                }
+                builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !preference.isSubtitleEnabled)
+                player.trackSelectionParameters = builder.build()
+                _textTrackDisabled.value = !preference.isSubtitleEnabled
+
+                val audioResolved = preference.audioTrackId == null || audio != null
+                val subtitleResolved = preference.subtitleTrackId == null || subtitle != null
+                if (audioResolved && subtitleResolved) {
+                    restoredTrackPreferenceIds.add(mediaId)
+                }
+            } finally {
+                trackPreferenceRestoreInFlight.remove(mediaId)
             }
-            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !preference.isSubtitleEnabled)
-            player.trackSelectionParameters = builder.build()
-            _textTrackDisabled.value = !preference.isSubtitleEnabled
         }
     }
 
@@ -771,6 +848,8 @@ class PlayerViewModel @Inject constructor(
         _stats.value = PlaybackStats(
             videoCodec = com.malekplay.core.ui.util.DecoderInfo.shortCodec(video?.sampleMimeType),
             videoMimeType = video?.sampleMimeType,
+            videoCodecs = video?.codecs,
+            videoColorTransfer = video?.colorInfo?.colorTransfer,
             width = video?.width ?: 0,
             height = video?.height ?: 0,
             frameRate = video?.frameRate ?: 0f,

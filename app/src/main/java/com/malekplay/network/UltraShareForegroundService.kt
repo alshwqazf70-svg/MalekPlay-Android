@@ -8,15 +8,19 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.OpenableColumns
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -24,9 +28,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -39,6 +45,12 @@ data class UltraShareServiceState(
     val receiving: Boolean = false,
     val sending: Boolean = false,
     val progress: UltraShareTransport.Progress? = null,
+    val sendProgress: UltraShareTransport.Progress? = null,
+    val receiveProgress: UltraShareTransport.Progress? = null,
+    val hotspotSsid: String? = null,
+    val hotspotPassword: String? = null,
+    val hotspotStarting: Boolean = false,
+    val hotspotActive: Boolean = false,
     val receivedFile: UltraShareTransport.ReceivedFile? = null,
     val status: String? = null,
     val error: String? = null,
@@ -46,7 +58,18 @@ data class UltraShareServiceState(
     val queueTotal: Int = 0,
     val queueCurrentName: String? = null,
     val queueTotalBytes: Long = 0L,
-    val queueTransferredBytes: Long = 0L
+    val queueTransferredBytes: Long = 0L,
+    val pendingConnection: UltraShareControlChannel.Request? = null,
+    val activePeers: List<UltraSharePeerSession> = emptyList()
+)
+
+data class UltraSharePeerSession(
+    val sessionId: String,
+    val name: String,
+    val host: String,
+    val role: String,
+    val approvedAtMillis: Long,
+    val status: String = "تم القبول • قناة التحكم نشطة"
 )
 
 /**
@@ -55,12 +78,22 @@ data class UltraShareServiceState(
  */
 class UltraShareForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var transferJob: Job? = null
+    @Volatile private var receiveJob: Job? = null
+    @Volatile private var batchReceiveJob: Job? = null
+    @Volatile private var sendJob: Job? = null
     @Volatile private var pauseRequested = false
     private var advertisementJob: Job? = null
+    @Volatile private var controlJob: Job? = null
+    @Volatile private var pendingConnectionDecision: CompletableDeferred<UltraShareControlChannel.Decision>? = null
+    private var hotspotReservation: AutoCloseable? = null
+    private var hotspotCallback: Any? = null
     private lateinit var notificationManager: NotificationManager
+    private val transferLockGuard = Any()
     private var wifiLock: WifiManager.WifiLock? = null
     private var cpuWakeLock: PowerManager.WakeLock? = null
+    private var sendTransferActive = false
+    private var receiveTransferActive = false
+    private var receiveTransferCount = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -81,56 +114,93 @@ class UltraShareForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PAUSE -> {
-                if (currentState().sending && currentState().queueTotal > 0 && transferJob != null) {
+                if (currentState().sending && currentState().queueTotal > 0 && sendJob != null) {
                     pauseRequested = true
-                    publish(currentState().copy(status = "جارٍ إيقاف طابور الإرسال مؤقتاً..."))
-                    transferJob?.cancel()
+                    updateState { current -> current.copy(status = "جارٍ إيقاف طابور الإرسال مؤقتاً...") }
+                    sendJob?.cancel()
                 }
                 return START_NOT_STICKY
             }
             ACTION_REFRESH_ADDRESSES -> {
                 if (currentState().receiving) {
-                    publish(currentState().copy(localAddresses = findLocalIpv4Addresses()))
+                    updateState { current -> current.copy(localAddresses = findLocalIpv4Addresses()) }
                 }
             }
-            ACTION_STOP, ACTION_CANCEL -> {
-                if (transferJob == null) startForegroundCompat()
-                transferJob?.cancel()
+            ACTION_CANCEL_SEND -> {
+                sendJob?.cancel()
+                return START_NOT_STICKY
+            }
+            ACTION_STOP_RECEIVING -> {
+                receiveJob?.cancel()
+                batchReceiveJob?.cancel()
                 advertisementJob?.cancel()
-                if (transferJob == null) finishService()
+                controlJob?.cancel()
+                pendingConnectionDecision?.cancel()
+                currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
+                updateState { current -> current.copy(activePeers = emptyList(), pendingConnection = null) }
+                return START_NOT_STICKY
+            }
+            ACTION_ACCEPT_CONNECTION -> {
+                pendingConnectionDecision?.complete(UltraShareControlChannel.Decision.ACCEPTED)
+                return START_NOT_STICKY
+            }
+            ACTION_REJECT_CONNECTION -> {
+                pendingConnectionDecision?.complete(UltraShareControlChannel.Decision.REJECTED)
+                return START_NOT_STICKY
+            }
+            ACTION_START_HOTSPOT -> {
+                startForegroundCompat()
+                startLocalHotspot()
+                return START_NOT_STICKY
+            }
+            ACTION_STOP_HOTSPOT -> {
+                stopLocalHotspot()
+                return START_NOT_STICKY
+            }
+            ACTION_STOP, ACTION_CANCEL -> {
+                if (sendJob == null && receiveJob == null && batchReceiveJob == null) startForegroundCompat()
+                sendJob?.cancel()
+                receiveJob?.cancel()
+                batchReceiveJob?.cancel()
+                advertisementJob?.cancel()
+                controlJob?.cancel()
+                pendingConnectionDecision?.cancel()
+                currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
+                stopLocalHotspot()
+                if (sendJob == null && receiveJob == null && batchReceiveJob == null) finishService()
                 return START_NOT_STICKY
             }
             ACTION_RECEIVE -> {
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
                 if (!UltraShareTransport.isValidPairingSecret(secret)) {
-                    publish(UltraShareServiceState(error = getString(R.string.ultra_share_transfer_failed)))
+                    updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
                     finishService()
                     return START_NOT_STICKY
                 }
-                if (transferJob != null) return START_NOT_STICKY
+                if (receiveJob != null) return START_NOT_STICKY
                 startForegroundCompat()
                 val addresses = findLocalIpv4Addresses()
-                publish(
-                    UltraShareServiceState(
+                updateState { current -> current.copy(
                         pairingSecret = secret,
                         localAddresses = addresses,
                         receiving = true,
+                        pendingConnection = null,
+                        activePeers = emptyList(),
                         status = getString(R.string.ultra_share_waiting)
-                    )
-                )
+                    ) }
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     advertisementJob = launch {
                         try {
-                            UltraShareDiscovery.advertiseWhileReceiving()
+                            UltraShareDiscovery.advertiseWhileReceiving(context = this@UltraShareForegroundService)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
                             // Receiving remains available through the displayed local IP
                             // even if another app/process already occupies the discovery port.
-                            publish(currentState().copy(
+                            updateState { current -> current.copy(
                                 status = "الاستقبال يعمل، لكن الاكتشاف التلقائي غير متاح. استخدم عنوان IP الظاهر يدوياً.",
                                 error = failure.localizedMessage ?: "تعذر تشغيل الاكتشاف التلقائي للأجهزة."
-                            ))
+                            ) }
                         }
                     }
                     try {
@@ -141,16 +211,16 @@ class UltraShareForegroundService : Service() {
                                         pairingSecret = secret,
                                         destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
                                         onProgress = { progress ->
-                                            acquireTransferLocks()
-                                            val nextState = currentState().copy(progress = progress, error = null)
-                                            publish(nextState)
+                                            beginTransfer(isReceiving = true)
+                                            updateState { current ->
+                                                current.copy(progress = progress, receiveProgress = progress, error = null)
+                                            }
                                             updateNotification(progress)
                                         }
                                     )
                                 } finally {
-                                    // The receiver may wait for a peer for hours. Hold wake locks
-                                    // only while bytes are actively being transferred.
-                                    releaseTransferLocks()
+                                    // Release the receive-side lock after this file, without affecting an active send.
+                                    endTransfer(isReceiving = true)
                                 }
                                 // Publish to the user's public Downloads folder automatically on Android 10+.
                                 val publishedUri = UltraShareReceivedPublisher.publish(
@@ -163,92 +233,170 @@ class UltraShareForegroundService : Service() {
                                     file = received.file,
                                     fileName = received.fileName,
                                     mimeType = received.mimeType,
-                                    sizeBytes = received.sizeBytes
+                                    sizeBytes = received.sizeBytes,
+                                    publishedUri = publishedUri?.toString()
                                 )
-                                publish(
-                                    currentState().copy(
+                                updateState { current -> current.copy(
                                         receiving = true,
-                                        progress = null,
+                                        progress = if (current.sending) current.sendProgress else null,
+                                        receiveProgress = null,
                                         receivedFile = published,
                                         status = if (publishedUri != null) {
                                             "تم الاستلام والحفظ تلقائياً في التنزيلات: ${received.fileName}"
                                         } else getString(R.string.ultra_share_received, received.fileName),
                                         error = null
-                                    )
-                                )
+                                    ) }
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (failure: Exception) {
                                 // Keep the receiver available after failures, but apply a small
                                 // global backoff so repeated bad pairing attempts cost more time.
-                                publish(
-                                    currentState().copy(
+                                updateState { current -> current.copy(
                                         receiving = true,
-                                        progress = null,
+                                        progress = if (current.sending) current.sendProgress else null,
+                                        receiveProgress = null,
                                         error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)
-                                    )
-                                )
+                                    ) }
                                 kotlinx.coroutines.delay(1_500)
                             }
                         }
                     } catch (cancelled: CancellationException) {
-                        publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = null, status = getString(R.string.ultra_share_stopped)))
+                        updateState { current -> current.copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (current.sending) current.sendProgress else null, receiveProgress = null, status = getString(R.string.ultra_share_stopped)) }
                         throw cancelled
                     } catch (failure: Exception) {
-                        publish(currentState().copy(receiving = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)))
+                        updateState { current -> current.copy(receiving = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)) }
                     } finally {
                         advertisementJob?.cancel()
                         advertisementJob = null
-                        transferJob = null
-                        publish(currentState().copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = null))
+                        controlJob?.cancel()
+                        controlJob = null
+                        pendingConnectionDecision?.cancel()
+                        receiveJob = null
+                        updateState { current -> current.copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (current.sending) current.sendProgress else null, receiveProgress = null) }
                         finishService()
                     }
                 }
-                transferJob = job
-                job.start()
-            }
-            ACTION_SEND -> {
-                val uri = intent.parcelableUri<Uri>(EXTRA_URI)
-                val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
-                val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
-                if (uri == null || host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
-                    publish(UltraShareServiceState(error = getString(R.string.ultra_share_transfer_failed)))
-                    finishService()
-                    return START_NOT_STICKY
+                receiveJob = job
+                if (batchReceiveJob == null) {
+                    batchReceiveJob = serviceScope.launch {
+                        try {
+                            UltraShareBatchTransport.serveMany(
+                                port = UltraShareBatchTransport.DEFAULT_PORT,
+                                pairingSecret = secret,
+                                destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
+                                maxPeers = UltraShareBatchTransport.DEFAULT_MAX_PEERS,
+                                onPeerStarted = { beginTransfer(isReceiving = true) },
+                                onPeerFinished = { endTransfer(isReceiving = true) },
+                                onProgress = { peer, progress ->
+                                    updateState { current -> current.copy(
+                                        receiveProgress = UltraShareTransport.Progress(
+                                            progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                            progress.bytesPerSecond, true
+                                        ),
+                                        progress = if (current.sending) current.sendProgress else UltraShareTransport.Progress(
+                                            progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                            progress.bytesPerSecond, true
+                                        ),
+                                        status = "استقبال ملفات عبر جلسة V2 من $peer",
+                                        error = null
+                                    ) }
+                                },
+                                onBatchFinished = { peer, batch ->
+                                    batch.files.forEach { item ->
+                                        val received = item.receivedFile ?: return@forEach
+                                        try {
+                                            val publishedUri = UltraShareReceivedPublisher.publish(this@UltraShareForegroundService, received)
+                                            UltraShareReceivedHistoryStore.record(
+                                                context = this@UltraShareForegroundService,
+                                                file = received.file,
+                                                fileName = received.fileName,
+                                                mimeType = received.mimeType,
+                                                sizeBytes = received.sizeBytes,
+                                                publishedUri = publishedUri?.toString()
+                                            )
+                                            updateState { current -> current.copy(
+                                                receivedFile = received.copy(publishedUri = publishedUri),
+                                                status = "استُلم ${received.fileName} ضمن دفعة V2 من $peer",
+                                                error = null
+                                            ) }
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (failure: Exception) {
+                                            updateState { current -> current.copy(error = failure.localizedMessage ?: "تعذر حفظ الملف المستلم.") }
+                                        }
+                                    }
+                                    updateState { current -> current.copy(
+                                        receiveProgress = null,
+                                        progress = if (current.sending) current.sendProgress else null,
+                                        status = "اكتملت دفعة V2 من $peer: ${batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }} ملف"
+                                    ) }
+                                },
+                                onPeerError = { peer, failure ->
+                                    updateState { current -> current.copy(
+                                        receiveProgress = null,
+                                        progress = if (current.sending) current.sendProgress else null,
+                                        error = "جلسة V2 من $peer: ${failure.localizedMessage ?: "فشل النقل"}"
+                                    ) }
+                                }
+                            )
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            updateState { current -> current.copy(error = "تعذر تشغيل مستقبل V2: ${failure.localizedMessage}") }
+                        } finally {
+                            batchReceiveJob = null
+                            finishService()
+                        }
+                    }
                 }
-                if (transferJob != null) return START_NOT_STICKY
-                startForegroundCompat()
-                publish(UltraShareServiceState(sending = true, status = getString(R.string.ultra_share_sending)))
-                val job = serviceScope.launch(start = CoroutineStart.LAZY) {
-                    try {
-                        val metadata = readDocumentMetadata(uri)
-                        UltraShareTransport.send(
-                            resolver = contentResolver,
-                            uri = uri,
-                            host = host,
-                            pairingSecret = secret,
-                            fileName = metadata.first,
-                            mimeType = metadata.second,
-                            sizeBytes = metadata.third,
-                            onProgress = { progress ->
-                                acquireTransferLocks()
-                                publish(currentState().copy(progress = progress))
-                                updateNotification(progress)
+                controlJob?.cancel()
+                controlJob = serviceScope.launch {
+                    while (true) {
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        try {
+                            UltraShareControlChannel.serveOnce(
+                                pairingSecret = secret,
+                                localPeerName = Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                                onSessionClosed = { request ->
+                                    disconnectApprovedPeer(request.peerAddress)
+                                }
+                            ) { request ->
+                                // The room currently exposes one approval card at a time.
+                                // Reject an overlapping invitation instead of overwriting its
+                                // deferred decision and accidentally accepting the wrong peer.
+                                if (pendingConnectionDecision != null) {
+                                    return@serveOnce UltraShareControlChannel.Decision.REJECTED
+                                }
+                                val decision = CompletableDeferred<UltraShareControlChannel.Decision>()
+                                pendingConnectionDecision = decision
+                                updateState { current -> current.copy(
+                                    pendingConnection = request,
+                                    status = "طلب اتصال وارد من " + request.peerName
+                                ) }
+                                try {
+                                    val result = decision.await()
+                                    if (result == UltraShareControlChannel.Decision.ACCEPTED) {
+                                        registerApprovedPeer(
+                                            name = request.peerName,
+                                            host = request.peerAddress,
+                                            role = "استقبل طلب الاتصال",
+                                            sessionId = request.requestId
+                                        )
+                                    }
+                                    result
+                                } finally {
+                                    pendingConnectionDecision = null
+                                    updateState { current -> current.copy(pendingConnection = null) }
+                                }
                             }
-                        )
-                        publish(currentState().copy(sending = false, progress = null, status = getString(R.string.ultra_share_sent, metadata.first), error = null))
-                    } catch (cancelled: CancellationException) {
-                        publish(currentState().copy(sending = false, progress = null, status = getString(R.string.ultra_share_cancel_transfer)))
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        publish(currentState().copy(sending = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)))
-                    } finally {
-                        transferJob = null
-                        publish(currentState().copy(sending = false, progress = null))
-                        finishService()
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            updateState { current -> current.copy(error = failure.localizedMessage ?: "تعذر تشغيل قناة طلبات الاتصال.") }
+                            kotlinx.coroutines.delay(1_000)
+                        }
                     }
                 }
-                transferJob = job
                 job.start()
             }
             ACTION_SEND_BATCH -> {
@@ -262,7 +410,7 @@ class UltraShareForegroundService : Service() {
                 val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
                 if (uri == null) {
-                    publish(currentState().copy(error = getString(R.string.ultra_share_transfer_failed)))
+                    updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
                     finishService()
                 } else {
                     startSendingQueue(listOf(uri), host, secret, replaceQueue = false)
@@ -283,19 +431,32 @@ class UltraShareForegroundService : Service() {
      * Stop all work immediately when the system reports that the limit was reached.
      */
     override fun onTimeout(startId: Int, fgsType: Int) {
-        publish(
-            currentState().copy(
+        updateState { current -> current.copy(
                 receiving = false,
                 sending = false,
                 pairingSecret = "",
                 localAddresses = emptyList(),
                 progress = null,
+                sendProgress = null,
+                receiveProgress = null,
+                hotspotStarting = false,
+                hotspotActive = false,
+                hotspotSsid = null,
+                hotspotPassword = null,
+                pendingConnection = null,
                 error = "أوقف Android خدمة النقل بعد بلوغ الحد الزمني المسموح. يمكنك بدء النقل مجدداً."
-            )
-        )
-        transferJob?.cancel()
+            ) }
+        sendJob?.cancel()
+        receiveJob?.cancel()
+        batchReceiveJob?.cancel()
         advertisementJob?.cancel()
+        controlJob?.cancel()
+        pendingConnectionDecision?.cancel()
+        currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
         releaseTransferLocks()
+        runCatching { hotspotReservation?.close() }
+        hotspotReservation = null
+        hotspotCallback = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -306,12 +467,141 @@ class UltraShareForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        transferJob?.cancel()
+        if (currentState().receiving) {
+            currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
+        }
+        sendJob?.cancel()
+        receiveJob?.cancel()
+        batchReceiveJob?.cancel()
         advertisementJob?.cancel()
+        controlJob?.cancel()
+        pendingConnectionDecision?.cancel()
         serviceScope.cancel()
         releaseTransferLocks()
+        runCatching { hotspotReservation?.close() }
+        hotspotReservation = null
+        hotspotCallback = null
+        updateState { current ->
+            current.copy(
+                receiving = false,
+                sending = false,
+                pairingSecret = "",
+                localAddresses = emptyList(),
+                progress = null,
+                sendProgress = null,
+                receiveProgress = null,
+                hotspotStarting = false,
+                hotspotActive = false,
+                hotspotSsid = null,
+                hotspotPassword = null,
+                pendingConnection = null,
+                activePeers = if (current.receiving) emptyList() else current.activePeers
+            )
+        }
         if (::notificationManager.isInitialized) notificationManager.cancel(NOTIFICATION_ID)
         super.onDestroy()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startLocalHotspot() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            updateState { it.copy(error = "إنشاء نقطة اتصال داخل MalekPlay يتطلب Android 8 أو أحدث. استخدم نقطة اتصال النظام يدوياً.") }
+            finishService()
+            return
+        }
+        if (hotspotReservation != null || currentState().hotspotStarting) return
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        if (wifiManager == null) {
+            updateState { it.copy(error = "خدمة Wi-Fi غير متاحة على هذا الجهاز.") }
+            finishService()
+            return
+        }
+        updateState { it.copy(hotspotStarting = true, error = null, status = "جارٍ إنشاء شبكة MalekPlay المحلية...") }
+        val callback = object : WifiManager.LocalOnlyHotspotCallback() {
+            override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
+                if (hotspotCallback !== this) {
+                    runCatching { reservation.close() }
+                    return
+                }
+                hotspotReservation = reservation
+                val credentials = runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        val config = reservation.softApConfiguration
+                        config.ssid.orEmpty() to (config.passphrase ?: "")
+                    } else {
+                        @Suppress("DEPRECATION")
+                        val config = reservation.wifiConfiguration
+                        config?.SSID?.trim('"').orEmpty() to config?.preSharedKey?.trim('"').orEmpty()
+                    }
+                }.getOrDefault("" to "")
+                updateState { current ->
+                    current.copy(
+                        hotspotStarting = false,
+                        hotspotActive = true,
+                        hotspotSsid = credentials.first.takeIf { it.isNotBlank() },
+                        hotspotPassword = credentials.second,
+                        localAddresses = findLocalIpv4Addresses(),
+                        status = if (credentials.first.isNotBlank()) "تم إنشاء شبكة MalekPlay المحلية. صِل الجهاز الآخر بها ثم ابحث عن الأجهزة القريبة."
+                        else "تم إنشاء نقطة الاتصال، لكن تعذر قراءة بياناتها. افتح إعدادات Wi-Fi لعرضها.",
+                        error = null
+                    )
+                }
+            }
+
+            override fun onStopped() {
+                if (hotspotCallback !== this) return
+                hotspotReservation = null
+                hotspotCallback = null
+                updateState { current ->
+                    current.copy(
+                        hotspotStarting = false,
+                        hotspotActive = false,
+                        hotspotSsid = null,
+                        hotspotPassword = null,
+                        status = "أوقِفت نقطة اتصال MalekPlay."
+                    )
+                }
+                finishService()
+            }
+
+            override fun onFailed(reason: Int) {
+                if (hotspotCallback !== this) return
+                hotspotReservation = null
+                hotspotCallback = null
+                val message = when (reason) {
+                    WifiManager.LocalOnlyHotspotCallback.ERROR_INCOMPATIBLE_MODE ->
+                        "تعذر إنشاء الشبكة لأن نقطة اتصال النظام أو وضع Wi-Fi الحالي غير متوافق. أوقف نقطة الاتصال الأخرى أو استخدم شبكة Wi-Fi مشتركة."
+                    WifiManager.LocalOnlyHotspotCallback.ERROR_TETHERING_DISALLOWED ->
+                        "النظام أو سياسة الجهاز تمنع إنشاء نقطة اتصال محلية."
+                    WifiManager.LocalOnlyHotspotCallback.ERROR_NO_CHANNEL ->
+                        "لا تتوفر قناة Wi-Fi لإنشاء نقطة الاتصال حالياً."
+                    else -> "تعذر إنشاء نقطة اتصال MalekPlay. جرّب إيقاف نقطة اتصال النظام ثم أعد المحاولة."
+                }
+                updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null, error = message) }
+                finishService()
+            }
+        }
+        hotspotCallback = callback
+        try {
+            wifiManager.startLocalOnlyHotspot(callback, Handler(Looper.getMainLooper()))
+        } catch (failure: SecurityException) {
+            hotspotCallback = null
+            updateState { it.copy(hotspotStarting = false, error = "يلزم منح إذن الأجهزة القريبة لإنشاء شبكة Wi-Fi محلية.") }
+            finishService()
+        } catch (failure: Exception) {
+            hotspotCallback = null
+            updateState { it.copy(hotspotStarting = false, error = failure.localizedMessage ?: "تعذر بدء نقطة الاتصال.") }
+            finishService()
+        }
+    }
+
+    private fun stopLocalHotspot() {
+        val reservation = hotspotReservation
+        hotspotReservation = null
+        hotspotCallback = null
+        runCatching { reservation?.close() }
+        updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null) }
+        finishService()
     }
 
     private fun startForegroundCompat() {
@@ -324,13 +614,25 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun updateNotification(progress: UltraShareTransport.Progress) {
-        notificationManager.notify(NOTIFICATION_ID, buildNotification(progress))
+        val current = currentState()
+        // A single notification progress bar cannot truthfully represent two simultaneous
+        // transfers. Show a neutral concurrent status instead of oscillating percentages.
+        val visibleProgress = when {
+            current.sending && current.receiving -> null
+            current.sending -> current.sendProgress ?: progress.takeUnless { it.receiving }
+            current.receiving -> current.receiveProgress ?: progress.takeIf { it.receiving }
+            else -> progress
+        }
+        notificationManager.notify(NOTIFICATION_ID, buildNotification(visibleProgress))
     }
 
     private fun buildNotification(progress: UltraShareTransport.Progress?): Notification {
-        val text = progress?.let {
-            "${it.fileName} • ${(it.fraction * 100).toInt()}%"
-        } ?: getString(R.string.ultra_share_notification_active)
+        val current = currentState()
+        val text = when {
+            current.sending && current.receiving -> "الإرسال والاستقبال يعملان معاً"
+            progress != null -> "${progress.fileName} • ${(progress.fraction * 100).toInt()}%"
+            else -> getString(R.string.ultra_share_notification_active)
+        }
         val cancelIntent = PendingIntent.getService(this, 38742, Intent(this, UltraShareForegroundService::class.java).setAction(ACTION_CANCEL), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_ultra_share_notification)
@@ -346,33 +648,60 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun finishService() {
+        // Keep the foreground service alive while either direction still owns a socket.
+        if (sendJob != null || receiveJob != null || batchReceiveJob != null || hotspotReservation != null || currentState().hotspotStarting) return
         releaseTransferLocks()
         stopForeground(true)
         stopSelf()
     }
 
-    private fun acquireTransferLocks() {
-        runCatching {
-            val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            wifiLock = manager.createWifiLock(WifiManager.WIFI_MODE_FULL, "MalekPlay:UltraShare").apply {
-                setReferenceCounted(false)
-                if (!isHeld) acquire()
+    private fun beginTransfer(isReceiving: Boolean) {
+        synchronized(transferLockGuard) {
+            if (isReceiving) { receiveTransferCount++; receiveTransferActive = true } else sendTransferActive = true
+            runCatching {
+                if (wifiLock?.isHeld != true) {
+                    val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                    wifiLock = manager.createWifiLock(WifiManager.WIFI_MODE_FULL, "MalekPlay:UltraShare").apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
+                }
             }
-        }
-        runCatching {
-            val manager = getSystemService(POWER_SERVICE) as PowerManager
-            cpuWakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MalekPlay:UltraShare").apply {
-                setReferenceCounted(false)
-                if (!isHeld) acquire()
+            runCatching {
+                if (cpuWakeLock?.isHeld != true) {
+                    val manager = getSystemService(POWER_SERVICE) as PowerManager
+                    cpuWakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MalekPlay:UltraShare").apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
+                }
             }
         }
     }
 
+    private fun endTransfer(isReceiving: Boolean) {
+        synchronized(transferLockGuard) {
+            if (isReceiving) { receiveTransferCount = (receiveTransferCount - 1).coerceAtLeast(0); receiveTransferActive = receiveTransferCount > 0 } else sendTransferActive = false
+            if (!sendTransferActive && receiveTransferCount == 0) releaseTransferLocksLocked()
+        }
+    }
+
     private fun releaseTransferLocks() {
+        synchronized(transferLockGuard) { releaseTransferLocksLocked() }
+    }
+
+    private fun releaseTransferLocksLocked() {
+        sendTransferActive = false
+        receiveTransferActive = false
+        receiveTransferCount = 0
         runCatching { wifiLock?.takeIf { it.isHeld }?.release() }
         runCatching { cpuWakeLock?.takeIf { it.isHeld }?.release() }
         wifiLock = null
         cpuWakeLock = null
+    }
+
+    private fun updateState(transform: (UltraShareServiceState) -> UltraShareServiceState) {
+        mutableState.update(transform)
     }
 
     private fun publish(state: UltraShareServiceState) {
@@ -388,13 +717,13 @@ class UltraShareForegroundService : Service() {
         replaceQueue: Boolean = true
     ) {
         if (uris.isEmpty() || host.isBlank() || !UltraShareTransport.isValidPrivateLanHost(host) || !UltraShareTransport.isValidPairingSecret(secret)) {
-            publish(UltraShareServiceState(error = getString(R.string.ultra_share_transfer_failed)))
+            updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
             finishService()
             return
         }
-        if (transferJob != null) return
+        if (sendJob != null) return
         startForegroundCompat()
-        publish(UltraShareServiceState(sending = true, queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال"))
+        updateState { current -> current.copy(sending = true, queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال", error = null) }
         val job = serviceScope.launch(start = CoroutineStart.LAZY) {
             var activeUri: Uri? = null
             var sent = 0
@@ -404,6 +733,9 @@ class UltraShareForegroundService : Service() {
             val queue = uris.distinctBy { it.toString() }
             var metadataByUri: Map<Uri, Triple<String, String, Long>> = emptyMap()
             var totalBytes = 0L
+            var v2ProgressFileId: String? = null
+            var v2ProgressCompletedBytes = 0L
+            var v2ProgressFileSize = 0L
             try {
                 // Persist the complete batch before querying document providers. If Android
                 // stops the process during slow metadata lookup, the selected files remain
@@ -417,112 +749,276 @@ class UltraShareForegroundService : Service() {
                 totalBytes = metadataByUri.values.fold(0L) { total, metadata ->
                     if (Long.MAX_VALUE - total < metadata.third) Long.MAX_VALUE else total + metadata.third
                 }
-                publish(currentState().copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L))
-                queue.forEachIndexed { index, uri ->
-                    val storedStatus = UltraShareQueueStore.observe(this@UltraShareForegroundService)
+                updateState { current -> current.copy(queueTotalBytes = totalBytes, queueTransferredBytes = 0L) }
+                var useLegacyV1 = false
+                val v2Candidates = ArrayList<Pair<Uri, UltraShareBatchTransport.Source>>()
+                queue.forEach { uri ->
+                    val status = UltraShareQueueStore.observe(this@UltraShareForegroundService)
                         .first().firstOrNull { it.uri == uri.toString() }?.status
-                    if (storedStatus == UltraShareQueueStore.STATUS_SKIPPED) {
-                        // Keep the original denominator: skipped bytes are not transferred,
-                        // so the overall progress must not falsely reach 100%.
-                        publish(currentState().copy(
-                            queueCompleted = index + 1,
-                            queueTotal = queue.size,
-                            queueTotalBytes = totalBytes
-                        ))
-                        return@forEachIndexed
-                    }
-                    activeUri = uri
-                    val metadata = try {
-                        metadataByUri[uri] ?: readDocumentMetadata(uri)
-                    } catch (failure: Exception) {
-                        // Preserve the original total so failed bytes remain visible as incomplete.
+                    if (status == UltraShareQueueStore.STATUS_SKIPPED) return@forEach
+                    val metadata = runCatching { metadataByUri[uri] ?: readDocumentMetadata(uri) }.getOrElse { failure ->
                         failed++
                         lastError = failure.localizedMessage ?: "تعذرت قراءة أحد الملفات."
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_FAILED, error = lastError)
-                        activeUri = null
-                        publish(currentState().copy(
-                            queueCompleted = index + 1,
-                            queueTotal = queue.size,
-                            queueTotalBytes = totalBytes,
-                            queueTransferredBytes = completedBytes
-                        ))
-                        return@forEachIndexed
+                        return@forEach
                     }
-                    val claimed = UltraShareQueueStore.claimForSending(
-                        this@UltraShareForegroundService,
-                        uri,
-                        metadata.first
+                    val claimed = UltraShareQueueStore.claimForSending(this@UltraShareForegroundService, uri, metadata.first)
+                    if (!claimed) return@forEach
+                    val fileId = java.util.UUID.randomUUID().toString()
+                    v2Candidates += uri to UltraShareBatchTransport.Source(
+                        uri = uri,
+                        name = metadata.first,
+                        mimeType = metadata.second,
+                        sizeBytes = metadata.third,
+                        fileId = fileId
                     )
-                    if (!claimed) {
+                }
+                if (v2Candidates.isNotEmpty()) {
+                    try {
+                        beginTransfer(isReceiving = false)
+                        val batch = sendBatchWithRetry(v2Candidates.map { it.second }, host, secret) { progress ->
+                            if (v2ProgressFileId != null && v2ProgressFileId != progress.fileId) {
+                                v2ProgressCompletedBytes = if (Long.MAX_VALUE - v2ProgressCompletedBytes < v2ProgressFileSize)
+                                    Long.MAX_VALUE else v2ProgressCompletedBytes + v2ProgressFileSize
+                            }
+                            v2ProgressFileId = progress.fileId
+                            v2ProgressFileSize = progress.totalBytes
+                            updateState { current -> current.copy(
+                                progress = UltraShareTransport.Progress(
+                                    progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                    progress.bytesPerSecond, false
+                                ),
+                                sendProgress = UltraShareTransport.Progress(
+                                    progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                    progress.bytesPerSecond, false
+                                ),
+                                queueCurrentName = progress.fileName,
+                                queueTransferredBytes = minOf(totalBytes, v2ProgressCompletedBytes + progress.transferredBytes),
+                                status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
+                            ) }
+                        }
+                        val uriById = v2Candidates.associate { it.second.fileId to it.first }
+                        batch.files.forEachIndexed { index, outcome ->
+                            val uri = uriById[outcome.fileId] ?: return@forEachIndexed
+                            val metadata = metadataByUri[uri] ?: readDocumentMetadata(uri)
+                            if (outcome.status == UltraShareBatchProtocol.FileStatus.COMPLETED) {
+                                sent++
+                                completedBytes = if (Long.MAX_VALUE - completedBytes < metadata.third) Long.MAX_VALUE else completedBytes + metadata.third
+                                UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_COMPLETED)
+                            } else {
+                                failed++
+                                lastError = outcome.error ?: "فشل إرسال ${metadata.first}"
+                                UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
+                            }
+                            updateState { current -> current.copy(
+                                queueCompleted = index + 1,
+                                queueTotal = queue.size,
+                                queueTotalBytes = totalBytes,
+                                queueTransferredBytes = completedBytes
+                            ) }
+                        }
+                    } catch (cancelled: CancellationException) {
+                        withContext(NonCancellable) {
+                            v2Candidates.forEach { (uri, source) ->
+                                UltraShareQueueStore.update(
+                                    this@UltraShareForegroundService, uri, source.name,
+                                    UltraShareQueueStore.STATUS_PENDING, "انقطع النقل؛ يمكن استئناف الملف من موضعه."
+                                )
+                            }
+                        }
+                        throw cancelled
+                    } catch (failure: java.net.ConnectException) {
+                        // An older installed receiver has no v2 listener. Return claimed
+                        // entries to pending and use the compatible v1 per-file path.
+                        useLegacyV1 = true
+                        v2Candidates.forEach { (uri, source) ->
+                            UltraShareQueueStore.update(
+                                this@UltraShareForegroundService, uri, source.name,
+                                UltraShareQueueStore.STATUS_PENDING, "المستقبل لا يدعم V2؛ استخدام V1."
+                            )
+                        }
+                    } catch (failure: Exception) {
+                        failed += v2Candidates.size
+                        lastError = failure.localizedMessage ?: "فشلت جلسة V2."
+                        v2Candidates.forEach { (uri, source) ->
+                            UltraShareQueueStore.update(
+                                this@UltraShareForegroundService, uri, source.name,
+                                UltraShareQueueStore.STATUS_FAILED, lastError
+                            )
+                        }
+                    } finally {
+                        endTransfer(isReceiving = false)
+                    }
+                }
+                if (useLegacyV1 || v2Candidates.isEmpty()) {
+                    queue.forEachIndexed { index, uri ->
+                        val storedStatus = UltraShareQueueStore.observe(this@UltraShareForegroundService)
+                            .first().firstOrNull { it.uri == uri.toString() }?.status
+                        if (storedStatus == UltraShareQueueStore.STATUS_SKIPPED) {
+                            // Keep the original denominator: skipped bytes are not transferred,
+                            // so the overall progress must not falsely reach 100%.
+                            updateState { current -> current.copy(
+                                queueCompleted = index + 1,
+                                queueTotal = queue.size,
+                                queueTotalBytes = totalBytes
+                            ) }
+                            return@forEachIndexed
+                        }
+                        activeUri = uri
+                        val metadata = try {
+                            metadataByUri[uri] ?: readDocumentMetadata(uri)
+                        } catch (failure: Exception) {
+                            // Preserve the original total so failed bytes remain visible as incomplete.
+                            failed++
+                            lastError = failure.localizedMessage ?: "تعذرت قراءة أحد الملفات."
+                            UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_FAILED, error = lastError)
+                            activeUri = null
+                            updateState { current -> current.copy(
+                                queueCompleted = index + 1,
+                                queueTotal = queue.size,
+                                queueTotalBytes = totalBytes,
+                                queueTransferredBytes = completedBytes
+                            ) }
+                            return@forEachIndexed
+                        }
+                        val claimed = UltraShareQueueStore.claimForSending(
+                            this@UltraShareForegroundService,
+                            uri,
+                            metadata.first
+                        )
+                        if (!claimed) {
+                            activeUri = null
+                            updateState { current -> current.copy(
+                                queueCompleted = index + 1,
+                                queueTotal = queue.size,
+                                queueTotalBytes = totalBytes,
+                                queueTransferredBytes = completedBytes
+                            ) }
+                            return@forEachIndexed
+                        }
+                        updateState { current -> current.copy(
+                            queueCurrentName = metadata.first,
+                            queueCompleted = index,
+                            queueTotal = queue.size,
+                            progress = if (current.receiving) current.receiveProgress else null,
+                            sendProgress = null,
+                            status = "جارٍ تجهيز وفحص " + metadata.first + " قبل الإرسال..."
+                        ) }
+                        try {
+                            // Protect long source hashing, connection setup, and retries too.
+                            beginTransfer(isReceiving = false)
+                            sendWithRetry(uri, host, secret, metadata) { progress ->
+                                updateState { current -> current.copy(
+                                    progress = progress,
+                                    sendProgress = progress,
+                                    queueCurrentName = metadata.first,
+                                    queueTransferredBytes = minOf(totalBytes, completedBytes + progress.transferredBytes)
+                                ) }
+                                updateNotification(progress)
+                            }
+                            sent++
+                            completedBytes = if (Long.MAX_VALUE - completedBytes < metadata.third) Long.MAX_VALUE else completedBytes + metadata.third
+                            UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_COMPLETED)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            failed++
+                            // Do not shrink the denominator on failure; otherwise the bar can
+                            // report 100% even though this file still needs a retry.
+                            lastError = metadata.first + ": " + (failure.localizedMessage ?: "فشل الإرسال.")
+                            UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
+                        } finally {
+                            endTransfer(isReceiving = false)
+                        }
                         activeUri = null
-                        publish(currentState().copy(
+                        updateState { current -> current.copy(
                             queueCompleted = index + 1,
                             queueTotal = queue.size,
+                            progress = if (current.receiving) current.receiveProgress else null,
+                            sendProgress = null,
                             queueTotalBytes = totalBytes,
                             queueTransferredBytes = completedBytes
-                        ))
-                        return@forEachIndexed
+                        ) }
                     }
-                    publish(currentState().copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = null))
-                    try {
-                        sendWithRetry(uri, host, secret, metadata) { progress ->
-                            acquireTransferLocks()
-                            publish(currentState().copy(
-                                progress = progress,
-                                queueCurrentName = metadata.first,
-                                queueTransferredBytes = minOf(totalBytes, completedBytes + progress.transferredBytes)
-                            ))
-                            updateNotification(progress)
-                        }
-                        sent++
-                        completedBytes = if (Long.MAX_VALUE - completedBytes < metadata.third) Long.MAX_VALUE else completedBytes + metadata.third
-                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_COMPLETED)
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        failed++
-                        // Do not shrink the denominator on failure; otherwise the bar can
-                        // report 100% even though this file still needs a retry.
-                        lastError = metadata.first + ": " + (failure.localizedMessage ?: "فشل الإرسال.")
-                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
-                    } finally {
-                        releaseTransferLocks()
-                    }
-                    activeUri = null
-                    publish(currentState().copy(
-                        queueCompleted = index + 1,
-                        queueTotal = queue.size,
-                        progress = null,
-                        queueTotalBytes = totalBytes,
-                        queueTransferredBytes = completedBytes
-                    ))
+    
                 }
-                publish(currentState().copy(sending = false, status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null))
+                updateState { current -> current.copy(sending = false, status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null) }
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) {
                     activeUri?.let { uri ->
                         UltraShareQueueStore.update(this@UltraShareForegroundService, uri, status = UltraShareQueueStore.STATUS_PENDING, error = "أُوقف النقل؛ يمكن استئنافه.")
                     }
                 }
-                publish(currentState().copy(
+                updateState { current -> current.copy(
                     sending = false,
-                    progress = null,
+                    progress = if (current.receiving) current.receiveProgress else null,
+                    sendProgress = null,
                     queueTransferredBytes = completedBytes,
                     status = if (pauseRequested)
                         "أُوقف الطابور مؤقتاً بعد إكمال " + sent + " ملفات؛ يمكنك استئناف المتبقي."
                     else "أُوقف طابور الإرسال بعد إكمال " + sent + " ملفات"
-                ))
+                ) }
                 throw cancelled
             } finally {
-                transferJob = null
+                sendJob = null
                 pauseRequested = false
-                publish(currentState().copy(sending = false, progress = null, queueCurrentName = null))
+                updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, queueCurrentName = null) }
                 finishService()
             }
         }
-        transferJob = job
+        sendJob = job
         job.start()
     }
+    private suspend fun sendBatchWithRetry(
+        sources: List<UltraShareBatchTransport.Source>,
+        host: String,
+        secret: String,
+        onProgress: (UltraShareBatchTransport.FileProgress) -> Unit
+    ): UltraShareBatchTransport.BatchOutcome {
+        var retry = 0
+        while (true) {
+            try {
+                return UltraShareBatchTransport.sendBatch(
+                    resolver = contentResolver,
+                    sources = sources,
+                    host = host,
+                    pairingSecret = secret,
+                    onProgress = onProgress
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: java.net.ConnectException) {
+                throw failure
+            } catch (failure: IOException) {
+                if (retry >= 2) throw failure
+                retry++
+                if (!UltraShareControlChannel.isSessionActive(host)) {
+                    updateState { current -> current.copy(
+                        status = "انقطع الاتصال؛ نعيد طلب الموافقة من الجهاز المستقبل قبل استئناف الملفات..."
+                    ) }
+                    val decision = UltraShareControlChannel.request(
+                        host = host,
+                        pairingSecret = secret,
+                        peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                        onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
+                    )
+                    check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                        "لم يوافق الجهاز المستقبل على إعادة الاتصال."
+                    }
+                    registerApprovedPeer(
+                        name = UltraShareControlChannel.sessionPeerName(host) ?: "جهاز MalekPlay المستقبل",
+                        host = host,
+                        role = "أعاد الموافقة على الاتصال"
+                    )
+                }
+                updateState { current -> current.copy(
+                    status = "انقطع اتصال البيانات؛ استئناف الدفعة تلقائياً ${retry} من 2"
+                ) }
+                kotlinx.coroutines.delay(retry * 1_000L)
+            }
+        }
+    }
+
     private suspend fun sendWithRetry(
         uri: Uri,
         host: String,
@@ -549,9 +1045,9 @@ class UltraShareForegroundService : Service() {
             } catch (failure: IOException) {
                 if (retry >= 2) throw failure
                 retry++
-                publish(currentState().copy(
+                updateState { current -> current.copy(
                     status = "انقطع الاتصال؛ إعادة المحاولة تلقائياً " + retry + " من 2"
-                ))
+                ) }
                 kotlinx.coroutines.delay(retry * 1_000L)
             }
         }
@@ -570,7 +1066,11 @@ class UltraShareForegroundService : Service() {
                 }
             }
         require(size >= 0L) { "تعذر معرفة حجم الملف؛ اختر ملفاً من مدير الملفات يدعم عرض الحجم." }
-        return Triple(name, contentResolver.getType(uri) ?: "application/octet-stream", size)
+        val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
+        require(UltraShareTransport.isSupportedMediaMimeType(mimeType)) {
+            "يسمح MalekPlay بإرسال الفيديوهات والموسيقى والصور فقط."
+        }
+        return Triple(name, mimeType, size)
     }
 
     private fun findLocalIpv4Addresses(): List<String> = runCatching {
@@ -620,15 +1120,56 @@ class UltraShareForegroundService : Service() {
         private const val EXTRA_URIS = "uris"
         const val ACTION_STOP = "com.malekplay.ultrashare.STOP"
         const val ACTION_CANCEL = "com.malekplay.ultrashare.CANCEL"
+        const val ACTION_CANCEL_SEND = "com.malekplay.ultrashare.CANCEL_SEND"
+        const val ACTION_STOP_RECEIVING = "com.malekplay.ultrashare.STOP_RECEIVING"
+        const val ACTION_START_HOTSPOT = "com.malekplay.ultrashare.START_HOTSPOT"
+        const val ACTION_STOP_HOTSPOT = "com.malekplay.ultrashare.STOP_HOTSPOT"
         const val ACTION_PAUSE = "com.malekplay.ultrashare.PAUSE"
         const val ACTION_REFRESH_ADDRESSES = "com.malekplay.ultrashare.REFRESH_ADDRESSES"
         const val ACTION_RECEIVE = "com.malekplay.ultrashare.RECEIVE"
+        const val ACTION_ACCEPT_CONNECTION = "com.malekplay.ultrashare.ACCEPT_CONNECTION"
+        const val ACTION_REJECT_CONNECTION = "com.malekplay.ultrashare.REJECT_CONNECTION"
         const val ACTION_SEND = "com.malekplay.ultrashare.SEND"
         const val ACTION_SEND_BATCH = "com.malekplay.ultrashare.SEND_BATCH"
         const val ACTION_RETRY_FILE = "com.malekplay.ultrashare.RETRY_FILE"
 
         private val mutableState = MutableStateFlow(UltraShareServiceState())
         val state = mutableState.asStateFlow()
+
+        fun registerApprovedPeer(
+            name: String,
+            host: String,
+            role: String,
+            sessionId: String = java.util.UUID.randomUUID().toString()
+        ) {
+            mutableState.update { current ->
+                val updated = current.activePeers.filterNot { it.host == host } +
+                    UltraSharePeerSession(
+                        sessionId = sessionId,
+                        name = name.take(96),
+                        host = host,
+                        role = role,
+                        approvedAtMillis = System.currentTimeMillis()
+                    )
+                current.copy(activePeers = updated)
+            }
+        }
+
+        fun disconnectApprovedPeer(host: String) {
+            UltraShareControlChannel.closeSession(host)
+            UltraShareControlChannel.closeServerSession(host)
+            mutableState.update { current ->
+                current.copy(activePeers = current.activePeers.filterNot { it.host == host })
+            }
+        }
+
+        fun acceptConnection(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_ACCEPT_CONNECTION))
+        }
+
+        fun rejectConnection(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_REJECT_CONNECTION))
+        }
 
         fun startReceiving(context: Context, secret: String) {
             val intent = Intent(context, UltraShareForegroundService::class.java)
@@ -674,6 +1215,22 @@ class UltraShareForegroundService : Service() {
 
         fun cancel(context: Context) {
             context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_CANCEL))
+        }
+
+        fun cancelSending(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_CANCEL_SEND))
+        }
+
+        fun stopReceiving(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_STOP_RECEIVING))
+        }
+
+        fun startHotspot(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_START_HOTSPOT))
+        }
+
+        fun stopHotspot(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_STOP_HOTSPOT))
         }
 
         fun stop(context: Context) {

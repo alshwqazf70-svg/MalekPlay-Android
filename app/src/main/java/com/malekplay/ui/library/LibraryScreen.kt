@@ -60,7 +60,9 @@ import com.malekplay.ui.components.MediaGridCard
 import com.malekplay.ui.components.MediaThumbnail
 import com.malekplay.ui.components.MediaDeleteButton
 import com.malekplay.ui.components.PlaylistPickerDialog
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 
 private enum class LibraryFilter { ALL, WATCHING, FAVOURITES }
 
@@ -90,13 +92,20 @@ fun LibraryScreen(
         }
     }
     val rawItems by mediaFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val visibleItems = remember(rawItems, filter, settings.sortMode) {
-        val chosen = when (filter) {
-            LibraryFilter.ALL -> rawItems
-            LibraryFilter.WATCHING -> rawItems.filter { it.isInProgress }
-            LibraryFilter.FAVOURITES -> rawItems.filter { it.isFavourite }
+    // Large-list filtering and sorting can take long enough to cause dropped frames
+    // on mid-range phones. Keep this work cancellable and off the main thread.
+    val visibleItems by produceState(
+        initialValue = emptyList<LibraryItem>(),
+        rawItems, filter, settings.sortMode
+    ) {
+        value = withContext(Dispatchers.Default) {
+            val chosen = when (filter) {
+                LibraryFilter.ALL -> rawItems
+                LibraryFilter.WATCHING -> rawItems.filter { it.isInProgress }
+                LibraryFilter.FAVOURITES -> rawItems.filter { it.isFavourite }
+            }
+            viewModel.applySort(chosen, settings.sortMode)
         }
-        viewModel.applySort(chosen, settings.sortMode)
     }
 
     BackHandler(folder != null || searching || filter != LibraryFilter.ALL) {
@@ -254,7 +263,7 @@ fun LibraryScreen(
                         gridItems(visibleItems, key = { it.media.id }) { item ->
                             MediaGridCard(
                                 item = item,
-                                onPlay = { onVideoClick(item) },
+                                onPlay = { viewModel.markNewMediaSeen(item.media.id); onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
                                 onAddToPlaylist = { playlistTarget = item.media },
                                 onDeleted = viewModel::refresh
@@ -269,7 +278,7 @@ fun LibraryScreen(
                         items(visibleItems, key = { it.media.id }) { item ->
                             PremiumVideoRow(
                                 item = item,
-                                onClick = { onVideoClick(item) },
+                                onClick = { viewModel.markNewMediaSeen(item.media.id); onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
                                 onAddToPlaylist = { playlistTarget = item.media },
                                 onDeleted = viewModel::refresh
@@ -332,8 +341,17 @@ private fun FolderTile(folder: MediaFolder, onClick: () -> Unit) {
         ) { Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary) }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(folder.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${folder.videoCount} فيديو • ${folder.audioCount} صوت", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(folder.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (folder.newItemCount > 0) {
+                    Spacer(Modifier.width(4.dp))
+                    Box(Modifier.clip(CircleShape).background(Color(0xFFE84D75)).padding(horizontal = 7.dp, vertical = 3.dp)) {
+                        Text(folder.newItemCount.toString(), color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Text("${folder.videoCount} فيديو • ${folder.audioCount} موسيقى", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+            if (folder.newItemCount > 0) Text("${folder.newItemCount} ملف جديد لم تشاهده بعد", color = Color(0xFFE84D75), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
         }
     }
 }
