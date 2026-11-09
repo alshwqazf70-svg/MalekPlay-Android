@@ -136,7 +136,7 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             missing = directory / "missing.bin"
             with patch("ultra_share_pc.send_file") as send:
                 with self.assertRaises(FileNotFoundError):
-                    send_files("192.168.1.20", DEFAULT_PORT, "004219837615", [first, missing])
+                    send_files("192.168.1.20", DEFAULT_PORT, "004219837", [first, missing])
             send.assert_not_called()
 
     def test_batch_sends_files_in_selected_order(self):
@@ -147,13 +147,13 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             first.write_bytes(b"first")
             second.write_bytes(b"second")
             with patch("ultra_share_pc.send_file") as send:
-                send_files("192.168.1.20", DEFAULT_PORT, "004219837615", [first, second])
+                send_files("192.168.1.20", DEFAULT_PORT, "004219837", [first, second])
             self.assertEqual(
                 [first, second],
                 [invocation.args[3] for invocation in send.call_args_list],
             )
             self.assertTrue(all(
-                invocation.args[:3] == ("192.168.1.20", DEFAULT_PORT, "004219837615")
+                invocation.args[:3] == ("192.168.1.20", DEFAULT_PORT, "004219837")
                 for invocation in send.call_args_list
             ))
 
@@ -164,7 +164,7 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             with patch("ultra_share_pc.send_once", side_effect=PermissionError("wrong PIN")) as send:
                 with patch("ultra_share_pc.time.sleep") as sleep:
                     with self.assertRaises(PermissionError):
-                        send_file("192.168.1.20", DEFAULT_PORT, "004219837615", source)
+                        send_file("192.168.1.20", DEFAULT_PORT, "004219837", source)
             self.assertEqual(1, send.call_count)
             sleep.assert_not_called()
 
@@ -177,7 +177,7 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
                 side_effect=[ConnectionResetError("connection reset"), None],
             ) as send:
                 with patch("ultra_share_pc.time.sleep") as sleep:
-                    send_file("192.168.1.20", DEFAULT_PORT, "004219837615", source)
+                    send_file("192.168.1.20", DEFAULT_PORT, "004219837", source)
             self.assertEqual(2, send.call_count)
             sleep.assert_called_once_with(1)
 
