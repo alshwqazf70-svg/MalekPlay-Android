@@ -7,6 +7,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.Uri
+import android.provider.Settings
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -82,14 +83,16 @@ class MainActivity : ComponentActivity() {
      */
     private fun showFirstLaunchPermissionMessage() {
         val preferences = getSharedPreferences("startup_permissions", MODE_PRIVATE)
+        // Only full audio + video grants expose the complete media library.
         val libraryAccessReady = MediaPermissions.hasAudioAccess(this) &&
-            (MediaPermissions.hasFullVideoAccess(this) || MediaPermissions.hasPartialAccess(this))
+            MediaPermissions.hasFullVideoAccess(this)
         if (preferences.getBoolean("intro_shown", false) && libraryAccessReady) return
         AlertDialog.Builder(this)
             .setTitle("تجهيز MalekPlay")
             .setMessage(
-                "لإظهار الفيديوهات والموسيقى الموجودة على هاتفك، وتشغيل إشعارات النقل والتشغيل، " +
-                    "سيطلب التطبيق الأذونات المناسبة لإصدار Android لديك. " +
+                "لإظهار جميع الفيديوهات والموسيقى الموجودة على هاتفك، امنح MalekPlay صلاحية الوصول الكامل " +
+                    "إلى الفيديو والصوت عند ظهور نافذة Android، واختر «السماح بالكل» بدل تحديد ملفات فقط. " +
+                    "قد يظهر خيار الوصول المحدود في Android 14 وما بعده. " +
                     "لن يصل التطبيق إلى الكاميرا أو الميكروفون إلا عند استخدام ميزتي QR ومحلل الصوت."
             )
             .setPositiveButton("متابعة ومنح الأذونات") { _, _ ->
