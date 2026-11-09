@@ -11,7 +11,7 @@ Branch: `feature/zapya-engineering-analysis`
 - Added a local invitation state model with pending, accepted, rejected, expired, and cancelled states.
 - Added bounded batch-manifest and per-file result models.
 - Added JVM unit tests for offer encoding/decoding, malformed offers, candidate selection, invitation transitions, and batch validation.
-- Updated LAN discovery to send both v2 and v1 probes. New receivers answer v2 with available local interface candidates and continue answering v1 for compatibility. New scanners prefer v2 offers and retain v1-only peers.
+- Updated LAN discovery to send both v2 and v1 probes. New receivers answer v2 with available local interface candidates and continue answering v1 for compatibility. New scanners prefer v2 offers and retain v1-only peers. P2P/hotspot interfaces are advertised as candidates but deliberately marked unverified, so they are not auto-selected merely because an interface exists.
 
 ## Important limitations — not yet complete
 
