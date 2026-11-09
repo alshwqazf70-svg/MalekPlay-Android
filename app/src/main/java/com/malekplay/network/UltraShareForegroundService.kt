@@ -88,6 +88,23 @@ data class UltraSharePeerTransfer(
         else (transferredBytes.toDouble() / totalBytes.toDouble()).toFloat().coerceIn(0f, 1f)
 }
 
+/** Keeps the shared progress indicator truthful while other peers are still receiving. */
+internal fun latestActivePeerReceiveProgress(
+    transfers: List<UltraSharePeerTransfer>
+): UltraShareTransport.Progress? =
+    transfers.asSequence()
+        .filter { it.status == "يستقبل الآن" }
+        .maxByOrNull { it.updatedAtMillis }
+        ?.let { active ->
+            UltraShareTransport.Progress(
+                active.fileName,
+                active.transferredBytes,
+                active.totalBytes,
+                active.bytesPerSecond,
+                true
+            )
+        }
+
 /**
  * Owns transfer sockets and coroutine jobs independently from the navigation/ViewModel lifecycle.
  * The service remains active when the Ultra Share screen is removed from the back stack.
@@ -315,11 +332,17 @@ class UltraShareForegroundService : Service() {
                                 onPeerFinished = { peer ->
                                     updateState { current ->
                                         val existing = current.peerTransfers.firstOrNull { it.host == peer }
-                                        if (existing == null || existing.status == "جارٍ الاستقبال") {
+                                        val updatedTransfers = if (existing == null || existing.status == "جارٍ الاستقبال") {
                                             val idle = (existing ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "اكتملت الجلسة"))
                                                 .copy(status = "اكتملت الجلسة", bytesPerSecond = 0L, updatedAtMillis = System.currentTimeMillis())
-                                            current.copy(peerTransfers = current.peerTransfers.filterNot { it.host == peer } + idle)
-                                        } else current
+                                            current.peerTransfers.filterNot { it.host == peer } + idle
+                                        } else current.peerTransfers
+                                        val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
+                                        current.copy(
+                                            peerTransfers = updatedTransfers,
+                                            receiveProgress = activeProgress,
+                                            progress = if (current.sending) current.sendProgress else activeProgress
+                                        )
                                     }
                                     endTransfer(isReceiving = true)
                                 },
@@ -387,10 +410,12 @@ class UltraShareForegroundService : Service() {
                                                 status = if (failed == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failed",
                                                 updatedAtMillis = System.currentTimeMillis()
                                             )
+                                        val updatedTransfers = current.peerTransfers.filterNot { it.host == peer } + summary
+                                        val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
                                         current.copy(
-                                            peerTransfers = current.peerTransfers.filterNot { it.host == peer } + summary,
-                                            receiveProgress = null,
-                                            progress = if (current.sending) current.sendProgress else null,
+                                            peerTransfers = updatedTransfers,
+                                            receiveProgress = activeProgress,
+                                            progress = if (current.sending) current.sendProgress else activeProgress,
                                             status = "اكتملت دفعة V2 من $peer: $completed ملف"
                                         )
                                     }
@@ -400,10 +425,12 @@ class UltraShareForegroundService : Service() {
                                         val previous = current.peerTransfers.firstOrNull { it.host == peer }
                                         val failed = (previous ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "فشل النقل"))
                                             .copy(status = "فشل النقل", bytesPerSecond = 0L, updatedAtMillis = System.currentTimeMillis())
+                                        val updatedTransfers = current.peerTransfers.filterNot { it.host == peer } + failed
+                                        val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
                                         current.copy(
-                                            peerTransfers = current.peerTransfers.filterNot { it.host == peer } + failed,
-                                            receiveProgress = null,
-                                            progress = if (current.sending) current.sendProgress else null,
+                                            peerTransfers = updatedTransfers,
+                                            receiveProgress = activeProgress,
+                                            progress = if (current.sending) current.sendProgress else activeProgress,
                                             error = "جلسة V2 من $peer: ${failure.localizedMessage ?: "فشل النقل"}"
                                         )
                                     }
