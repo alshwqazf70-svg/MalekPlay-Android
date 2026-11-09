@@ -7,29 +7,35 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.SocketTimeoutException
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-/** Small LAN-only UDP discovery. It never broadcasts pairing secrets or scans ports. */
+/** LAN discovery with v2 candidate offers and a v1 compatibility path. */
 object UltraShareDiscovery {
     const val DISCOVERY_PORT = 38742
-    private const val PROBE = "MPULTRA_DISCOVER|1"
-    private const val OFFER_PREFIX = "MPULTRA_OFFER|1|"
+    private const val PROBE_V1 = "MPULTRA_DISCOVER|1"
+    private const val PROBE_V2 = "MPULTRA_DISCOVER|2"
+    private const val OFFER_PREFIX_V1 = "MPULTRA_OFFER|1|"
     private const val RECEIVE_TIMEOUT_MS = 500
     private const val SCAN_WINDOW_MS = 4_000L
-    private const val MAX_PACKET_BYTES = 512
+    private const val MAX_PACKET_BYTES = 2048
 
     data class Peer(
         val host: String,
         val port: Int,
-        val name: String
+        val name: String,
+        val peerId: String? = null,
+        val candidates: List<UltraShareNegotiation.Candidate> = emptyList()
     )
 
     suspend fun advertiseWhileReceiving(
         transferPort: Int = UltraShareTransport.DEFAULT_PORT
     ) = withContext(Dispatchers.IO) {
+        require(transferPort in 1..65535)
+        val peerId = UUID.randomUUID().toString()
         DatagramSocket(null).use { socket ->
             socket.reuseAddress = true
             socket.broadcast = true
@@ -43,10 +49,21 @@ object UltraShareDiscovery {
                     socket.receive(packet)
                     val request = packet.data.copyOfRange(packet.offset, packet.offset + packet.length)
                         .toString(Charsets.UTF_8)
-                    if (request != PROBE) continue
-                    val name = "MalekPlay"
-                    val response = "$OFFER_PREFIX$transferPort|$name".toByteArray(Charsets.UTF_8)
-                    socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
+                    when (request) {
+                        PROBE_V1 -> {
+                            val response = "$OFFER_PREFIX_V1$transferPort|MalekPlay".toByteArray(Charsets.UTF_8)
+                            socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
+                        }
+                        PROBE_V2 -> {
+                            val offer = UltraShareNegotiation.Offer(
+                                peerId = peerId,
+                                displayName = "MalekPlay",
+                                candidates = localCandidates(transferPort)
+                            )
+                            val response = UltraShareNegotiation.encode(offer).toByteArray(Charsets.UTF_8)
+                            socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
+                        }
+                    }
                 } catch (_: SocketTimeoutException) {
                     // Periodically check coroutine cancellation.
                 }
@@ -65,10 +82,10 @@ object UltraShareDiscovery {
             socket.broadcast = true
             socket.bind(InetSocketAddress(0))
             socket.soTimeout = RECEIVE_TIMEOUT_MS
-            val probe = PROBE.toByteArray(Charsets.UTF_8)
+            val probes = listOf(PROBE_V2, PROBE_V1).map { it.toByteArray(Charsets.UTF_8) }
             broadcasts.forEach { address ->
-                runCatching {
-                    socket.send(DatagramPacket(probe, probe.size, address, DISCOVERY_PORT))
+                probes.forEach { probe ->
+                    runCatching { socket.send(DatagramPacket(probe, probe.size, address, DISCOVERY_PORT)) }
                 }
             }
 
@@ -84,13 +101,27 @@ object UltraShareDiscovery {
                     if (source !is Inet4Address || !isPrivateLanAddress(source)) continue
                     val message = packet.data.copyOfRange(packet.offset, packet.offset + packet.length)
                         .toString(Charsets.UTF_8)
-                    if (!message.startsWith(OFFER_PREFIX)) continue
-                    val parts = message.removePrefix(OFFER_PREFIX).split('|', limit = 2)
+                    val host = source.hostAddress ?: continue
+                    val v2 = UltraShareNegotiation.decode(message)
+                    if (v2 != null) {
+                        val preferred = UltraShareNegotiation.selectCandidate(v2.candidates)
+                        val endpoint = preferred ?: continue
+                        peers[host] = Peer(
+                            host = endpoint.host,
+                            port = endpoint.port,
+                            name = v2.displayName,
+                            peerId = v2.peerId,
+                            candidates = v2.candidates
+                        )
+                        continue
+                    }
+                    if (!message.startsWith(OFFER_PREFIX_V1)) continue
+                    val parts = message.removePrefix(OFFER_PREFIX_V1).split('|', limit = 2)
                     val port = parts.getOrNull(0)?.toIntOrNull() ?: continue
                     val name = parts.getOrNull(1)?.take(64)?.takeIf { it.isNotBlank() } ?: "MalekPlay"
                     if (port !in 1..65535) continue
-                    val host = source.hostAddress ?: continue
-                    peers[host] = Peer(host, port, name)
+                    // Do not downgrade a v2 peer when its v1 response arrives later.
+                    if (peers[host]?.peerId == null) peers[host] = Peer(host, port, name)
                 } catch (_: SocketTimeoutException) {
                     // Continue until the bounded scan window expires.
                 }
@@ -98,6 +129,41 @@ object UltraShareDiscovery {
             peers.values.toList()
         }
     }
+
+    private fun localCandidates(port: Int): List<UltraShareNegotiation.Candidate> =
+        runCatching {
+            NetworkInterface.getNetworkInterfaces().toList()
+                .filter { it.isUp && !it.isLoopback }
+                .flatMap { network ->
+                    val name = network.name.lowercase()
+                    val transport = when {
+                        name.startsWith("p2p") -> UltraShareNegotiation.Transport.WIFI_DIRECT
+                        name.startsWith("ap") || name.startsWith("swlan") ->
+                            UltraShareNegotiation.Transport.HOTSPOT
+                        name.startsWith("wlan") || name.startsWith("eth") ->
+                            UltraShareNegotiation.Transport.WLAN
+                        else -> null
+                    } ?: return@flatMap emptyList()
+                    network.interfaceAddresses.mapNotNull { item ->
+                        val address = item.address as? Inet4Address ?: return@mapNotNull null
+                        if (!isPrivateLanAddress(address)) return@mapNotNull null
+                        UltraShareNegotiation.Candidate(
+                            transport = transport,
+                            host = address.hostAddress ?: return@mapNotNull null,
+                            port = port,
+                            connected = true,
+                            reachable = true,
+                            priority = when (transport) {
+                                UltraShareNegotiation.Transport.WIFI_DIRECT -> 30
+                                UltraShareNegotiation.Transport.WLAN -> 20
+                                UltraShareNegotiation.Transport.HOTSPOT -> 10
+                            }
+                        )
+                    }
+                }
+                .distinctBy { "${it.transport}:${it.host}:${it.port}" }
+                .take(8)
+        }.getOrDefault(emptyList())
 
     private fun findBroadcastAddresses(): List<InetAddress> = runCatching {
         NetworkInterface.getNetworkInterfaces().toList()
