@@ -1205,19 +1205,38 @@ fun UltraShareScreen(
                     Text(stringResource(if (state.scanning) R.string.ultra_share_searching else R.string.ultra_share_find_devices), modifier = Modifier.padding(start = 8.dp))
                 }
                 state.discoveredPeers.forEach { peer ->
-                    TextButton(onClick = {
-                        viewModel.clearApprovedConnection()
-                        host = peer.host
-                        if (UltraShareTransport.isValidPairingSecret(secret)) {
-                            viewModel.requestConnection(peer.host, secret.trim())
-                        } else {
-                            Toast.makeText(context, "أدخل رمز الاقتران أو امسح QR؛ سيبدأ طلب الاتصال فور اختيار الجهاز.", Toast.LENGTH_LONG).show()
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceContainer, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier.size(38.dp)
+                                .background(Color(0xFF65D6A2).copy(alpha = 0.16f), androidx.compose.foundation.shape.CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(peer.name.firstOrNull()?.uppercase() ?: "M", color = Color(0xFF65D6A2), fontWeight = FontWeight.ExtraBold)
                         }
-                    }) {
-                        Text(
-                            stringResource(R.string.ultra_share_peer_select, peer.name, peer.host),
-                            color = MalekPlayColors.PurpleBright
-                        )
+                        Column(Modifier.weight(1f).padding(horizontal = 9.dp)) {
+                            Text(peer.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            Text(peer.host + " • جهاز قريب", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(
+                            onClick = {
+                                viewModel.clearApprovedConnection()
+                                host = peer.host
+                                if (UltraShareTransport.isValidPairingSecret(secret)) {
+                                    viewModel.requestConnection(peer.host, secret.trim())
+                                } else {
+                                    Toast.makeText(context, "امسح رمز QR الظاهر على جهاز الاستقبال لإتمام الاقتران الآمن.", Toast.LENGTH_SHORT).show()
+                                    scanQrWithCamera()
+                                }
+                            },
+                            enabled = !state.requestingConnection && !state.sending
+                        ) {
+                            Text(if (state.approvedPeerHost == peer.host) "متصل ✓" else "اتصال")
+                        }
                     }
                 }
                 OutlinedButton(
