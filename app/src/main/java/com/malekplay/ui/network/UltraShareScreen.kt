@@ -130,7 +130,8 @@ data class UltraShareUiState(
     val hotspotActive: Boolean = false,
     val pendingConnection: UltraShareControlChannel.Request? = null,
     val approvedPeerHost: String? = null,
-    val requestingConnection: Boolean = false
+    val requestingConnection: Boolean = false,
+    val activePeers: List<com.malekplay.network.UltraSharePeerSession> = emptyList()
 )
 
 @HiltViewModel
@@ -189,7 +190,8 @@ class UltraShareViewModel @Inject constructor(
                     hotspotPassword = serviceState.hotspotPassword,
                     hotspotStarting = serviceState.hotspotStarting,
                     hotspotActive = serviceState.hotspotActive,
-                    pendingConnection = serviceState.pendingConnection
+                    pendingConnection = serviceState.pendingConnection,
+                    activePeers = serviceState.activePeers
                 )
             }
         }
@@ -229,6 +231,11 @@ class UltraShareViewModel @Inject constructor(
                     peerName = android.os.Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android"
                 )
                 if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                    UltraShareForegroundService.registerApprovedPeer(
+                        name = android.os.Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                        host = host.trim(),
+                        role = "مرسل"
+                    )
                     _state.value = _state.value.copy(
                         approvedPeerHost = host.trim(),
                         status = "وافق الجهاز الآخر على الاتصال. يمكنك الآن بدء النقل المشفر.",
@@ -251,6 +258,11 @@ class UltraShareViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    fun disconnectPeer(host: String) {
+        UltraShareForegroundService.disconnectApprovedPeer(host)
+        if (_state.value.approvedPeerHost == host) clearApprovedConnection()
     }
 
     fun clearApprovedConnection() {
@@ -879,6 +891,31 @@ fun UltraShareScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
         ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                if (state.activePeers.isNotEmpty()) {
+                    Text("غرفة الجلسات المعتمدة", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                    state.activePeers.forEach { peer ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.secondaryContainer, androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier.size(42.dp)
+                                    .background(MalekPlayColors.PurpleBright.copy(alpha = 0.18f), androidx.compose.foundation.shape.CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(peer.name.firstOrNull()?.uppercase() ?: "M", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
+                            }
+                            Column(Modifier.weight(1f).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(peer.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                                Text(peer.host + " • " + peer.role, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                                Text("جلسة مصادَق عليها • " + peer.status, color = Color(0xFF65D6A2), style = MaterialTheme.typography.labelSmall)
+                            }
+                            TextButton(onClick = { viewModel.disconnectPeer(peer.host) }) { Text("إنهاء") }
+                        }
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Wifi, contentDescription = null, tint = MalekPlayColors.PurpleBright)
                     Text("الأجهزة المكتشفة", modifier = Modifier.padding(start = 8.dp).weight(1f),
