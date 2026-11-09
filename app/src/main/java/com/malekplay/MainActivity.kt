@@ -143,6 +143,39 @@ class MainActivity : ComponentActivity() {
                 runCatching { mediaRepository.refresh() }
             }
         }
+
+        val hasFullLibraryAccess = MediaPermissions.hasAudioAccess(this) &&
+            MediaPermissions.hasFullVideoAccess(this)
+        if (!hasFullLibraryAccess) {
+            AlertDialog.Builder(this)
+                .setTitle("السماح بعرض جميع الوسائط")
+                .setMessage(
+                    if (MediaPermissions.hasPartialAccess(this)) {
+                        "الوصول الحالي محدود بالفيديوهات التي اخترتها فقط. لعرض مكتبة الفيديوهات كاملة، افتح إعدادات MalekPlay وغيّر صلاحية الفيديو إلى السماح الكامل، وتأكد من السماح بالموسيقى والصوت أيضًا."
+                    } else {
+                        "لم يحصل MalekPlay على صلاحية الفيديو والصوت كاملة. افتح إعدادات التطبيق واسمح بالوصول إلى الفيديوهات والموسيقى حتى تظهر مكتبتك بشكل كامل."
+                    }
+                )
+                .setPositiveButton("فتح إعدادات الصلاحيات") { _, _ ->
+                    startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                    )
+                }
+                .setNegativeButton("لاحقاً", null)
+                .show()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Refresh after returning from Android permission settings.
+        if (MediaPermissions.isGranted(this)) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                runCatching { mediaRepository.refreshIfStale() }
+            }
+        }
     }
 
     private fun requestPictureInPicture(): Boolean {
