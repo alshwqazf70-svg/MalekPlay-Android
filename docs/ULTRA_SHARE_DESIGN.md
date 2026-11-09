@@ -7,10 +7,10 @@
 - LAN discovery uses bounded broadcast probes and replies. It does not scan address ranges or ports, and discovery packets never contain pairing secrets.
 - Pairing uses a short 12-digit PIN, a fresh challenge, PBKDF2-HMAC-SHA256 (210,000 iterations), and HMAC-SHA256 challenge-response. Legacy 64-character hexadecimal secrets remain accepted for compatibility.
 - Session traffic uses direction-specific keys and AES-256-GCM authenticated frames.
-- Files stream in 256 KiB chunks. SHA-256 is checked before a completed file is exposed to the user.
+- Files stream in 256 KiB chunks by default; the sender exposes a bounded 64–256 KiB tuning hook for controlled benchmarks without exceeding the v1 receiver frame limit. SHA-256 is checked before a completed file is exposed to the user. Hashing loops handle zero-length reads safely.
 - Transfer identity includes sanitized filename, size, and content digest. Partial files resume from the saved offset only when the sidecar identity matches; the completed file is SHA-256 verified before it is exposed. A verified receipt prevents duplicate copies when the final acknowledgement was lost. A full-sized partial is re-hashed before the receiver accepts a zero-byte resume.
 - The receiver sanitizes incoming filenames, preserves existing destination files, and accepts only private/link-local IPv4 peers.
-- A foreground data-sync service owns send/receive sockets and coroutines independently of the navigation/ViewModel lifecycle. The ongoing notification exposes cancellation; transfer wake locks are acquired during active data transfer and released after it.
+- A foreground data-sync service owns send/receive sockets and coroutines independently of the navigation/ViewModel lifecycle. The ongoing notification exposes cancellation; Wi-Fi and CPU wake locks are acquired before source hashing/connection attempts and released after the active transfer. The service shows a preparation status during the initial SHA-256 pass. Receiver partial-file data is synced to storage when each receive attempt closes, including interrupted attempts, so its saved resume length is durable without syncing every chunk.
 - A persistent DataStore queue supports multiple selected files, per-file status, retry of failed items, skip, pause, and manual resume. Interrupted sending rows are recovered as pending when the UI starts.
 - Queue decoding tolerates malformed individual rows without discarding other valid queue entries.
 - Pairing is available through a QR payload, live camera scanning via Google Play services Code Scanner, QR image import, and clipboard pairing URI.
@@ -30,7 +30,7 @@
 
 ## Remaining engineering and verification stages
 
-1. Completed the first defensive pass: malformed queue rows no longer discard valid history, unreadable resume markers are rebuilt safely, and failed LAN discovery leaves manual-IP receiving available. Continue reviewing cancellation and stale-file edge cases during final verification.
+1. Completed the defensive transfer pass: malformed queue rows no longer discard valid history, unreadable resume markers are rebuilt safely, failed LAN discovery leaves manual-IP receiving available, partial receive data is synced on interrupted attempts, and zero-returning streams cannot stall digest calculation. Continue reviewing cancellation and stale-file edge cases during final verification.
 2. Review the Android and desktop protocol implementations together and keep cross-platform test vectors in sync.
 3. Run unit tests, Android lint, desktop protocol tests, and debug/release builds after feature development is frozen.
 4. Test on at least two physical Android devices and one desktop, including Android 15+ background limits and vendor-specific Wi-Fi Direct behavior.
