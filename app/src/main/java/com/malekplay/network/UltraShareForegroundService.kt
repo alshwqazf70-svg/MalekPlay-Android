@@ -255,20 +255,13 @@ class UltraShareForegroundService : Service() {
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     try {
                         val metadata = readDocumentMetadata(uri)
-                        UltraShareTransport.send(
-                            resolver = contentResolver,
-                            uri = uri,
-                            host = host,
-                            pairingSecret = secret,
-                            fileName = metadata.first,
-                            mimeType = metadata.second,
-                            sizeBytes = metadata.third,
-                            onProgress = { progress ->
-                                beginTransfer(isReceiving = false)
-                                updateState { current -> current.copy(progress = progress, sendProgress = progress) }
-                                updateNotification(progress)
-                            }
-                        )
+                        // Acquire the CPU/Wi-Fi locks before hashing the source file or
+                        // opening the socket; the first progress callback may arrive minutes later.
+                        beginTransfer(isReceiving = false)
+                        sendWithRetry(uri, host, secret, metadata) { progress ->
+                            updateState { current -> current.copy(progress = progress, sendProgress = progress) }
+                            updateNotification(progress)
+                        }
                         updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, status = getString(R.string.ultra_share_sent, metadata.first), error = null) }
                     } catch (cancelled: CancellationException) {
                         updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, status = getString(R.string.ultra_share_cancel_transfer)) }
@@ -666,8 +659,9 @@ class UltraShareForegroundService : Service() {
                     }
                     updateState { current -> current.copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null) }
                     try {
+                        // Protect long source hashing, connection setup, and retries too.
+                        beginTransfer(isReceiving = false)
                         sendWithRetry(uri, host, secret, metadata) { progress ->
-                            beginTransfer(isReceiving = false)
                             updateState { current -> current.copy(
                                 progress = progress,
                                 sendProgress = progress,
