@@ -1,5 +1,13 @@
 # UltraShare — مراجعة هندسية بعد تحليل Zapya (9 نوفمبر 2026)
 
+
+### Desktop multi-file sending
+
+- The desktop companion now accepts multiple paths in one `send --file` invocation and sends them in the order selected on the command line.
+- It validates that every selected path is a regular file before opening the first network connection, preventing a missing later path from causing a partially-started batch.
+- Transfers remain sequential and each file retains the existing authenticated AES-GCM v1 handshake, resume offset, SHA-256 verification, and bounded retry behavior. This deliberately avoids claiming parallel-transfer speedups before device-level measurements.
+- Unit tests cover all-path prevalidation and stable send order. CI execution is pending confirmation; the code change alone is not a test result.
+
 ## نطاق الفحص
 
 تمت مراجعة تقرير المرحلة السادسة من مستودع التحليل الخاص، ثم ملفات النقل الحالية في فرع `feature/zapya-engineering-analysis` من MalekPlay:
