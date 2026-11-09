@@ -590,7 +590,12 @@ fun UltraShareScreen(
     val state by viewModel.state.collectAsState()
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
-    var pendingMediaUris by remember(initialUris) { mutableStateOf(initialUris.distinct()) }
+    var pendingMediaUris by remember(initialUris) {
+        mutableStateOf(initialUris.distinct().filter { uri ->
+            val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
+            mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/")
+        })
+    }
     var showDeviceRoom by remember { mutableStateOf(false) }
     val mediaMimeTypes = arrayOf("video/*", "audio/*", "image/*")
     fun pastePairingDetails() {
@@ -857,19 +862,23 @@ fun UltraShareScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Icon(Icons.Filled.Wifi, contentDescription = null, modifier = Modifier.size(28.dp))
-                    Text("إنشاء مجموعة", style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                    Text("استقبال الملفات", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    Text("استقبال الوسائط", style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Text("ابدأ غرفة الاستقبال", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                 }
             }
             OutlinedButton(
-                onClick = ::scanQrWithCamera,
+                onClick = {
+                    showDeviceRoom = true
+                    viewModel.scanNearbyDevices()
+                    pickFiles.launch(mediaMimeTypes)
+                },
                 modifier = Modifier.weight(1f).height(94.dp),
                 enabled = !state.sending
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Icon(Icons.Filled.QrCode, contentDescription = null, modifier = Modifier.size(28.dp))
-                    Text("الانضمام", style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                    Text("مسح رمز QR", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(28.dp))
+                    Text("إرسال الوسائط", style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Text("فيديو • موسيقى • صور", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                 }
             }
         }
@@ -909,13 +918,23 @@ fun UltraShareScreen(
             Text(if (showDeviceRoom) "إخفاء غرفة الأجهزة" else "فتح غرفة الأجهزة القريبة", modifier = Modifier.padding(start = 8.dp))
         }
 
-        if (showDeviceRoom) Card(
+        if (showDeviceRoom) {
+            Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
         ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("غرفة الأجهزة القريبة", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                        Text("اختر جهازاً لإرسال الوسائط بعد موافقته على الاتصال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    }
+                    TextButton(onClick = viewModel::scanNearbyDevices) {
+                        Text(if (state.scanning) "إيقاف البحث" else "بحث")
+                    }
+                }
                 if (state.activePeers.isNotEmpty()) {
-                    Text("غرفة الأجهزة المتصلة", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                    Text("الأجهزة المتصلة", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                     Text("تظهر هنا الأجهزة التي اجتازت الاقتران الموثق ونبض الحياة. في وضع V2 تنتقل الدفعة كلها عبر جلسة بيانات واحدة مشفرة، مع استئناف الأجزاء غير المكتملة.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                     state.activePeers.forEach { peer ->
                         Row(
