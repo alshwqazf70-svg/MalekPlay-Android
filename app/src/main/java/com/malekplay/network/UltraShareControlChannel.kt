@@ -152,7 +152,7 @@ object UltraShareControlChannel {
         require(name.isNotBlank() && name.none { it.isISOControl() }) { "اسم الجهاز غير صالح." }
 
         val key = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
-        val expectedMac = requestAuthentication(challenge, requestId, nameBytes)
+        val expectedMac = requestAuthentication(key, challenge, requestId, nameBytes)
         require(MessageDigest.isEqual(expectedMac, suppliedMac)) { "فشل التحقق من رمز الاقتران." }
 
         val decision = withTimeoutOrNull(DECISION_TIMEOUT_MS) {
