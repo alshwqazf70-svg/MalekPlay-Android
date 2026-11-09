@@ -37,18 +37,18 @@ OFFER_PREFIX = "MPULTRA_OFFER|1|"
 
 def get_secret(value: str | None) -> str:
     raw = value or getpass.getpass("Pairing code: ")
-    is_pin = len(raw) == 12 and raw.isascii() and raw.isdigit()
+    is_pin = len(raw) == 9 and raw.isascii() and raw.isdigit()
     is_legacy_key = len(raw) == 64 and all(
         ch in "0123456789abcdefABCDEF" for ch in raw
     )
     if not (is_pin or is_legacy_key):
-        raise ValueError("Pairing code must be 12 digits (or a legacy 64-character hex key).")
+        raise ValueError("Pairing code must be 9 digits (or a legacy 64-character hex key).")
     return raw
 
 
 def derive_pairing_key(secret: str, challenge: bytes) -> bytes:
     """Match Android's PBKDF2 PIN derivation; retain legacy hex-key support."""
-    if len(secret) == 12 and secret.isascii() and secret.isdigit():
+    if len(secret) == 9 and secret.isascii() and secret.isdigit():
         return hashlib.pbkdf2_hmac(
             "sha256", secret.encode("ascii"), challenge[:16], 210_000, dklen=32
         )
@@ -511,14 +511,14 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     receive = sub.add_parser("receive", help="Receive files from Android or another desktop")
-    receive.add_argument("--secret", help="12-digit pairing code (legacy 64-character hex key also accepted; prompted if omitted)")
+    receive.add_argument("--secret", help="9-digit pairing code (legacy 64-character hex key also accepted; prompted if omitted)")
     receive.add_argument("--output", type=Path, default=Path("Received"))
     receive.add_argument("--port", type=int, default=DEFAULT_PORT)
     receive.add_argument("--discovery-port", type=int, default=DISCOVERY_PORT)
     receive.add_argument("--name", default=socket.gethostname())
 
     send = sub.add_parser("send", help="Send a file to an Android or desktop receiver")
-    send.add_argument("--secret", help="12-digit pairing code (legacy 64-character hex key also accepted; prompted if omitted)")
+    send.add_argument("--secret", help="9-digit pairing code (legacy 64-character hex key also accepted; prompted if omitted)")
     send.add_argument("--host", required=True, help="Receiver's private IPv4 address")
     send.add_argument("--file", required=True, type=Path, nargs="+", metavar="FILE")
     send.add_argument("--port", type=int, default=DEFAULT_PORT)
