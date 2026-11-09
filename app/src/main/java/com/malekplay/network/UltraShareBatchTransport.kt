@@ -437,7 +437,7 @@ object UltraShareBatchTransport {
             )
         }
         val batchEnd = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 64)
-        require(batchEnd.contentEquals(byteArrayOf(TYPE_BATCH_END))) { "نهاية الدفعة غير صالحة." }
+        require(batchEnd.contentEquals(byteArrayOf(TYPE_BATCH_END.toByte()))) { "نهاية الدفعة غير صالحة." }
         val resultPayload = encodeResults(manifest, outcomes)
         writeFrame(output, sendKey, noncePrefix, sendSequence, resultPayload)
         return BatchOutcome(manifest.batchId, outcomes)
