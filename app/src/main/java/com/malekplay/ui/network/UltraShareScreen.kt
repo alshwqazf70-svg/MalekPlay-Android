@@ -615,6 +615,7 @@ fun UltraShareScreen(
                     host = pairing.host
                     secret = pairing.pairingSecret
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
+                    viewModel.requestConnection(pairing.host, pairing.pairingSecret)
                 }
                 .onFailure {
                     Toast.makeText(context, R.string.ultra_share_clipboard_invalid, Toast.LENGTH_LONG).show()
@@ -762,6 +763,7 @@ fun UltraShareScreen(
                     host = pairing.host
                     secret = pairing.pairingSecret
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
+                    viewModel.requestConnection(pairing.host, pairing.pairingSecret)
                 }.onFailure {
                     Toast.makeText(
                         context,
@@ -1002,7 +1004,8 @@ fun UltraShareScreen(
                             if (UltraShareTransport.isValidPairingSecret(secret)) {
                                 viewModel.requestConnection(peer.host, secret.trim())
                             } else {
-                                Toast.makeText(context, "تم اختيار الجهاز. امسح QR أو أدخل رمز الاقتران الآمن لبدء الطلب تلقائياً.", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "امسح رمز QR الظاهر على جهاز الاستقبال لإتمام الاقتران الآمن.", Toast.LENGTH_SHORT).show()
+                                scanQrWithCamera()
                             }
                         }) { Text(if (state.approvedPeerHost == peer.host) "متصل ✓" else "اتصال") }
                     }
