@@ -771,7 +771,12 @@ class UltraShareForegroundService : Service() {
                     try {
                         beginTransfer(isReceiving = false)
                         val batch = sendBatchWithRetry(v2Candidates.map { it.second }, host, secret) { progress ->
-                            val completedBefore = completedBytes
+                            if (v2ProgressFileId != null && v2ProgressFileId != progress.fileId) {
+                                v2ProgressCompletedBytes = if (Long.MAX_VALUE - v2ProgressCompletedBytes < v2ProgressFileSize)
+                                    Long.MAX_VALUE else v2ProgressCompletedBytes + v2ProgressFileSize
+                            }
+                            v2ProgressFileId = progress.fileId
+                            v2ProgressFileSize = progress.totalBytes
                             updateState { current -> current.copy(
                                 progress = UltraShareTransport.Progress(
                                     progress.fileName, progress.transferredBytes, progress.totalBytes,
@@ -782,7 +787,7 @@ class UltraShareForegroundService : Service() {
                                     progress.bytesPerSecond, false
                                 ),
                                 queueCurrentName = progress.fileName,
-                                queueTransferredBytes = minOf(totalBytes, completedBefore + progress.transferredBytes),
+                                queueTransferredBytes = minOf(totalBytes, v2ProgressCompletedBytes + progress.transferredBytes),
                                 status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
                             ) }
                         }
