@@ -895,6 +895,85 @@ fun UltraShareScreen(
                 }
             }
         }
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Box(
+                    modifier = Modifier.size(88.dp)
+                        .background(
+                            Brush.radialGradient(
+                                listOf(
+                                    MalekPlayColors.PurpleBright.copy(alpha = 0.42f),
+                                    MalekPlayColors.PurpleDeep.copy(alpha = 0.18f)
+                                )
+                            ),
+                            androidx.compose.foundation.shape.CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (activeMode == "send") Icons.Filled.Send else Icons.Filled.Download,
+                        contentDescription = null,
+                        tint = MalekPlayColors.PurpleBright,
+                        modifier = Modifier.size(42.dp)
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text(
+                        if (activeMode == "send") "غرفة إرسال الوسائط" else "غرفة استقبال الوسائط",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        when {
+                            state.sending -> "جارٍ نقل الوسائط إلى الجهاز الآخر"
+                            state.requestingConnection -> "طلب الاتصال مرسل — بانتظار موافقة الطرف الآخر"
+                            state.approvedPeerHost != null -> "اتصال موثّق وجاهز لبدء النقل"
+                            activeMode == "receive" && state.receiving -> "هاتفك ظاهر للأجهزة القريبة وجاهز للاستقبال"
+                            activeMode == "receive" -> "ابدأ الاستقبال لعرض رمز QR وربط الهاتف الآخر"
+                            state.scanning && state.discoveredPeers.isEmpty() -> "نبحث عن أجهزة MalekPlay القريبة..."
+                            state.discoveredPeers.isNotEmpty() -> "عُثر على ${state.discoveredPeers.size} جهاز قريب"
+                            else -> "اختر الوسائط ثم اتصل بجهاز قريب"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    val roomProgress = if (activeMode == "send") state.sendProgress else state.receiveProgress
+                    roomProgress?.let { progress ->
+                        LinearProgressIndicator(
+                            progress = { progress.fraction.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            "${(progress.fraction * 100).toInt()}% • ${formatTransferBytes(progress.transferredBytes)} / ${formatTransferBytes(progress.totalBytes)}",
+                            color = MalekPlayColors.PurpleBright,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    if (state.activePeers.isNotEmpty()) {
+                        Text(
+                            "متصل: " + state.activePeers.joinToString("، ") { it.name },
+                            color = Color(0xFF65D6A2),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
