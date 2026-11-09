@@ -297,12 +297,18 @@ object UltraShareBatchTransport {
         output.flush()
         val proof = ByteArray(32).also(input::readFully)
         val authenticated = MessageDigest.isEqual(proof, hmac(secret, challenge))
-        output.writeBoolean(authenticated)
-        output.flush()
-        check(authenticated) { "فشل التحقق من رمز الاقتران." }
         val peerHost = socket.inetAddress.hostAddress.orEmpty()
-        check(UltraShareControlChannel.isServerSessionActive(peerHost)) {
-            "لا توجد موافقة اتصال نشطة لهذا الجهاز."
+        // Do not reveal whether the short pairing secret was correct until the
+        // independent control-channel approval for this peer has also been verified.
+        val approved = isPeerSessionAuthorized(
+            authenticated = authenticated,
+            sessionActive = authenticated && UltraShareControlChannel.isServerSessionActive(peerHost)
+        )
+        output.writeBoolean(approved)
+        output.flush()
+        check(approved) {
+            if (!authenticated) "فشل التحقق من رمز الاقتران."
+            else "لا توجد موافقة اتصال نشطة لهذا الجهاز."
         }
         onAuthenticated()
         val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(SecureRandom()::nextBytes)
@@ -493,6 +499,9 @@ object UltraShareBatchTransport {
         }
         return UltraShareBatchProtocol.validateResults(manifest, results)
     }
+
+    internal fun isPeerSessionAuthorized(authenticated: Boolean, sessionActive: Boolean): Boolean =
+        authenticated && sessionActive
 
     private fun configure(socket: Socket) {
         socket.sendBufferSize = BUFFER_BYTES
