@@ -12,6 +12,7 @@
 - The receiver sanitizes incoming filenames, preserves existing destination files, and accepts only private/link-local IPv4 peers.
 - A foreground data-sync service owns send/receive sockets and coroutines independently of the navigation/ViewModel lifecycle. The ongoing notification exposes cancellation; transfer wake locks are acquired during active data transfer and released after it.
 - A persistent DataStore queue supports multiple selected files, per-file status, retry of failed items, skip, pause, and manual resume. Interrupted sending rows are recovered as pending when the UI starts.
+- Single-file sends now enter that same durable queue instead of using a separate one-shot path, so one-file and multi-file transfers share interruption recovery and retry state.
 - Queue decoding tolerates malformed individual rows without discarding other valid queue entries.
 - Pairing is available through a QR payload, live camera scanning via Google Play services Code Scanner, QR image import, and clipboard pairing URI.
 - Received files are recorded in local history and can be exported through Android's Storage Access Framework.
