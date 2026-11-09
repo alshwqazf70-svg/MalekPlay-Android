@@ -79,6 +79,7 @@ data class UltraSharePeerSession(
 class UltraShareForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var receiveJob: Job? = null
+    @Volatile private var batchReceiveJob: Job? = null
     @Volatile private var sendJob: Job? = null
     @Volatile private var pauseRequested = false
     private var advertisementJob: Job? = null
@@ -92,6 +93,7 @@ class UltraShareForegroundService : Service() {
     private var cpuWakeLock: PowerManager.WakeLock? = null
     private var sendTransferActive = false
     private var receiveTransferActive = false
+    private var receiveTransferCount = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -130,6 +132,7 @@ class UltraShareForegroundService : Service() {
             }
             ACTION_STOP_RECEIVING -> {
                 receiveJob?.cancel()
+                batchReceiveJob?.cancel()
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
@@ -155,15 +158,16 @@ class UltraShareForegroundService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_STOP, ACTION_CANCEL -> {
-                if (sendJob == null && receiveJob == null) startForegroundCompat()
+                if (sendJob == null && receiveJob == null && batchReceiveJob == null) startForegroundCompat()
                 sendJob?.cancel()
                 receiveJob?.cancel()
+                batchReceiveJob?.cancel()
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
                 currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
                 stopLocalHotspot()
-                if (sendJob == null && receiveJob == null) finishService()
+                if (sendJob == null && receiveJob == null && batchReceiveJob == null) finishService()
                 return START_NOT_STICKY
             }
             ACTION_RECEIVE -> {
@@ -273,6 +277,76 @@ class UltraShareForegroundService : Service() {
                     }
                 }
                 receiveJob = job
+                if (batchReceiveJob == null) {
+                    batchReceiveJob = serviceScope.launch {
+                        try {
+                            UltraShareBatchTransport.serveMany(
+                                port = UltraShareBatchTransport.DEFAULT_PORT,
+                                pairingSecret = secret,
+                                destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
+                                maxPeers = UltraShareBatchTransport.DEFAULT_MAX_PEERS,
+                                onPeerStarted = { beginTransfer(isReceiving = true) },
+                                onPeerFinished = { endTransfer(isReceiving = true) },
+                                onProgress = { peer, progress ->
+                                    updateState { current -> current.copy(
+                                        receiveProgress = UltraShareTransport.Progress(
+                                            progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                            progress.bytesPerSecond, true
+                                        ),
+                                        progress = if (current.sending) current.sendProgress else UltraShareTransport.Progress(
+                                            progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                            progress.bytesPerSecond, true
+                                        ),
+                                        status = "استقبال ملفات عبر جلسة V2 من $peer",
+                                        error = null
+                                    ) }
+                                },
+                                onBatchFinished = { peer, batch ->
+                                    batch.files.forEach { item ->
+                                        val received = item.receivedFile ?: return@forEach
+                                        runCatching {
+                                            val publishedUri = UltraShareReceivedPublisher.publish(this@UltraShareForegroundService, received)
+                                            UltraShareReceivedHistoryStore.record(
+                                                context = this@UltraShareForegroundService,
+                                                file = received.file,
+                                                fileName = received.fileName,
+                                                mimeType = received.mimeType,
+                                                sizeBytes = received.sizeBytes,
+                                                publishedUri = publishedUri?.toString()
+                                            )
+                                            updateState { current -> current.copy(
+                                                receivedFile = received.copy(publishedUri = publishedUri),
+                                                status = "استُلم ${received.fileName} ضمن دفعة V2 من $peer",
+                                                error = null
+                                            ) }
+                                        }.onFailure { failure ->
+                                            updateState { current -> current.copy(error = failure.localizedMessage ?: "تعذر حفظ الملف المستلم.") }
+                                        }
+                                    }
+                                    updateState { current -> current.copy(
+                                        receiveProgress = null,
+                                        progress = if (current.sending) current.sendProgress else null,
+                                        status = "اكتملت دفعة V2 من $peer: ${batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }} ملف"
+                                    ) }
+                                },
+                                onPeerError = { peer, failure ->
+                                    updateState { current -> current.copy(
+                                        receiveProgress = null,
+                                        progress = if (current.sending) current.sendProgress else null,
+                                        error = "جلسة V2 من $peer: ${failure.localizedMessage ?: "فشل النقل"}"
+                                    ) }
+                                }
+                            )
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            updateState { current -> current.copy(error = "تعذر تشغيل مستقبل V2: ${failure.localizedMessage}") }
+                        } finally {
+                            batchReceiveJob = null
+                            finishService()
+                        }
+                    }
+                }
                 controlJob?.cancel()
                 controlJob = serviceScope.launch {
                     while (true) {
@@ -366,6 +440,7 @@ class UltraShareForegroundService : Service() {
             ) }
         sendJob?.cancel()
         receiveJob?.cancel()
+        batchReceiveJob?.cancel()
         advertisementJob?.cancel()
         controlJob?.cancel()
         pendingConnectionDecision?.cancel()
@@ -565,7 +640,7 @@ class UltraShareForegroundService : Service() {
 
     private fun finishService() {
         // Keep the foreground service alive while either direction still owns a socket.
-        if (sendJob != null || receiveJob != null || hotspotReservation != null || currentState().hotspotStarting) return
+        if (sendJob != null || receiveJob != null || batchReceiveJob != null || hotspotReservation != null || currentState().hotspotStarting) return
         releaseTransferLocks()
         stopForeground(true)
         stopSelf()
@@ -573,7 +648,7 @@ class UltraShareForegroundService : Service() {
 
     private fun beginTransfer(isReceiving: Boolean) {
         synchronized(transferLockGuard) {
-            if (isReceiving) receiveTransferActive = true else sendTransferActive = true
+            if (isReceiving) { receiveTransferCount++; receiveTransferActive = true } else sendTransferActive = true
             runCatching {
                 if (wifiLock?.isHeld != true) {
                     val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
@@ -597,8 +672,8 @@ class UltraShareForegroundService : Service() {
 
     private fun endTransfer(isReceiving: Boolean) {
         synchronized(transferLockGuard) {
-            if (isReceiving) receiveTransferActive = false else sendTransferActive = false
-            if (!sendTransferActive && !receiveTransferActive) releaseTransferLocksLocked()
+            if (isReceiving) { receiveTransferCount = (receiveTransferCount - 1).coerceAtLeast(0); receiveTransferActive = receiveTransferCount > 0 } else sendTransferActive = false
+            if (!sendTransferActive && receiveTransferCount == 0) releaseTransferLocksLocked()
         }
     }
 
@@ -609,6 +684,7 @@ class UltraShareForegroundService : Service() {
     private fun releaseTransferLocksLocked() {
         sendTransferActive = false
         receiveTransferActive = false
+        receiveTransferCount = 0
         runCatching { wifiLock?.takeIf { it.isHeld }?.release() }
         runCatching { cpuWakeLock?.takeIf { it.isHeld }?.release() }
         wifiLock = null
