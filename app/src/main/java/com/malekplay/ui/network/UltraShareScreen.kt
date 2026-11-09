@@ -129,7 +129,8 @@ data class UltraShareUiState(
     val hotspotStarting: Boolean = false,
     val hotspotActive: Boolean = false,
     val pendingConnection: UltraShareControlChannel.Request? = null,
-    val approvedPeerHost: String? = null
+    val approvedPeerHost: String? = null,
+    val requestingConnection: Boolean = false
 )
 
 @HiltViewModel
@@ -220,7 +221,7 @@ class UltraShareViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            _state.value = _state.value.copy(approvedPeerHost = null, error = null, status = "تم إرسال طلب الاتصال؛ بانتظار موافقة الجهاز الآخر...")
+            _state.value = _state.value.copy(approvedPeerHost = null, requestingConnection = true, error = null, status = "تم إرسال طلب الاتصال؛ بانتظار موافقة الجهاز الآخر...")
             try {
                 val decision = UltraShareControlChannel.request(
                     host = host.trim(),
@@ -231,18 +232,21 @@ class UltraShareViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         approvedPeerHost = host.trim(),
                         status = "وافق الجهاز الآخر على الاتصال. يمكنك الآن بدء النقل المشفر.",
+                        requestingConnection = false,
                         error = null
                     )
                 } else {
                     _state.value = _state.value.copy(
                         approvedPeerHost = null,
                         status = "رفض الجهاز الآخر طلب الاتصال.",
+                        requestingConnection = false,
                         error = null
                     )
                 }
             } catch (failure: Exception) {
                 _state.value = _state.value.copy(
                     approvedPeerHost = null,
+                    requestingConnection = false,
                     error = failure.localizedMessage ?: "تعذر إتمام طلب الاتصال."
                 )
             }
@@ -436,6 +440,7 @@ class UltraShareViewModel @Inject constructor(
             _state.value = _state.value.copy(
                 sending = true, progress = null, queueCompleted = 0,
                 queueTotal = uris.size, queueCurrentName = null, error = null,
+                approvedPeerHost = null,
                 status = "بدأ إرسال " + uris.size + " ملفات بالتتابع"
             )
             true
@@ -1165,11 +1170,11 @@ fun UltraShareScreen(
                 OutlinedButton(
                     onClick = { viewModel.requestConnection(host.trim(), secret.trim()) },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending && host.isNotBlank() &&
+                    enabled = !state.sending && !state.requestingConnection && host.isNotBlank() &&
                         UltraShareTransport.isValidPairingSecret(secret) &&
                         state.approvedPeerHost != host.trim()
                 ) {
-                    Text(if (state.approvedPeerHost == host.trim()) "تم قبول الاتصال ✓" else "طلب اتصال وانتظار القبول")
+                    Text(when { state.requestingConnection -> "بانتظار موافقة الجهاز..."; state.approvedPeerHost == host.trim() -> "تم قبول الاتصال ✓"; else -> "طلب اتصال وانتظار القبول" })
                 }
                 if (pendingMediaUris.isNotEmpty()) {
                     Card(
