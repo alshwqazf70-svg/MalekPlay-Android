@@ -638,12 +638,9 @@ class UltraShareForegroundService : Service() {
         }
 
         fun startSending(context: Context, uri: Uri, host: String, secret: String) {
-            val intent = Intent(context, UltraShareForegroundService::class.java)
-                .setAction(ACTION_SEND)
-                .putExtra(EXTRA_URI, uri)
-                .putExtra(EXTRA_HOST, host)
-                .putExtra(EXTRA_SECRET, secret)
-            start(context, intent)
+            // Route one-file sends through the same durable queue as multi-file sends.
+            // This keeps interruption recovery and retry behavior consistent.
+            startSendingBatch(context, listOf(uri), host, secret)
         }
 
         fun startSendingBatch(context: Context, uris: List<Uri>, host: String, secret: String) {
