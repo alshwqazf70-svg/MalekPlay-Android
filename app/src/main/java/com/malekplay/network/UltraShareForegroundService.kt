@@ -251,7 +251,7 @@ class UltraShareForegroundService : Service() {
                 }
                 if (sendJob != null) return START_NOT_STICKY
                 startForegroundCompat()
-                updateState { current -> current.copy(sending = true, status = getString(R.string.ultra_share_sending), error = null) }
+                updateState { current -> current.copy(sending = true, status = "جارٍ تجهيز الملف وفحص سلامته قبل الإرسال...", error = null) }
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     try {
                         val metadata = readDocumentMetadata(uri)
@@ -657,7 +657,14 @@ class UltraShareForegroundService : Service() {
                         ) }
                         return@forEachIndexed
                     }
-                    updateState { current -> current.copy(queueCurrentName = metadata.first, queueCompleted = index, queueTotal = queue.size, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null) }
+                    updateState { current -> current.copy(
+                        queueCurrentName = metadata.first,
+                        queueCompleted = index,
+                        queueTotal = queue.size,
+                        progress = if (current.receiving) current.receiveProgress else null,
+                        sendProgress = null,
+                        status = "جارٍ تجهيز وفحص " + metadata.first + " قبل الإرسال..."
+                    ) }
                     try {
                         // Protect long source hashing, connection setup, and retries too.
                         beginTransfer(isReceiving = false)
