@@ -22,7 +22,7 @@ Branch: `feature/zapya-engineering-analysis`
 
 - Added an authenticated TCP control channel on port 38744. The receiver publishes a pending request to the service/UI, and the sender waits for an authenticated AES-GCM protected accept/reject decision before the UI enables the existing encrypted file-transfer path. Request authentication uses a fresh server challenge, PBKDF2-derived key material, HMAC-SHA256, and domain-separated decision encryption keys. The receiver times out unanswered requests after 30 seconds.
 - The v2 offer is currently exchanged over LAN UDP only. Wi-Fi Direct and hotspot candidates are advertised only when their corresponding local interfaces are up and have a private IPv4 address; device-to-device reachability still requires real-device validation.
-- The new control channel is wired to the foreground receiver and Compose UI, but it currently authorizes the existing v1 encrypted transfer handshake; it does not yet keep one persistent authenticated session open for the whole batch.
+- The control channel now remains open as a persistent authenticated heartbeat session across sequential file batches. It authorizes the existing v1 encrypted file-transfer handshakes; it does not yet carry all file payloads through one shared data socket.
 - Pairing authentication remains in the existing transfer handshake. No pairing secret is included in discovery.
 - The existing file transfer wire protocol still transfers files in separate sessions. The batch manifest/result models are groundwork only; the single-session multi-file wire protocol and receiver task routing remain to be implemented.
 - The room now reflects live authenticated control-socket presence while the process/service remains alive. It is still a single-peer-at-a-time receiver listener; multi-peer concurrent invitation handling and automatic reconnect/re-authentication are not implemented.
@@ -45,7 +45,7 @@ Branch: `feature/zapya-engineering-analysis`
 ## Room and queue implementation update
 
 - The approved-peer room and per-file progress UI are now wired to foreground-service state.
-- The queue remains sequential at the transport layer. Each file currently opens its own authenticated v1 transfer connection; the UI must not imply that the requested persistent single-session multi-file protocol is complete.
+- The queue remains sequential at the data-transport layer. Each file currently opens its own authenticated v1 transfer connection; the persistent control socket is shared across the batch, but the requested single data socket for all files is not complete.
 - The resume mechanism is already implemented in v1 and is keyed by sanitized file name, size, and SHA-256 content digest. It resumes partial bytes after reconnect and checks a completed receipt before sending data again.
 - No Android build, unit-test run, physical-device connectivity test, or measured throughput result has been produced for these latest changes.
 
