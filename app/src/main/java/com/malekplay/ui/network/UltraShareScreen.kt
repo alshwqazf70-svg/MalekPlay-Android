@@ -1873,6 +1873,54 @@ private fun UltraShareSessionRoom(
                     )
                 }
             }
+            if (isSendingRoom && state.queueEntries.isNotEmpty()) {
+                val sessionItems = currentBatchEntries.ifEmpty { state.queueEntries.takeLast(5) }
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("عناصر جلسة النقل", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                    sessionItems.take(5).forEach { entry ->
+                        val itemColor = when (entry.status) {
+                            UltraShareQueueStore.STATUS_COMPLETED -> Color(0xFF65D6A2)
+                            UltraShareQueueStore.STATUS_FAILED -> MaterialTheme.colorScheme.error
+                            UltraShareQueueStore.STATUS_SENDING -> MalekPlayColors.PurpleBright
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        val itemLabel = when (entry.status) {
+                            UltraShareQueueStore.STATUS_COMPLETED -> "اكتمل"
+                            UltraShareQueueStore.STATUS_FAILED -> "فشل — يمكن إعادة المحاولة"
+                            UltraShareQueueStore.STATUS_SENDING -> "جارٍ الإرسال"
+                            UltraShareQueueStore.STATUS_SKIPPED -> "تم التخطي"
+                            else -> "بانتظار الإرسال"
+                        }
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceContainer, androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(7.dp).background(itemColor, androidx.compose.foundation.shape.CircleShape))
+                                Text(entry.displayName, modifier = Modifier.weight(1f).padding(start = 8.dp), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(itemLabel, color = itemColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                            if (entry.status == UltraShareQueueStore.STATUS_SENDING && state.sendProgress?.fileName == entry.displayName) {
+                                val itemProgress = state.sendProgress!!
+                                LinearProgressIndicator(progress = { itemProgress.fraction.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                                Text(
+                                    "${(itemProgress.fraction * 100).toInt()}% • ${formatTransferBytes(itemProgress.transferredBytes)} / ${formatTransferBytes(itemProgress.totalBytes)}",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                            entry.error?.takeIf { it.isNotBlank() }?.let { reason ->
+                                Text(reason, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                    if (sessionItems.size > 5) {
+                        Text("و ${sessionItems.size - 5} عناصر أخرى في الطابور", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
             if (state.queueEntries.isNotEmpty() && isSendingRoom) {
                 val summaryEntries = currentBatchEntries.ifEmpty { state.queueEntries }
                 val completed = summaryEntries.count { it.status == UltraShareQueueStore.STATUS_COMPLETED }
