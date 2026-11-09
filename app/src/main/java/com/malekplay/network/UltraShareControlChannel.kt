@@ -191,22 +191,25 @@ object UltraShareControlChannel {
             }
             bytes.toByteArray()
         }
-        return hmac(key, payload)
+        return hmac(deriveSubkey(key, "request-authentication"), payload)
     }
 
     private fun encrypt(key: ByteArray, nonce: ByteArray, plaintext: String): ByteArray {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(TAG_BITS, nonce))
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(deriveSubkey(key, "decision-encryption"), "AES"), GCMParameterSpec(TAG_BITS, nonce))
         cipher.updateAAD("MPULTRA_CONTROL_DECISION|1".toByteArray(Charsets.UTF_8))
         return cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
     }
 
     private fun decrypt(key: ByteArray, nonce: ByteArray, ciphertext: ByteArray): String {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(TAG_BITS, nonce))
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(deriveSubkey(key, "decision-encryption"), "AES"), GCMParameterSpec(TAG_BITS, nonce))
         cipher.updateAAD("MPULTRA_CONTROL_DECISION|1".toByteArray(Charsets.UTF_8))
         return cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
     }
+
+    private fun deriveSubkey(master: ByteArray, label: String): ByteArray =
+        hmac(master, ("MPULTRA_CONTROL|" + label + "|1").toByteArray(Charsets.UTF_8))
 
     private fun hmac(key: ByteArray, payload: ByteArray): ByteArray =
         Mac.getInstance("HmacSHA256").run {
