@@ -1767,6 +1767,7 @@ private fun UltraShareSessionRoom(
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val senderName = if (isSendingRoom) localDeviceName else remoteName
+    val remoteAddress = activePeer?.host ?: state.approvedPeerHost ?: remoteHost
     val receiverName = if (isSendingRoom) remoteName else localDeviceName
     val progress = if (isSendingRoom) state.sendProgress else state.receiveProgress
     val overallFraction = if (state.queueTotalBytes > 0L) {
@@ -1809,7 +1810,8 @@ private fun UltraShareSessionRoom(
                     name = senderName,
                     role = "المرسل",
                     isLocal = isSendingRoom,
-                    isActive = connected || (transferring && isSendingRoom)
+                    isActive = connected || (transferring && isSendingRoom),
+                    detail = if (isSendingRoom) "هذا الهاتف" else remoteAddress.takeIf { it.isNotBlank() }
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     UltraShareConnectionGlyph(
@@ -1834,7 +1836,8 @@ private fun UltraShareSessionRoom(
                     name = receiverName,
                     role = "المستقبل",
                     isLocal = !isSendingRoom,
-                    isActive = connected || (transferring && !isSendingRoom)
+                    isActive = connected || (transferring && !isSendingRoom),
+                    detail = if (isSendingRoom) remoteAddress.takeIf { it.isNotBlank() } else "هذا الهاتف"
                 )
             }
             Text(status, color = statusColor, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
@@ -1952,7 +1955,7 @@ private fun UltraShareConnectionGlyph(
     connected: Boolean,
     transferring: Boolean
 ) {
-    if (pairingPending) {
+    if (pairingPending || transferring) {
         val transition = rememberInfiniteTransition(label = "ultraSharePairingPulse")
         val pulse by transition.animateFloat(
             initialValue = 0.92f,
@@ -2024,7 +2027,8 @@ private fun UltraShareIdentityTile(
     name: String,
     role: String,
     isLocal: Boolean,
-    isActive: Boolean
+    isActive: Boolean,
+    detail: String? = null
 ) {
     Card(
         modifier = modifier,
@@ -2053,7 +2057,13 @@ private fun UltraShareIdentityTile(
             }
             Text(name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(role, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
-            Text(if (isLocal) "هذا الهاتف" else if (isActive) "متصل" else "بعيد", color = if (isActive) Color(0xFF65D6A2) else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+            Text(
+                detail ?: if (isLocal) "هذا الهاتف" else if (isActive) "متصل" else "بعيد",
+                color = if (isActive && !isLocal) Color(0xFF65D6A2) else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -2076,17 +2086,29 @@ private fun UltraShareCompletionPanel(title: String, subtitle: String, detail: S
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF164A38))
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF83E6B7), modifier = Modifier.size(30.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = Color.White, fontWeight = FontWeight.ExtraBold)
-                Text(subtitle, color = Color(0xFFE2FFF1), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(detail, color = Color(0xFFB6E8D2), style = MaterialTheme.typography.labelSmall)
+            Box(
+                modifier = Modifier.size(66.dp).background(
+                    Color(0xFF83E6B7).copy(alpha = 0.16f),
+                    androidx.compose.foundation.shape.CircleShape
+                ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = Color(0xFF83E6B7),
+                    modifier = Modifier.size(42.dp)
+                )
             }
+            Text("100% • اكتملت العملية", color = Color(0xFFB6E8D2), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            Text(title, color = Color.White, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(subtitle, color = Color(0xFFE2FFF1), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(detail, color = Color(0xFFB6E8D2), style = MaterialTheme.typography.labelSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
 }
