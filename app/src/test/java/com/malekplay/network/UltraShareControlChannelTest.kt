@@ -1,6 +1,7 @@
 package com.malekplay.network
 
 import java.net.ServerSocket
+import java.net.Socket
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -39,6 +40,15 @@ class UltraShareControlChannelTest {
         assertEquals(UltraShareControlChannel.Decision.ACCEPTED, decision)
         assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
         assertEquals("Receiver Phone", UltraShareControlChannel.sessionPeerName("127.0.0.1"))
+
+        // A second malformed peer must be isolated in its own worker and must not
+        // tear down the already approved heartbeat session.
+        Socket().use { malformed ->
+            malformed.connect(java.net.InetSocketAddress("127.0.0.1", port), 1_000)
+        }
+        delay(150)
+        assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
+
         UltraShareControlChannel.closeSession("127.0.0.1")
         withTimeout(2_000L) { sessionClosed.await() }
         server.cancelAndJoin()
