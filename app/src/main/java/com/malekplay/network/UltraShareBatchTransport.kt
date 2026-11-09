@@ -287,10 +287,36 @@ object UltraShareBatchTransport {
         val manifest = UltraShareBatchProtocol.decode(
             readFrame(input, receiveKey, noncePrefix, receiveSequence++, UltraShareBatchProtocol.MAX_MANIFEST_BYTES)
         )
+        val completedFiles = HashMap<String, File>()
         val partials = manifest.entries.map { entry ->
             val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
             val partial = File(destinationDirectory, ".ultrashare-v2-$identity.part")
-            val offset = if (partial.isFile && partial.length() <= entry.sizeBytes) partial.length() else 0L
+            val receipt = File(destinationDirectory, ".ultrashare-v2-$identity.received")
+            val digestHex = entry.sha256.joinToString("") { "%02x".format(it) }
+            val completed = receipt.takeIf { it.isFile }?.let { marker ->
+                runCatching {
+                    val safeName = UltraShareTransport.completedReceiptFileName(
+                        marker.readText(Charsets.UTF_8), entry.sizeBytes, digestHex
+                    ) ?: return@runCatching null
+                    val candidate = File(destinationDirectory, safeName)
+                    if (!candidate.isFile || candidate.length() != entry.sizeBytes) return@runCatching null
+                    val digest = FileInputStream(candidate).use { stream ->
+                        val md = MessageDigest.getInstance("SHA-256")
+                        val buffer = ByteArray(BUFFER_BYTES)
+                        while (true) {
+                            val count = stream.read(buffer)
+                            if (count < 0) break
+                            if (count > 0) md.update(buffer, 0, count)
+                        }
+                        md.digest()
+                    }
+                    candidate.takeIf { MessageDigest.isEqual(entry.sha256, digest) }
+                }.getOrNull()
+            }
+            if (completed != null) completedFiles[entry.id] = completed
+            val offset = if (completed != null) entry.sizeBytes
+                else if (partial.isFile && partial.length() <= entry.sizeBytes) partial.length()
+                else 0L
             if (offset == 0L && partial.exists()) partial.delete()
             entry.id to Pair(partial, offset)
         }.toMap()
@@ -308,54 +334,70 @@ object UltraShareBatchTransport {
         for ((index, entry) in manifest.entries.withIndex()) {
             val (partial, offset) = partials.getValue(entry.id)
             var transferred = offset
-            FileOutputStream(partial, offset > 0L).use { file ->
-                while (transferred < entry.sizeBytes) {
-                    currentCoroutineContext().ensureActive()
-                    val payload = readFrame(
-                        input, receiveKey, noncePrefix, receiveSequence++,
-                        minOf(FRAME_BYTES, (entry.sizeBytes - transferred + 7).coerceAtMost(FRAME_BYTES.toLong()).toInt() + 7)
-                    )
-                    val frame = DataInputStream(ByteArrayInputStream(payload))
-                    require(frame.readUnsignedByte() == TYPE_CHUNK) { "إطار بيانات غير متوقع." }
-                    require(frame.readUnsignedShort() == index) { "وصل جزء لملف غير متوقع." }
-                    val length = frame.readInt()
-                    require(length in 1..(FRAME_BYTES - 8) && length == frame.available())
-                    require(transferred + length <= entry.sizeBytes)
-                    val bytes = ByteArray(length).also(frame::readFully)
-                    file.write(bytes)
-                    transferred += length
-                    onProgress(FileProgress(
-                        entry.id, entry.name, transferred, entry.sizeBytes,
-                        0L, true
-                    ))
+            if (completedFiles[entry.id] == null) {
+                FileOutputStream(partial, offset > 0L).use { file ->
+                    val startedAt = System.nanoTime()
+                    while (transferred < entry.sizeBytes) {
+                        currentCoroutineContext().ensureActive()
+                        val remaining = entry.sizeBytes - transferred
+                        val maximumPayload = minOf(FRAME_BYTES.toLong(), remaining + 7L).toInt()
+                        val payload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, maximumPayload)
+                        val frame = DataInputStream(ByteArrayInputStream(payload))
+                        require(frame.readUnsignedByte() == TYPE_CHUNK) { "إطار بيانات غير متوقع." }
+                        require(frame.readUnsignedShort() == index) { "وصل جزء لملف غير متوقع." }
+                        val length = frame.readInt()
+                        require(length in 1..(FRAME_BYTES - 8) && length == frame.available())
+                        require(transferred + length <= entry.sizeBytes)
+                        val bytes = ByteArray(length).also(frame::readFully)
+                        file.write(bytes)
+                        transferred += length
+                        onProgress(FileProgress(
+                            entry.id, entry.name, transferred, entry.sizeBytes,
+                            rate(transferred - offset, startedAt), true
+                        ))
+                    }
+                    file.fd.sync()
                 }
-                file.fd.sync()
             }
             val endPayload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 64)
             DataInputStream(ByteArrayInputStream(endPayload)).use { data ->
                 require(data.readUnsignedByte() == TYPE_FILE_END && data.readUnsignedShort() == index && data.available() == 0)
             }
-            val actualDigest = FileInputStream(partial).use { stream ->
-                val digest = MessageDigest.getInstance("SHA-256")
-                val buffer = ByteArray(BUFFER_BYTES)
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val count = stream.read(buffer)
-                    if (count < 0) break
-                    if (count > 0) digest.update(buffer, 0, count)
+            val previouslyCompleted = completedFiles[entry.id]
+            val destination = if (previouslyCompleted != null) {
+                previouslyCompleted
+            } else {
+                val actualDigest = FileInputStream(partial).use { stream ->
+                    val digest = MessageDigest.getInstance("SHA-256")
+                    val buffer = ByteArray(BUFFER_BYTES)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val count = stream.read(buffer)
+                        if (count < 0) break
+                        if (count > 0) digest.update(buffer, 0, count)
+                    }
+                    digest.digest()
                 }
-                digest.digest()
-            }
-            if (!MessageDigest.isEqual(entry.sha256, actualDigest)) {
-                runCatching { partial.delete() }
-                outcomes += FileOutcome(
-                    entry.id, entry.name, null, UltraShareBatchProtocol.FileStatus.FAILED,
-                    transferred, "فشل التحقق من بصمة الملف."
+                if (!MessageDigest.isEqual(entry.sha256, actualDigest)) {
+                    runCatching { partial.delete() }
+                    outcomes += FileOutcome(
+                        entry.id, entry.name, null, UltraShareBatchProtocol.FileStatus.FAILED,
+                        transferred, "فشل التحقق من بصمة الملف."
+                    )
+                    continue
+                }
+                val target = uniqueDestination(destinationDirectory, entry.name)
+                check(partial.renameTo(target)) { "تعذر تثبيت الملف المستلم." }
+                val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
+                val marker = File(destinationDirectory, ".ultrashare-v2-$identity.received")
+                val markerTemp = File(destinationDirectory, ".ultrashare-v2-$identity.received.tmp")
+                markerTemp.writeText(
+                    "${entry.sizeBytes}: ${entry.sha256.joinToString("") { "%02x".format(it) }}:${target.name}".replace(": ", ":"),
+                    Charsets.UTF_8
                 )
-                continue
+                check(markerTemp.renameTo(marker)) { "تعذر حفظ سجل اكتمال الملف." }
+                target
             }
-            val destination = uniqueDestination(destinationDirectory, entry.name)
-            check(partial.renameTo(destination)) { "تعذر تثبيت الملف المستلم." }
             outcomes += FileOutcome(
                 entry.id, entry.name,
                 UltraShareTransport.ReceivedFile(destination, entry.name, entry.sizeBytes, entry.mimeType),
