@@ -427,15 +427,21 @@ object UltraShareBatchTransport {
                     continue
                 }
                 val target = uniqueDestination(destinationDirectory, entry.name)
-                check(partial.renameTo(target)) { "تعذر تثبيت الملف المستلم." }
                 val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
                 val marker = File(stateDirectory, ".ultrashare-v2-$identity.received")
                 val markerTemp = File(stateDirectory, ".ultrashare-v2-$identity.received.tmp")
-                markerTemp.writeText(
-                    "${entry.sizeBytes}: ${entry.sha256.joinToString("") { "%02x".format(it) }}:${target.name}".replace(": ", ":"),
-                    Charsets.UTF_8
-                )
-                check(markerTemp.renameTo(marker)) { "تعذر حفظ سجل اكتمال الملف." }
+                val receiptContent =
+                    "${entry.sizeBytes}:${entry.sha256.joinToString("") { "%02x".format(it) }}:${target.name}"
+                // Persist the receipt before publishing the renamed file. If the process
+                // dies between these operations, the next session ignores the receipt
+                // while the verified partial remains available for a safe retry.
+                writeUltraShareReceiptAtomically(markerTemp, marker, receiptContent)
+                try {
+                    check(partial.renameTo(target)) { "تعذر تثبيت الملف المستلم." }
+                } catch (failure: Exception) {
+                    runCatching { marker.delete() }
+                    throw failure
+                }
                 target
             }
             outcomes += FileOutcome(
@@ -594,4 +600,21 @@ object UltraShareBatchTransport {
     }
 
     private const val HANDSHAKE_MAGIC = 0x4D505532 // MPU2 data-session handshake
+}
+
+
+/**
+ * Writes a completed-transfer receipt through a synced temporary file and atomic rename.
+ * The receipt is committed before the data file is renamed, avoiding an untracked
+ * completed file if the process is killed during finalization.
+ */
+internal fun writeUltraShareReceiptAtomically(temp: File, marker: File, content: String) {
+    require(temp.parentFile?.canonicalFile == marker.parentFile?.canonicalFile) {
+        "يجب أن يكون ملف سجل النقل المؤقت والنهائي في المجلد نفسه."
+    }
+    FileOutputStream(temp).use { output ->
+        output.write(content.toByteArray(Charsets.UTF_8))
+        output.fd.sync()
+    }
+    check(temp.renameTo(marker)) { "تعذر حفظ سجل اكتمال الملف." }
 }
