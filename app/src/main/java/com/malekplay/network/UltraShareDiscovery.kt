@@ -101,6 +101,7 @@ object UltraShareDiscovery {
             }
 
             val peers = LinkedHashMap<String, Peer>()
+            val v2SourceHosts = HashSet<String>()
             val deadline = System.nanoTime() + scanWindowMs * 1_000_000L
             val buffer = ByteArray(MAX_PACKET_BYTES)
             while (System.nanoTime() < deadline) {
@@ -115,6 +116,7 @@ object UltraShareDiscovery {
                     val host = source.hostAddress ?: continue
                     val v2 = UltraShareNegotiation.decode(message)
                     if (v2 != null) {
+                        v2SourceHosts += host
                         // Probe each advertised path against the authenticated control listener.
                         // Interface visibility alone does not prove that this phone joined the
                         // same Wi-Fi Direct group or hotspot.
@@ -146,7 +148,7 @@ object UltraShareDiscovery {
                     val name = parts.getOrNull(1)?.take(64)?.takeIf { it.isNotBlank() } ?: "MalekPlay"
                     if (port !in 1..65535) continue
                     // Do not downgrade a v2 peer when its v1 response arrives later.
-                    if (peers["id:${peers[host]?.peerId}"] == null && peers["host:$host"] == null) {
+                    if (host !in v2SourceHosts && peers["host:$host"] == null) {
                         peers["host:$host"] = Peer(host, port, name)
                     }
                 } catch (_: SocketTimeoutException) {
