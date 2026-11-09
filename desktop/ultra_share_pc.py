@@ -407,19 +407,23 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
         transferred = offset
         sequence = 1
         with partial.open("ab") as output:
-            while transferred < size:
-                block = read_frame(connection, receive_key, nonce_prefix, sequence, CHUNK_BYTES)
-                sequence += 1
-                if not block or len(block) > size - transferred:
-                    raise ValueError("Received a data block with an invalid size.")
-                output.write(block)
-                transferred += len(block)
-                print(f"\\rReceiving {filename}: {transferred * 100 / max(size, 1):5.1f}%", end="", flush=True)
-            output.flush()
-            os.fsync(output.fileno())
-            end = read_frame(connection, receive_key, nonce_prefix, sequence, 64)
-            if end:
-                raise ValueError("Invalid end-of-transfer frame.")
+            try:
+                while transferred < size:
+                    block = read_frame(connection, receive_key, nonce_prefix, sequence, CHUNK_BYTES)
+                    sequence += 1
+                    if not block or len(block) > size - transferred:
+                        raise ValueError("Received a data block with an invalid size.")
+                    output.write(block)
+                    transferred += len(block)
+                    print(f"\\rReceiving {filename}: {transferred * 100 / max(size, 1):5.1f}%", end="", flush=True)
+                end = read_frame(connection, receive_key, nonce_prefix, sequence, 64)
+                if end:
+                    raise ValueError("Invalid end-of-transfer frame.")
+            finally:
+                # Keep the resume offset durable even when the socket drops mid-file.
+                # Sync once per attempt, not once per chunk, to preserve throughput.
+                output.flush()
+                os.fsync(output.fileno())
 
         actual_digest = hash_file(partial)
         verified = partial.stat().st_size == size and hmac.compare_digest(expected_digest, actual_digest)
