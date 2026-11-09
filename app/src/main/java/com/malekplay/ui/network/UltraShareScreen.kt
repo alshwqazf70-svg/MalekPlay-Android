@@ -253,6 +253,10 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
+    fun clearApprovedConnection() {
+        _state.value = _state.value.copy(approvedPeerHost = null)
+    }
+
     fun acceptConnection() {
         UltraShareForegroundService.acceptConnection(context)
     }
@@ -1130,14 +1134,20 @@ fun UltraShareScreen(
                 )
                 OutlinedTextField(
                     value = host,
-                    onValueChange = { host = it },
+                    onValueChange = { value ->
+                        if (value != host) viewModel.clearApprovedConnection()
+                        host = value
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(stringResource(R.string.ultra_share_host)) },
                     singleLine = true
                 )
                 OutlinedTextField(
                     value = secret,
-                    onValueChange = { secret = it.filter { char -> char in '0'..'9' }.take(12) },
+                    onValueChange = { value ->
+                        viewModel.clearApprovedConnection()
+                        secret = value.filter { char -> char in '0'..'9' }.take(12)
+                    },
                     modifier = Modifier.widthIn(max = 220.dp),
                     label = { Text("رمز الاقتران (12 رقماً)") },
                     singleLine = true,
