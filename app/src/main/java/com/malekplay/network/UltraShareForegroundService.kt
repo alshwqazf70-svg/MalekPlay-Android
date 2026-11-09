@@ -853,21 +853,47 @@ class UltraShareForegroundService : Service() {
                             }
                             v2ProgressFileId = progress.fileId
                             v2ProgressFileSize = progress.totalBytes
-                            updateState { current -> current.copy(
-                                progress = UltraShareTransport.Progress(
-                                    progress.fileName, progress.transferredBytes, progress.totalBytes,
-                                    progress.bytesPerSecond, false
-                                ),
-                                sendProgress = UltraShareTransport.Progress(
-                                    progress.fileName, progress.transferredBytes, progress.totalBytes,
-                                    progress.bytesPerSecond, false
-                                ),
-                                queueCurrentName = progress.fileName,
-                                queueTransferredBytes = minOf(totalBytes, v2ProgressCompletedBytes + progress.transferredBytes),
-                                status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
-                            ) }
+                            updateState { current ->
+                                val peerTransfer = UltraSharePeerTransfer(
+                                    host = host,
+                                    fileName = progress.fileName,
+                                    transferredBytes = progress.transferredBytes,
+                                    totalBytes = progress.totalBytes,
+                                    bytesPerSecond = progress.bytesPerSecond,
+                                    status = "يرسل الآن"
+                                )
+                                current.copy(
+                                    peerTransfers = current.peerTransfers.filterNot { it.host == host } + peerTransfer,
+                                    progress = UltraShareTransport.Progress(
+                                        progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                        progress.bytesPerSecond, false
+                                    ),
+                                    sendProgress = UltraShareTransport.Progress(
+                                        progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                        progress.bytesPerSecond, false
+                                    ),
+                                    queueCurrentName = progress.fileName,
+                                    queueTransferredBytes = minOf(totalBytes, v2ProgressCompletedBytes + progress.transferredBytes),
+                                    status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
+                                )
+                            }
                         }
                         val uriById = v2Candidates.associate { it.second.fileId to it.first }
+                        updateState { current ->
+                            val completed = batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }
+                            val failed = batch.files.size - completed
+                            val previous = current.peerTransfers.firstOrNull { it.host == host }
+                            val summary = (previous ?: UltraSharePeerTransfer(host, "", 0L, 0L, 0L, "اكتملت الدفعة"))
+                                .copy(
+                                    fileName = "نتيجة الدفعة",
+                                    transferredBytes = batch.files.sumOf { it.transferredBytes.coerceAtLeast(0L) },
+                                    totalBytes = batch.files.sumOf { it.transferredBytes.coerceAtLeast(0L) },
+                                    bytesPerSecond = 0L,
+                                    status = if (failed == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failed",
+                                    updatedAtMillis = System.currentTimeMillis()
+                                )
+                            current.copy(peerTransfers = current.peerTransfers.filterNot { it.host == host } + summary)
+                        }
                         batch.files.forEachIndexed { index, outcome ->
                             val uri = uriById[outcome.fileId] ?: return@forEachIndexed
                             val metadata = metadataByUri[uri] ?: readDocumentMetadata(uri)
