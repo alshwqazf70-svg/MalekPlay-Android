@@ -191,7 +191,7 @@ class UltraShareForegroundService : Service() {
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     advertisementJob = launch {
                         try {
-                            UltraShareDiscovery.advertiseWhileReceiving()
+                            UltraShareDiscovery.advertiseWhileReceiving(context = this@UltraShareForegroundService)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
