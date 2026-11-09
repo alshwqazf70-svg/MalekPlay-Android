@@ -5,7 +5,7 @@
 - Android-to-Android file transfer over a reachable private IPv4 LAN.
 - TCP transfer port: `38741`; UDP discovery port: `38742`.
 - LAN discovery uses bounded broadcast probes and replies. It does not scan address ranges or ports, and discovery packets never contain pairing secrets.
-- Pairing uses a short 12-digit PIN, a fresh challenge, PBKDF2-HMAC-SHA256 (210,000 iterations), and HMAC-SHA256 challenge-response. Legacy 64-character hexadecimal secrets remain accepted for compatibility.
+- Pairing uses a short 9-digit PIN, a fresh challenge, PBKDF2-HMAC-SHA256 (210,000 iterations), and HMAC-SHA256 challenge-response. Legacy 64-character hexadecimal secrets remain accepted for compatibility.
 - Session traffic uses direction-specific keys and AES-256-GCM authenticated frames.
 - Files stream in 256 KiB chunks by default; the sender exposes a bounded 64–256 KiB tuning hook for controlled benchmarks without exceeding the v1 receiver frame limit. SHA-256 is checked before a completed file is exposed to the user. Hashing loops handle zero-length reads safely.
 - Transfer identity includes sanitized filename, size, and content digest. Partial files resume from the saved offset only when the sidecar identity matches; the completed file is SHA-256 verified before it is exposed. A verified receipt prevents duplicate copies when the final acknowledgement was lost. A full-sized partial is re-hashed before the receiver accepts a zero-byte resume.
