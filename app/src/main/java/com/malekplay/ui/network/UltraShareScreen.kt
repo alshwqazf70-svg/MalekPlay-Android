@@ -1611,19 +1611,12 @@ fun UltraShareScreen(
 
         }
 
-        state.sendProgress?.let { progress ->
-            UltraShareProgressCard(title = "الإرسال إلى الجهاز الآخر", progress = progress)
-        }
-        state.receiveProgress?.let { progress ->
-            UltraShareProgressCard(title = "الاستقبال من الجهاز الآخر", progress = progress)
-        }
-
         state.receivedFile?.let { received ->
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF66D99A))
-                        Text(stringResource(R.string.ultra_share_receive_complete), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                        Text("خيارات الملف المستلم", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
                     }
                     Text(received.fileName, color = MaterialTheme.colorScheme.onSurface)
                     Text(formatTransferBytes(received.sizeBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2099,42 +2092,6 @@ private fun UltraShareCompletionPanel(title: String, subtitle: String, detail: S
     }
 }
 
-@Composable
-private fun UltraShareProgressCard(
-    title: String,
-    progress: UltraShareTransport.Progress
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(title, color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    Text(progress.fileName, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text("${(progress.fraction * 100).toInt()}%", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
-            }
-            LinearProgressIndicator(progress = { progress.fraction }, modifier = Modifier.fillMaxWidth())
-            Text(
-                stringResource(
-                    R.string.ultra_share_progress,
-                    (progress.fraction * 100).toInt(),
-                    formatTransferBytes(progress.transferredBytes),
-                    formatTransferBytes(progress.totalBytes),
-                    formatTransferBytes(progress.bytesPerSecond),
-                    if (progress.bytesPerSecond > 0L) formatTransferEta(
-                        ((progress.totalBytes - progress.transferredBytes).coerceAtLeast(0L) / progress.bytesPerSecond)
-                    ) else stringResource(R.string.ultra_share_eta_calculating)
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall
-            )
-        }
-    }
-}
-
 private fun formatTransferBytes(value: Long): String {
     if (value < 1024L) return "$value B"
     val units = listOf("KB", "MB", "GB", "TB")
@@ -2146,18 +2103,6 @@ private fun formatTransferBytes(value: Long): String {
     } while (amount >= 1024.0 && index < units.lastIndex)
     return String.format(java.util.Locale.US, "%.1f %s", amount, units[index])
 }
-
-private fun formatTransferEta(seconds: Long): String {
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    val remainingSeconds = seconds % 60
-    return when {
-        hours > 0 -> String.format(java.util.Locale.US, "%d:%02d:%02d", hours, minutes, remainingSeconds)
-        minutes > 0 -> String.format(java.util.Locale.US, "%d:%02d", minutes, remainingSeconds)
-        else -> "${remainingSeconds}s"
-    }
-}
-
 
 @Composable
 private fun UltraShareHelpCard() {
