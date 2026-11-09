@@ -56,3 +56,21 @@ Branch: `feature/zapya-engineering-analysis`
 - Explicit local disconnect closes the client or server socket, and both ends remove the peer from their approved room state.
 - The control socket persists across file batches. Data still travels through one v1 transfer socket per file; this is not yet a single multi-file data session.
 - The receiver currently handles one approved control session at a time. Concurrent multi-peer sessions remain future work.
+
+## Multi-file manifest implementation update — 2026-11-09
+
+- Added `UltraShareBatchProtocol.kt` as a bounded v2 manifest codec. A batch has one UUID and up to 512 file entries; each entry has its own UUID, sanitized name/MIME type, size, and SHA-256 digest.
+- The codec validates duplicate IDs, malformed UUIDs, unsafe names/types, file sizes, digest lengths, manifest size, trailing bytes, and aggregate-size overflow before a receiver can act on the manifest.
+- Added independent per-file result states (`PENDING`, `TRANSFERRING`, `COMPLETED`, `FAILED`, `SKIPPED`) and validation that results match the manifest exactly. A completed result must account for the full file size.
+- Added JVM tests for multi-file round-trip, per-file independent outcomes, duplicate IDs, malformed/trailing payloads, and invalid completion byte counts.
+- This is a protocol foundation only: the foreground service and current v1 socket sender/receiver have not yet been switched to this codec. Data still uses a separate v1 socket per file, and the receiver remains single-peer-at-a-time.
+- CI was triggered by the new commits. At checkpoint update time the newest run was pending; no successful build or test result is claimed.
+
+## Remaining engineering work
+
+1. Implement the v2 authenticated data-session handshake and keep one data socket open for the complete manifest and all file payloads.
+2. Route each manifest entry over that socket with explicit FILE_BEGIN / CHUNK / FILE_END / FILE_RESULT frames, monotonic per-file sequence numbers, bounded frame sizes, and final SHA-256 verification.
+3. Persist per-file offsets and receipts against batch ID + file ID + digest, so reconnect resumes only incomplete files and never re-sends verified completed entries.
+4. Replace the single blocking accept path with a bounded multi-peer server: one authenticated session worker per peer, explicit limits, isolated cancellation/errors, and no shared mutable transfer streams.
+5. Add reconnect/re-authentication with backoff and session resumption; never trust a stale control-room entry as proof that the data socket is alive.
+6. Run JVM tests, Android build, instrumentation/network tests, then two-physical-phone tests and repeatable throughput benchmarks against Zapya under the same Wi-Fi/hotspot conditions.
