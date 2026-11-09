@@ -27,6 +27,7 @@
 - ربط Wi-Fi Direct لاكتشاف الأجهزة والاتصال بها، مع طلب إذن الأجهزة القريبة على Android 13+ وإذن الموقع على الإصدارات الأقدم.
 - عميل سطح مكتب متعدد الأنظمة في مجلد `desktop/` لإرسال الملفات واستقبالها بين Android وWindows/Linux/macOS.
 - تصميم بروتوكول Ultra Share v2 والتوافق المرحلي: [docs/ULTRASHARE-PROTOCOL-V2-DESIGN.md](docs/ULTRASHARE-PROTOCOL-V2-DESIGN.md). (وثيقة تصميم؛ v1 ما زال المنفذ حالياً.)
+- مقارنة Zapya التفصيلية للاتصال والإرسال والاستقبال والواجهات وخطة نقل الوظائف بكود أصلي: [docs/ZAPYA-COMPARATIVE-CONNECTION-TRANSFER-UI-AUDIT.md](docs/ZAPYA-COMPARATIVE-CONNECTION-TRANSFER-UI-AUDIT.md).
 
 ## رفيق سطح المكتب لـ Ultra Share
 - تعليمات الإعداد والاستخدام: [desktop/README.md](desktop/README.md).
