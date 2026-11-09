@@ -266,44 +266,25 @@ class UltraShareForegroundService : Service() {
                             UltraShareControlChannel.serveOnce(secret) { request ->
                                 val decision = CompletableDeferred<UltraShareControlChannel.Decision>()
                                 pendingConnectionDecision = decision
-                                updateState { current -> current.copy(pendingConnection = request, status = "طلب اتصال وارد من ${'
-            }
-            ACTION_SEND -> {
-                val uri = intent.parcelableUri<Uri>(EXTRA_URI)
-                val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
-                val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
-                if (uri == null || host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
-                    updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
-                    finishService()
-                    return START_NOT_STICKY
-                }
-                if (sendJob != null) return START_NOT_STICKY
-                startForegroundCompat()
-                updateState { current -> current.copy(sending = true, status = "جارٍ تجهيز الملف وفحص سلامته قبل الإرسال...", error = null) }
-                val job = serviceScope.launch(start = CoroutineStart.LAZY) {
-                    try {
-                        val metadata = readDocumentMetadata(uri)
-                        // Acquire the CPU/Wi-Fi locks before hashing the source file or
-                        // opening the socket; the first progress callback may arrive minutes later.
-                        beginTransfer(isReceiving = false)
-                        sendWithRetry(uri, host, secret, metadata) { progress ->
-                            updateState { current -> current.copy(progress = progress, sendProgress = progress) }
-                            updateNotification(progress)
+                                updateState { current -> current.copy(
+                                    pendingConnection = request,
+                                    status = "طلب اتصال وارد من " + request.peerName
+                                ) }
+                                try {
+                                    decision.await()
+                                } finally {
+                                    pendingConnectionDecision = null
+                                    updateState { current -> current.copy(pendingConnection = null) }
+                                }
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            updateState { current -> current.copy(error = failure.localizedMessage ?: "تعذر تشغيل قناة طلبات الاتصال.") }
+                            kotlinx.coroutines.delay(1_000)
                         }
-                        updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, status = getString(R.string.ultra_share_sent, metadata.first), error = null) }
-                    } catch (cancelled: CancellationException) {
-                        updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, status = getString(R.string.ultra_share_cancel_transfer)) }
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)) }
-                    } finally {
-                        endTransfer(isReceiving = false)
-                        sendJob = null
-                        updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null) }
-                        finishService()
                     }
                 }
-                sendJob = job
                 job.start()
             }
             ACTION_SEND_BATCH -> {
