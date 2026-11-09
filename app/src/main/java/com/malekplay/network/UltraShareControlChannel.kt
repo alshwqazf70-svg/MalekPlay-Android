@@ -251,7 +251,7 @@ object UltraShareControlChannel {
             peerAddress = socket.inetAddress.hostAddress.orEmpty()
         )
         val decision = withTimeoutOrNull(30_000L) { onRequest(request) } ?: Decision.REJECTED
-        val encodedLocalName = Base64.getUrlEncoder().withoutPadding().encodeToString(localPeerName.take(96).toByteArray(Charsets.UTF_8))
+        val encodedLocalName = Base64.getUrlEncoder().withoutPadding().encodeToString(localPeerName.take(48).toByteArray(Charsets.UTF_8))
         val payload = if (decision == Decision.ACCEPTED) "ACCEPT|$requestId|$encodedLocalName" else "REJECT|$requestId"
         val nonce = ByteArray(NONCE_BYTES).also(SecureRandom()::nextBytes)
         val ciphertext = encrypt(key, nonce, payload)
