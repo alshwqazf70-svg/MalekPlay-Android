@@ -43,6 +43,8 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 ### UI
 - UltraShare screen has a focused Send / Receive mode switch: Send mode contains media selection, discovery and peer room; Receive mode contains receiver setup, QR/pairing and hotspot controls. The inactive workflow is hidden to reduce duplicated controls and clutter.
 - A central room-status panel now shows the active mode, connection/acceptance state, connected peer names, and transfer progress/bytes when a trustworthy progress sample exists.
+- Nearby-device room now has a searchable peer list, larger original MalekPlay avatar cards, clear availability labels, and a primary connect action. Authenticated peers have distinct online cards and an explicit disconnect action.
+- Removed the second duplicate peer picker from the media-send panel; the nearby-device room is the single peer-selection surface. Manual host/secret entry is hidden under advanced pairing options while QR-first remains available.
 - Nearby scan, discovered peers, authenticated peer cards, incoming approval, QR scanning, manual pairing fallback, media-only selection, batch queue, progress and received history remain integrated.
 - Selecting a discovered peer opens QR scanning when no pairing secret is present; successful QR scan from camera, QR image, or pasted payload sends the authenticated connection request.
 - This is an incremental Zapya-inspired Compose UI pass, not yet proof of pixel-identical Zapya screens or two-device usability.
@@ -54,6 +56,9 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - `5050ae54899d56ee3a3d18b6ce52d76047628cb5` — clarify media-only QR-first instructions in the help card.
 - `a3687d3c72006fd8d4420fec00a3d6806397a45f` — create focused Send and Receive rooms, show only the selected workflow, and auto-request authenticated connection after camera QR scan.
 - `2ea66d7c82b0efc2489f10c947e8be9eb39be22c` — add a central transfer-room status panel with peer/connection state and live progress when available.
+- `4a69853188a49ff1388fdc26816a8e9c56b75731` — redesign nearby-device cards, add device search, and fold manual pairing into advanced options so QR-first stays the primary path.
+- `7dc380847dbccd32562db82f3aa20406579c7e78` — remove duplicate peer lists from the send panel; the device room is the single source for peer selection.
+- `c48f1310df2d2b0b6c2afd7355b6245aeadac59e` — upgrade authenticated connected-peer cards with clearer online state and disconnect action.
 - The latest UI implementation remains scoped to `app/src/main/java/com/malekplay/ui/network/UltraShareScreen.kt`.
 - Keep all future UltraShare implementation and handoff documentation on this branch. Do not cherry-pick to `main` automatically.
 
@@ -62,7 +67,8 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - Earlier workflow runs `42646297415`, `42646763050`, and `42646886195` were cancelled when newer commits superseded them; do not interpret cancellation as a code failure or success.
 - Workflow run `42646987275` for commit `678e38e07e8b32c9ed43bd3b90d13da19ef5ead8` was in progress at the last check. Desktop companion protocol tests passed; Android unit tests passed; Android lint and release packaging were still running. Debug APK and universal install artifacts had uploaded for that older commit only.
 - Commit `a3687d3c72006fd8d4420fec00a3d6806397a45f` had a queued workflow `42648006942`, but that run was cancelled when the next commit superseded it.
-- Commit `fdf900ce004b38af8e33228cc60f20cc928d0a35` triggered workflow `42648050217`, which was in progress at the last check; this is a documentation-only commit. The latest UI commit `2ea66d7c82b0efc2489f10c947e8be9eb39be22c` needs its own completed workflow validation and artifact verification.
+- UI commit `c48f1310df2d2b0b6c2afd7355b6245aeadac59e` triggered workflow `42648839751`, which was pending at the last check; the preceding `7dc380847dbccd32562db82f3aa20406579c7e78` workflow `42648792927` was in progress and may be cancelled when superseded.
+- Re-fetch the exact latest UI commit Actions run, jobs, logs, and artifacts before reporting validation or providing an APK. Earlier runs for superseded commits were cancelled; cancellation is neither a build failure nor success.
 - Do not claim the new UI commit has a successful build or provide its APK until its exact-commit workflow succeeds and the artifact is verified.
 - CI does not replace two-Android-device testing. Verify send/receive on actual devices before calling the feature complete.
 
