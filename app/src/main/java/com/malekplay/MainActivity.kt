@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import com.malekplay.core.ui.theme.MalekPlayTheme
 import com.malekplay.core.ui.util.MediaPermissions
@@ -25,6 +26,9 @@ import com.malekplay.navigation.MalekPlayNavHost
 import com.malekplay.player.PipController
 import com.malekplay.ui.settings.SettingsViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import com.malekplay.data.repository.MediaRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @UnstableApi
@@ -33,6 +37,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var pipController: PipController
+
+    @Inject
+    lateinit var mediaRepository: MediaRepository
 
     /** Media handed over by another app, or null for a normal launch. */
     private var externalUri: Uri? = null
@@ -76,8 +83,6 @@ class MainActivity : ComponentActivity() {
     private fun showFirstLaunchPermissionMessage() {
         val preferences = getSharedPreferences("startup_permissions", MODE_PRIVATE)
         if (preferences.getBoolean("intro_shown", false)) return
-        preferences.edit().putBoolean("intro_shown", true).apply()
-
         AlertDialog.Builder(this)
             .setTitle("تجهيز MalekPlay")
             .setMessage(
@@ -85,7 +90,10 @@ class MainActivity : ComponentActivity() {
                     "وتشغيل إشعارات النقل والتشغيل، سيطلب التطبيق الأذونات المناسبة لإصدار Android لديك. " +
                     "لن يصل التطبيق إلى الكاميرا أو الميكروفون إلا عند استخدام ميزتي QR ومحلل الصوت."
             )
-            .setPositiveButton("متابعة ومنح الأذونات") { _, _ -> requestRuntimePermissions() }
+            .setPositiveButton("متابعة ومنح الأذونات") { _, _ ->
+                preferences.edit().putBoolean("intro_shown", true).apply()
+                requestRuntimePermissions()
+            }
             .setNegativeButton("لاحقاً", null)
             .setCancelable(false)
             .show()
@@ -99,15 +107,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            val nearbyPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                Manifest.permission.NEARBY_WIFI_DEVICES
-            } else {
-                Manifest.permission.ACCESS_FINE_LOCATION
-            }
-            if (ContextCompat.checkSelfPermission(this@MainActivity, nearbyPermission) != PackageManager.PERMISSION_GRANTED) {
-                add(nearbyPermission)
-            }
-
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
@@ -119,7 +118,19 @@ class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { /* Optional features degrade gracefully when permission is denied. */ }
+    ) { grants ->
+        // The first library scan may have happened before Android displayed its
+        // permission dialog. Reconcile MediaStore now so newly granted media is
+        // visible immediately without requiring an app restart or manual refresh.
+        val mediaAccessChanged = grants.any { (permission, granted) ->
+            granted && permission in MediaPermissions.required()
+        }
+        if (mediaAccessChanged || MediaPermissions.isGranted(this)) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                runCatching { mediaRepository.refresh() }
+            }
+        }
+    }
 
     private fun requestPictureInPicture(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
