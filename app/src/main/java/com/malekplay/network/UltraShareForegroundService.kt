@@ -986,8 +986,27 @@ class UltraShareForegroundService : Service() {
             } catch (failure: IOException) {
                 if (retry >= 2) throw failure
                 retry++
+                if (!UltraShareControlChannel.isSessionActive(host)) {
+                    updateState { current -> current.copy(
+                        status = "انقطع الاتصال؛ نعيد طلب الموافقة من الجهاز المستقبل قبل استئناف الملفات..."
+                    ) }
+                    val decision = UltraShareControlChannel.request(
+                        host = host,
+                        pairingSecret = secret,
+                        peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                        onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
+                    )
+                    check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                        "لم يوافق الجهاز المستقبل على إعادة الاتصال."
+                    }
+                    registerApprovedPeer(
+                        name = UltraShareControlChannel.sessionPeerName(host) ?: "جهاز MalekPlay المستقبل",
+                        host = host,
+                        role = "أعاد الموافقة على الاتصال"
+                    )
+                }
                 updateState { current -> current.copy(
-                    status = "انقطع اتصال جلسة V2؛ استئناف الدفعة تلقائياً ${retry} من 2"
+                    status = "انقطع اتصال البيانات؛ استئناف الدفعة تلقائياً ${retry} من 2"
                 ) }
                 kotlinx.coroutines.delay(retry * 1_000L)
             }
