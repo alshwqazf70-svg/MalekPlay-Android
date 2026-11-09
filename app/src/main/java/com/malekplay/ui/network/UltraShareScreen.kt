@@ -231,7 +231,10 @@ class UltraShareViewModel @Inject constructor(
                 val decision = UltraShareControlChannel.request(
                     host = host.trim(),
                     pairingSecret = secret.trim(),
-                    peerName = android.os.Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android"
+                    peerName = android.os.Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                    onSessionClosed = { disconnectedHost ->
+                        UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
+                    }
                 )
                 if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
                     UltraShareForegroundService.registerApprovedPeer(
