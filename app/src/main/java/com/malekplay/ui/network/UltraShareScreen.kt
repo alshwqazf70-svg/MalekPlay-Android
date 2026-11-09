@@ -941,9 +941,10 @@ fun UltraShareScreen(
                         Icon(Icons.Filled.Wifi, contentDescription = null, tint = Color(0xFF65D6A2))
                         Column(Modifier.weight(1f).padding(horizontal = 9.dp)) {
                             Text(peer.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                            Text(peer.host, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(peer.host + " • مكتشف الآن", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         TextButton(onClick = {
+                            viewModel.clearApprovedConnection()
                             host = peer.host
                             Toast.makeText(context, "تم اختيار الجهاز؛ امسح QR أو أدخل رمز الاقتران الظاهر على جهاز الاستقبال.", Toast.LENGTH_LONG).show()
                         }) { Text("اختيار") }
@@ -1332,6 +1333,22 @@ fun UltraShareScreen(
                                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         Text(entry.displayName, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(label, color = if (entry.status == UltraShareQueueStore.STATUS_FAILED) MaterialTheme.colorScheme.error else if (entry.status == UltraShareQueueStore.STATUS_COMPLETED) Color(0xFF65D6A2) else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                                        if (entry.status == UltraShareQueueStore.STATUS_SENDING &&
+                                            state.sendProgress?.fileName == entry.displayName
+                                        ) {
+                                            val fileProgress = state.sendProgress!!
+                                            LinearProgressIndicator(
+                                                progress = { fileProgress.fraction },
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            Text(
+                                                formatTransferBytes(fileProgress.transferredBytes) + " / " +
+                                                    formatTransferBytes(fileProgress.totalBytes) + " • " +
+                                                    formatTransferBytes(fileProgress.bytesPerSecond) + "/s",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        }
                                         entry.error?.takeIf { it.isNotBlank() }?.let { reason ->
                                             Text(
                                                 reason,
