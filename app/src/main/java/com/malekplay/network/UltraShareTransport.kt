@@ -64,6 +64,7 @@ internal fun readStreamWithProgress(
 object UltraShareTransport {
     const val DEFAULT_PORT = 38741
     const val CHUNK_BYTES = 256 * 1024
+    const val MIN_TUNABLE_CHUNK_BYTES = 64 * 1024
     private const val SOCKET_BUFFER_BYTES = 1024 * 1024
     private const val DIGEST_BUFFER_BYTES = 1024 * 1024
     const val MAX_FILE_BYTES = 100L * 1024 * 1024 * 1024
@@ -110,6 +111,17 @@ object UltraShareTransport {
     fun isValidPairingSecret(value: String): Boolean =
         (value.length == PIN_LENGTH && value.all { it in '0'..'9' }) ||
             (value.length == SECRET_BYTES * 2 && value.all { it in "0123456789abcdefABCDEF" })
+
+    /**
+     * Keeps benchmark tuning within the v1 receiver's maximum encrypted-frame size.
+     * Smaller frames remain wire-compatible; larger frames require a negotiated protocol version.
+     */
+    internal fun validateChunkBytes(value: Int): Int {
+        require(value in MIN_TUNABLE_CHUNK_BYTES..CHUNK_BYTES) {
+            "حجم كتلة النقل يجب أن يكون بين 64 و256 كيلوبايت في البروتوكول الحالي."
+        }
+        return value
+    }
 
     /** Accepts only literal private/link-local IPv4 endpoints; never resolves hostnames. */
     fun isValidPrivateLanHost(host: String): Boolean = runCatching {
@@ -216,12 +228,14 @@ object UltraShareTransport {
         fileName: String,
         mimeType: String = "application/octet-stream",
         sizeBytes: Long,
+        chunkBytes: Int = CHUNK_BYTES,
         onProgress: (Progress) -> Unit = {}
     ) = withContext(Dispatchers.IO) {
         require(host.isNotBlank()) { "أدخل عنوان الجهاز المستقبل." }
         val targetAddress = resolvePrivateLanAddress(host)
         require(port in 1..65535) { "منفذ الاتصال غير صالح." }
-        require(sizeBytes in 0..MAX_FILE_BYTES) { "حجم الملف غير مدعوم أو الملف فارغ." }
+        require(sizeBytes in 0..MAX_FILE_BYTES) { "حجم الملف غير مدعوم." }
+        val effectiveChunkBytes = validateChunkBytes(chunkBytes)
         val safeName = sanitizeFileName(fileName)
         val digest = resolver.openInputStream(uri)?.use { stream ->
             digestStream(stream, sizeBytes)
@@ -269,7 +283,7 @@ object UltraShareTransport {
             resolver.openInputStream(uri)?.use { source ->
                 skipFully(source, offset)
                 startedAt = System.nanoTime()
-                val buffer = ByteArray(CHUNK_BYTES)
+                val buffer = ByteArray(effectiveChunkBytes)
                 var read: Int
                 var sequence = 1L
                 while (transferred < sizeBytes) {
