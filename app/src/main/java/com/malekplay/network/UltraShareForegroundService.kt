@@ -178,6 +178,8 @@ class UltraShareForegroundService : Service() {
                         pairingSecret = secret,
                         localAddresses = addresses,
                         receiving = true,
+                        pendingConnection = null,
+                        activePeers = emptyList(),
                         status = getString(R.string.ultra_share_waiting)
                     ) }
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
