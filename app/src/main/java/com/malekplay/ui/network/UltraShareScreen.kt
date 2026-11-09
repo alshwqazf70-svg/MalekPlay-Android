@@ -231,6 +231,9 @@ class UltraShareViewModel @Inject constructor(
                     peerName = android.os.Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
                     onSessionClosed = { disconnectedHost ->
                         UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
+                        if (_state.value.approvedPeerHost == disconnectedHost) {
+                            _state.value = _state.value.copy(approvedPeerHost = null, status = "انقطع اتصال الجهاز الآخر.")
+                        }
                     }
                 )
                 if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
@@ -460,7 +463,6 @@ class UltraShareViewModel @Inject constructor(
             _state.value = _state.value.copy(
                 sending = true, progress = null, queueCompleted = 0,
                 queueTotal = uris.size, queueCurrentName = null, error = null,
-                approvedPeerHost = null,
                 status = "بدأ إرسال " + uris.size + " ملفات بالتتابع"
             )
             true
