@@ -69,7 +69,7 @@ data class UltraSharePeerSession(
     val host: String,
     val role: String,
     val approvedAtMillis: Long,
-    val status: String = "مصرّح"
+    val status: String = "تم القبول • قناة التحكم نشطة"
 )
 
 /**
@@ -296,7 +296,7 @@ class UltraShareForegroundService : Service() {
                                         registerApprovedPeer(
                                             name = request.peerName,
                                             host = request.peerAddress,
-                                            role = "مستقبل",
+                                            role = "استقبل طلب الاتصال",
                                             sessionId = request.requestId
                                         )
                                     }
