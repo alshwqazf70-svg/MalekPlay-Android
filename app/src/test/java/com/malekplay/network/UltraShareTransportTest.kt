@@ -214,4 +214,37 @@ class UltraShareTransportTest {
 
 
 
+    @Test
+    fun destinationPublicationLockSerializesConcurrentReceiveProtocols() {
+        val directory = createTempDir(prefix = "ultrashare-publish-lock-test")
+        val active = java.util.concurrent.atomic.AtomicInteger(0)
+        val maximumActive = java.util.concurrent.atomic.AtomicInteger(0)
+        val threads = List(8) {
+            Thread {
+                repeat(20) {
+                    UltraShareTransport.withDestinationPublicationLock(directory) {
+                        val now = active.incrementAndGet()
+                        maximumActive.updateAndGet { previous -> maxOf(previous, now) }
+                        try {
+                            Thread.sleep(2)
+                        } finally {
+                            active.decrementAndGet()
+                        }
+                    }
+                }
+            }
+        }
+        try {
+            threads.forEach(Thread::start)
+            threads.forEach { it.join(5_000) }
+            assertTrue(threads.none { it.isAlive })
+            assertEquals(1, maximumActive.get())
+        } finally {
+            threads.forEach { it.interrupt() }
+            directory.deleteRecursively()
+        }
+    }
+
+
+
 }
