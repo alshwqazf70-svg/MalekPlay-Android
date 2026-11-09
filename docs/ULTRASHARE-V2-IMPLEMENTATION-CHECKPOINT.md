@@ -92,3 +92,7 @@ Branch: `feature/zapya-engineering-analysis`
 - The v2 wire protocol has not yet been exercised between two physical Android phones. Multi-peer concurrency, reconnect/resume, and data integrity need physical-device verification.
 - Throughput has not been measured against Zapya. The current chunk/frame and buffer settings are engineering defaults, not a benchmark result.
 - The receiver's approved-control UI allows one pending approval decision at a time, while already accepted control/data sessions can coexist up to the configured concurrency limits.
+
+- The current resume-state namespace is derived from the sender's observed private IPv4 address. Reconnect/resume is therefore supported while the peer retains the same LAN address; roaming to a different IP needs a stable authenticated peer identity in a later protocol revision.
+- The V2 result frame is bounded to the manifest maximum so a large batch with many per-file error messages cannot overflow the receiver's result acknowledgement.
+- The accepted control-session registry is populated before the encrypted ACCEPT response is flushed, closing the race where the first V2 data socket could arrive before the approval became visible.
