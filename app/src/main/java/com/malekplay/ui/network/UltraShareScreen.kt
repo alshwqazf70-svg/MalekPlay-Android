@@ -232,7 +232,7 @@ class UltraShareViewModel @Inject constructor(
                 )
                 if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
                     UltraShareForegroundService.registerApprovedPeer(
-                        name = android.os.Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                        name = "جهاز MalekPlay المستقبل",
                         host = host.trim(),
                         role = "مرسل"
                     )
