@@ -900,7 +900,7 @@ fun UltraShareScreen(
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 if (state.activePeers.isNotEmpty()) {
                     Text("غرفة الأجهزة المتصلة", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                    Text("تظهر هنا الأجهزة ذات قناة تحكم موثقة ونبض حياة نشط. بيانات الملفات تستخدم حالياً اتصال نقل منفصلاً لكل ملف.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    Text("تظهر هنا الأجهزة التي اجتازت الاقتران الموثق ونبض الحياة. في وضع V2 تنتقل الدفعة كلها عبر جلسة بيانات واحدة مشفرة، مع استئناف الأجزاء غير المكتملة.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                     state.activePeers.forEach { peer ->
                         Row(
                             modifier = Modifier.fillMaxWidth()
