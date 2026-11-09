@@ -331,11 +331,14 @@ class UltraShareForegroundService : Service() {
                 hotspotActive = false,
                 hotspotSsid = null,
                 hotspotPassword = null,
+                pendingConnection = null,
                 error = "أوقف Android خدمة النقل بعد بلوغ الحد الزمني المسموح. يمكنك بدء النقل مجدداً."
             ) }
         sendJob?.cancel()
         receiveJob?.cancel()
         advertisementJob?.cancel()
+        controlJob?.cancel()
+        pendingConnectionDecision?.cancel()
         releaseTransferLocks()
         runCatching { hotspotReservation?.close() }
         hotspotReservation = null
@@ -372,7 +375,8 @@ class UltraShareForegroundService : Service() {
                 hotspotStarting = false,
                 hotspotActive = false,
                 hotspotSsid = null,
-                hotspotPassword = null
+                hotspotPassword = null,
+                pendingConnection = null
             )
         }
         if (::notificationManager.isInitialized) notificationManager.cancel(NOTIFICATION_ID)
