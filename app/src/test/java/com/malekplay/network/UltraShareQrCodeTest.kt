@@ -11,16 +11,16 @@ import org.robolectric.RobolectricTestRunner
 class UltraShareQrCodeTest {
 
     @Test
-    fun generatedPairingCodeIsExactlyTwelveNumericDigits() {
+    fun generatedPairingCodeIsExactlyNineNumericDigits() {
         val code = UltraShareTransport.createPairingSecret()
-        assertEquals(12, code.length)
+        assertEquals(9, code.length)
         assertTrue(code.all { it in '0'..'9' })
         assertTrue(UltraShareTransport.isValidPairingSecret(code))
     }
 
     @Test
     fun shortPinDerivesSessionKeyFromFreshChallenge() {
-        val pin = "004219837615"
+        val pin = "004219837"
         val challenge = ByteArray(32) { it.toByte() }
         assertTrue(UltraShareTransport.derivePairingKey(pin, challenge).contentEquals(
             UltraShareTransport.derivePairingKey(pin, challenge.copyOf())
