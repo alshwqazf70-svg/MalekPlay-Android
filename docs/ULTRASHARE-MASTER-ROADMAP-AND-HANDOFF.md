@@ -42,6 +42,7 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 
 ### UI
 - UltraShare screen has a focused Send / Receive mode switch: Send mode contains media selection, discovery and peer room; Receive mode contains receiver setup, QR/pairing and hotspot controls. The inactive workflow is hidden to reduce duplicated controls and clutter.
+- A central room-status panel now shows the active mode, connection/acceptance state, connected peer names, and transfer progress/bytes when a trustworthy progress sample exists.
 - Nearby scan, discovered peers, authenticated peer cards, incoming approval, QR scanning, manual pairing fallback, media-only selection, batch queue, progress and received history remain integrated.
 - Selecting a discovered peer opens QR scanning when no pairing secret is present; successful QR scan from camera, QR image, or pasted payload sends the authenticated connection request.
 - This is an incremental Zapya-inspired Compose UI pass, not yet proof of pixel-identical Zapya screens or two-device usability.
@@ -52,6 +53,7 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - `e6089241dccd0dd41844c1055e7d4142da567d7f` — unify nearby peer connect action across UltraShare room.
 - `5050ae54899d56ee3a3d18b6ce52d76047628cb5` — clarify media-only QR-first instructions in the help card.
 - `a3687d3c72006fd8d4420fec00a3d6806397a45f` — create focused Send and Receive rooms, show only the selected workflow, and auto-request authenticated connection after camera QR scan.
+- `2ea66d7c82b0efc2489f10c947e8be9eb39be22c` — add a central transfer-room status panel with peer/connection state and live progress when available.
 - The latest UI implementation remains scoped to `app/src/main/java/com/malekplay/ui/network/UltraShareScreen.kt`.
 - Keep all future UltraShare implementation and handoff documentation on this branch. Do not cherry-pick to `main` automatically.
 
@@ -59,7 +61,8 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 
 - Earlier workflow runs `42646297415`, `42646763050`, and `42646886195` were cancelled when newer commits superseded them; do not interpret cancellation as a code failure or success.
 - Workflow run `42646987275` for commit `678e38e07e8b32c9ed43bd3b90d13da19ef5ead8` was in progress at the last check. Desktop companion protocol tests passed; Android unit tests passed; Android lint and release packaging were still running. Debug APK and universal install artifacts had uploaded for that older commit only.
-- Commit `a3687d3c72006fd8d4420fec00a3d6806397a45f` is newer than that run. Re-fetch its own Actions run and artifacts before reporting validation or offering an install package.
+- Commit `a3687d3c72006fd8d4420fec00a3d6806397a45f` had a queued workflow `42648006942`, but that run was cancelled when the next commit superseded it.
+- Commit `fdf900ce004b38af8e33228cc60f20cc928d0a35` triggered workflow `42648050217`, which was in progress at the last check; this is a documentation-only commit. The latest UI commit `2ea66d7c82b0efc2489f10c947e8be9eb39be22c` needs its own completed workflow validation and artifact verification.
 - Do not claim the new UI commit has a successful build or provide its APK until its exact-commit workflow succeeds and the artifact is verified.
 - CI does not replace two-Android-device testing. Verify send/receive on actual devices before calling the feature complete.
 
