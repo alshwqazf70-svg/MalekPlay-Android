@@ -443,6 +443,7 @@ object UltraShareBatchTransport {
                         runCatching { marker.delete() }
                         throw failure
                     }
+                    target
                 }
             }
             outcomes += FileOutcome(
