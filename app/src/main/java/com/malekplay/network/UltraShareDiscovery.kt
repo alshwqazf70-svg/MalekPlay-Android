@@ -34,6 +34,10 @@ object UltraShareDiscovery {
         val candidates: List<UltraShareNegotiation.Candidate> = emptyList()
     )
 
+    /** Stable identity prevents one physical phone appearing once per network interface. */
+    internal fun identityKey(peer: Peer): String =
+        peer.peerId?.takeIf { it.isNotBlank() }?.let { "id:$it" } ?: "host:${peer.host}"
+
     suspend fun advertiseWhileReceiving(
         transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT,
         legacyTransferPort: Int = UltraShareTransport.DEFAULT_PORT,
@@ -126,7 +130,8 @@ object UltraShareDiscovery {
                         val endpoint = ordered.firstOrNull { candidate ->
                             probeControlEndpoint(candidate.host)
                         } ?: continue
-                        peers[host] = Peer(
+                        peers.remove("host:$host") // Upgrade an earlier V1 sighting to its stable V2 identity.
+                        peers["id:${v2.peerId}"] = Peer(
                             host = endpoint.host,
                             port = endpoint.port,
                             name = v2.displayName,
@@ -141,7 +146,9 @@ object UltraShareDiscovery {
                     val name = parts.getOrNull(1)?.take(64)?.takeIf { it.isNotBlank() } ?: "MalekPlay"
                     if (port !in 1..65535) continue
                     // Do not downgrade a v2 peer when its v1 response arrives later.
-                    if (peers[host]?.peerId == null) peers[host] = Peer(host, port, name)
+                    if (peers["id:${peers[host]?.peerId}"] == null && peers["host:$host"] == null) {
+                        peers["host:$host"] = Peer(host, port, name)
+                    }
                 } catch (_: SocketTimeoutException) {
                     // Continue until the bounded scan window expires.
                 }
