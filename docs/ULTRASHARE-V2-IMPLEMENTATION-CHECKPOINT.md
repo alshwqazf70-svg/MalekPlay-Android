@@ -15,8 +15,9 @@ Branch: `feature/zapya-engineering-analysis`
 
 ## Important limitations — not yet complete
 
+- Added an authenticated TCP control channel on port 38744. The receiver publishes a pending request to the service/UI, and the sender waits for an authenticated AES-GCM protected accept/reject decision before the UI enables the existing encrypted file-transfer path. Request authentication uses a fresh server challenge, PBKDF2-derived key material, HMAC-SHA256, and domain-separated decision encryption keys. The receiver times out unanswered requests after 30 seconds.
 - The v2 offer is currently exchanged over LAN UDP only. Wi-Fi Direct and hotspot candidates are advertised only when their corresponding local interfaces are up and have a private IPv4 address; device-to-device reachability still requires real-device validation.
-- The selected candidate is returned in the discovered peer record, but the UI/ViewModel has not yet been migrated to a single authenticated request/accept/reject control session.
+- The new control channel is wired to the foreground receiver and Compose UI, but it currently authorizes the existing v1 encrypted transfer handshake; it does not yet keep one persistent authenticated session open for the whole batch.
 - Pairing authentication remains in the existing transfer handshake. No pairing secret is included in discovery.
 - The existing file transfer wire protocol still transfers files in separate sessions. The batch manifest/result models are groundwork only; the single-session multi-file wire protocol and receiver task routing remain to be implemented.
 - The Compose group room, peer avatar/profile presentation, and per-device acceptance UI remain pending.
