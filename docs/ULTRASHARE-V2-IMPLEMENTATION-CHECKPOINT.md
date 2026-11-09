@@ -74,3 +74,21 @@ Branch: `feature/zapya-engineering-analysis`
 4. Replace the single blocking accept path with a bounded multi-peer server: one authenticated session worker per peer, explicit limits, isolated cancellation/errors, and no shared mutable transfer streams.
 5. Add reconnect/re-authentication with backoff and session resumption; never trust a stale control-room entry as proof that the data socket is alive.
 6. Run JVM tests, Android build, instrumentation/network tests, then two-physical-phone tests and repeatable throughput benchmarks against Zapya under the same Wi-Fi/hotspot conditions.
+
+## V2 data-plane and concurrent peer implementation — 2026-11-09
+
+- Added `UltraShareBatchTransport` on a dedicated TCP data port (`38742`); the legacy V1 single-file listener remains on `38741` for older peers.
+- The V2 sender prepares one bounded manifest, authenticates once with a fresh challenge and pairing secret, negotiates per-file resume offsets, then sends every file through the same authenticated TCP socket. Each encrypted frame has a monotonically increasing sequence number and AES-GCM authentication.
+- V2 data frames identify the file index and chunk length; each file has an explicit end frame and the batch has a final end frame. The receiver returns a result for every manifest entry; the sender maps each result back to its durable queue item.
+- The receiver persists partial files and verified completion receipts in per-peer hidden state directories. Resume identity is content-derived (sanitized name + size + SHA-256); completed receipts are rechecked against the final file before the receiver advertises the full offset. Partial files are synced even when the connection drops mid-file.
+- The V2 receiver uses one listening server socket and bounded independent workers (maximum four peers by default, configurable up to eight). Sessions from the same source IP are serialized to protect shared resume state; different peers can transfer concurrently.
+- The authenticated control listener now accepts up to four concurrent control sessions. The UI still presents one pending approval card at a time; overlapping invitations are rejected instead of overwriting the active decision.
+- V2 data transfer requires an active accepted control session on both sides. The V2 discovery offer and QR payload use port 38742; V1 discovery responses still advertise port 38741. The sender falls back to the old V1 path only when the V2 TCP endpoint is unavailable.
+- The foreground service now runs the V1 listener and V2 multi-peer listener side by side, preserving old-device compatibility while new peers use V2. V2 batch sending is wired to the durable queue, including retry/resume and restoring claimed items to pending if the user cancels mid-batch.
+
+## Validation boundaries after V2 wiring
+
+- These changes are committed to the feature branch, but the latest Android build and tests are still running/queued. Do not claim compilation or test success until GitHub Actions reports green.
+- The v2 wire protocol has not yet been exercised between two physical Android phones. Multi-peer concurrency, reconnect/resume, and data integrity need physical-device verification.
+- Throughput has not been measured against Zapya. The current chunk/frame and buffer settings are engineering defaults, not a benchmark result.
+- The receiver's approved-control UI allows one pending approval decision at a time, while already accepted control/data sessions can coexist up to the configured concurrency limits.
