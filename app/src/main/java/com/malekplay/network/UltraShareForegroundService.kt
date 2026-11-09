@@ -60,7 +60,8 @@ data class UltraShareServiceState(
     val queueTotalBytes: Long = 0L,
     val queueTransferredBytes: Long = 0L,
     val pendingConnection: UltraShareControlChannel.Request? = null,
-    val activePeers: List<UltraSharePeerSession> = emptyList()
+    val activePeers: List<UltraSharePeerSession> = emptyList(),
+    val peerTransfers: List<UltraSharePeerTransfer> = emptyList()
 )
 
 data class UltraSharePeerSession(
@@ -71,6 +72,21 @@ data class UltraSharePeerSession(
     val approvedAtMillis: Long,
     val status: String = "تم القبول • قناة التحكم نشطة"
 )
+
+/** Latest independent data-channel progress for one remote peer. */
+data class UltraSharePeerTransfer(
+    val host: String,
+    val fileName: String,
+    val transferredBytes: Long,
+    val totalBytes: Long,
+    val bytesPerSecond: Long,
+    val status: String,
+    val updatedAtMillis: Long = System.currentTimeMillis()
+) {
+    val fraction: Float
+        get() = if (totalBytes <= 0L) 0f
+        else (transferredBytes.toDouble() / totalBytes.toDouble()).toFloat().coerceIn(0f, 1f)
+}
 
 /**
  * Owns transfer sockets and coroutine jobs independently from the navigation/ViewModel lifecycle.
@@ -285,21 +301,52 @@ class UltraShareForegroundService : Service() {
                                 pairingSecret = secret,
                                 destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
                                 maxPeers = UltraShareBatchTransport.DEFAULT_MAX_PEERS,
-                                onPeerStarted = { beginTransfer(isReceiving = true) },
-                                onPeerFinished = { endTransfer(isReceiving = true) },
+                                onPeerStarted = { peer ->
+                                    beginTransfer(isReceiving = true)
+                                    updateState { current ->
+                                        val item = UltraSharePeerTransfer(
+                                            host = peer, fileName = "جارٍ تجهيز الدفعة",
+                                            transferredBytes = 0L, totalBytes = 0L, bytesPerSecond = 0L,
+                                            status = "جارٍ الاستقبال"
+                                        )
+                                        current.copy(peerTransfers = current.peerTransfers.filterNot { it.host == peer } + item)
+                                    }
+                                },
+                                onPeerFinished = { peer ->
+                                    updateState { current ->
+                                        val existing = current.peerTransfers.firstOrNull { it.host == peer }
+                                        if (existing == null || existing.status == "جارٍ الاستقبال") {
+                                            val idle = (existing ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "اكتملت الجلسة"))
+                                                .copy(status = "اكتملت الجلسة", bytesPerSecond = 0L, updatedAtMillis = System.currentTimeMillis())
+                                            current.copy(peerTransfers = current.peerTransfers.filterNot { it.host == peer } + idle)
+                                        } else current
+                                    }
+                                    endTransfer(isReceiving = true)
+                                },
                                 onProgress = { peer, progress ->
-                                    updateState { current -> current.copy(
-                                        receiveProgress = UltraShareTransport.Progress(
-                                            progress.fileName, progress.transferredBytes, progress.totalBytes,
-                                            progress.bytesPerSecond, true
-                                        ),
-                                        progress = if (current.sending) current.sendProgress else UltraShareTransport.Progress(
-                                            progress.fileName, progress.transferredBytes, progress.totalBytes,
-                                            progress.bytesPerSecond, true
-                                        ),
-                                        status = "استقبال ملفات عبر جلسة V2 من $peer",
-                                        error = null
-                                    ) }
+                                    updateState { current ->
+                                        val item = UltraSharePeerTransfer(
+                                            host = peer,
+                                            fileName = progress.fileName,
+                                            transferredBytes = progress.transferredBytes,
+                                            totalBytes = progress.totalBytes,
+                                            bytesPerSecond = progress.bytesPerSecond,
+                                            status = "يستقبل الآن"
+                                        )
+                                        current.copy(
+                                            peerTransfers = current.peerTransfers.filterNot { it.host == peer } + item,
+                                            receiveProgress = UltraShareTransport.Progress(
+                                                progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                                progress.bytesPerSecond, true
+                                            ),
+                                            progress = if (current.sending) current.sendProgress else UltraShareTransport.Progress(
+                                                progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                                progress.bytesPerSecond, true
+                                            ),
+                                            status = "استقبال ملفات عبر جلسة V2 من $peer",
+                                            error = null
+                                        )
+                                    }
                                 },
                                 onBatchFinished = { peer, batch ->
                                     batch.files.forEach { item ->
@@ -325,18 +372,41 @@ class UltraShareForegroundService : Service() {
                                             updateState { current -> current.copy(error = failure.localizedMessage ?: "تعذر حفظ الملف المستلم.") }
                                         }
                                     }
-                                    updateState { current -> current.copy(
-                                        receiveProgress = null,
-                                        progress = if (current.sending) current.sendProgress else null,
-                                        status = "اكتملت دفعة V2 من $peer: ${batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }} ملف"
-                                    ) }
+                                    updateState { current ->
+                                        val completed = batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }
+                                        val failed = batch.files.size - completed
+                                        val previous = current.peerTransfers.firstOrNull { it.host == peer }
+                                        val receivedBytes = batch.files.sumOf { it.transferredBytes.coerceAtLeast(0L) }
+                                        val totalBytes = batch.files.sumOf { it.receivedFile?.sizeBytes ?: it.transferredBytes.coerceAtLeast(0L) }
+                                        val summary = (previous ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "اكتملت الدفعة"))
+                                            .copy(
+                                                fileName = if (failed == 0) "اكتملت الدفعة" else "اكتملت مع وجود ملفات فاشلة",
+                                                transferredBytes = receivedBytes,
+                                                totalBytes = totalBytes,
+                                                bytesPerSecond = 0L,
+                                                status = if (failed == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failed",
+                                                updatedAtMillis = System.currentTimeMillis()
+                                            )
+                                        current.copy(
+                                            peerTransfers = current.peerTransfers.filterNot { it.host == peer } + summary,
+                                            receiveProgress = null,
+                                            progress = if (current.sending) current.sendProgress else null,
+                                            status = "اكتملت دفعة V2 من $peer: $completed ملف"
+                                        )
+                                    }
                                 },
                                 onPeerError = { peer, failure ->
-                                    updateState { current -> current.copy(
-                                        receiveProgress = null,
-                                        progress = if (current.sending) current.sendProgress else null,
-                                        error = "جلسة V2 من $peer: ${failure.localizedMessage ?: "فشل النقل"}"
-                                    ) }
+                                    updateState { current ->
+                                        val previous = current.peerTransfers.firstOrNull { it.host == peer }
+                                        val failed = (previous ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "فشل النقل"))
+                                            .copy(status = "فشل النقل", bytesPerSecond = 0L, updatedAtMillis = System.currentTimeMillis())
+                                        current.copy(
+                                            peerTransfers = current.peerTransfers.filterNot { it.host == peer } + failed,
+                                            receiveProgress = null,
+                                            progress = if (current.sending) current.sendProgress else null,
+                                            error = "جلسة V2 من $peer: ${failure.localizedMessage ?: "فشل النقل"}"
+                                        )
+                                    }
                                 }
                             )
                         } catch (cancelled: CancellationException) {
