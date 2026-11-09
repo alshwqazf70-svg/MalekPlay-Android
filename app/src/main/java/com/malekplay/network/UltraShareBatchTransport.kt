@@ -174,6 +174,9 @@ object UltraShareBatchTransport {
         require(sources.isNotEmpty() && sources.size <= UltraShareBatchProtocol.MAX_FILES)
         require(UltraShareTransport.isValidPrivateLanHost(host))
         require(UltraShareTransport.isValidPairingSecret(pairingSecret))
+        check(UltraShareControlChannel.isSessionActive(host)) {
+            "يجب إرسال طلب اتصال وانتظار قبول الجهاز المستقبل قبل بدء نقل V2."
+        }
         val prepared = sources.map { source ->
             require(source.sizeBytes in 0..UltraShareTransport.MAX_FILE_BYTES)
             val name = UltraShareTransport.sanitizeFileName(source.name)
@@ -295,6 +298,10 @@ object UltraShareBatchTransport {
         output.writeBoolean(authenticated)
         output.flush()
         check(authenticated) { "فشل التحقق من رمز الاقتران." }
+        val peerHost = socket.inetAddress.hostAddress.orEmpty()
+        check(UltraShareControlChannel.isServerSessionActive(peerHost)) {
+            "لا توجد موافقة اتصال نشطة لهذا الجهاز."
+        }
         onAuthenticated()
         val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(SecureRandom()::nextBytes)
         output.write(noncePrefix)
@@ -357,27 +364,31 @@ object UltraShareBatchTransport {
             var transferred = offset
             if (completedFiles[entry.id] == null) {
                 FileOutputStream(partial, offset > 0L).use { file ->
-                    val startedAt = System.nanoTime()
-                    while (transferred < entry.sizeBytes) {
-                        currentCoroutineContext().ensureActive()
-                        val remaining = entry.sizeBytes - transferred
-                        val maximumPayload = minOf(FRAME_BYTES.toLong(), remaining + 7L).toInt()
-                        val payload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, maximumPayload)
-                        val frame = DataInputStream(ByteArrayInputStream(payload))
-                        require(frame.readUnsignedByte() == TYPE_CHUNK) { "إطار بيانات غير متوقع." }
-                        require(frame.readUnsignedShort() == index) { "وصل جزء لملف غير متوقع." }
-                        val length = frame.readInt()
-                        require(length in 1..(FRAME_BYTES - 8) && length == frame.available())
-                        require(transferred + length <= entry.sizeBytes)
-                        val bytes = ByteArray(length).also(frame::readFully)
-                        file.write(bytes)
-                        transferred += length
-                        onProgress(FileProgress(
-                            entry.id, entry.name, transferred, entry.sizeBytes,
-                            rate(transferred - offset, startedAt), true
-                        ))
+                    try {
+                        val startedAt = System.nanoTime()
+                        while (transferred < entry.sizeBytes) {
+                            currentCoroutineContext().ensureActive()
+                            val remaining = entry.sizeBytes - transferred
+                            val maximumPayload = minOf(FRAME_BYTES.toLong(), remaining + 7L).toInt()
+                            val payload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, maximumPayload)
+                            val frame = DataInputStream(ByteArrayInputStream(payload))
+                            require(frame.readUnsignedByte() == TYPE_CHUNK) { "إطار بيانات غير متوقع." }
+                            require(frame.readUnsignedShort() == index) { "وصل جزء لملف غير متوقع." }
+                            val length = frame.readInt()
+                            require(length in 1..(FRAME_BYTES - 8) && length == frame.available())
+                            require(transferred + length <= entry.sizeBytes)
+                            val bytes = ByteArray(length).also(frame::readFully)
+                            file.write(bytes)
+                            transferred += length
+                            onProgress(FileProgress(
+                                entry.id, entry.name, transferred, entry.sizeBytes,
+                                rate(transferred - offset, startedAt), true
+                            ))
+                        }
+                    } finally {
+                        // Make the partial offset durable even when the socket drops mid-file.
+                        runCatching { file.fd.sync() }
                     }
-                    file.fd.sync()
                 }
             }
             val endPayload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 64)
