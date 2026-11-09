@@ -41,6 +41,7 @@ import javax.crypto.spec.SecretKeySpec
  */
 object UltraShareBatchTransport {
     const val DEFAULT_MAX_PEERS = 4
+    const val DEFAULT_PORT = UltraShareTransport.DEFAULT_PORT + 1
     private const val BUFFER_BYTES = 1024 * 1024
     private const val FRAME_BYTES = 256 * 1024
     private const val HANDSHAKE_TIMEOUT_MS = 8_000
@@ -85,7 +86,7 @@ object UltraShareBatchTransport {
      * coroutine, with a hard concurrency ceiling and independent socket cancellation.
      */
     suspend fun serveMany(
-        port: Int = UltraShareTransport.DEFAULT_PORT,
+        port: Int = DEFAULT_PORT,
         pairingSecret: String,
         destinationDirectory: File,
         maxPeers: Int = DEFAULT_MAX_PEERS,
