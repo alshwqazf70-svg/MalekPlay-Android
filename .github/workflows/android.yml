@@ -7,6 +7,7 @@ on:
       - backup/before-updated-2.0
       - performance/large-library-optimization
       - feature/ultrashare-bidirectional-2026-11-08
+      - feature/zapya-engineering-analysis
   workflow_dispatch:
 
 concurrency:
