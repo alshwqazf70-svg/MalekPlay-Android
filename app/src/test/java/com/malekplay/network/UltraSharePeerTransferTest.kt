@@ -54,4 +54,47 @@ class UltraSharePeerTransferTest {
         assertEquals(0.25f, firstPeer.fraction, 0.0001f)
         assertEquals(0.75f, secondPeer.fraction, 0.0001f)
     }
+    @Test
+    fun finishingOnePeerKeepsAnotherPeersProgressVisible() {
+        val completedPeer = UltraSharePeerTransfer(
+            host = "192.168.1.30",
+            fileName = "done.mp4",
+            transferredBytes = 100L,
+            totalBytes = 100L,
+            bytesPerSecond = 0L,
+            status = "اكتمل • 1 ملفات",
+            updatedAtMillis = 20L
+        )
+        val activePeer = UltraSharePeerTransfer(
+            host = "192.168.1.31",
+            fileName = "still-receiving.mkv",
+            transferredBytes = 40L,
+            totalBytes = 100L,
+            bytesPerSecond = 12L,
+            status = "يستقبل الآن",
+            updatedAtMillis = 10L
+        )
+
+        val progress = latestActivePeerReceiveProgress(listOf(completedPeer, activePeer))
+
+        assertEquals("still-receiving.mkv", progress?.fileName)
+        assertEquals(40L, progress?.transferredBytes)
+        assertEquals(100L, progress?.totalBytes)
+        assertEquals(true, progress?.receiving)
+    }
+
+    @Test
+    fun noSharedProgressIsReportedWhenAllPeersAreFinished() {
+        val completedPeer = UltraSharePeerTransfer(
+            host = "192.168.1.32",
+            fileName = "done.mp4",
+            transferredBytes = 100L,
+            totalBytes = 100L,
+            bytesPerSecond = 0L,
+            status = "اكتمل • 1 ملفات"
+        )
+
+        assertEquals(null, latestActivePeerReceiveProgress(listOf(completedPeer)))
+    }
+
 }
