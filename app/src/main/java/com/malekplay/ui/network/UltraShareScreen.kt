@@ -1087,7 +1087,7 @@ fun UltraShareScreen(
                                         ) {
                                             Text(
                                                 peerTransfer.status + if (peerTransfer.fileName.isNotBlank()) " • " + peerTransfer.fileName else "",
-                                                color = if (peerTransfer.status.contains("فشل")) MaterialTheme.colorScheme.error else MalekPlayColors.Gold,
+                                                color = if (peerTransfer.status.contains("فشل")) MaterialTheme.colorScheme.error else MalekPlayColors.Amber,
                                                 style = MaterialTheme.typography.labelSmall,
                                                 maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis
@@ -1130,7 +1130,7 @@ fun UltraShareScreen(
                                 Text(transfer.host, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                                 Text(
                                     transfer.status + if (transfer.fileName.isNotBlank()) " • " + transfer.fileName else "",
-                                    color = if (transfer.status.contains("فشل")) MaterialTheme.colorScheme.error else MalekPlayColors.Gold,
+                                    color = if (transfer.status.contains("فشل")) MaterialTheme.colorScheme.error else MalekPlayColors.Amber,
                                     style = MaterialTheme.typography.labelSmall
                                 )
                                 if (transfer.totalBytes > 0L) {
