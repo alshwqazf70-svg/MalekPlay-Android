@@ -58,6 +58,11 @@ object UltraShareNegotiation {
                 nowMillis - createdAtMillis >= timeoutMillis
             ) copy(status = InvitationStatus.EXPIRED) else this
         }
+
+        fun cancel(): Invitation {
+            require(status == InvitationStatus.PENDING) { "Invitation is no longer pending." }
+            return copy(status = InvitationStatus.CANCELLED)
+        }
     }
 
     /** Prefer a connected/reachable P2P path, then WLAN, then hotspot. */
