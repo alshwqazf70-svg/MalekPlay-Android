@@ -1755,13 +1755,6 @@ private fun UltraShareSessionRoom(
         currentBatchEntries.all { it.status == UltraShareQueueStore.STATUS_COMPLETED }
     val receiveCompleted = !isSendingRoom && state.receivedFile != null && state.receiveProgress == null &&
         (state.status?.contains("استلام") == true || state.status?.contains("استُلم") == true || state.status?.contains("اكتملت دفعة") == true)
-    val pulseTransition = rememberInfiniteTransition(label = "ultraSharePairingPulse")
-    val pulse by pulseTransition.animateFloat(
-        initialValue = 0.94f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(tween(durationMillis = 850), repeatMode = RepeatMode.Reverse),
-        label = "ultraSharePairingScale"
-    )
     val status = when {
         state.sending -> "يتم إرسال الوسائط إلى الجهاز الآخر"
         state.receiveProgress != null -> "يتم استقبال الوسائط من الجهاز الآخر"
@@ -1827,24 +1820,11 @@ private fun UltraShareSessionRoom(
                     isActive = connected || (transferring && isSendingRoom)
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Box(
-                        modifier = Modifier.size(48.dp).scale(if (pairingPending) pulse else 1f)
-                            .background(
-                                Brush.radialGradient(
-                                    listOf(
-                                        MalekPlayColors.PurpleBright.copy(alpha = if (pairingPending) 0.34f else 0.22f),
-                                        MalekPlayColors.PurpleDeep.copy(alpha = 0.12f)
-                                    )
-                                ),
-                                androidx.compose.foundation.shape.CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (pairingPending) {
-                            CircularProgressIndicator(Modifier.fillMaxSize(), color = MalekPlayColors.PurpleBright, strokeWidth = 2.dp)
-                        }
-                        Icon(Icons.Filled.Wifi, contentDescription = null, tint = if (connected) Color(0xFF65D6A2) else MalekPlayColors.PurpleBright, modifier = Modifier.size(23.dp))
-                    }
+                    UltraShareConnectionGlyph(
+                        pairingPending = pairingPending,
+                        connected = connected,
+                        transferring = transferring
+                    )
                     Text(
                         when {
                             transferring -> "نقل"
@@ -1924,6 +1904,78 @@ private fun UltraShareSessionRoom(
             }
         }
     }
+}
+
+@Composable
+private fun UltraShareConnectionGlyph(
+    pairingPending: Boolean,
+    connected: Boolean,
+    transferring: Boolean
+) {
+    if (pairingPending) {
+        val transition = rememberInfiniteTransition(label = "ultraSharePairingPulse")
+        val pulse by transition.animateFloat(
+            initialValue = 0.92f,
+            targetValue = 1.10f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 800),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "ultraSharePairingScale"
+        )
+        Box(
+            modifier = Modifier.size(48.dp).scale(pulse)
+                .background(
+                    Brush.radialGradient(
+                        listOf(
+                            MalekPlayColors.PurpleBright.copy(alpha = 0.36f),
+                            MalekPlayColors.PurpleDeep.copy(alpha = 0.12f)
+                        )
+                    ),
+                    androidx.compose.foundation.shape.CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(Modifier.fillMaxSize(), color = MalekPlayColors.PurpleBright, strokeWidth = 2.dp)
+            Icon(Icons.Filled.Wifi, contentDescription = null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(23.dp))
+        }
+    } else {
+        Box(
+            modifier = Modifier.size(48.dp).background(
+                Brush.radialGradient(
+                    listOf(
+                        (if (connected) Color(0xFF65D6A2) else MalekPlayColors.PurpleBright).copy(alpha = 0.28f),
+                        MalekPlayColors.PurpleDeep.copy(alpha = 0.12f)
+                    )
+                ),
+                androidx.compose.foundation.shape.CircleShape
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Filled.Wifi,
+                contentDescription = null,
+                tint = if (connected) Color(0xFF65D6A2) else MalekPlayColors.PurpleBright,
+                modifier = Modifier.size(23.dp)
+            )
+        }
+    }
+    Text(
+        when {
+            transferring -> "نقل"
+            connected -> "آمن"
+            pairingPending -> "ربط"
+            else -> "قريب"
+        },
+        color = when {
+            transferring -> MalekPlayColors.PurpleBright
+            connected -> Color(0xFF65D6A2)
+            pairingPending -> Color(0xFFFFC66D)
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold
+    )
 }
 
 @Composable
