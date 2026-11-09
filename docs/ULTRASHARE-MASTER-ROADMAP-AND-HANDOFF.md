@@ -59,6 +59,7 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - `4a69853188a49ff1388fdc26816a8e9c56b75731` — redesign nearby-device cards, add device search, and fold manual pairing into advanced options so QR-first stays the primary path.
 - `7dc380847dbccd32562db82f3aa20406579c7e78` — remove duplicate peer lists from the send panel; the device room is the single source for peer selection.
 - `c48f1310df2d2b0b6c2afd7355b6245aeadac59e` — upgrade authenticated connected-peer cards with clearer online state and disconnect action.
+- `edae4d3ebc121b75f77fe63d6de7f6b17b209e5f` — remove an empty conditional left by the Send/Receive room separation.
 - The latest UI implementation remains scoped to `app/src/main/java/com/malekplay/ui/network/UltraShareScreen.kt`.
 - Keep all future UltraShare implementation and handoff documentation on this branch. Do not cherry-pick to `main` automatically.
 
@@ -67,8 +68,9 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - Earlier workflow runs `42646297415`, `42646763050`, and `42646886195` were cancelled when newer commits superseded them; do not interpret cancellation as a code failure or success.
 - Workflow run `42646987275` for commit `678e38e07e8b32c9ed43bd3b90d13da19ef5ead8` was in progress at the last check. Desktop companion protocol tests passed; Android unit tests passed; Android lint and release packaging were still running. Debug APK and universal install artifacts had uploaded for that older commit only.
 - Commit `a3687d3c72006fd8d4420fec00a3d6806397a45f` had a queued workflow `42648006942`, but that run was cancelled when the next commit superseded it.
-- UI commit `c48f1310df2d2b0b6c2afd7355b6245aeadac59e` triggered workflow `42648839751`, which was pending at the last check; the preceding `7dc380847dbccd32562db82f3aa20406579c7e78` workflow `42648792927` was in progress and may be cancelled when superseded.
-- Re-fetch the exact latest UI commit Actions run, jobs, logs, and artifacts before reporting validation or providing an APK. Earlier runs for superseded commits were cancelled; cancellation is neither a build failure nor success.
+- Workflow `42648892813` for documentation commit `0e47e2207262ca339645cd7c54ca93468c832b9a` was in progress at the last check. Desktop companion protocol tests passed; Android unit tests/lint and APK packaging were still running. This run includes the preceding UI changes through `c48f1310df2d2b0b6c2afd7355b6245aeadac59e`.
+- UI cleanup commit `edae4d3ebc121b75f77fe63d6de7f6b17b209e5f` is newer than that run. Re-fetch Actions for the latest branch head before reporting validation; do not assume the prior run validates the cleanup commit.
+- Earlier runs for superseded commits were cancelled; cancellation is neither a build failure nor success. Do not claim the latest UI commit has a successful build or provide its APK until an exact-head workflow succeeds and its artifact is verified.
 - Do not claim the new UI commit has a successful build or provide its APK until its exact-commit workflow succeeds and the artifact is verified.
 - CI does not replace two-Android-device testing. Verify send/receive on actual devices before calling the feature complete.
 
