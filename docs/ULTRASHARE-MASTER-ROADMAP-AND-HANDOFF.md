@@ -41,24 +41,26 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - Desktop companion protocol tests exist.
 
 ### UI
-- UltraShare screen has Send/Receive actions, nearby scan, discovered peers, active peer cards, incoming approval card, QR scanning, manual pairing fallback, media selection for video/audio/image, batch queue, progress, and received history.
-- The UI is a work-in-progress; it is not yet a finished Zapya-like dedicated transfer-room experience.
-- Recent UX improvement: selecting a discovered peer now opens QR scanning when no pairing secret is present; successful QR scan immediately sends the authenticated connection request.
-- The same QR-first peer-selection behavior was unified in the lower send panel.
+- UltraShare screen has a focused Send / Receive mode switch: Send mode contains media selection, discovery and peer room; Receive mode contains receiver setup, QR/pairing and hotspot controls. The inactive workflow is hidden to reduce duplicated controls and clutter.
+- Nearby scan, discovered peers, authenticated peer cards, incoming approval, QR scanning, manual pairing fallback, media-only selection, batch queue, progress and received history remain integrated.
+- Selecting a discovered peer opens QR scanning when no pairing secret is present; successful QR scan from camera, QR image, or pasted payload sends the authenticated connection request.
+- This is an incremental Zapya-inspired Compose UI pass, not yet proof of pixel-identical Zapya screens or two-device usability.
 
 ## Latest commits in active branch
 
 - `df5a840131cd9733caf447760d3ee950217f3966` — QR-first nearby peer pairing; auto-request after QR scan.
 - `e6089241dccd0dd41844c1055e7d4142da567d7f` — unify nearby peer connect action across UltraShare room.
 - `5050ae54899d56ee3a3d18b6ce52d76047628cb5` — clarify media-only QR-first instructions in the help card.
-- The latest UI commits modify only `app/src/main/java/com/malekplay/ui/network/UltraShareScreen.kt`.
+- `a3687d3c72006fd8d4420fec00a3d6806397a45f` — create focused Send and Receive rooms, show only the selected workflow, and auto-request authenticated connection after camera QR scan.
+- The latest UI implementation remains scoped to `app/src/main/java/com/malekplay/ui/network/UltraShareScreen.kt`.
 - Keep all future UltraShare implementation and handoff documentation on this branch. Do not cherry-pick to `main` automatically.
 
 ## CI / validation status at handoff
 
 - Earlier workflow runs `42646297415`, `42646763050`, and `42646886195` were cancelled when newer commits superseded them; do not interpret cancellation as a code failure or success.
-- Workflow run `42646927047` was queued for commit `5050ae54899d56ee3a3d18b6ce52d76047628cb5` at the last check. Re-fetch the latest branch head and its Actions run before reporting validation.
-- Do not claim a successful build or provide an APK until the run for the exact latest commit succeeds and its artifact is verified.
+- Workflow run `42646987275` for commit `678e38e07e8b32c9ed43bd3b90d13da19ef5ead8` was in progress at the last check. Desktop companion protocol tests passed; Android unit tests passed; Android lint and release packaging were still running. Debug APK and universal install artifacts had uploaded for that older commit only.
+- Commit `a3687d3c72006fd8d4420fec00a3d6806397a45f` is newer than that run. Re-fetch its own Actions run and artifacts before reporting validation or offering an install package.
+- Do not claim the new UI commit has a successful build or provide its APK until its exact-commit workflow succeeds and the artifact is verified.
 - CI does not replace two-Android-device testing. Verify send/receive on actual devices before calling the feature complete.
 
 ## Remaining work — execute in this order
