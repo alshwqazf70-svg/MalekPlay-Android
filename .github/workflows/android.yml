@@ -4,6 +4,7 @@ name: Build MalekPlay Android APK
 on:
   push:
     branches:
+      - main
       - backup/before-updated-2.0
       - performance/large-library-optimization
   workflow_dispatch:
