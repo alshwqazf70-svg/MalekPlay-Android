@@ -230,15 +230,34 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun scanNearbyDevices() {
-        if (scanJob != null) return
-        _state.value = _state.value.copy(scanning = true, error = null, status = null)
+        if (scanJob != null) {
+            scanJob?.cancel()
+            scanJob = null
+            _state.value = _state.value.copy(scanning = false, status = "تم إيقاف البحث عن الأجهزة.")
+            return
+        }
+        _state.value = _state.value.copy(
+            scanning = true, discoveredPeers = emptyList(), error = null,
+            status = "جارٍ البحث المستمر عن أجهزة MalekPlay على الشبكة..."
+        )
         scanJob = viewModelScope.launch {
+            val found = LinkedHashMap<String, UltraShareDiscovery.Peer>()
             try {
-                val peers = UltraShareDiscovery.discoverPeers()
+                // Short repeated discovery windows make newly-started receivers appear
+                // without forcing the user to restart the scan manually.
+                repeat(8) {
+                    val peers = UltraShareDiscovery.discoverPeers(scanWindowMs = 1_500L)
+                    peers.forEach { found[it.host] = it }
+                    _state.value = _state.value.copy(
+                        discoveredPeers = found.values.toList(),
+                        status = if (found.isEmpty()) "ما زلنا نبحث عن أجهزة قريبة..."
+                        else "تم العثور على ${found.size} جهاز؛ البحث ما زال نشطاً."
+                    )
+                    delay(350)
+                }
                 _state.value = _state.value.copy(
-                    discoveredPeers = peers,
-                    status = if (peers.isEmpty()) context.getString(R.string.ultra_share_no_devices)
-                    else context.getString(R.string.ultra_share_devices_found, peers.size)
+                    status = if (found.isEmpty()) context.getString(R.string.ultra_share_no_devices)
+                    else context.getString(R.string.ultra_share_devices_found, found.size)
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -756,10 +775,11 @@ fun UltraShareScreen(
             OutlinedButton(
                 onClick = viewModel::scanNearbyDevices,
                 modifier = Modifier.weight(1f),
-                enabled = !state.scanning
+                enabled = true
             ) {
-                Icon(Icons.Filled.Wifi, contentDescription = null)
-                Text("الأجهزة القريبة", style = MaterialTheme.typography.labelMedium)
+                if (state.scanning) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                else Icon(Icons.Filled.Wifi, contentDescription = null)
+                Text(if (state.scanning) "إيقاف البحث" else "بحث مستمر", style = MaterialTheme.typography.labelMedium)
             }
             OutlinedButton(
                 onClick = ::requestWifiDirectScan,
@@ -776,6 +796,64 @@ fun UltraShareScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall
         )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+        ) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Wifi, contentDescription = null, tint = MalekPlayColors.PurpleBright)
+                    Text("الأجهزة المكتشفة", modifier = Modifier.padding(start = 8.dp).weight(1f),
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("${state.discoveredPeers.size + state.wifiDirectPeers.size}",
+                        color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
+                }
+                if (state.discoveredPeers.isEmpty() && state.wifiDirectPeers.isEmpty()) {
+                    Text(
+                        if (state.scanning) "نبحث الآن عن أجهزة MalekPlay المتاحة..."
+                        else "ابدأ البحث ليظهر هنا كل جهاز متاح على الشبكة أو عبر Wi-Fi Direct.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                state.discoveredPeers.forEach { peer ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceContainer, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Wifi, contentDescription = null, tint = Color(0xFF65D6A2))
+                        Column(Modifier.weight(1f).padding(horizontal = 9.dp)) {
+                            Text(peer.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            Text(peer.host, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(onClick = {
+                            host = peer.host
+                            Toast.makeText(context, "تم اختيار الجهاز؛ امسح QR أو أدخل رمز الاقتران الظاهر على جهاز الاستقبال.", Toast.LENGTH_LONG).show()
+                        }) { Text("اختيار") }
+                    }
+                }
+                state.wifiDirectPeers.forEach { peer ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceContainer, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Wifi, contentDescription = null, tint = MalekPlayColors.PurpleBright)
+                        Column(Modifier.weight(1f).padding(horizontal = 9.dp)) {
+                            Text(peer.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Wi-Fi Direct • ${peer.status}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(onClick = { viewModel.connectWifiDirectPeer(peer) }, enabled = !state.sending) {
+                            Text("اتصال")
+                        }
+                    }
+                }
+            }
+        }
 
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
