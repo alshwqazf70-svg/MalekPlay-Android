@@ -124,8 +124,8 @@ object UltraShareBatchTransport {
                         }
                         launch {
                             val peer = socket.inetAddress.hostAddress ?: "unknown"
+                            var authenticated = false
                             try {
-                                onPeerStarted(peer)
                                 val peerMutex = peerMutexes.computeIfAbsent(peer) { Mutex() }
                                 val result = peerMutex.withLock {
                                     val peerState = File(
@@ -137,6 +137,10 @@ object UltraShareBatchTransport {
                                     check(peerState.exists() || peerState.mkdirs())
                                     receiveSession(
                                         socket, pairingSecret, destinationDirectory, peerState,
+                                        onAuthenticated = {
+                                            authenticated = true
+                                            onPeerStarted(peer)
+                                        },
                                         onProgress = { progress -> onProgress(peer, progress) }
                                     )
                                 }
@@ -147,7 +151,7 @@ object UltraShareBatchTransport {
                                 onPeerError(peer, failure)
                             } finally {
                                 runCatching { socket.close() }
-                                onPeerFinished(peer)
+                                if (authenticated) onPeerFinished(peer)
                                 permits.release()
                             }
                         }
@@ -274,6 +278,7 @@ object UltraShareBatchTransport {
         pairingSecret: String,
         destinationDirectory: File,
         stateDirectory: File,
+        onAuthenticated: () -> Unit,
         onProgress: (FileProgress) -> Unit
     ): BatchOutcome {
         configure(socket)
@@ -290,6 +295,7 @@ object UltraShareBatchTransport {
         output.writeBoolean(authenticated)
         output.flush()
         check(authenticated) { "فشل التحقق من رمز الاقتران." }
+        onAuthenticated()
         val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(SecureRandom()::nextBytes)
         output.write(noncePrefix)
         output.flush()
