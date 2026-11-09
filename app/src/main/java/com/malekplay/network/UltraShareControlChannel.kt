@@ -102,7 +102,7 @@ object UltraShareControlChannel {
             input.readFully(challenge)
             val key = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
             val requestId = randomId()
-            val authenticated = requestAuthentication(challenge, requestId, nameBytes)
+            val authenticated = requestAuthentication(key, challenge, requestId, nameBytes)
             output.writeUTF(requestId)
             output.writeShort(nameBytes.size)
             output.write(nameBytes)
@@ -171,11 +171,11 @@ object UltraShareControlChannel {
     }
 
     private fun requestAuthentication(
+        key: ByteArray,
         challenge: ByteArray,
         requestId: String,
         peerName: ByteArray
     ): ByteArray {
-        val key = UltraShareTransport.derivePairingKeyFromChallengeForControl(challenge)
         val payload = ByteArrayOutputStream().use { bytes ->
             DataOutputStream(bytes).use { data ->
                 data.writeUTF("MPULTRA_CONTROL_REQUEST")
