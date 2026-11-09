@@ -1,9 +1,12 @@
 package com.malekplay.network
 
 import java.net.ServerSocket
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,8 +16,13 @@ class UltraShareControlChannelTest {
     fun authenticatedRequestWaitsForAndReceivesApproval() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
         val secret = "123456789012"
+        val sessionClosed = CompletableDeferred<Unit>()
         val server = async {
-            UltraShareControlChannel.serveOnce(secret, port) { request ->
+            UltraShareControlChannel.serveOnce(
+                pairingSecret = secret,
+                port = port,
+                onSessionClosed = { sessionClosed.complete(Unit) }
+            ) { request ->
                 assertEquals("Sender Phone", request.peerName)
                 assertTrue(request.peerAddress == "127.0.0.1")
                 UltraShareControlChannel.Decision.ACCEPTED
@@ -28,7 +36,10 @@ class UltraShareControlChannelTest {
             port = port
         )
         assertEquals(UltraShareControlChannel.Decision.ACCEPTED, decision)
-        server.await()
+        assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
+        UltraShareControlChannel.closeSession("127.0.0.1")
+        withTimeout(2_000L) { sessionClosed.await() }
+        server.cancelAndJoin()
     }
 
     @Test
@@ -48,6 +59,6 @@ class UltraShareControlChannelTest {
             port = port
         )
         assertEquals(UltraShareControlChannel.Decision.REJECTED, decision)
-        server.await()
+        server.cancelAndJoin()
     }
 }
