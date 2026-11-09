@@ -32,7 +32,8 @@ object UltraShareDiscovery {
     )
 
     suspend fun advertiseWhileReceiving(
-        transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT
+        transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT,
+        legacyTransferPort: Int = UltraShareTransport.DEFAULT_PORT
     ) = withContext(Dispatchers.IO) {
         require(transferPort in 1..65535)
         val peerId = UUID.randomUUID().toString()
@@ -51,7 +52,7 @@ object UltraShareDiscovery {
                         .toString(Charsets.UTF_8)
                     when (request) {
                         PROBE_V1 -> {
-                            val response = "$OFFER_PREFIX_V1$transferPort|MalekPlay".toByteArray(Charsets.UTF_8)
+                            val response = "$OFFER_PREFIX_V1$legacyTransferPort|MalekPlay".toByteArray(Charsets.UTF_8)
                             socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
                         }
                         PROBE_V2 -> {
