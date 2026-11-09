@@ -30,8 +30,9 @@ import javax.crypto.spec.SecretKeySpec
 
 /**
  * Authenticated request/accept/reject channel plus a persistent authenticated
- * control socket. File payloads still use the compatible v1 transport sockets;
- * this socket carries heartbeat and close signals for the approved peer session.
+ * control socket. V2 file batches use one separate encrypted data socket per batch;
+ * legacy V1 fallback retains its compatible per-file sockets. This socket carries
+ * heartbeat and close signals for the approved peer session.
  */
 object UltraShareControlChannel {
     const val DEFAULT_PORT = 38_744
