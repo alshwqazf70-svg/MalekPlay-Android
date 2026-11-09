@@ -178,15 +178,7 @@ object UltraShareControlChannel {
     fun closeSession(host: String) {
         val session = clientSessions.remove(host) ?: return
         session.heartbeat?.cancel()
-        synchronized(session.lock) {
-            runCatching {
-                if (!session.socket.isClosed) {
-                    session.output.writeUTF("CLOSE")
-                    session.output.flush()
-                }
-            }
-            runCatching { session.socket.close() }
-        }
+        runCatching { session.socket.close() }
     }
 
     fun closeServerSession(host: String) {
