@@ -177,12 +177,26 @@ object UltraShareTransport {
 
     fun sanitizeMimeType(raw: String): String {
         val candidate = raw.trim()
+        val token = "[A-Za-z0-9!#    fun sanitizeMimeType(raw: String): String {
+        val candidate = raw.trim()
         val token = "[A-Za-z0-9!#$&^_.+-]+"
         return if (candidate.length <= 160 && Regex("^$token/$token$").matches(candidate)) {
             candidate
         } else {
             "application/octet-stream"
         }
+    }
+^_.+-]+"
+        return if (candidate.length <= 160 && Regex("^$token/$token$").matches(candidate)) {
+            candidate
+        } else {
+            "application/octet-stream"
+        }
+    }
+
+    fun isSupportedMediaMimeType(raw: String): Boolean {
+        val mime = sanitizeMimeType(raw).lowercase(java.util.Locale.ROOT)
+        return mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/")
     }
 
     /**
@@ -383,6 +397,7 @@ object UltraShareTransport {
                 val size = metadata.readLong()
                 require(size in 0..MAX_FILE_BYTES) { "حجم الملف المرسل غير مسموح." }
                 val mime = sanitizeMimeType(readUtf8(metadata, 192))
+                require(isSupportedMediaMimeType(mime)) { "يسمح MalekPlay باستقبال الفيديوهات والموسيقى والصور فقط." }
                 val expectedDigest = ByteArray(32).also(metadata::readFully)
                 require(metadata.available() == 0) { "بيانات الملف المرسل غير مكتملة." }
 
