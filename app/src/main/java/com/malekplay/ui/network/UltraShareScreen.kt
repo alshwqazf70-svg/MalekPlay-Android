@@ -1400,10 +1400,10 @@ fun UltraShareScreen(
                         value = secret,
                         onValueChange = { value ->
                             viewModel.clearApprovedConnection()
-                            secret = value.filter { char -> char in '0'..'9' }.take(12)
+                            secret = value.filter { char -> char in '0'..'9' }.take(9)
                         },
                         modifier = Modifier.widthIn(max = 220.dp),
-                        label = { Text("رمز الاقتران (12 رقماً)") },
+                        label = { Text("رمز الاقتران (9 أرقام)") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
@@ -2140,7 +2140,7 @@ private fun UltraShareHelpCard() {
             }
             if (expanded) {
                 Text("استقبال الملفات على هذا الهاتف:", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                Text("1. اضغط «إنشاء مجموعة» أو «بدء الاستقبال».\n2. إذا لم يوجد راوتر مشترك، اضغط «إنشاء نقطة اتصال MalekPlay» وصِل الهاتف الآخر باسم الشبكة وكلمة المرور الظاهرين.\n3. اعرض رمز QR أو رمز الاقتران ذي 12 رقماً وعنوان الشبكة، ثم امسح الرمز من الهاتف المرسل أو أدخل البيانات يدوياً.\n4. على Android 10 فأحدث تُنشر نسخة في التنزيلات / MalekPlay / Received؛ وعلى الإصدارات الأقدم يظهر المسار الداخلي في سجل الملفات المستلمة.")
+                Text("1. اضغط «إنشاء مجموعة» أو «بدء الاستقبال».\n2. إذا لم يوجد راوتر مشترك، اضغط «إنشاء نقطة اتصال MalekPlay» وصِل الهاتف الآخر باسم الشبكة وكلمة المرور الظاهرين.\n3. اعرض رمز QR أو رمز الاقتران ذي 9 أرقام وعنوان الشبكة، ثم امسح الرمز من الهاتف المرسل أو أدخل البيانات يدوياً.\n4. على Android 10 فأحدث تُنشر نسخة في التنزيلات / MalekPlay / Received؛ وعلى الإصدارات الأقدم يظهر المسار الداخلي في سجل الملفات المستلمة.")
                 Text("إرسال الملفات من هذا الهاتف:", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                 Text("1. اختر الفيديوهات أو الموسيقى أو الصور التي تريد إرسالها.\n2. اضغط «الأجهزة القريبة» واختر جهاز الاستقبال.\n3. امسح رمز QR الظاهر على جهاز الاستقبال؛ سيرسل MalekPlay طلب الاتصال تلقائياً بعد التحقق من رمز الاقتران.\n4. بعد قبول الطلب، اضغط «إرسال الآن» لمتابعة تقدم الوسائط وسرعة النقل.")
                 Text("الاتصال الأساسي عبر شبكة Wi-Fi المحلية أو نقطة اتصال MalekPlay المحلية. نقطة الاتصال التي ينشئها التطبيق مخصصة لنقل الملفات بين الأجهزة القريبة ولا توفر إنترنت أو تستهلك بيانات الهاتف. Wi-Fi Direct خيار إضافي فقط. قد يمنع Android إنشاء نقطة اتصال جديدة إذا كانت نقطة اتصال أخرى تعمل بالفعل. لا تشارك رمز الاقتران مع أشخاص غير موثوقين.", color = MaterialTheme.colorScheme.onSurfaceVariant)
