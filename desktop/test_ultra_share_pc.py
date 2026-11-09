@@ -63,12 +63,12 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             parse_metadata(encoded),
         )
 
-    def test_android_twelve_digit_pin_uses_matching_pbkdf2_derivation(self):
-        pin = "004219837615"
+    def test_android_nine_digit_pin_uses_matching_pbkdf2_derivation(self):
+        pin = "004219837"
         challenge = bytes(range(32))
         self.assertEqual(pin, get_secret(pin))
         self.assertEqual(
-            "556b0f717d241f6ef78a6cc439154edfbb1e2d23e05b91f40494d5b56a375182",
+            "313f3930d3a5684ebdd21a38ea0be31fb255fe5436476972f2a387b2ded57150",
             derive_pairing_key(pin, challenge).hex(),
         )
         self.assertEqual(
