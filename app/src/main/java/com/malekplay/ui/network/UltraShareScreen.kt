@@ -591,6 +591,8 @@ fun UltraShareScreen(
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var pendingMediaUris by remember(initialUris) { mutableStateOf(initialUris.distinct()) }
+    var showDeviceRoom by remember { mutableStateOf(false) }
+    val mediaMimeTypes = arrayOf("video/*", "audio/*", "image/*")
     fun pastePairingDetails() {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         val raw = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
@@ -641,8 +643,15 @@ fun UltraShareScreen(
     }
 
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNotEmpty()) {
-            val notPersisted = uris.count { !persistReadGrant(it) }
+        val mediaUris = uris.filter { uri ->
+            val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
+            mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/")
+        }
+        if (mediaUris.size != uris.size) {
+            Toast.makeText(context, "يسمح MalekPlay بمشاركة الفيديوهات والموسيقى والصور فقط.", Toast.LENGTH_LONG).show()
+        }
+        if (mediaUris.isNotEmpty()) {
+            val notPersisted = mediaUris.count { !persistReadGrant(it) }
             if (notPersisted > 0) {
                 Toast.makeText(
                     context,
@@ -650,7 +659,7 @@ fun UltraShareScreen(
                     Toast.LENGTH_LONG
                 ).show()
             }
-            pendingMediaUris = (pendingMediaUris + uris).distinct()
+            pendingMediaUris = (pendingMediaUris + mediaUris).distinct()
         }
     }
     val exportFile = rememberLauncherForActivityResult(
@@ -811,7 +820,7 @@ fun UltraShareScreen(
                     }
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.weight(1f)) {
                         Column(Modifier.padding(11.dp)) {
-                            Text("الملفات", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                            Text("الوسائط", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                             Text("${pendingMediaUris.size}", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
                         }
                     }
@@ -892,8 +901,15 @@ fun UltraShareScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall
         )
+        OutlinedButton(
+            onClick = { showDeviceRoom = !showDeviceRoom },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.Wifi, contentDescription = null)
+            Text(if (showDeviceRoom) "إخفاء غرفة الأجهزة" else "فتح غرفة الأجهزة القريبة", modifier = Modifier.padding(start = 8.dp))
+        }
 
-        Card(
+        if (showDeviceRoom) Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
         ) {
@@ -990,6 +1006,8 @@ fun UltraShareScreen(
                     }
                 }
             }
+        }
+
         }
 
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
@@ -1145,10 +1163,10 @@ fun UltraShareScreen(
                         enabled = !state.sending
                     ) { Text("موسيقى") }
                     OutlinedButton(
-                        onClick = { pickFiles.launch(arrayOf("*/*")) },
+                        onClick = { pickFiles.launch(arrayOf("image/*")) },
                         modifier = Modifier.weight(1f),
                         enabled = !state.sending
-                    ) { Text("ملفات") }
+                    ) { Text("الصور") }
                 }
                 OutlinedButton(
                     onClick = viewModel::scanNearbyDevices,
@@ -1265,14 +1283,14 @@ fun UltraShareScreen(
                         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text("قائمة الإرسال", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                    Text("${pendingMediaUris.size} ملف جاهز للإرسال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                                    Text("قائمة الوسائط", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    Text("${pendingMediaUris.size} عنصر وسائط جاهز للإرسال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                                 }
                                 TextButton(onClick = { pendingMediaUris = emptyList() }, enabled = !state.sending) { Text("إفراغ") }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { pickFiles.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
-                                    Text("إضافة ملفات")
+                                OutlinedButton(onClick = { pickFiles.launch(mediaMimeTypes) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
+                                    Text("إضافة وسائط")
                                 }
                                 Button(
                                     onClick = {
@@ -1294,9 +1312,9 @@ fun UltraShareScreen(
                     }
                 }
                 if (pendingMediaUris.isEmpty()) {
-                    OutlinedButton(onClick = { pickFiles.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+                    OutlinedButton(onClick = { pickFiles.launch(mediaMimeTypes) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
                         Icon(Icons.Filled.Send, contentDescription = null)
-                        Text("اختيار ملفات للإرسال", modifier = Modifier.padding(start = 8.dp))
+                        Text("اختيار وسائط للإرسال", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
                 if (state.queueTotal > 0) {
