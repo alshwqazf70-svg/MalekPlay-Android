@@ -585,9 +585,8 @@ object UltraShareTransport {
         val buffer = ByteArray(DIGEST_BUFFER_BYTES)
         while (true) {
             currentCoroutineContext().ensureActive()
-            val count = stream.read(buffer)
+            val count = readStreamWithProgress(stream, buffer)
             if (count < 0) break
-            if (count == 0) continue
             digest.update(buffer, 0, count)
         }
         return digest.digest()
