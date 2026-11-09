@@ -240,7 +240,7 @@ class UltraShareViewModel @Inject constructor(
                     UltraShareForegroundService.registerApprovedPeer(
                         name = "جهاز MalekPlay المستقبل",
                         host = host.trim(),
-                        role = "مرسل"
+                        role = "أرسل طلب الاتصال"
                     )
                     _state.value = _state.value.copy(
                         approvedPeerHost = host.trim(),
@@ -917,7 +917,7 @@ fun UltraShareScreen(
                             Column(Modifier.weight(1f).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(peer.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                                 Text(peer.host + " • " + peer.role, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
-                                Text("جلسة مصادَق عليها • " + peer.status, color = Color(0xFF65D6A2), style = MaterialTheme.typography.labelSmall)
+                                Text(peer.status, color = Color(0xFF65D6A2), style = MaterialTheme.typography.labelSmall)
                             }
                             TextButton(onClick = { viewModel.disconnectPeer(peer.host) }) { Text("إنهاء") }
                         }
