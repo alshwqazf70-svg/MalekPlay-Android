@@ -8,6 +8,23 @@ import org.junit.Test
 class UltraShareTransportTest {
 
     @Test
+    fun transferChunkTuningAcceptsWireCompatibleSizes() {
+        assertEquals(UltraShareTransport.MIN_TUNABLE_CHUNK_BYTES, UltraShareTransport.validateChunkBytes(64 * 1024))
+        assertEquals(128 * 1024, UltraShareTransport.validateChunkBytes(128 * 1024))
+        assertEquals(UltraShareTransport.CHUNK_BYTES, UltraShareTransport.validateChunkBytes(256 * 1024))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun transferChunkTuningRejectsSizesBelowSafeMinimum() {
+        UltraShareTransport.validateChunkBytes(32 * 1024)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun transferChunkTuningRejectsFramesLargerThanV1ReceiverLimit() {
+        UltraShareTransport.validateChunkBytes(512 * 1024)
+    }
+
+    @Test
     fun pairingSecretIsCryptographicallyRandomFormat() {
         val first = UltraShareTransport.createPairingSecret()
         val second = UltraShareTransport.createPairingSecret()
