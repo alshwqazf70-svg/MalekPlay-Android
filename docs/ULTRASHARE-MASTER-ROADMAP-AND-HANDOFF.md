@@ -52,6 +52,8 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - The transfer room surfaces the current file progress, throughput, aggregate batch progress, and batch status counts using existing service state. Existing queue rows continue to show per-item states and retry/skip controls.
 - Sender completion is shown only when every item in the latest batch is actually marked completed; failed or pending entries do not produce a false success screen. Receiver completion is shown from the existing received-file/status state.
 - The receive room now mirrors the sender room with sender/receiver identity placement, a ready-state indicator, and a framed high-contrast QR card with a clear scan instruction.
+- The transfer room lists individual media items in the active batch with each item state, current-item progress, and any per-item error; legacy queue controls remain available for retry/skip/pause/cancel.
+- Removed duplicate standalone progress cards; received-file actions and receive history are now shown only in Receive mode to keep Send and Receive rooms focused.
 - This is an incremental Zapya-inspired Compose UI pass, not yet proof of pixel-identical Zapya screens or two-device usability.
 
 ## Latest commits in active branch
@@ -69,6 +71,9 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - `01f6c024901101a2350303fbde5c777b2ecaaace` — mirror and polish the receive room, including ready-state badge and framed QR presentation; tighten completion-state checks.
 - `a9486fe38a3aab0790c26d656bfcb02a54122849` and `4eb86147916b89089586a165e92f34101e061cbb` — declare and include the Compose animation library used by the pairing pulse.
 - `9ad1a507809bd3e060a1c1f261a49152488b8cef` — scope the repeating pulse animation to active pairing only, so it is not continuously running while idle.
+- `674b13dfc2fec52566a931c1efa6385851385a20` — show each media item and its current state directly inside the transfer room.
+- `ba8bbf2c398b3f3100487b723cc30d415d29c524` — consolidate progress presentation and remove duplicate progress cards.
+- `45ddfc5ea4165d0d72132c87340be37989256d2d` — keep received-media actions and history inside Receive mode only.
 - The latest UI implementation remains scoped to `app/src/main/java/com/malekplay/ui/network/UltraShareScreen.kt`; animation dependency changes are limited to `gradle/libs.versions.toml` and `app/build.gradle.kts`.
 - Keep all future UltraShare implementation and handoff documentation on this branch. Do not cherry-pick to `main` automatically.
 
@@ -78,8 +83,9 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - Workflow run `42646987275` for commit `678e38e07e8b32c9ed43bd3b90d13da19ef5ead8` was in progress at the last check. Desktop companion protocol tests passed; Android unit tests passed; Android lint and release packaging were still running. Debug APK and universal install artifacts had uploaded for that older commit only.
 - Commit `a3687d3c72006fd8d4420fec00a3d6806397a45f` had a queued workflow `42648006942`, but that run was cancelled when the next commit superseded it.
 - Workflow `42648892813` for documentation commit `0e47e2207262ca339645cd7c54ca93468c832b9a` was in progress at the last check. Desktop companion protocol tests passed; Android unit tests/lint and APK packaging were still running. This run includes the preceding UI changes through `c48f1310df2d2b0b6c2afd7355b6245aeadac59e`.
-- Workflow `42650438523` for latest commit `9ad1a507809bd3e060a1c1f261a49152488b8cef` was pending at the last check; no jobs or artifacts had been exposed yet.
-- The preceding dependency workflow `42650305929` for `4eb86147916b89089586a165e92f34101e061cbb` was in progress. It does not validate the later UI animation-scope commit.
+- Workflow `42650867161` for source commit `45ddfc5ea4165d0d72132c87340be37989256d2d` was in progress at the last check. Desktop companion protocol tests passed; Android unit tests and ABI debug APK assembly were still running; no artifacts had been uploaded yet.
+- Workflow `42650438523` for commit `9ad1a507809bd3e060a1c1f261a49152488b8cef` was cancelled when later commits superseded it. The current workflow above is the relevant validation attempt for the subsequent UI changes.
+- The handoff documentation commit is newer than the source commit validated by run `42650867161`; if a workflow is triggered for the documentation update, inspect that exact run as well. Do not claim build success or provide an APK until a completed run and artifact are verified.
 - Earlier runs for superseded commits were cancelled; cancellation is neither a build failure nor success. Do not claim the latest UI commit has a successful build or provide its APK until an exact-head workflow succeeds and its artifact is verified.
 - Do not claim the new UI commit has a successful build or provide its APK until its exact-commit workflow succeeds and the artifact is verified.
 - CI does not replace two-Android-device testing. Verify send/receive on actual devices before calling the feature complete.
