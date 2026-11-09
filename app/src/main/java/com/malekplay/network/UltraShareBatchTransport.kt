@@ -426,23 +426,24 @@ object UltraShareBatchTransport {
                     )
                     continue
                 }
-                val target = uniqueDestination(destinationDirectory, entry.name)
-                val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
-                val marker = File(stateDirectory, ".ultrashare-v2-$identity.received")
-                val markerTemp = File(stateDirectory, ".ultrashare-v2-$identity.received.tmp")
-                val receiptContent =
-                    "${entry.sizeBytes}:${entry.sha256.joinToString("") { "%02x".format(it) }}:${target.name}"
-                // Persist the receipt before publishing the renamed file. If the process
-                // dies between these operations, the next session ignores the receipt
-                // while the verified partial remains available for a safe retry.
-                writeUltraShareReceiptAtomically(markerTemp, marker, receiptContent)
-                try {
-                    check(partial.renameTo(target)) { "تعذر تثبيت الملف المستلم." }
-                } catch (failure: Exception) {
-                    runCatching { marker.delete() }
-                    throw failure
+                UltraShareTransport.withDestinationPublicationLock(destinationDirectory) {
+                    val target = uniqueDestination(destinationDirectory, entry.name)
+                    val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
+                    val marker = File(stateDirectory, ".ultrashare-v2-$identity.received")
+                    val markerTemp = File(stateDirectory, ".ultrashare-v2-$identity.received.tmp")
+                    val receiptContent =
+                        "${entry.sizeBytes}:${entry.sha256.joinToString("") { "%02x".format(it) }}:${target.name}"
+                    // Persist the receipt before publishing the renamed file. If the process
+                    // dies between these operations, the next session ignores the receipt
+                    // while the verified partial remains available for a safe retry.
+                    writeUltraShareReceiptAtomically(markerTemp, marker, receiptContent)
+                    try {
+                        check(partial.renameTo(target)) { "تعذر تثبيت الملف المستلم." }
+                    } catch (failure: Exception) {
+                        runCatching { marker.delete() }
+                        throw failure
+                    }
                 }
-                target
             }
             outcomes += FileOutcome(
                 entry.id, entry.name,
