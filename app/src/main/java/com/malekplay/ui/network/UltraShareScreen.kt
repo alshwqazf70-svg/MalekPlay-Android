@@ -321,7 +321,7 @@ class UltraShareViewModel @Inject constructor(
                 // without forcing the user to restart the scan manually.
                 repeat(8) {
                     val peers = UltraShareDiscovery.discoverPeers(scanWindowMs = 1_500L)
-                    peers.forEach { found[it.host] = it }
+                    peers.forEach { peer -> found[UltraShareDiscovery.identityKey(peer)] = peer }
                     _state.value = _state.value.copy(
                         discoveredPeers = found.values.toList(),
                         status = if (found.isEmpty()) "ما زلنا نبحث عن أجهزة قريبة..."
