@@ -21,6 +21,7 @@ from ultra_share_pc import (
     read_resume_marker,
     safe_name,
     send_file,
+    send_files,
     write_frame,
 )
 
@@ -126,6 +127,34 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             self.assertEqual("4096:abc", read_resume_marker(marker))
             with patch.object(Path, "read_text", side_effect=OSError("permission denied")):
                 self.assertIsNone(read_resume_marker(marker))
+
+    def test_batch_validates_all_sources_before_starting_any_transfer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            first = directory / "first.bin"
+            first.write_bytes(b"first")
+            missing = directory / "missing.bin"
+            with patch("ultra_share_pc.send_file") as send:
+                with self.assertRaises(FileNotFoundError):
+                    send_files("192.168.1.20", DEFAULT_PORT, "004219837615", [first, missing])
+            send.assert_not_called()
+
+    def test_batch_sends_files_in_selected_order(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            first = directory / "first.bin"
+            second = directory / "second.bin"
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
+            with patch("ultra_share_pc.send_file") as send:
+                send_files("192.168.1.20", DEFAULT_PORT, "004219837615", [first, second])
+            self.assertEqual(
+                [
+                    (( "192.168.1.20", DEFAULT_PORT, "004219837615", first),),
+                    (( "192.168.1.20", DEFAULT_PORT, "004219837615", second),),
+                ],
+                send.call_args_list,
+            )
 
     def test_pairing_rejection_is_not_retried(self):
         with tempfile.TemporaryDirectory() as temporary:
