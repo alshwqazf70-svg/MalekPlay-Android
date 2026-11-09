@@ -29,3 +29,9 @@ Branch: `feature/zapya-engineering-analysis`
 2. Keep the existing v1 transfer path as fallback until v2 negotiation passes tests.
 3. Implement one authenticated batch session with bounded manifest parsing and independent per-file results.
 4. Connect the room UI to real service state, then validate Android-to-Android and Android-to-PC.
+
+
+## Validation status
+
+- The control-channel unit/integration tests have been added, but no test execution result has been confirmed in this checkpoint.
+- The Android build and real-device Android-to-Android interoperability are still unverified. Do not treat the connection flow as production-validated until CI and physical-device checks pass.
