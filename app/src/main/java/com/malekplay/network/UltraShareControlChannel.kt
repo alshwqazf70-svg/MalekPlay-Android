@@ -244,14 +244,20 @@ object UltraShareControlChannel {
         val ciphertext = encrypt(key, nonce, payload)
         val frame = nonce + ciphertext
         require(frame.size <= MAX_FRAME_BYTES)
-        output.writeInt(frame.size)
-        output.write(frame)
-        output.flush()
 
-        if (decision != Decision.ACCEPTED) return
-        socket.soTimeout = SESSION_TIMEOUT_MS
-        serverSessions[request.peerAddress] = socket
+        if (decision != Decision.ACCEPTED) {
+            output.writeInt(frame.size)
+            output.write(frame)
+            output.flush()
+            return
+        }
+
         try {
+            output.writeInt(frame.size)
+            output.write(frame)
+            output.flush()
+            socket.soTimeout = SESSION_TIMEOUT_MS
+            serverSessions[request.peerAddress] = socket
             while (!socket.isClosed) {
                 when (input.readUTF()) {
                     "PING" -> {
