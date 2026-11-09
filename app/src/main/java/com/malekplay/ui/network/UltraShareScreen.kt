@@ -191,7 +191,10 @@ class UltraShareViewModel @Inject constructor(
                     hotspotStarting = serviceState.hotspotStarting,
                     hotspotActive = serviceState.hotspotActive,
                     pendingConnection = serviceState.pendingConnection,
-                    activePeers = serviceState.activePeers
+                    activePeers = serviceState.activePeers,
+                    approvedPeerHost = current.approvedPeerHost?.takeIf { approved ->
+                        serviceState.activePeers.any { it.host == approved }
+                    }
                 )
             }
         }
@@ -228,13 +231,7 @@ class UltraShareViewModel @Inject constructor(
                 val decision = UltraShareControlChannel.request(
                     host = host.trim(),
                     pairingSecret = secret.trim(),
-                    peerName = android.os.Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
-                    onSessionClosed = { disconnectedHost ->
-                        UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
-                        if (_state.value.approvedPeerHost == disconnectedHost) {
-                            _state.value = _state.value.copy(approvedPeerHost = null, status = "انقطع اتصال الجهاز الآخر.")
-                        }
-                    }
+                    peerName = android.os.Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android"
                 )
                 if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
                     UltraShareForegroundService.registerApprovedPeer(
