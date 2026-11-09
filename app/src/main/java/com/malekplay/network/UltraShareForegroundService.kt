@@ -133,6 +133,7 @@ class UltraShareForegroundService : Service() {
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
+                updateState { current -> current.copy(activePeers = emptyList(), pendingConnection = null) }
                 return START_NOT_STICKY
             }
             ACTION_ACCEPT_CONNECTION -> {
@@ -395,8 +396,7 @@ class UltraShareForegroundService : Service() {
                 hotspotActive = false,
                 hotspotSsid = null,
                 hotspotPassword = null,
-                pendingConnection = null,
-                activePeers = emptyList()
+                pendingConnection = null
             )
         }
         if (::notificationManager.isInitialized) notificationManager.cancel(NOTIFICATION_ID)
