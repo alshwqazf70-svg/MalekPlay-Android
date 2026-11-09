@@ -133,6 +133,7 @@ class UltraShareForegroundService : Service() {
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
+                currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
                 updateState { current -> current.copy(activePeers = emptyList(), pendingConnection = null) }
                 return START_NOT_STICKY
             }
@@ -276,7 +277,12 @@ class UltraShareForegroundService : Service() {
                     while (true) {
                         kotlinx.coroutines.currentCoroutineContext().ensureActive()
                         try {
-                            UltraShareControlChannel.serveOnce(secret) { request ->
+                            UltraShareControlChannel.serveOnce(
+                                pairingSecret = secret,
+                                onSessionClosed = { request ->
+                                    disconnectApprovedPeer(request.peerAddress)
+                                }
+                            ) { request ->
                                 val decision = CompletableDeferred<UltraShareControlChannel.Decision>()
                                 pendingConnectionDecision = decision
                                 updateState { current -> current.copy(
@@ -758,6 +764,8 @@ class UltraShareForegroundService : Service() {
                 throw cancelled
             } finally {
                 sendJob = null
+                UltraShareControlChannel.closeSession(host)
+                disconnectApprovedPeer(host)
                 pauseRequested = false
                 updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, queueCurrentName = null) }
                 finishService()
@@ -899,6 +907,8 @@ class UltraShareForegroundService : Service() {
         }
 
         fun disconnectApprovedPeer(host: String) {
+            UltraShareControlChannel.closeSession(host)
+            UltraShareControlChannel.closeServerSession(host)
             mutableState.update { current ->
                 current.copy(activePeers = current.activePeers.filterNot { it.host == host })
             }
