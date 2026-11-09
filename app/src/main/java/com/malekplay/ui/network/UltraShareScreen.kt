@@ -138,7 +138,8 @@ data class UltraShareUiState(
     val pendingConnection: UltraShareControlChannel.Request? = null,
     val approvedPeerHost: String? = null,
     val requestingConnection: Boolean = false,
-    val activePeers: List<com.malekplay.network.UltraSharePeerSession> = emptyList()
+    val activePeers: List<com.malekplay.network.UltraSharePeerSession> = emptyList(),
+    val peerTransfers: List<com.malekplay.network.UltraSharePeerTransfer> = emptyList()
 )
 
 @HiltViewModel
@@ -199,6 +200,7 @@ class UltraShareViewModel @Inject constructor(
                     hotspotActive = serviceState.hotspotActive,
                     pendingConnection = serviceState.pendingConnection,
                     activePeers = serviceState.activePeers,
+                    peerTransfers = serviceState.peerTransfers,
                     approvedPeerHost = current.approvedPeerHost?.takeIf { approved ->
                         serviceState.activePeers.any { it.host == approved }
                     }
@@ -1050,6 +1052,7 @@ fun UltraShareScreen(
                     Text("الأجهزة المتصلة", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                     Text("تظهر هنا الأجهزة التي اجتازت الاقتران الموثق ونبض الحياة. في وضع V2 تنتقل الدفعة كلها عبر جلسة بيانات واحدة مشفرة، مع استئناف الأجزاء غير المكتملة.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                     state.activePeers.forEach { peer ->
+                        val peerTransfer = state.peerTransfers.firstOrNull { it.host == peer.host }
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
@@ -1076,6 +1079,33 @@ fun UltraShareScreen(
                                     ) {
                                         Box(Modifier.size(6.dp).background(Color(0xFF65D6A2), androidx.compose.foundation.shape.CircleShape))
                                         Text(peer.status, color = Color(0xFF65D6A2), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    }
+                                    if (peerTransfer != null) {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth().padding(top = 7.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                peerTransfer.status + if (peerTransfer.fileName.isNotBlank()) " • " + peerTransfer.fileName else "",
+                                                color = if (peerTransfer.status.contains("فشل")) MaterialTheme.colorScheme.error else MalekPlayColors.Gold,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (peerTransfer.totalBytes > 0L) {
+                                                LinearProgressIndicator(
+                                                    progress = { peerTransfer.fraction },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                                Text(
+                                                    formatTransferBytes(peerTransfer.transferredBytes) + " / " +
+                                                        formatTransferBytes(peerTransfer.totalBytes) + " • " +
+                                                        formatTransferBytes(peerTransfer.bytesPerSecond) + "/s",
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                                 TextButton(onClick = { viewModel.disconnectPeer(peer.host) }) { Text("قطع الاتصال") }
