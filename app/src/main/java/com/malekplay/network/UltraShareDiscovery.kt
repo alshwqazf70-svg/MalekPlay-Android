@@ -1,5 +1,8 @@
 package com.malekplay.network
 
+import android.content.Context
+import android.os.Build
+import java.net.Socket
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
@@ -33,10 +36,13 @@ object UltraShareDiscovery {
 
     suspend fun advertiseWhileReceiving(
         transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT,
-        legacyTransferPort: Int = UltraShareTransport.DEFAULT_PORT
+        legacyTransferPort: Int = UltraShareTransport.DEFAULT_PORT,
+        context: Context? = null,
+        displayName: String = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android"
     ) = withContext(Dispatchers.IO) {
         require(transferPort in 1..65535)
-        val peerId = UUID.randomUUID().toString()
+        val peerId = context?.let(::stablePeerId) ?: UUID.randomUUID().toString()
+        val safeDisplayName = displayName.trim().take(64).ifBlank { "MalekPlay Android" }
         DatagramSocket(null).use { socket ->
             socket.reuseAddress = true
             socket.broadcast = true
@@ -58,7 +64,7 @@ object UltraShareDiscovery {
                         PROBE_V2 -> {
                             val offer = UltraShareNegotiation.Offer(
                                 peerId = peerId,
-                                displayName = "MalekPlay",
+                                displayName = safeDisplayName,
                                 candidates = localCandidates(transferPort)
                             )
                             val response = UltraShareNegotiation.encode(offer).toByteArray(Charsets.UTF_8)
@@ -105,8 +111,21 @@ object UltraShareDiscovery {
                     val host = source.hostAddress ?: continue
                     val v2 = UltraShareNegotiation.decode(message)
                     if (v2 != null) {
-                        val preferred = UltraShareNegotiation.selectCandidate(v2.candidates)
-                        val endpoint = preferred ?: continue
+                        // Probe each advertised path against the authenticated control listener.
+                        // Interface visibility alone does not prove that this phone joined the
+                        // same Wi-Fi Direct group or hotspot.
+                        val ordered = v2.candidates
+                            .filter { it.connected && UltraShareTransport.isValidPrivateLanHost(it.host) }
+                            .sortedWith(compareBy<UltraShareNegotiation.Candidate> {
+                                when (it.transport) {
+                                    UltraShareNegotiation.Transport.WIFI_DIRECT -> 0
+                                    UltraShareNegotiation.Transport.WLAN -> 1
+                                    UltraShareNegotiation.Transport.HOTSPOT -> 2
+                                }
+                            }.thenByDescending { it.priority })
+                        val endpoint = ordered.firstOrNull { candidate ->
+                            candidate.reachable || probeControlEndpoint(candidate.host)
+                        } ?: continue
                         peers[host] = Peer(
                             host = endpoint.host,
                             port = endpoint.port,
@@ -168,6 +187,23 @@ object UltraShareDiscovery {
                 .distinctBy { "${it.transport}:${it.host}:${it.port}" }
                 .take(8)
         }.getOrDefault(emptyList())
+
+    private fun stablePeerId(context: Context): String {
+        val preferences = context.getSharedPreferences("ultra_share_identity", Context.MODE_PRIVATE)
+        val existing = preferences.getString("peer_id", null)
+        if (!existing.isNullOrBlank()) return existing
+        val generated = UUID.randomUUID().toString()
+        preferences.edit().putString("peer_id", generated).commit()
+        return preferences.getString("peer_id", generated) ?: generated
+    }
+
+    private fun probeControlEndpoint(host: String): Boolean = runCatching {
+        Socket().use { socket ->
+            socket.tcpNoDelay = true
+            socket.connect(InetSocketAddress(host, UltraShareControlChannel.DEFAULT_PORT), 700)
+            true
+        }
+    }.getOrDefault(false)
 
     private fun findBroadcastAddresses(): List<InetAddress> = runCatching {
         NetworkInterface.getNetworkInterfaces().toList()
