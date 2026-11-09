@@ -472,6 +472,7 @@ class UltraShareForegroundService : Service() {
         }
         sendJob?.cancel()
         receiveJob?.cancel()
+        batchReceiveJob?.cancel()
         advertisementJob?.cancel()
         controlJob?.cancel()
         pendingConnectionDecision?.cancel()
