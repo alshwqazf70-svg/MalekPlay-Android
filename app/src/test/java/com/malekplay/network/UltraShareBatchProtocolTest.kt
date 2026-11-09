@@ -65,4 +65,9 @@ class UltraShareBatchProtocolTest {
         val manifest = UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(item))
         assertTrue(UltraShareBatchProtocol.encode(manifest).size < UltraShareBatchProtocol.MAX_MANIFEST_BYTES)
     }
+
+    @Test fun v2UsesSeparateDataPortAndHasBoundedPeerConcurrency() {
+        assertEquals(UltraShareTransport.DEFAULT_PORT + 1, UltraShareBatchTransport.DEFAULT_PORT)
+        assertEquals(4, UltraShareBatchTransport.DEFAULT_MAX_PEERS)
+    }
 }
