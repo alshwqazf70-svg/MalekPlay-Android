@@ -893,6 +893,7 @@ fun UltraShareScreen(
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 if (state.activePeers.isNotEmpty()) {
                     Text("غرفة الجلسات المعتمدة", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                    Text("تعرض الأجهزة التي اجتازت طلب القبول. تبقى قناة النقل الحالية منفصلة لكل ملف إلى حين اكتمال بروتوكول الجلسة المستمرة.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                     state.activePeers.forEach { peer ->
                         Row(
                             modifier = Modifier.fillMaxWidth()
@@ -938,7 +939,12 @@ fun UltraShareScreen(
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Filled.Wifi, contentDescription = null, tint = Color(0xFF65D6A2))
+                        Box(
+                            modifier = Modifier.size(38.dp).background(Color(0xFF65D6A2).copy(alpha = 0.16f), androidx.compose.foundation.shape.CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(peer.name.firstOrNull()?.uppercase() ?: "M", color = Color(0xFF65D6A2), fontWeight = FontWeight.ExtraBold)
+                        }
                         Column(Modifier.weight(1f).padding(horizontal = 9.dp)) {
                             Text(peer.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                             Text(peer.host + " • مكتشف الآن", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -957,7 +963,12 @@ fun UltraShareScreen(
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Filled.Wifi, contentDescription = null, tint = MalekPlayColors.PurpleBright)
+                        Box(
+                            modifier = Modifier.size(38.dp).background(MalekPlayColors.PurpleBright.copy(alpha = 0.16f), androidx.compose.foundation.shape.CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(peer.name.firstOrNull()?.uppercase() ?: "W", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
+                        }
                         Column(Modifier.weight(1f).padding(horizontal = 9.dp)) {
                             Text(peer.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                             Text("Wi-Fi Direct • ${peer.status}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
