@@ -179,6 +179,8 @@ object UltraShareTransport {
         val candidate = raw.trim()
         val token = "[A-Za-z0-9!#    fun sanitizeMimeType(raw: String): String {
         val candidate = raw.trim()
+        val token = "[A-Za-z0-9!#    fun sanitizeMimeType(raw: String): String {
+        val candidate = raw.trim()
         val token = "[A-Za-z0-9!#$&^_.+-]+"
         return if (candidate.length <= 160 && Regex("^$token/$token$").matches(candidate)) {
             candidate
@@ -187,6 +189,12 @@ object UltraShareTransport {
         }
     }
 ^_.+-]+"
+        return if (candidate.length <= 160 && Regex("^$token/$token$").matches(candidate)) {
+            candidate
+        } else {
+            "application/octet-stream"
+        }
+    }^_.+-]+"
         return if (candidate.length <= 160 && Regex("^$token/$token$").matches(candidate)) {
             candidate
         } else {
