@@ -461,20 +461,25 @@ object UltraShareTransport {
                 val startedAt = System.nanoTime()
                 var transferred = offset
                 FileOutputStream(partial, true).use { fileOutput ->
-                    var sequence = 1L
-                    while (transferred < size) {
-                        currentCoroutineContext().ensureActive()
-                        val chunk = readEncryptedFrame(input, receiveKey, noncePrefix, sequence++, CHUNK_BYTES)
-                        require(chunk.isNotEmpty() && chunk.size.toLong() <= size - transferred) {
-                            "وصلت كتلة بيانات بحجم غير صالح."
+                    try {
+                        var sequence = 1L
+                        while (transferred < size) {
+                            currentCoroutineContext().ensureActive()
+                            val chunk = readEncryptedFrame(input, receiveKey, noncePrefix, sequence++, CHUNK_BYTES)
+                            require(chunk.isNotEmpty() && chunk.size.toLong() <= size - transferred) {
+                                "وصلت كتلة بيانات بحجم غير صالح."
+                            }
+                            fileOutput.write(chunk)
+                            transferred += chunk.size
+                            onProgress(progress(fileName, transferred, size, startedAt, true, offset))
                         }
-                        fileOutput.write(chunk)
-                        transferred += chunk.size
-                        onProgress(progress(fileName, transferred, size, startedAt, true, offset))
+                        val end = readEncryptedFrame(input, receiveKey, noncePrefix, sequence, 64)
+                        require(end.isEmpty()) { "إشارة نهاية النقل غير صالحة." }
+                    } finally {
+                        // A dropped connection must leave a durable resume offset.
+                        // Sync once per attempt (not per chunk) to avoid destroying throughput.
+                        fileOutput.fd.sync()
                     }
-                    fileOutput.fd.sync()
-                    val end = readEncryptedFrame(input, receiveKey, noncePrefix, sequence, 64)
-                    require(end.isEmpty()) { "إشارة نهاية النقل غير صالحة." }
                 }
 
                 val actualDigest = FileInputStream(partial).use { digestStreamRaw(it) }
