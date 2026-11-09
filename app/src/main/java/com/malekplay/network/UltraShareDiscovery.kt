@@ -152,7 +152,10 @@ object UltraShareDiscovery {
                             host = address.hostAddress ?: return@mapNotNull null,
                             port = port,
                             connected = true,
-                            reachable = true,
+                            // A visible P2P/AP interface is not proof that the scanning
+                            // peer joined that group. Keep it as a candidate, but do not
+                            // auto-select it until a later connection probe confirms reachability.
+                            reachable = transport == UltraShareNegotiation.Transport.WLAN,
                             priority = when (transport) {
                                 UltraShareNegotiation.Transport.WIFI_DIRECT -> 30
                                 UltraShareNegotiation.Transport.WLAN -> 20
