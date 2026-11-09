@@ -21,7 +21,6 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.security.MessageDigest
 import java.security.SecureRandom
-import android.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
 import javax.crypto.Mac
@@ -175,7 +174,7 @@ object UltraShareControlChannel {
             ) { "استجابة قبول الاتصال غير صالحة." }
             if (responseParts[0] == "ACCEPT") {
                 val remoteName = responseParts.getOrNull(2)?.let {
-                    runCatching { String(Base64.decode(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING), Charsets.UTF_8) }.getOrNull()
+                    runCatching { String(decodeHex(it), Charsets.UTF_8) }.getOrNull()
                 }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
                 socket.soTimeout = SESSION_TIMEOUT_MS
                 val session = ClientSession(socket, input, output, remoteName)
@@ -269,7 +268,7 @@ object UltraShareControlChannel {
             peerAddress = socket.inetAddress.hostAddress.orEmpty()
         )
         val decision = withTimeoutOrNull(30_000L) { onRequest(request) } ?: Decision.REJECTED
-        val encodedLocalName = Base64.encodeToString(localPeerName.take(48).toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        val encodedLocalName = encodeHex(localPeerName.take(48).toByteArray(Charsets.UTF_8))
         val payload = if (decision == Decision.ACCEPTED) "ACCEPT|$requestId|$encodedLocalName" else "REJECT|$requestId"
         val nonce = ByteArray(NONCE_BYTES).also(SecureRandom()::nextBytes)
         val ciphertext = encrypt(key, nonce, payload)
@@ -357,6 +356,30 @@ object UltraShareControlChannel {
             init(SecretKeySpec(key, "HmacSHA256"))
             doFinal(payload)
         }
+
+
+    /** Hex encoding keeps the small control frame independent of Android framework Base64. */
+    private fun encodeHex(bytes: ByteArray): String =
+        buildString(bytes.size * 2) {
+            bytes.forEach { byte ->
+                val value = byte.toInt() and 0xff
+                append("0123456789abcdef"[value ushr 4])
+                append("0123456789abcdef"[value and 0x0f])
+            }
+        }
+
+    private fun decodeHex(value: String): ByteArray {
+        require(value.length % 2 == 0 && value.length <= MAX_FRAME_BYTES * 2) {
+            "اسم الجهاز المشفر غير صالح."
+        }
+        return ByteArray(value.length / 2) { index ->
+            val high = value[index * 2].digitToIntOrNull(16)
+                ?: error("اسم الجهاز المشفر غير صالح.")
+            val low = value[index * 2 + 1].digitToIntOrNull(16)
+                ?: error("اسم الجهاز المشفر غير صالح.")
+            ((high shl 4) or low).toByte()
+        }
+    }
 
     private fun randomId(): String =
         java.util.UUID.randomUUID().toString().replace("-", "")
