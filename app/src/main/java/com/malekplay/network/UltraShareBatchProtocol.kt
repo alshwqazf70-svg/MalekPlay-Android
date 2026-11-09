@@ -90,8 +90,8 @@ object UltraShareBatchProtocol {
             require(UltraShareTransport.sanitizeFileName(entry.name) == entry.name)
             require(entry.name.toByteArray(Charsets.UTF_8).size in 1..MAX_NAME_BYTES)
             require(UltraShareTransport.sanitizeMimeType(entry.mimeType) == entry.mimeType)
-            require(UltraShareTransport.isSupportedMediaMimeType(entry.mimeType)) {
-                "يسمح MalekPlay بمشاركة الفيديوهات والموسيقى والصور فقط."
+            require(UltraShareTransport.isAllowedTransferMimeType(entry.mimeType)) {
+                "نوع الملف المرسل غير صالح."
             }
             require(entry.mimeType.toByteArray(Charsets.UTF_8).size <= MAX_MIME_BYTES)
             require(entry.sizeBytes in 0..MAX_FILE_BYTES)

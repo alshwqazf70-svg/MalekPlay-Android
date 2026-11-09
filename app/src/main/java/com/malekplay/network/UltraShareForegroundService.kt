@@ -1067,8 +1067,8 @@ class UltraShareForegroundService : Service() {
             }
         require(size >= 0L) { "تعذر معرفة حجم الملف؛ اختر ملفاً من مدير الملفات يدعم عرض الحجم." }
         val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
-        require(UltraShareTransport.isSupportedMediaMimeType(mimeType)) {
-            "يسمح MalekPlay بإرسال الفيديوهات والموسيقى والصور فقط."
+        require(UltraShareTransport.isAllowedTransferMimeType(mimeType)) {
+            "نوع الملف الذي اخترته غير صالح للإرسال."
         }
         return Triple(name, mimeType, size)
     }

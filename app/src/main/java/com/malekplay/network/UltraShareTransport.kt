@@ -160,12 +160,41 @@ object UltraShareTransport {
 
     fun sanitizeMimeType(raw: String): String {
         val candidate = raw.trim()
+        val token = "[A-Za-z0-9!#    fun sanitizeMimeType(raw: String): String {
+        val candidate = raw.trim()
         val token = "[A-Za-z0-9!#$&^_.+-]+"
         return if (candidate.length <= 160 && Regex("^$token/$token$").matches(candidate)) {
             candidate
         } else {
             "application/octet-stream"
         }
+    }^_.+-]+"
+        return if (candidate.length <= 160 && Regex("^$token/$token$").matches(candidate)) {
+            candidate
+        } else {
+            "application/octet-stream"
+        }
+    }
+
+    /**
+     * V2 is a general file-transfer protocol, not a media-only channel.
+     * Accept any well-formed concrete MIME type; never accept wildcards or
+     * malformed values from untrusted manifests. Unknown provider types should
+     * be normalized to application/octet-stream by the caller.
+     */
+    fun isAllowedTransferMimeType(raw: String): Boolean {
+        val candidate = raw.trim()
+        if (candidate.isEmpty() || candidate.length > 160 || candidate.contains('*')) return false
+        val token = "[A-Za-z0-9!#    fun sanitizeMimeType(raw: String): String {
+        val candidate = raw.trim()
+        val token = "[A-Za-z0-9!#$&^_.+-]+"
+        return if (candidate.length <= 160 && Regex("^$token/$token$").matches(candidate)) {
+            candidate
+        } else {
+            "application/octet-stream"
+        }
+    }^_.+-]+"
+        return Regex("^$token/$token$").matches(candidate)
     }
 
     /**
