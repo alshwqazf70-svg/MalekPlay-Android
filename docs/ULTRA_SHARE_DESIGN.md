@@ -16,7 +16,7 @@
 - Pairing is available through a QR payload, live camera scanning via Google Play services Code Scanner, QR image import, and clipboard pairing URI.
 - Received files are recorded in local history and can be exported through Android's Storage Access Framework.
 - Wi-Fi Direct peer discovery and connection are implemented as an optional direct-network path. The receiver should be the group owner; the sender connects as a client and uses the reported group-owner IPv4 address.
-- A desktop companion in `desktop/` supports Windows, Linux, and macOS. It can send to Android and receive from Android over the same local-network protocol. A user-enabled phone hotspot can provide the local network when no router is available.
+- A desktop companion in `desktop/` supports Windows, Linux, and macOS. It can send to Android and receive from Android over the same local-network protocol. Its receiver also flushes and fsyncs partial data when a transfer attempt ends or is interrupted, matching Android's durable-resume behavior. A user-enabled phone hotspot can provide the local network when no router is available.
 
 ## Current limitations — do not advertise these as completed
 
