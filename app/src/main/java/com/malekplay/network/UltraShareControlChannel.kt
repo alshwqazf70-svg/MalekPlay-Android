@@ -282,11 +282,13 @@ object UltraShareControlChannel {
         }
 
         try {
+            // Publish the approved server-side session before the ACCEPT frame reaches
+            // the sender. Otherwise the first v2 data socket can race this map update.
+            socket.soTimeout = SESSION_TIMEOUT_MS
+            serverSessions[request.peerAddress] = socket
             output.writeInt(frame.size)
             output.write(frame)
             output.flush()
-            socket.soTimeout = SESSION_TIMEOUT_MS
-            serverSessions[request.peerAddress] = socket
             while (!socket.isClosed) {
                 when (input.readUTF()) {
                     "PING" -> {
