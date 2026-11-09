@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -38,7 +39,8 @@ object UltraShareControlChannel {
     private const val MAX_NAME_BYTES = 96
     private const val MAX_ID_BYTES = 64
     private const val MAX_FRAME_BYTES = 512
-    private const val SOCKET_TIMEOUT_MS = 8_000
+    private const val SOCKET_TIMEOUT_MS = 35_000
+    private const val DECISION_TIMEOUT_MS = 30_000L
 
     enum class Decision { ACCEPTED, REJECTED }
 
@@ -84,7 +86,7 @@ object UltraShareControlChannel {
         peerName: String,
         port: Int = DEFAULT_PORT
     ): Decision = withContext(Dispatchers.IO) {
-        require(UltraShareTransport.isValidPrivateLanHost(host)) { "عنوان الجهاز غير صالح." }
+        require(UltraShareTransport.isValidPrivateLanHost(host) || host == "127.0.0.1") { "عنوان الجهاز غير صالح." }
         require(UltraShareTransport.isValidPairingSecret(pairingSecret)) { "رمز الاقتران غير صالح." }
         require(port in 1..65535)
         val nameBytes = peerName.trim().toByteArray(Charsets.UTF_8)
@@ -153,13 +155,15 @@ object UltraShareControlChannel {
         val expectedMac = requestAuthentication(challenge, requestId, nameBytes)
         require(MessageDigest.isEqual(expectedMac, suppliedMac)) { "فشل التحقق من رمز الاقتران." }
 
-        val decision = onRequest(
+        val decision = withTimeoutOrNull(DECISION_TIMEOUT_MS) {
+            onRequest(
             Request(
                 requestId = requestId,
                 peerName = name,
                 peerAddress = socket.inetAddress.hostAddress.orEmpty()
             )
-        )
+            )
+        } ?: Decision.REJECTED
         val payload = (if (decision == Decision.ACCEPTED) "ACCEPT|" else "REJECT|") + requestId
         val nonce = ByteArray(NONCE_BYTES).also(SecureRandom()::nextBytes)
         val ciphertext = encrypt(key, nonce, payload)
