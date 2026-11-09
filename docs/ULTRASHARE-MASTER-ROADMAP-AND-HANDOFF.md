@@ -50,13 +50,14 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 
 - `df5a840131cd9733caf447760d3ee950217f3966` — QR-first nearby peer pairing; auto-request after QR scan.
 - `e6089241dccd0dd41844c1055e7d4142da567d7f` — unify nearby peer connect action across UltraShare room.
+- `5050ae54899d56ee3a3d18b6ce52d76047628cb5` — clarify media-only QR-first instructions in the help card.
 - The latest UI commits modify only `app/src/main/java/com/malekplay/ui/network/UltraShareScreen.kt`.
 - Keep all future UltraShare implementation and handoff documentation on this branch. Do not cherry-pick to `main` automatically.
 
 ## CI / validation status at handoff
 
-- Workflow run `42646297415` was still in progress when last checked. Desktop companion protocol tests had passed; Android unit tests/Lint and APK jobs had not yet completed. No artifact was available at that check.
-- Workflow run `42646763050` was queued/pending for commit `e6089241dccd0dd41844c1055e7d4142da567d7f`.
+- Earlier workflow runs `42646297415`, `42646763050`, and `42646886195` were cancelled when newer commits superseded them; do not interpret cancellation as a code failure or success.
+- Workflow run `42646927047` was queued for commit `5050ae54899d56ee3a3d18b6ce52d76047628cb5` at the last check. Re-fetch the latest branch head and its Actions run before reporting validation.
 - Do not claim a successful build or provide an APK until the run for the exact latest commit succeeds and its artifact is verified.
 - CI does not replace two-Android-device testing. Verify send/receive on actual devices before calling the feature complete.
 
