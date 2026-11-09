@@ -124,7 +124,7 @@ object UltraShareDiscovery {
                                 }
                             }.thenByDescending { it.priority })
                         val endpoint = ordered.firstOrNull { candidate ->
-                            candidate.reachable || probeControlEndpoint(candidate.host)
+                            probeControlEndpoint(candidate.host)
                         } ?: continue
                         peers[host] = Peer(
                             host = endpoint.host,
