@@ -610,7 +610,7 @@ fun UltraShareScreen(
         }
     }
     val qrPayload = state.localAddresses.firstOrNull()?.takeIf { state.receiving }?.let { address ->
-        UltraShareQrCode.createPayload(address, UltraShareTransport.DEFAULT_PORT, state.pairingSecret)
+        UltraShareQrCode.createPayload(address, UltraShareBatchTransport.DEFAULT_PORT, state.pairingSecret)
     }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
@@ -1008,7 +1008,7 @@ fun UltraShareScreen(
                             Text("تحديث عناوين الشبكة")
                         }
                         Text(
-                            stringResource(R.string.ultra_share_port, UltraShareTransport.DEFAULT_PORT),
+                            stringResource(R.string.ultra_share_port, UltraShareBatchTransport.DEFAULT_PORT),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
