@@ -1065,7 +1065,11 @@ class UltraShareForegroundService : Service() {
                 }
             }
         require(size >= 0L) { "تعذر معرفة حجم الملف؛ اختر ملفاً من مدير الملفات يدعم عرض الحجم." }
-        return Triple(name, contentResolver.getType(uri) ?: "application/octet-stream", size)
+        val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
+        require(UltraShareTransport.isSupportedMediaMimeType(mimeType)) {
+            "يسمح MalekPlay بإرسال الفيديوهات والموسيقى والصور فقط."
+        }
+        return Triple(name, mimeType, size)
     }
 
     private fun findLocalIpv4Addresses(): List<String> = runCatching {
