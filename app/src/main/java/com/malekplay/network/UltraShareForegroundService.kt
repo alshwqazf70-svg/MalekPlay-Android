@@ -28,6 +28,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -146,6 +147,8 @@ class UltraShareForegroundService : Service() {
                 sendJob?.cancel()
                 receiveJob?.cancel()
                 advertisementJob?.cancel()
+                controlJob?.cancel()
+                pendingConnectionDecision?.cancel()
                 stopLocalHotspot()
                 if (sendJob == null && receiveJob == null) finishService()
                 return START_NOT_STICKY
@@ -246,6 +249,9 @@ class UltraShareForegroundService : Service() {
                     } finally {
                         advertisementJob?.cancel()
                         advertisementJob = null
+                        controlJob?.cancel()
+                        controlJob = null
+                        pendingConnectionDecision?.cancel()
                         receiveJob = null
                         updateState { current -> current.copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (current.sending) current.sendProgress else null, receiveProgress = null) }
                         finishService()
