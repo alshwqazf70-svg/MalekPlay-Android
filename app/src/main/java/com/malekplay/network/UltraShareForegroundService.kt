@@ -807,6 +807,14 @@ class UltraShareForegroundService : Service() {
                             ) }
                         }
                     } catch (cancelled: CancellationException) {
+                        withContext(NonCancellable) {
+                            v2Candidates.forEach { (uri, source) ->
+                                UltraShareQueueStore.update(
+                                    this@UltraShareForegroundService, uri, source.name,
+                                    UltraShareQueueStore.STATUS_PENDING, "انقطع النقل؛ يمكن استئناف الملف من موضعه."
+                                )
+                            }
+                        }
                         throw cancelled
                     } catch (failure: java.net.ConnectException) {
                         // An older installed receiver has no v2 listener. Return claimed
