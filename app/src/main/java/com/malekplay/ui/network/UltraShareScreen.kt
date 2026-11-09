@@ -1036,25 +1036,36 @@ fun UltraShareScreen(
                     Text("الأجهزة المتصلة", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                     Text("تظهر هنا الأجهزة التي اجتازت الاقتران الموثق ونبض الحياة. في وضع V2 تنتقل الدفعة كلها عبر جلسة بيانات واحدة مشفرة، مع استئناف الأجزاء غير المكتملة.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                     state.activePeers.forEach { peer ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.secondaryContainer, androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
-                                .padding(horizontal = 10.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
                         ) {
-                            Box(
-                                modifier = Modifier.size(42.dp)
-                                    .background(MalekPlayColors.PurpleBright.copy(alpha = 0.18f), androidx.compose.foundation.shape.CircleShape),
-                                contentAlignment = Alignment.Center
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(11.dp)
                             ) {
-                                Text(peer.name.firstOrNull()?.uppercase() ?: "M", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
+                                Box(
+                                    modifier = Modifier.size(54.dp)
+                                        .background(MalekPlayColors.PurpleBright.copy(alpha = 0.18f), androidx.compose.foundation.shape.CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(peer.name.firstOrNull()?.uppercase() ?: "M", color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                                }
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(peer.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleSmall)
+                                    Text(peer.host + " • " + peer.role, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                                    Row(
+                                        modifier = Modifier.background(Color(0xFF65D6A2).copy(alpha = 0.15f), androidx.compose.foundation.shape.RoundedCornerShape(20.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Box(Modifier.size(6.dp).background(Color(0xFF65D6A2), androidx.compose.foundation.shape.CircleShape))
+                                        Text(peer.status, color = Color(0xFF65D6A2), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                TextButton(onClick = { viewModel.disconnectPeer(peer.host) }) { Text("قطع الاتصال") }
                             }
-                            Column(Modifier.weight(1f).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(peer.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                                Text(peer.host + " • " + peer.role, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
-                                Text(peer.status, color = Color(0xFF65D6A2), style = MaterialTheme.typography.labelSmall)
-                            }
-                            TextButton(onClick = { viewModel.disconnectPeer(peer.host) }) { Text("إنهاء") }
                         }
                     }
                 }
