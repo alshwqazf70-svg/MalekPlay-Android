@@ -126,7 +126,9 @@ object UltraShareBatchTransport {
                             val peer = socket.inetAddress.hostAddress ?: "unknown"
                             var authenticated = false
                             try {
-                                val peerMutex = peerMutexes.computeIfAbsent(peer) { Mutex() }
+                                val peerMutex = peerMutexes[peer] ?: Mutex().let { candidate ->
+                                    peerMutexes.putIfAbsent(peer, candidate) ?: candidate
+                                }
                                 val result = peerMutex.withLock {
                                     val peerState = File(
                                         destinationDirectory,
