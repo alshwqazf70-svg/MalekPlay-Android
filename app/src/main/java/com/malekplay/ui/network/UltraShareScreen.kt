@@ -324,21 +324,8 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun send(uri: Uri, host: String, secret: String) {
-        if (_state.value.sending || _state.value.receiving) return
-        runCatching {
-            UltraShareForegroundService.startSending(context, uri, host, secret)
-            _state.value = _state.value.copy(
-                sending = true,
-                progress = null,
-                error = null,
-                status = context.getString(R.string.ultra_share_sending)
-            )
-        }.onFailure {
-            _state.value = _state.value.copy(
-                sending = false,
-                error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
-            )
-        }
+        // Keep single-file and multi-file sends on one durable queue/state path.
+        sendBatch(listOf(uri), host, secret)
     }
 
     fun sendBatch(uris: List<Uri>, host: String, secret: String): Boolean {
