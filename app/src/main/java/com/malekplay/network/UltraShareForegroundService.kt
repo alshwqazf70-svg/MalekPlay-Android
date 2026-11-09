@@ -304,7 +304,7 @@ class UltraShareForegroundService : Service() {
                                 onBatchFinished = { peer, batch ->
                                     batch.files.forEach { item ->
                                         val received = item.receivedFile ?: return@forEach
-                                        runCatching {
+                                        try {
                                             val publishedUri = UltraShareReceivedPublisher.publish(this@UltraShareForegroundService, received)
                                             UltraShareReceivedHistoryStore.record(
                                                 context = this@UltraShareForegroundService,
@@ -319,7 +319,9 @@ class UltraShareForegroundService : Service() {
                                                 status = "استُلم ${received.fileName} ضمن دفعة V2 من $peer",
                                                 error = null
                                             ) }
-                                        }.onFailure { failure ->
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (failure: Exception) {
                                             updateState { current -> current.copy(error = failure.localizedMessage ?: "تعذر حفظ الملف المستلم.") }
                                         }
                                     }
@@ -730,6 +732,9 @@ class UltraShareForegroundService : Service() {
             val queue = uris.distinctBy { it.toString() }
             var metadataByUri: Map<Uri, Triple<String, String, Long>> = emptyMap()
             var totalBytes = 0L
+            var v2ProgressFileId: String? = null
+            var v2ProgressCompletedBytes = 0L
+            var v2ProgressFileSize = 0L
             try {
                 // Persist the complete batch before querying document providers. If Android
                 // stops the process during slow metadata lookup, the selected files remain
