@@ -19,6 +19,10 @@
 - Wi-Fi Direct peer discovery and connection are implemented as an optional direct-network path. The receiver should be the group owner; the sender connects as a client and uses the reported group-owner IPv4 address.
 - A desktop companion in `desktop/` supports Windows, Linux, and macOS. It can send to Android and receive from Android over the same local-network protocol. A user-enabled phone hotspot can provide the local network when no router is available.
 
+## Protocol research decision (2026-11-09)
+
+A static native call-chain review of the supplied Zapya APK found AES-GCM calls in its file-frame creation/receive functions and explicit file ACK/retransmission handling. The observed KCP calls were in the DMsg/message path, including a conditional KCP send branch, not in the identified file-frame builder/receiver path. Therefore MalekPlay does not add KCP to the file data plane just to imitate a library symbol. Keep the independent UltraShare stream protocol, authenticated encryption, SHA-256 verification, durable resume and ACK-driven recovery; change chunk size, concurrency or transport only after repeatable physical-device benchmarks. Detailed evidence is recorded in the separate Zapya Engineering Analysis repository.
+
 ## Current limitations — do not advertise these as completed
 
 - Wi-Fi Direct behavior varies by Android vendor and device. It requires real-device testing; the helper does not guarantee that every handset permits peer discovery or group formation.
