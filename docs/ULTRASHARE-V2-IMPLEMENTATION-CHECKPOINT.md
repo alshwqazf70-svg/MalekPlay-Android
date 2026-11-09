@@ -12,6 +12,7 @@ Branch: `feature/zapya-engineering-analysis`
 - Added bounded batch-manifest and per-file result models.
 - Added JVM unit tests for offer encoding/decoding, malformed offers, candidate selection, invitation transitions, and batch validation.
 - Added an approved-peer session registry to the foreground service. The receiver records the authenticated sender only after explicit acceptance; the sender records an approved receiver only after the encrypted ACCEPT response. Sessions can be explicitly ended from the room.
+- Extended the authenticated control channel into a persistent TCP control session after acceptance. It exchanges PING/PONG heartbeats every 5 seconds, detects lost peers through socket timeout/EOF, and removes the peer from the room on disconnect. The accepted control session remains alive across sequential file batches until either side ends it or the receiver stops.
 - Added a device-room section showing approved peers separately from merely discovered peers, with avatar initials, peer name/address, role, authorization status, and an end-session action. Discovery rows now identify devices as discovered rather than connected.
 - Added per-file live progress, transferred/total bytes, and throughput to the queue rows. The existing durable queue continues to retain completed/failed/pending/skipped states independently.
 - Verified by source inspection that the current receiver stores partial files with content-derived identities, verifies their SHA-256 digest, resumes from the stored byte offset, and recognizes already completed receipts to avoid retransmitting completed files.
@@ -24,7 +25,7 @@ Branch: `feature/zapya-engineering-analysis`
 - The new control channel is wired to the foreground receiver and Compose UI, but it currently authorizes the existing v1 encrypted transfer handshake; it does not yet keep one persistent authenticated session open for the whole batch.
 - Pairing authentication remains in the existing transfer handshake. No pairing secret is included in discovery.
 - The existing file transfer wire protocol still transfers files in separate sessions. The batch manifest/result models are groundwork only; the single-session multi-file wire protocol and receiver task routing remain to be implemented.
-- The room is an approved-peer registry, not yet a continuously monitored online-presence system: the control socket closes after the accept/reject decision. A device may remain listed as authorized until the user ends the session or stops receiving; heartbeat/liveness detection and reconnection are not implemented yet.
+- The room now reflects live authenticated control-socket presence while the process/service remains alive. It is still a single-peer-at-a-time receiver listener; multi-peer concurrent invitation handling and automatic reconnect/re-authentication are not implemented.
 - No claim of Android build success or physical-device interoperability is made by this checkpoint.
 
 ## Next implementation sequence
@@ -47,3 +48,11 @@ Branch: `feature/zapya-engineering-analysis`
 - The queue remains sequential at the transport layer. Each file currently opens its own authenticated v1 transfer connection; the UI must not imply that the requested persistent single-session multi-file protocol is complete.
 - The resume mechanism is already implemented in v1 and is keyed by sanitized file name, size, and SHA-256 content digest. It resumes partial bytes after reconnect and checks a completed receipt before sending data again.
 - No Android build, unit-test run, physical-device connectivity test, or measured throughput result has been produced for these latest changes.
+
+
+## Persistent control-session update
+
+- The accepted TCP control socket now stays open after the encrypted decision. The client sends PING every 5 seconds and expects PONG; the receiver expires a silent session after 18 seconds.
+- Explicit local disconnect closes the client or server socket, and both ends remove the peer from their approved room state.
+- The control socket persists across file batches. Data still travels through one v1 transfer socket per file; this is not yet a single multi-file data session.
+- The receiver currently handles one approved control session at a time. Concurrent multi-peer sessions remain future work.
