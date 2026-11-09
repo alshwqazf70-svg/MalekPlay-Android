@@ -9,6 +9,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
@@ -52,6 +54,7 @@ object UltraShareBatchTransport {
     private const val TYPE_CHUNK = 1
     private const val TYPE_FILE_END = 2
     private const val TYPE_BATCH_END = 3
+    private val peerMutexes = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
 
     data class Source(
         val uri: Uri,
@@ -123,10 +126,20 @@ object UltraShareBatchTransport {
                             val peer = socket.inetAddress.hostAddress ?: "unknown"
                             try {
                                 onPeerStarted(peer)
-                                val result = receiveSession(
-                                    socket, pairingSecret, destinationDirectory,
-                                    onProgress = { progress -> onProgress(peer, progress) }
-                                )
+                                val peerMutex = peerMutexes.computeIfAbsent(peer) { Mutex() }
+                                val result = peerMutex.withLock {
+                                    val peerState = File(
+                                        destinationDirectory,
+                                        ".ultrashare-v2-state/" + MessageDigest.getInstance("SHA-256")
+                                            .digest(peer.toByteArray(Charsets.UTF_8))
+                                            .take(12).joinToString("") { "%02x".format(it) }
+                                    )
+                                    check(peerState.exists() || peerState.mkdirs())
+                                    receiveSession(
+                                        socket, pairingSecret, destinationDirectory, peerState,
+                                        onProgress = { progress -> onProgress(peer, progress) }
+                                    )
+                                }
                                 onBatchFinished(peer, result)
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
@@ -260,6 +273,7 @@ object UltraShareBatchTransport {
         socket: Socket,
         pairingSecret: String,
         destinationDirectory: File,
+        stateDirectory: File,
         onProgress: (FileProgress) -> Unit
     ): BatchOutcome {
         configure(socket)
@@ -291,8 +305,8 @@ object UltraShareBatchTransport {
         val completedFiles = HashMap<String, File>()
         val partials = manifest.entries.map { entry ->
             val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
-            val partial = File(destinationDirectory, ".ultrashare-v2-$identity.part")
-            val receipt = File(destinationDirectory, ".ultrashare-v2-$identity.received")
+            val partial = File(stateDirectory, ".ultrashare-v2-$identity.part")
+            val receipt = File(stateDirectory, ".ultrashare-v2-$identity.received")
             val digestHex = entry.sha256.joinToString("") { "%02x".format(it) }
             val completed = receipt.takeIf { it.isFile }?.let { marker ->
                 runCatching {
@@ -390,8 +404,8 @@ object UltraShareBatchTransport {
                 val target = uniqueDestination(destinationDirectory, entry.name)
                 check(partial.renameTo(target)) { "تعذر تثبيت الملف المستلم." }
                 val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
-                val marker = File(destinationDirectory, ".ultrashare-v2-$identity.received")
-                val markerTemp = File(destinationDirectory, ".ultrashare-v2-$identity.received.tmp")
+                val marker = File(stateDirectory, ".ultrashare-v2-$identity.received")
+                val markerTemp = File(stateDirectory, ".ultrashare-v2-$identity.received.tmp")
                 markerTemp.writeText(
                     "${entry.sizeBytes}: ${entry.sha256.joinToString("") { "%02x".format(it) }}:${target.name}".replace(": ", ":"),
                     Charsets.UTF_8
