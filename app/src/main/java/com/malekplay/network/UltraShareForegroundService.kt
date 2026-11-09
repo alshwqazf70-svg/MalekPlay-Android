@@ -887,7 +887,7 @@ class UltraShareForegroundService : Service() {
                                 .copy(
                                     fileName = "نتيجة الدفعة",
                                     transferredBytes = batch.files.sumOf { it.transferredBytes.coerceAtLeast(0L) },
-                                    totalBytes = batch.files.sumOf { it.transferredBytes.coerceAtLeast(0L) },
+                                    totalBytes = v2Candidates.sumOf { it.second.sizeBytes.coerceAtLeast(0L) },
                                     bytesPerSecond = 0L,
                                     status = if (failed == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failed",
                                     updatedAtMillis = System.currentTimeMillis()
