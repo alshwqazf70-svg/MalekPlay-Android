@@ -59,7 +59,17 @@ data class UltraShareServiceState(
     val queueCurrentName: String? = null,
     val queueTotalBytes: Long = 0L,
     val queueTransferredBytes: Long = 0L,
-    val pendingConnection: UltraShareControlChannel.Request? = null
+    val pendingConnection: UltraShareControlChannel.Request? = null,
+    val activePeers: List<UltraSharePeerSession> = emptyList()
+)
+
+data class UltraSharePeerSession(
+    val sessionId: String,
+    val name: String,
+    val host: String,
+    val role: String,
+    val approvedAtMillis: Long,
+    val status: String = "مصرّح"
 )
 
 /**
@@ -271,7 +281,16 @@ class UltraShareForegroundService : Service() {
                                     status = "طلب اتصال وارد من " + request.peerName
                                 ) }
                                 try {
-                                    decision.await()
+                                    val result = decision.await()
+                                    if (result == UltraShareControlChannel.Decision.ACCEPTED) {
+                                        registerApprovedPeer(
+                                            name = request.peerName,
+                                            host = request.peerAddress,
+                                            role = "مستقبل",
+                                            sessionId = request.requestId
+                                        )
+                                    }
+                                    result
                                 } finally {
                                     pendingConnectionDecision = null
                                     updateState { current -> current.copy(pendingConnection = null) }
@@ -376,7 +395,8 @@ class UltraShareForegroundService : Service() {
                 hotspotActive = false,
                 hotspotSsid = null,
                 hotspotPassword = null,
-                pendingConnection = null
+                pendingConnection = null,
+                activePeers = emptyList()
             )
         }
         if (::notificationManager.isInitialized) notificationManager.cancel(NOTIFICATION_ID)
@@ -855,6 +875,31 @@ class UltraShareForegroundService : Service() {
 
         private val mutableState = MutableStateFlow(UltraShareServiceState())
         val state = mutableState.asStateFlow()
+
+        fun registerApprovedPeer(
+            name: String,
+            host: String,
+            role: String,
+            sessionId: String = java.util.UUID.randomUUID().toString()
+        ) {
+            mutableState.update { current ->
+                val updated = current.activePeers.filterNot { it.host == host } +
+                    UltraSharePeerSession(
+                        sessionId = sessionId,
+                        name = name.take(96),
+                        host = host,
+                        role = role,
+                        approvedAtMillis = System.currentTimeMillis()
+                    )
+                current.copy(activePeers = updated)
+            }
+        }
+
+        fun disconnectApprovedPeer(host: String) {
+            mutableState.update { current ->
+                current.copy(activePeers = current.activePeers.filterNot { it.host == host })
+            }
+        }
 
         fun acceptConnection(context: Context) {
             context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_ACCEPT_CONNECTION))
