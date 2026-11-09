@@ -1720,6 +1720,7 @@ fun UltraShareScreen(
     }
 }
 
+}
 @Composable
 private fun UltraShareSessionRoom(
     state: UltraShareUiState,
