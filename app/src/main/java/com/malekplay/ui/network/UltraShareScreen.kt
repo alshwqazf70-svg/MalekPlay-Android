@@ -895,8 +895,8 @@ fun UltraShareScreen(
         ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 if (state.activePeers.isNotEmpty()) {
-                    Text("غرفة الجلسات المعتمدة", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                    Text("تعرض الأجهزة التي اجتازت طلب القبول. تبقى قناة النقل الحالية منفصلة لكل ملف إلى حين اكتمال بروتوكول الجلسة المستمرة.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    Text("غرفة الأجهزة المتصلة", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                    Text("تظهر هنا الأجهزة ذات قناة تحكم موثقة ونبض حياة نشط. بيانات الملفات تستخدم حالياً اتصال نقل منفصلاً لكل ملف.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                     state.activePeers.forEach { peer ->
                         Row(
                             modifier = Modifier.fillMaxWidth()
@@ -950,7 +950,7 @@ fun UltraShareScreen(
                         }
                         Column(Modifier.weight(1f).padding(horizontal = 9.dp)) {
                             Text(peer.name, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                            Text(peer.host + " • مكتشف الآن", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(peer.host + " • تم اكتشافه", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         TextButton(onClick = {
                             viewModel.clearApprovedConnection()
