@@ -329,6 +329,19 @@ def send_file(host: str, port: int, secret: str, source: Path) -> None:
             time.sleep(attempt + 1)
 
 
+def send_files(host: str, port: int, secret: str, sources: list[Path]) -> None:
+    """Send a user-selected batch in order, validating every source before connecting."""
+    if not sources:
+        raise ValueError("Select at least one file to send.")
+    missing = [source for source in sources if not source.is_file()]
+    if missing:
+        raise FileNotFoundError("One or more selected files do not exist: " +
+                                ", ".join(str(path) for path in missing))
+    for index, source in enumerate(sources, start=1):
+        print(f"\\n[{index}/{len(sources)}] Sending {source.name}")
+        send_file(host, port, secret, source)
+
+
 def receive_one(port: int, secret: str, directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
@@ -507,7 +520,7 @@ def main() -> int:
     send = sub.add_parser("send", help="Send a file to an Android or desktop receiver")
     send.add_argument("--secret", help="12-digit pairing code (legacy 64-character hex key also accepted; prompted if omitted)")
     send.add_argument("--host", required=True, help="Receiver's private IPv4 address")
-    send.add_argument("--file", required=True, type=Path)
+    send.add_argument("--file", required=True, type=Path, nargs="+", metavar="FILE")
     send.add_argument("--port", type=int, default=DEFAULT_PORT)
 
     discover = sub.add_parser("discover", help="Find MalekPlay receivers on the local network")
@@ -523,7 +536,7 @@ def main() -> int:
 
         secret = get_secret(args.secret)
         if args.command == "send":
-            send_file(args.host, args.port, secret, args.file)
+            send_files(args.host, args.port, secret, args.file)
             return 0
 
         responder = threading.Thread(
