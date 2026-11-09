@@ -147,11 +147,11 @@ object UltraShareBatchTransport {
                                 onBatchFinished(peer, result)
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
-                            } catch (failure: Throwable) {
+                            } catch (failure: Exception) {
                                 onPeerError(peer, failure)
                             } finally {
                                 runCatching { socket.close() }
-                                if (authenticated) onPeerFinished(peer)
+                                if (authenticated) runCatching { onPeerFinished(peer) }
                                 permits.release()
                             }
                         }
@@ -266,7 +266,7 @@ object UltraShareBatchTransport {
             }
             writeFrame(output, sendKey, noncePrefix, sendSequence++, byteArrayOf(TYPE_BATCH_END.toByte()))
             val results = decodeResults(
-                readFrame(input, receiveKey, noncePrefix, receiveSequence, 64 * 1024), manifest
+                readFrame(input, receiveKey, noncePrefix, receiveSequence, UltraShareBatchProtocol.MAX_MANIFEST_BYTES), manifest
             )
             val byId = results.associateBy { it.fileId }
             BatchOutcome(manifest.batchId, manifest.entries.map { entry ->
