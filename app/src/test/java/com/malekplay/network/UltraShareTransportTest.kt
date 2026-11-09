@@ -200,6 +200,7 @@ class UltraShareTransportTest {
             val temporary = java.io.File(directory, "receipt.tmp")
             val marker = java.io.File(directory, "receipt.received")
             val expected = "4096:" + "ab".repeat(32) + ":movie.mp4"
+            marker.writeText("stale receipt", Charsets.UTF_8)
 
             writeUltraShareReceiptAtomically(temporary, marker, expected)
 
