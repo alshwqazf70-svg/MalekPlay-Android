@@ -74,6 +74,7 @@ import androidx.lifecycle.viewModelScope
 import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareTransport
+import com.malekplay.network.UltraShareControlChannel
 import com.malekplay.data.repository.MediaRepository
 import com.malekplay.network.UltraShareDiscovery
 import com.malekplay.network.UltraShareQueueEntry
@@ -126,7 +127,9 @@ data class UltraShareUiState(
     val hotspotSsid: String? = null,
     val hotspotPassword: String? = null,
     val hotspotStarting: Boolean = false,
-    val hotspotActive: Boolean = false
+    val hotspotActive: Boolean = false,
+    val pendingConnection: UltraShareControlChannel.Request? = null,
+    val approvedPeerHost: String? = null
 )
 
 @HiltViewModel
@@ -184,7 +187,8 @@ class UltraShareViewModel @Inject constructor(
                     hotspotSsid = serviceState.hotspotSsid,
                     hotspotPassword = serviceState.hotspotPassword,
                     hotspotStarting = serviceState.hotspotStarting,
-                    hotspotActive = serviceState.hotspotActive
+                    hotspotActive = serviceState.hotspotActive,
+                    pendingConnection = serviceState.pendingConnection
                 )
             }
         }
@@ -208,6 +212,49 @@ class UltraShareViewModel @Inject constructor(
                     error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
                 )
             }
+    }
+
+    fun requestConnection(host: String, secret: String) {
+        if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
+            _state.value = _state.value.copy(error = "أدخل عنوان الجهاز ورمز الاقتران الصحيح أولاً.")
+            return
+        }
+        viewModelScope.launch {
+            _state.value = _state.value.copy(approvedPeerHost = null, error = null, status = "تم إرسال طلب الاتصال؛ بانتظار موافقة الجهاز الآخر...")
+            try {
+                val decision = UltraShareControlChannel.request(
+                    host = host.trim(),
+                    pairingSecret = secret.trim(),
+                    peerName = android.os.Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android"
+                )
+                if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                    _state.value = _state.value.copy(
+                        approvedPeerHost = host.trim(),
+                        status = "وافق الجهاز الآخر على الاتصال. يمكنك الآن بدء النقل المشفر.",
+                        error = null
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        approvedPeerHost = null,
+                        status = "رفض الجهاز الآخر طلب الاتصال.",
+                        error = null
+                    )
+                }
+            } catch (failure: Exception) {
+                _state.value = _state.value.copy(
+                    approvedPeerHost = null,
+                    error = failure.localizedMessage ?: "تعذر إتمام طلب الاتصال."
+                )
+            }
+        }
+    }
+
+    fun acceptConnection() {
+        UltraShareForegroundService.acceptConnection(context)
+    }
+
+    fun rejectConnection() {
+        UltraShareForegroundService.rejectConnection(context)
     }
 
     fun startHotspot() {
@@ -381,7 +428,8 @@ class UltraShareViewModel @Inject constructor(
 
     fun sendBatch(uris: List<Uri>, host: String, secret: String): Boolean {
         if (uris.isEmpty() || _state.value.sending ||
-            host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)
+            host.isBlank() || _state.value.approvedPeerHost != host.trim() ||
+            !UltraShareTransport.isValidPairingSecret(secret)
         ) return false
         return runCatching {
             UltraShareForegroundService.startSendingBatch(context, uris, host, secret)
@@ -401,8 +449,8 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun resumePendingBatch(host: String, secret: String) {
-        if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret) ||
-            _state.value.sending
+        if (host.isBlank() || _state.value.approvedPeerHost != host.trim() ||
+            !UltraShareTransport.isValidPairingSecret(secret) || _state.value.sending
         ) return
         viewModelScope.launch {
             val pendingUris = UltraShareQueueStore.pending(context).map { it.parsedUri }
@@ -416,7 +464,8 @@ class UltraShareViewModel @Inject constructor(
 
     fun retryFile(entry: UltraShareQueueEntry, host: String, secret: String) {
         if (_state.value.sending ||
-            host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret) ||
+            host.isBlank() || _state.value.approvedPeerHost != host.trim() ||
+            !UltraShareTransport.isValidPairingSecret(secret) ||
             entry.status != UltraShareQueueStore.STATUS_FAILED
         ) return
         runCatching {
@@ -734,6 +783,23 @@ fun UltraShareScreen(
                             Text("الملفات", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                             Text("${pendingMediaUris.size}", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
                         }
+                    }
+                }
+            }
+        }
+
+        state.pendingConnection?.let { request ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("طلب اتصال وارد", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    Text(request.peerName + " • " + request.peerAddress, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                    Text("لن يبدأ نقل الملفات قبل موافقتك.", color = MaterialTheme.colorScheme.onTertiaryContainer, style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = viewModel::acceptConnection, modifier = Modifier.weight(1f)) { Text("قبول") }
+                        OutlinedButton(onClick = viewModel::rejectConnection, modifier = Modifier.weight(1f)) { Text("رفض") }
                     }
                 }
             }
@@ -1096,6 +1162,15 @@ fun UltraShareScreen(
                     Icon(Icons.Filled.ContentCopy, contentDescription = null)
                     Text(stringResource(R.string.ultra_share_paste_pairing), modifier = Modifier.padding(start = 8.dp))
                 }
+                OutlinedButton(
+                    onClick = { viewModel.requestConnection(host.trim(), secret.trim()) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.sending && host.isNotBlank() &&
+                        UltraShareTransport.isValidPairingSecret(secret) &&
+                        state.approvedPeerHost != host.trim()
+                ) {
+                    Text(if (state.approvedPeerHost == host.trim()) "تم قبول الاتصال ✓" else "طلب اتصال وانتظار القبول")
+                }
                 if (pendingMediaUris.isNotEmpty()) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -1120,14 +1195,14 @@ fun UltraShareScreen(
                                         }
                                     },
                                     modifier = Modifier.weight(1f),
-                                    enabled = !state.sending && host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
+                                    enabled = !state.sending && host.isNotBlank() && state.approvedPeerHost == host.trim() && UltraShareTransport.isValidPairingSecret(secret)
                                 ) {
                                     Icon(Icons.Filled.Send, contentDescription = null)
                                     Text("إرسال الآن", modifier = Modifier.padding(start = 6.dp))
                                 }
                             }
                             if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
-                                Text("أكمل ربط الجهاز أولًا، ثم اضغط إرسال الآن.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                                Text("اطلب الاتصال وانتظر قبول الجهاز الآخر قبل بدء الإرسال.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
