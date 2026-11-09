@@ -16,7 +16,7 @@ class UltraShareControlChannelTest {
     @Test
     fun authenticatedRequestWaitsForAndReceivesApproval() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
-        val secret = "123456789012"
+        val secret = "123456789"
         val sessionClosed = CompletableDeferred<Unit>()
         val server = async {
             UltraShareControlChannel.serveOnce(
@@ -58,7 +58,7 @@ class UltraShareControlChannelTest {
     @Test
     fun rejectedRequestReturnsEncryptedRejection() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
-        val secret = "987654321098"
+        val secret = "987654321"
         val server = async {
             UltraShareControlChannel.serveOnce(secret, port) {
                 UltraShareControlChannel.Decision.REJECTED
