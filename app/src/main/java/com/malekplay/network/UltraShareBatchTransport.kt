@@ -96,7 +96,7 @@ object UltraShareBatchTransport {
         onPeerStarted: (String) -> Unit = {},
         onPeerFinished: (String) -> Unit = {},
         onProgress: (String, FileProgress) -> Unit = { _, _ -> },
-        onBatchFinished: (String, BatchOutcome) -> Unit = { _, _ -> },
+        onBatchFinished: suspend (String, BatchOutcome) -> Unit = { _, _ -> },
         onPeerError: (String, Throwable) -> Unit = { _, _ -> }
     ) = withContext(Dispatchers.IO) {
         require(port in 1..65535)
