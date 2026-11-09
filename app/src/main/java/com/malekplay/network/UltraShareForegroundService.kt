@@ -359,6 +359,12 @@ class UltraShareForegroundService : Service() {
                                     disconnectApprovedPeer(request.peerAddress)
                                 }
                             ) { request ->
+                                // The room currently exposes one approval card at a time.
+                                // Reject an overlapping invitation instead of overwriting its
+                                // deferred decision and accidentally accepting the wrong peer.
+                                if (pendingConnectionDecision != null) {
+                                    return@serveOnce UltraShareControlChannel.Decision.REJECTED
+                                }
                                 val decision = CompletableDeferred<UltraShareControlChannel.Decision>()
                                 pendingConnectionDecision = decision
                                 updateState { current -> current.copy(
