@@ -280,6 +280,7 @@ class UltraShareForegroundService : Service() {
                         try {
                             UltraShareControlChannel.serveOnce(
                                 pairingSecret = secret,
+                                localPeerName = Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
                                 onSessionClosed = { request ->
                                     disconnectApprovedPeer(request.peerAddress)
                                 }
