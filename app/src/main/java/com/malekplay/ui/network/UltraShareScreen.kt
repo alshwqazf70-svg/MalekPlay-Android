@@ -324,6 +324,14 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun send(uri: Uri, host: String, secret: String) {
+        if (_state.value.sending || _state.value.receiving) return
+        if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
+            _state.value = _state.value.copy(
+                sending = false,
+                error = context.getString(R.string.ultra_share_transfer_failed)
+            )
+            return
+        }
         // Keep single-file and multi-file sends on one durable queue/state path.
         sendBatch(listOf(uri), host, secret)
     }
