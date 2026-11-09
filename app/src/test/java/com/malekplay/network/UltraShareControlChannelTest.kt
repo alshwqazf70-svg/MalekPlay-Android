@@ -21,6 +21,7 @@ class UltraShareControlChannelTest {
             UltraShareControlChannel.serveOnce(
                 pairingSecret = secret,
                 port = port,
+                localPeerName = "Receiver Phone",
                 onSessionClosed = { sessionClosed.complete(Unit) }
             ) { request ->
                 assertEquals("Sender Phone", request.peerName)
@@ -37,6 +38,7 @@ class UltraShareControlChannelTest {
         )
         assertEquals(UltraShareControlChannel.Decision.ACCEPTED, decision)
         assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
+        assertEquals("Receiver Phone", UltraShareControlChannel.sessionPeerName("127.0.0.1"))
         UltraShareControlChannel.closeSession("127.0.0.1")
         withTimeout(2_000L) { sessionClosed.await() }
         server.cancelAndJoin()
