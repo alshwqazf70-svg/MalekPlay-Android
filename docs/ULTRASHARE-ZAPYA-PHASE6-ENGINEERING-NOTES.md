@@ -8,6 +8,14 @@
 - Transfers remain sequential and each file retains the existing authenticated AES-GCM v1 handshake, resume offset, SHA-256 verification, and bounded retry behavior. This deliberately avoids claiming parallel-transfer speedups before device-level measurements.
 - Unit tests cover all-path prevalidation and stable send order. CI execution is pending confirmation; the code change alone is not a test result.
 
+
+### Discovery UX and Android send-path tuning
+
+- LAN discovery now runs as a bounded repeated scan (eight short windows) and updates the nearby-device list as devices appear; the same control can cancel the scan.
+- The nearby-device panel now presents LAN and Wi-Fi Direct peers together with explicit selection/connect actions. Selecting a LAN peer fills its host only; pairing still requires the receiver's QR/PIN so discovery never bypasses authentication.
+- Android source streams now use a 1 MiB read-ahead buffer before hashing and encryption. The v1 wire frame remains capped at 256 KiB for compatibility.
+- Android batches data frames in its existing 1 MiB buffered socket output instead of flushing after every 256 KiB frame; the end-of-transfer frame flushes the batch before waiting for the receiver's final integrity acknowledgement. This reduces avoidable flush overhead, but real speed gains must be measured on two physical devices.
+
 ## نطاق الفحص
 
 تمت مراجعة تقرير المرحلة السادسة من مستودع التحليل الخاص، ثم ملفات النقل الحالية في فرع `feature/zapya-engineering-analysis` من MalekPlay:
