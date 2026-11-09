@@ -1113,6 +1113,40 @@ fun UltraShareScreen(
                         }
                     }
                 }
+                val unlistedPeerTransfers = state.peerTransfers.filter { transfer ->
+                    state.activePeers.none { it.host == transfer.host }
+                }
+                if (unlistedPeerTransfers.isNotEmpty()) {
+                    Text("جلسات نقل إضافية", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                    unlistedPeerTransfers.forEach { transfer ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+                        ) {
+                            Column(
+                                Modifier.fillMaxWidth().padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Text(transfer.host, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                                Text(
+                                    transfer.status + if (transfer.fileName.isNotBlank()) " • " + transfer.fileName else "",
+                                    color = if (transfer.status.contains("فشل")) MaterialTheme.colorScheme.error else MalekPlayColors.Gold,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                if (transfer.totalBytes > 0L) {
+                                    LinearProgressIndicator(progress = { transfer.fraction }, modifier = Modifier.fillMaxWidth())
+                                    Text(
+                                        formatTransferBytes(transfer.transferredBytes) + " / " +
+                                            formatTransferBytes(transfer.totalBytes) + " • " +
+                                            formatTransferBytes(transfer.bytesPerSecond) + "/s",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text("الأجهزة القريبة", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
