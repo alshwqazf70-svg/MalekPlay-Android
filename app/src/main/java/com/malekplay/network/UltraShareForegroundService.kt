@@ -398,7 +398,8 @@ class UltraShareForegroundService : Service() {
                 hotspotActive = false,
                 hotspotSsid = null,
                 hotspotPassword = null,
-                pendingConnection = null
+                pendingConnection = null,
+                activePeers = if (current.receiving) emptyList() else current.activePeers
             )
         }
         if (::notificationManager.isInitialized) notificationManager.cancel(NOTIFICATION_ID)
