@@ -1,0 +1,510 @@
+package com.malekplay.network
+
+import android.content.ContentResolver
+import android.net.Uri
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.net.Inet4Address
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.Socket
+import java.net.SocketTimeoutException
+import java.security.MessageDigest
+import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.Mac
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
+
+/**
+ * Ultra Share v2 data plane.
+ *
+ * One TCP connection carries one complete manifest and every file in that batch.
+ * The receiver listener owns one server socket and dispatches bounded, isolated
+ * workers for concurrently connected peers.
+ */
+object UltraShareBatchTransport {
+    const val DEFAULT_MAX_PEERS = 4
+    private const val BUFFER_BYTES = 1024 * 1024
+    private const val FRAME_BYTES = 256 * 1024
+    private const val HANDSHAKE_TIMEOUT_MS = 8_000
+    private const val SESSION_TIMEOUT_MS = 30_000
+    private const val CHALLENGE_BYTES = 32
+    private const val NONCE_PREFIX_BYTES = 4
+    private const val TAG_BYTES = 16
+    private const val TYPE_CHUNK = 1
+    private const val TYPE_FILE_END = 2
+    private const val TYPE_BATCH_END = 3
+
+    data class Source(
+        val uri: Uri,
+        val name: String,
+        val mimeType: String,
+        val sizeBytes: Long
+    )
+
+    data class FileProgress(
+        val fileId: String,
+        val fileName: String,
+        val transferredBytes: Long,
+        val totalBytes: Long,
+        val bytesPerSecond: Long,
+        val receiving: Boolean
+    )
+
+    data class FileOutcome(
+        val fileId: String,
+        val fileName: String,
+        val receivedFile: UltraShareTransport.ReceivedFile?,
+        val status: UltraShareBatchProtocol.FileStatus,
+        val transferredBytes: Long,
+        val error: String? = null
+    )
+
+    data class BatchOutcome(val batchId: String, val files: List<FileOutcome>)
+
+    /**
+     * Starts one listener for all peers. Each accepted socket is handled in its own
+     * coroutine, with a hard concurrency ceiling and independent socket cancellation.
+     */
+    suspend fun serveMany(
+        port: Int = UltraShareTransport.DEFAULT_PORT,
+        pairingSecret: String,
+        destinationDirectory: File,
+        maxPeers: Int = DEFAULT_MAX_PEERS,
+        onPeerStarted: (String) -> Unit = {},
+        onPeerFinished: (String) -> Unit = {},
+        onProgress: (String, FileProgress) -> Unit = { _, _ -> },
+        onBatchFinished: (String, BatchOutcome) -> Unit = { _, _ -> },
+        onPeerError: (String, Throwable) -> Unit = { _, _ -> }
+    ) = withContext(Dispatchers.IO) {
+        require(port in 1..65535)
+        require(maxPeers in 1..8) { "عدد الأجهزة المتزامنة يجب أن يكون بين 1 و8." }
+        check(destinationDirectory.exists() || destinationDirectory.mkdirs())
+        check(destinationDirectory.isDirectory)
+        val permits = Semaphore(maxPeers)
+        ServerSocket().use { server ->
+            server.reuseAddress = true
+            server.bind(InetSocketAddress(port), maxPeers * 2)
+            server.soTimeout = 1_000
+            coroutineScope {
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    try {
+                        val socket = server.accept()
+                        if (socket.inetAddress !is Inet4Address ||
+                            !(socket.inetAddress.isSiteLocalAddress || socket.inetAddress.isLinkLocalAddress)) {
+                            socket.close()
+                            continue
+                        }
+                        if (!permits.tryAcquire()) {
+                            runCatching { socket.close() }
+                            continue
+                        }
+                        launch {
+                            val peer = socket.inetAddress.hostAddress ?: "unknown"
+                            try {
+                                onPeerStarted(peer)
+                                val result = receiveSession(
+                                    socket, pairingSecret, destinationDirectory,
+                                    onProgress = { progress -> onProgress(peer, progress) }
+                                )
+                                onBatchFinished(peer, result)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Throwable) {
+                                onPeerError(peer, failure)
+                            } finally {
+                                runCatching { socket.close() }
+                                onPeerFinished(peer)
+                                permits.release()
+                            }
+                        }
+                    } catch (_: SocketTimeoutException) {
+                        // Periodic cancellation check keeps stop-service responsive.
+                    }
+                }
+            }
+        }
+    }
+
+    suspend fun sendBatch(
+        resolver: ContentResolver,
+        sources: List<Source>,
+        host: String,
+        port: Int = UltraShareTransport.DEFAULT_PORT,
+        pairingSecret: String,
+        onProgress: (FileProgress) -> Unit = {}
+    ): BatchOutcome = withContext(Dispatchers.IO) {
+        require(sources.isNotEmpty() && sources.size <= UltraShareBatchProtocol.MAX_FILES)
+        require(UltraShareTransport.isValidPrivateLanHost(host))
+        require(UltraShareTransport.isValidPairingSecret(pairingSecret))
+        val prepared = sources.map { source ->
+            require(source.sizeBytes in 0..UltraShareTransport.MAX_FILE_BYTES)
+            val name = UltraShareTransport.sanitizeFileName(source.name)
+            val mime = UltraShareTransport.sanitizeMimeType(source.mimeType)
+            val digest = resolver.openInputStream(source.uri)?.use { input ->
+                val md = MessageDigest.getInstance("SHA-256")
+                val buffer = ByteArray(BUFFER_BYTES)
+                var countTotal = 0L
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (count == 0) continue
+                    countTotal += count
+                    require(countTotal <= source.sizeBytes) { "تغير حجم الملف أثناء التجهيز: $name" }
+                    md.update(buffer, 0, count)
+                }
+                require(countTotal == source.sizeBytes) { "حجم الملف لا يطابق بياناته: $name" }
+                md.digest()
+            } ?: error("تعذر فتح الملف: $name")
+            Triple(source, UltraShareBatchProtocol.newEntry(name, mime, source.sizeBytes, digest), digest)
+        }
+        val manifest = UltraShareBatchProtocol.Manifest(
+            java.util.UUID.randomUUID().toString(), prepared.map { it.second }
+        )
+        val target = java.net.InetAddress.getByName(host)
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress(target, port), HANDSHAKE_TIMEOUT_MS)
+            configure(socket)
+            val input = DataInputStream(BufferedInputStream(socket.getInputStream(), BUFFER_BYTES))
+            val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_BYTES))
+            check(input.readInt() == HANDSHAKE_MAGIC) { "الجهاز الآخر لا يدعم جلسة بيانات V2." }
+            val challenge = ByteArray(CHALLENGE_BYTES).also(input::readFully)
+            val secret = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
+            output.write(hmac(secret, challenge))
+            output.flush()
+            check(input.readBoolean()) { "رفض الجهاز المستقبل رمز الاقتران." }
+            val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(input::readFully)
+            val sendKey = deriveKey(secret, challenge, "client-to-server")
+            val receiveKey = deriveKey(secret, challenge, "server-to-client")
+            var sendSequence = 0L
+            var receiveSequence = 0L
+
+            writeFrame(output, sendKey, noncePrefix, sendSequence++, UltraShareBatchProtocol.encode(manifest))
+            val offsetsPayload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 32 * 1024)
+            val offsets = decodeOffsets(offsetsPayload, manifest)
+            val outcomes = ArrayList<UltraShareBatchProtocol.FileResult>(manifest.entries.size)
+
+            prepared.forEachIndexed { index, (source, entry, _) ->
+                currentCoroutineContext().ensureActive()
+                val offset = offsets.getValue(entry.id)
+                var transferred = offset
+                val started = System.nanoTime()
+                resolver.openInputStream(source.uri)?.use { raw ->
+                    BufferedInputStream(raw, BUFFER_BYTES).use { stream ->
+                        skipFully(stream, offset)
+                        val buffer = ByteArray(FRAME_BYTES - 8)
+                        while (transferred < entry.sizeBytes) {
+                            currentCoroutineContext().ensureActive()
+                            val wanted = minOf(buffer.size.toLong(), entry.sizeBytes - transferred).toInt()
+                            val read = readAtMost(stream, buffer, wanted)
+                            check(read > 0) { "انتهى الملف قبل اكتمال الإرسال: ${entry.name}" }
+                            val frame = ByteArrayOutputStream(read + 8)
+                            DataOutputStream(frame).use { data ->
+                                data.writeByte(TYPE_CHUNK)
+                                data.writeShort(index)
+                                data.writeInt(read)
+                                data.write(buffer, 0, read)
+                            }
+                            writeFrame(output, sendKey, noncePrefix, sendSequence++, frame.toByteArray())
+                            transferred += read
+                            onProgress(FileProgress(
+                                entry.id, entry.name, transferred, entry.sizeBytes,
+                                rate(transferred - offset, started), false
+                            ))
+                        }
+                        check(stream.read() == -1) { "تغير حجم الملف أثناء الإرسال: ${entry.name}" }
+                    }
+                } ?: error("تعذر إعادة فتح الملف: ${entry.name}")
+                val end = ByteArrayOutputStream()
+                DataOutputStream(end).use { data -> data.writeByte(TYPE_FILE_END); data.writeShort(index) }
+                writeFrame(output, sendKey, noncePrefix, sendSequence++, end.toByteArray())
+                outcomes += UltraShareBatchProtocol.FileResult(
+                    entry.id, UltraShareBatchProtocol.FileStatus.COMPLETED,
+                    entry.sizeBytes
+                )
+            }
+            writeFrame(output, sendKey, noncePrefix, sendSequence++, byteArrayOf(TYPE_BATCH_END.toByte()))
+            val results = decodeResults(
+                readFrame(input, receiveKey, noncePrefix, receiveSequence, 64 * 1024), manifest
+            )
+            val byId = results.associateBy { it.fileId }
+            BatchOutcome(manifest.batchId, manifest.entries.map { entry ->
+                val result = byId.getValue(entry.id)
+                FileOutcome(entry.id, entry.name, null, result.status, result.transferredBytes, result.error)
+            })
+        }
+    }
+
+    private suspend fun receiveSession(
+        socket: Socket,
+        pairingSecret: String,
+        destinationDirectory: File,
+        onProgress: (FileProgress) -> Unit
+    ): BatchOutcome {
+        configure(socket)
+        socket.soTimeout = HANDSHAKE_TIMEOUT_MS
+        val input = DataInputStream(BufferedInputStream(socket.getInputStream(), BUFFER_BYTES))
+        val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_BYTES))
+        output.writeInt(HANDSHAKE_MAGIC)
+        val challenge = ByteArray(CHALLENGE_BYTES).also(SecureRandom()::nextBytes)
+        val secret = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
+        output.write(challenge)
+        output.flush()
+        val proof = ByteArray(32).also(input::readFully)
+        val authenticated = MessageDigest.isEqual(proof, hmac(secret, challenge))
+        output.writeBoolean(authenticated)
+        output.flush()
+        check(authenticated) { "فشل التحقق من رمز الاقتران." }
+        val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(SecureRandom()::nextBytes)
+        output.write(noncePrefix)
+        output.flush()
+        socket.soTimeout = SESSION_TIMEOUT_MS
+        val receiveKey = deriveKey(secret, challenge, "client-to-server")
+        val sendKey = deriveKey(secret, challenge, "server-to-client")
+        var receiveSequence = 0L
+        var sendSequence = 0L
+
+        val manifest = UltraShareBatchProtocol.decode(
+            readFrame(input, receiveKey, noncePrefix, receiveSequence++, UltraShareBatchProtocol.MAX_MANIFEST_BYTES)
+        )
+        val partials = manifest.entries.map { entry ->
+            val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
+            val partial = File(destinationDirectory, ".ultrashare-v2-$identity.part")
+            val offset = if (partial.isFile && partial.length() <= entry.sizeBytes) partial.length() else 0L
+            if (offset == 0L && partial.exists()) partial.delete()
+            entry.id to Pair(partial, offset)
+        }.toMap()
+        val offsets = ByteArrayOutputStream()
+        DataOutputStream(offsets).use { data ->
+            data.writeShort(manifest.entries.size)
+            manifest.entries.forEach { entry ->
+                data.writeUTF(entry.id)
+                data.writeLong(partials.getValue(entry.id).second)
+            }
+        }
+        writeFrame(output, sendKey, noncePrefix, sendSequence++, offsets.toByteArray())
+
+        val outcomes = ArrayList<FileOutcome>(manifest.entries.size)
+        manifest.entries.forEachIndexed { index, entry ->
+            val (partial, offset) = partials.getValue(entry.id)
+            var transferred = offset
+            FileOutputStream(partial, offset > 0L).use { file ->
+                while (transferred < entry.sizeBytes) {
+                    currentCoroutineContext().ensureActive()
+                    val payload = readFrame(
+                        input, receiveKey, noncePrefix, receiveSequence++,
+                        minOf(FRAME_BYTES, (entry.sizeBytes - transferred + 7).coerceAtMost(FRAME_BYTES.toLong()).toInt() + 7)
+                    )
+                    val frame = DataInputStream(ByteArrayInputStream(payload))
+                    require(frame.readUnsignedByte() == TYPE_CHUNK) { "إطار بيانات غير متوقع." }
+                    require(frame.readUnsignedShort() == index) { "وصل جزء لملف غير متوقع." }
+                    val length = frame.readInt()
+                    require(length in 1..(FRAME_BYTES - 8) && length == frame.available())
+                    require(transferred + length <= entry.sizeBytes)
+                    val bytes = ByteArray(length).also(frame::readFully)
+                    file.write(bytes)
+                    transferred += length
+                    onProgress(FileProgress(
+                        entry.id, entry.name, transferred, entry.sizeBytes,
+                        0L, true
+                    ))
+                }
+                file.fd.sync()
+            }
+            val endPayload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 64)
+            DataInputStream(ByteArrayInputStream(endPayload)).use { data ->
+                require(data.readUnsignedByte() == TYPE_FILE_END && data.readUnsignedShort() == index && data.available() == 0)
+            }
+            val actualDigest = FileInputStream(partial).use { stream ->
+                val digest = MessageDigest.getInstance("SHA-256")
+                val buffer = ByteArray(BUFFER_BYTES)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    if (count > 0) digest.update(buffer, 0, count)
+                }
+                digest.digest()
+            }
+            if (!MessageDigest.isEqual(entry.sha256, actualDigest)) {
+                outcomes += FileOutcome(
+                    entry.id, entry.name, null, UltraShareBatchProtocol.FileStatus.FAILED,
+                    transferred, "فشل التحقق من بصمة الملف."
+                )
+                continue
+            }
+            val destination = uniqueDestination(destinationDirectory, entry.name)
+            check(partial.renameTo(destination)) { "تعذر تثبيت الملف المستلم." }
+            outcomes += FileOutcome(
+                entry.id, entry.name,
+                UltraShareTransport.ReceivedFile(destination, entry.name, entry.sizeBytes, entry.mimeType),
+                UltraShareBatchProtocol.FileStatus.COMPLETED, entry.sizeBytes
+            )
+        }
+        val batchEnd = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 64)
+        require(batchEnd.contentEquals(byteArrayOf(TYPE_BATCH_END))) { "نهاية الدفعة غير صالحة." }
+        val resultPayload = encodeResults(manifest, outcomes)
+        writeFrame(output, sendKey, noncePrefix, sendSequence, resultPayload)
+        return BatchOutcome(manifest.batchId, outcomes)
+    }
+
+    private fun decodeOffsets(payload: ByteArray, manifest: UltraShareBatchProtocol.Manifest): Map<String, Long> {
+        val result = DataInputStream(ByteArrayInputStream(payload)).use { data ->
+            val count = data.readUnsignedShort()
+            require(count == manifest.entries.size)
+            buildMap {
+                repeat(count) {
+                    val id = data.readUTF()
+                    val offset = data.readLong()
+                    val entry = manifest.entries.firstOrNull { it.id == id } ?: error("معرّف ملف غير معروف.")
+                    require(offset in 0..entry.sizeBytes)
+                    require(put(id, offset) == null)
+                }
+                require(data.available() == 0)
+            }
+        }
+        require(result.keys == manifest.entries.map { it.id }.toSet())
+        return result
+    }
+
+    private fun encodeResults(manifest: UltraShareBatchProtocol.Manifest, outcomes: List<FileOutcome>): ByteArray {
+        val bytes = ByteArrayOutputStream()
+        DataOutputStream(bytes).use { data ->
+            data.writeShort(outcomes.size)
+            outcomes.forEach { outcome ->
+                data.writeUTF(outcome.fileId)
+                data.writeByte(outcome.status.ordinal)
+                data.writeLong(outcome.transferredBytes)
+                val error = outcome.error.orEmpty().take(240)
+                data.writeUTF(error)
+            }
+        }
+        return bytes.toByteArray()
+    }
+
+    private fun decodeResults(payload: ByteArray, manifest: UltraShareBatchProtocol.Manifest): List<UltraShareBatchProtocol.FileResult> {
+        val results = DataInputStream(ByteArrayInputStream(payload)).use { data ->
+            val count = data.readUnsignedShort()
+            require(count == manifest.entries.size)
+            List(count) {
+                val id = data.readUTF()
+                val status = UltraShareBatchProtocol.FileStatus.entries[data.readUnsignedByte()]
+                val bytes = data.readLong()
+                val error = data.readUTF().ifBlank { null }
+                UltraShareBatchProtocol.FileResult(id, status, bytes, error)
+            }.also { require(data.available() == 0) }
+        }
+        return UltraShareBatchProtocol.validateResults(manifest, results)
+    }
+
+    private fun configure(socket: Socket) {
+        socket.sendBufferSize = BUFFER_BYTES
+        socket.receiveBufferSize = BUFFER_BYTES
+        socket.tcpNoDelay = true
+        socket.keepAlive = true
+    }
+
+    private fun writeFrame(output: DataOutputStream, key: ByteArray, prefix: ByteArray, sequence: Long, plain: ByteArray) {
+        require(plain.size <= UltraShareBatchProtocol.MAX_MANIFEST_BYTES + 64)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce(prefix, sequence)))
+        val encrypted = cipher.doFinal(plain)
+        output.writeInt(encrypted.size)
+        output.write(encrypted)
+        output.flush()
+    }
+
+    private fun readFrame(input: DataInputStream, key: ByteArray, prefix: ByteArray, sequence: Long, maximum: Int): ByteArray {
+        val size = input.readInt()
+        require(size in TAG_BYTES..(maximum + TAG_BYTES))
+        val encrypted = ByteArray(size).also(input::readFully)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce(prefix, sequence)))
+        return cipher.doFinal(encrypted).also { require(it.size <= maximum) }
+    }
+
+    private fun nonce(prefix: ByteArray, sequence: Long): ByteArray =
+        ByteArray(12).also { result ->
+            prefix.copyInto(result)
+            repeat(8) { index -> result[4 + index] = (sequence ushr (56 - 8 * index)).toByte() }
+        }
+
+    private fun deriveKey(secret: ByteArray, challenge: ByteArray, direction: String): ByteArray =
+        hmac(secret, challenge + "MalekPlay Ultra Share v2/$direction".toByteArray(Charsets.UTF_8))
+
+    private fun hmac(key: ByteArray, payload: ByteArray): ByteArray =
+        Mac.getInstance("HmacSHA256").run {
+            init(SecretKeySpec(key, "HmacSHA256"))
+            doFinal(payload)
+        }
+
+    private suspend fun skipFully(input: java.io.InputStream, count: Long) {
+        var remaining = count
+        val buffer = ByteArray(BUFFER_BYTES)
+        while (remaining > 0) {
+            currentCoroutineContext().ensureActive()
+            val skipped = input.skip(remaining)
+            if (skipped > 0) remaining -= skipped
+            else {
+                val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                require(read > 0) { "تعذر الوصول إلى موضع الاستئناف." }
+                remaining -= read
+            }
+        }
+    }
+
+    private fun readAtMost(input: java.io.InputStream, buffer: ByteArray, wanted: Int): Int {
+        var total = 0
+        while (total < wanted) {
+            val count = input.read(buffer, total, wanted - total)
+            if (count < 0) break
+            if (count == 0) {
+                val value = input.read()
+                if (value < 0) break
+                buffer[total++] = value.toByte()
+            } else total += count
+        }
+        return total
+    }
+
+    private fun rate(bytes: Long, started: Long): Long =
+        ((bytes.toDouble() * 1_000_000_000.0) / (System.nanoTime() - started).coerceAtLeast(1L))
+            .coerceAtMost(Long.MAX_VALUE.toDouble()).toLong()
+
+    private fun uniqueDestination(directory: File, name: String): File {
+        val safe = UltraShareTransport.sanitizeFileName(name)
+        val original = File(directory, safe)
+        if (!original.exists()) return original
+        val dot = safe.lastIndexOf('.').takeIf { it > 0 } ?: safe.length
+        val stem = safe.substring(0, dot)
+        val ext = safe.substring(dot)
+        var index = 1
+        while (index < 10_000) {
+            val candidate = File(directory, "$stem ($index)$ext")
+            if (!candidate.exists()) return candidate
+            index++
+        }
+        error("تعذر إنشاء اسم فريد للملف.")
+    }
+
+    private const val HANDSHAKE_MAGIC = 0x4D505532 // MPU2 data-session handshake
+}
