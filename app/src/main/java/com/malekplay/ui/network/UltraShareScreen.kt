@@ -594,6 +594,7 @@ fun UltraShareScreen(
         mutableStateOf(initialUris.distinct().filter(::isMediaUri))
     }
     var showDeviceRoom by remember { mutableStateOf(true) }
+    var activeMode by remember { mutableStateOf("send") } // Dedicated Zapya-inspired Send / Receive rooms.
     val mediaMimeTypes = arrayOf("video/*", "audio/*", "image/*")
 
     // Make the phone discoverable and scan automatically when Ultra Share opens.
@@ -687,6 +688,7 @@ fun UltraShareScreen(
                     host = pairing.host
                     secret = pairing.pairingSecret
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
+                    viewModel.requestConnection(pairing.host, pairing.pairingSecret)
                 }
                 .onFailure {
                     Toast.makeText(context, R.string.ultra_share_scan_failed, Toast.LENGTH_LONG).show()
@@ -863,18 +865,22 @@ fun UltraShareScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Button(
-                onClick = { if (!state.receiving) viewModel.startReceiving() },
+                onClick = {
+                    activeMode = "receive"
+                    if (!state.receiving) viewModel.startReceiving()
+                },
                 modifier = Modifier.weight(1f).height(94.dp),
-                enabled = !state.receiving
+                enabled = true
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Icon(Icons.Filled.Wifi, contentDescription = null, modifier = Modifier.size(28.dp))
-                    Text("استقبال الوسائط", style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Text(if (activeMode == "receive") "استقبال الوسائط ✓" else "استقبال الوسائط", style = MaterialTheme.typography.titleSmall, maxLines = 1)
                     Text("ابدأ غرفة الاستقبال", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                 }
             }
             OutlinedButton(
                 onClick = {
+                    activeMode = "send"
                     showDeviceRoom = true
                     if (!state.scanning) viewModel.scanNearbyDevices()
                     pickFiles.launch(mediaMimeTypes)
@@ -884,7 +890,7 @@ fun UltraShareScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(28.dp))
-                    Text("إرسال الوسائط", style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Text(if (activeMode == "send") "إرسال الوسائط ✓" else "إرسال الوسائط", style = MaterialTheme.typography.titleSmall, maxLines = 1)
                     Text("فيديو • موسيقى • صور", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                 }
             }
@@ -925,7 +931,7 @@ fun UltraShareScreen(
             Text(if (showDeviceRoom) "إخفاء غرفة الأجهزة" else "فتح غرفة الأجهزة القريبة", modifier = Modifier.padding(start = 8.dp))
         }
 
-        if (showDeviceRoom) {
+        if (showDeviceRoom && activeMode == "send") {
             Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
@@ -1037,6 +1043,7 @@ fun UltraShareScreen(
 
         }
 
+        if (activeMode == "receive") {
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1169,6 +1176,10 @@ fun UltraShareScreen(
             }
         }
 
+        if (activeMode == "send") {
+        }
+
+        if (activeMode == "send") {
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1500,6 +1511,8 @@ fun UltraShareScreen(
                     }
                 }
             }
+        }
+
         }
 
         state.sendProgress?.let { progress ->
