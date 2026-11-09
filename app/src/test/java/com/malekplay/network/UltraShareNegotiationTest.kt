@@ -49,6 +49,15 @@ class UltraShareNegotiationTest {
         )
     }
 
+    @Test fun selectionUsesPriorityWithinTheSameTransportAndRejectsNonLocalTargets() {
+        val low = UltraShareNegotiation.Candidate(
+            UltraShareNegotiation.Transport.WLAN, "192.168.1.10", 38743, priority = 1
+        )
+        val high = low.copy(host = "192.168.1.11", priority = 20)
+        val public = low.copy(host = "8.8.8.8", priority = 100)
+        assertEquals(high, UltraShareNegotiation.selectCandidate(listOf(low, public, high)))
+    }
+
     @Test fun invitationCanOnlyBeDecidedOnceAndExpires() {
         val pending = UltraShareNegotiation.Invitation("i1", "peer1", 1_000)
         assertEquals(
