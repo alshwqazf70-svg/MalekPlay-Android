@@ -125,7 +125,15 @@ class MainActivity : ComponentActivity() {
         val mediaAccessChanged = grants.any { (permission, granted) ->
             granted && permission in MediaPermissions.required()
         }
-        if (mediaAccessChanged || MediaPermissions.isGranted(this)) {
+        val hasAnyMediaAccess = MediaPermissions.isGranted(this)
+        if (!hasAnyMediaAccess) {
+            // If the user chose "later" or denied the library access, explain
+            // the requirement again on the next launch instead of silently
+            // leaving the library empty forever.
+            getSharedPreferences("startup_permissions", MODE_PRIVATE)
+                .edit().putBoolean("intro_shown", false).apply()
+        }
+        if (mediaAccessChanged || hasAnyMediaAccess) {
             lifecycleScope.launch(Dispatchers.IO) {
                 runCatching { mediaRepository.refresh() }
             }
