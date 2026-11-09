@@ -581,6 +581,7 @@ fun UltraShareScreen(
         } else {
             runCatching { UltraShareQrCode.parsePayload(raw) }
                 .onSuccess { pairing ->
+                    viewModel.clearApprovedConnection()
                     host = pairing.host
                     secret = pairing.pairingSecret
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
@@ -643,6 +644,7 @@ fun UltraShareScreen(
         if (!raw.isNullOrBlank()) {
             runCatching { UltraShareQrCode.parsePayload(raw) }
                 .onSuccess { pairing ->
+                    viewModel.clearApprovedConnection()
                     host = pairing.host
                     secret = pairing.pairingSecret
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
@@ -718,6 +720,7 @@ fun UltraShareScreen(
                     }
                 }
                 result.onSuccess { pairing ->
+                    viewModel.clearApprovedConnection()
                     host = pairing.host
                     secret = pairing.pairingSecret
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
