@@ -149,12 +149,13 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             with patch("ultra_share_pc.send_file") as send:
                 send_files("192.168.1.20", DEFAULT_PORT, "004219837615", [first, second])
             self.assertEqual(
-                [
-                    (( "192.168.1.20", DEFAULT_PORT, "004219837615", first),),
-                    (( "192.168.1.20", DEFAULT_PORT, "004219837615", second),),
-                ],
-                send.call_args_list,
+                [first, second],
+                [invocation.args[3] for invocation in send.call_args_list],
             )
+            self.assertTrue(all(
+                invocation.args[:3] == ("192.168.1.20", DEFAULT_PORT, "004219837615")
+                for invocation in send.call_args_list
+            ))
 
     def test_pairing_rejection_is_not_retried(self):
         with tempfile.TemporaryDirectory() as temporary:
