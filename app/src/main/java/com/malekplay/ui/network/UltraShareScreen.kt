@@ -1611,7 +1611,7 @@ fun UltraShareScreen(
 
         }
 
-        state.receivedFile?.let { received ->
+        if (activeMode == "receive") state.receivedFile?.let { received ->
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1654,7 +1654,7 @@ fun UltraShareScreen(
             }
         }
 
-        if (state.receivedHistory.isNotEmpty()) {
+        if (activeMode == "receive" && state.receivedHistory.isNotEmpty()) {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
