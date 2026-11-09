@@ -8,6 +8,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -75,28 +77,39 @@ object UltraShareControlChannel {
     ) = withContext(Dispatchers.IO) {
         require(UltraShareTransport.isValidPairingSecret(pairingSecret))
         require(port in 1..65535)
+        val permits = Semaphore(4)
         ServerSocket().use { server ->
             server.reuseAddress = true
-            server.bind(InetSocketAddress(port), 4)
+            server.bind(InetSocketAddress(port), 8)
             server.soTimeout = 750
-            while (true) {
-                kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                val socket = try {
-                    server.accept()
-                } catch (_: SocketTimeoutException) {
-                    continue
-                }
-                try {
-                    socket.use { client ->
-                        client.soTimeout = HANDSHAKE_TIMEOUT_MS
-                        client.tcpNoDelay = true
-                        client.keepAlive = true
-                        handleIncoming(client, pairingSecret, localPeerName, onRequest, onSessionClosed)
+            coroutineScope {
+                while (true) {
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    val socket = try {
+                        server.accept()
+                    } catch (_: SocketTimeoutException) {
+                        continue
                     }
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    // A malformed or disconnected peer must not take down the listener.
+                    if (!permits.tryAcquire()) {
+                        runCatching { socket.close() }
+                        continue
+                    }
+                    launch {
+                        try {
+                            socket.use { client ->
+                                client.soTimeout = HANDSHAKE_TIMEOUT_MS
+                                client.tcpNoDelay = true
+                                client.keepAlive = true
+                                handleIncoming(client, pairingSecret, localPeerName, onRequest, onSessionClosed)
+                            }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // A malformed or disconnected peer cannot stop other sessions.
+                        } finally {
+                            permits.release()
+                        }
+                    }
                 }
             }
         }
