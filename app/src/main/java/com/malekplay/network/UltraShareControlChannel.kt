@@ -102,7 +102,8 @@ object UltraShareControlChannel {
         host: String,
         pairingSecret: String,
         peerName: String,
-        port: Int = DEFAULT_PORT
+        port: Int = DEFAULT_PORT,
+        onSessionClosed: (String) -> Unit = {}
     ): Decision = withContext(Dispatchers.IO) {
         require(UltraShareTransport.isValidPrivateLanHost(host) || host == "127.0.0.1") {
             "عنوان الجهاز غير صالح."
@@ -168,6 +169,7 @@ object UltraShareControlChannel {
                             }
                         } catch (_: Exception) {
                             closeSession(host)
+                            onSessionClosed(host)
                             break
                         }
                     }
