@@ -39,6 +39,7 @@ class UltraShareControlChannelTest {
         )
         assertEquals(UltraShareControlChannel.Decision.ACCEPTED, decision)
         assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
+        assertTrue(UltraShareControlChannel.isServerSessionActive("127.0.0.1"))
         assertEquals("Receiver Phone", UltraShareControlChannel.sessionPeerName("127.0.0.1"))
 
         // A second malformed peer must be isolated in its own worker and must not
