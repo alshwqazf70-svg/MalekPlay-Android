@@ -1187,7 +1187,15 @@ fun UltraShareScreen(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Download, contentDescription = null, tint = MalekPlayColors.PurpleBright)
-                    Text(stringResource(R.string.ultra_share_receive), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                    Text(stringResource(R.string.ultra_share_receive), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp).weight(1f))
+                    Box(
+                        modifier = Modifier.background(
+                            (if (state.receiving) Color(0xFF65D6A2) else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.14f),
+                            androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+                        ).padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(if (state.receiving) "جاهز للاستقبال" else "متوقف", color = if (state.receiving) Color(0xFF65D6A2) else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
                 }
                 Text(stringResource(R.string.ultra_share_receive_hint), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 if (state.receiving) {
@@ -1235,28 +1243,42 @@ fun UltraShareScreen(
                     }
                     qrBitmap?.let { bitmap ->
                         val activeQrPayload = qrPayload ?: return@let
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = stringResource(R.string.ultra_share_qr_description),
-                            modifier = Modifier
-                                .size(160.dp)
-                                .align(Alignment.CenterHorizontally)
-                        )
-                        Text(
-                            stringResource(R.string.ultra_share_qr_hint),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                        OutlinedButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                clipboard?.setPrimaryClip(ClipData.newPlainText("MalekPlay Ultra Share", activeQrPayload))
-                                Toast.makeText(context, R.string.ultra_share_pairing_copied, Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.fillMaxWidth()
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
                         ) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = null)
-                            Text(stringResource(R.string.ultra_share_copy_pairing_link), modifier = Modifier.padding(start = 8.dp))
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("امسح هذا الرمز من هاتف الإرسال", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                                Box(
+                                    modifier = Modifier.background(Color.White, androidx.compose.foundation.shape.RoundedCornerShape(14.dp)).padding(9.dp)
+                                ) {
+                                    Image(
+                                        bitmap = bitmap.asImageBitmap(),
+                                        contentDescription = stringResource(R.string.ultra_share_qr_description),
+                                        modifier = Modifier.size(176.dp)
+                                    )
+                                }
+                                Text(
+                                    stringResource(R.string.ultra_share_qr_hint),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                OutlinedButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                        clipboard?.setPrimaryClip(ClipData.newPlainText("MalekPlay Ultra Share", activeQrPayload))
+                                        Toast.makeText(context, R.string.ultra_share_pairing_copied, Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Filled.ContentCopy, contentDescription = null)
+                                    Text(stringResource(R.string.ultra_share_copy_pairing_link), modifier = Modifier.padding(start = 8.dp))
+                                }
+                            }
                         }
                     }
                 }
@@ -1727,8 +1749,12 @@ private fun UltraShareSessionRoom(
     val connected = activePeer != null || state.approvedPeerHost != null
     val pairingPending = state.requestingConnection || state.pendingConnection != null
     val transferring = state.sending || state.sendProgress != null || state.receiveProgress != null
-    val sendCompleted = !state.sending && state.queueTotal > 0 && state.queueCompleted >= state.queueTotal
-    val receiveCompleted = !isSendingRoom && state.receivedFile != null
+    val currentBatchEntries = if (state.queueTotal > 0) state.queueEntries.takeLast(state.queueTotal) else emptyList()
+    val sendCompleted = !state.sending && state.queueTotal > 0 &&
+        state.queueCompleted >= state.queueTotal && currentBatchEntries.size == state.queueTotal &&
+        currentBatchEntries.all { it.status == UltraShareQueueStore.STATUS_COMPLETED }
+    val receiveCompleted = !isSendingRoom && state.receivedFile != null && state.receiveProgress == null &&
+        (state.status?.contains("استلام") == true || state.status?.contains("استُلم") == true || state.status?.contains("اكتملت دفعة") == true)
     val pulseTransition = rememberInfiniteTransition(label = "ultraSharePairingPulse")
     val pulse by pulseTransition.animateFloat(
         initialValue = 0.94f,
@@ -1868,9 +1894,10 @@ private fun UltraShareSessionRoom(
                 }
             }
             if (state.queueEntries.isNotEmpty() && isSendingRoom) {
-                val completed = state.queueEntries.count { it.status == UltraShareQueueStore.STATUS_COMPLETED }
-                val failed = state.queueEntries.count { it.status == UltraShareQueueStore.STATUS_FAILED }
-                val waiting = state.queueEntries.count {
+                val summaryEntries = currentBatchEntries.ifEmpty { state.queueEntries }
+                val completed = summaryEntries.count { it.status == UltraShareQueueStore.STATUS_COMPLETED }
+                val failed = summaryEntries.count { it.status == UltraShareQueueStore.STATUS_FAILED }
+                val waiting = summaryEntries.count {
                     it.status == UltraShareQueueStore.STATUS_PENDING || it.status == UltraShareQueueStore.STATUS_SENDING
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
