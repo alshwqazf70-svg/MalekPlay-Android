@@ -10,7 +10,7 @@ import java.util.UUID
 class UltraShareBatchProtocolTest {
     private fun entry(name: String, content: String): UltraShareBatchProtocol.FileEntry {
         val digest = MessageDigest.getInstance("SHA-256").digest(content.toByteArray())
-        return UltraShareBatchProtocol.newEntry(name, "application/octet-stream", content.toByteArray().size.toLong(), digest)
+        return UltraShareBatchProtocol.newEntry(name, "video/mp4", content.toByteArray().size.toLong(), digest)
     }
 
     @Test fun manifestRoundTripsMultipleFilesAndPreservesIndependentIdentity() {
@@ -37,7 +37,7 @@ class UltraShareBatchProtocolTest {
     @Test fun zeroByteFilesRemainValidManifestEntries() {
         val empty = UltraShareBatchProtocol.newEntry(
             name = "empty.bin",
-            mimeType = "application/octet-stream",
+            mimeType = "audio/mpeg",
             sizeBytes = 0L,
             sha256 = java.security.MessageDigest.getInstance("SHA-256").digest(ByteArray(0))
         )
