@@ -1,6 +1,7 @@
 package com.malekplay
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
@@ -19,6 +20,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import com.malekplay.core.ui.theme.MalekPlayTheme
+import com.malekplay.core.ui.util.MediaPermissions
 import com.malekplay.navigation.MalekPlayNavHost
 import com.malekplay.player.PipController
 import com.malekplay.ui.settings.SettingsViewModel
@@ -41,8 +43,6 @@ class MainActivity : ComponentActivity() {
         externalUri = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data
 
         pipController.bind { requestPictureInPicture() }
-        requestRuntimePermissions()
-
         setContent {
             val settingsViewModel: SettingsViewModel = hiltViewModel()
             val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
                 MalekPlayNavHost(externalUri = externalUri)
             }
         }
+        showFirstLaunchPermissionMessage()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -69,20 +70,51 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Notifications are requested on Android 13+ for the media-session
-     * notification. Optional audio capture is requested only when the user
-     * enables the visualizer, never during application startup.
+     * Explain the core permissions once on first launch, then let Android show
+     * its own consent dialogs. Camera and microphone stay deferred until needed.
      */
+    private fun showFirstLaunchPermissionMessage() {
+        val preferences = getSharedPreferences("startup_permissions", MODE_PRIVATE)
+        if (preferences.getBoolean("intro_shown", false)) return
+        preferences.edit().putBoolean("intro_shown", true).apply()
+
+        AlertDialog.Builder(this)
+            .setTitle("تجهيز MalekPlay")
+            .setMessage(
+                "لإظهار الفيديوهات والموسيقى الموجودة على هاتفك، والعثور على الهواتف القريبة، " +
+                    "وتشغيل إشعارات النقل والتشغيل، سيطلب التطبيق الأذونات المناسبة لإصدار Android لديك. " +
+                    "لن يصل التطبيق إلى الكاميرا أو الميكروفون إلا عند استخدام ميزتي QR ومحلل الصوت."
+            )
+            .setPositiveButton("متابعة ومنح الأذونات") { _, _ -> requestRuntimePermissions() }
+            .setNegativeButton("لاحقاً", null)
+            .setCancelable(false)
+            .show()
+    }
+
     private fun requestRuntimePermissions() {
         val needed = buildList {
+            MediaPermissions.required().forEach { permission ->
+                if (ContextCompat.checkSelfPermission(this@MainActivity, permission) != PackageManager.PERMISSION_GRANTED) {
+                    add(permission)
+                }
+            }
+
+            val nearbyPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Manifest.permission.NEARBY_WIFI_DEVICES
+            } else {
+                Manifest.permission.ACCESS_FINE_LOCATION
+            }
+            if (ContextCompat.checkSelfPermission(this@MainActivity, nearbyPermission) != PackageManager.PERMISSION_GRANTED) {
+                add(nearbyPermission)
+            }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
             ) add(Manifest.permission.POST_NOTIFICATIONS)
+        }.distinct()
 
-        }
-        if (needed.isEmpty()) return
-        permissionLauncher.launch(needed.toTypedArray())
+        if (needed.isNotEmpty()) permissionLauncher.launch(needed.toTypedArray())
     }
 
     private val permissionLauncher = registerForActivityResult(
