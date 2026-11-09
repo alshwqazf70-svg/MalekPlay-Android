@@ -295,7 +295,11 @@ object UltraShareTransport {
                     val wanted = minOf(buffer.size.toLong(), sizeBytes - transferred).toInt()
                     read = readAtMost(source, buffer, wanted)
                     check(read > 0) { "انتهى الملف قبل اكتمال نقله." }
-                    writeEncryptedFrame(output, sendKey, noncePrefix, sequence++, buffer, 0, read)
+                    // Batch adjacent encrypted frames in the 1 MiB stream buffer.
+                    // The final empty frame flushes the batch before the receiver waits for EOF.
+                    writeEncryptedFrame(
+                        output, sendKey, noncePrefix, sequence++, buffer, 0, read, flush = false
+                    )
                     transferred += read
                     onProgress(progress(safeName, transferred, sizeBytes, startedAt, false, offset))
                 }
@@ -623,7 +627,8 @@ object UltraShareTransport {
         sequence: Long,
         plain: ByteArray,
         plainOffset: Int = 0,
-        plainLength: Int = plain.size
+        plainLength: Int = plain.size,
+        flush: Boolean = true
     ) {
         require(plainOffset >= 0 && plainLength >= 0 && plainOffset <= plain.size - plainLength)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -631,7 +636,7 @@ object UltraShareTransport {
         val encrypted = cipher.doFinal(plain, plainOffset, plainLength)
         output.writeInt(encrypted.size)
         output.write(encrypted)
-        output.flush()
+        if (flush) output.flush()
     }
 
     private fun readEncryptedFrame(
