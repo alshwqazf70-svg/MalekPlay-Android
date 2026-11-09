@@ -56,7 +56,8 @@ object UltraShareBatchTransport {
         val uri: Uri,
         val name: String,
         val mimeType: String,
-        val sizeBytes: Long
+        val sizeBytes: Long,
+        val fileId: String = java.util.UUID.randomUUID().toString()
     )
 
     data class FileProgress(
@@ -175,7 +176,7 @@ object UltraShareBatchTransport {
                 require(countTotal == source.sizeBytes) { "حجم الملف لا يطابق بياناته: $name" }
                 md.digest()
             } ?: error("تعذر فتح الملف: $name")
-            Triple(source, UltraShareBatchProtocol.newEntry(name, mime, source.sizeBytes, digest), digest)
+            Triple(source, UltraShareBatchProtocol.newEntry(name, mime, source.sizeBytes, digest, source.fileId), digest)
         }
         val manifest = UltraShareBatchProtocol.Manifest(
             java.util.UUID.randomUUID().toString(), prepared.map { it.second }
@@ -304,7 +305,7 @@ object UltraShareBatchTransport {
         writeFrame(output, sendKey, noncePrefix, sendSequence++, offsets.toByteArray())
 
         val outcomes = ArrayList<FileOutcome>(manifest.entries.size)
-        manifest.entries.forEachIndexed { index, entry ->
+        for ((index, entry) in manifest.entries.withIndex()) {
             val (partial, offset) = partials.getValue(entry.id)
             var transferred = offset
             FileOutputStream(partial, offset > 0L).use { file ->
@@ -346,6 +347,7 @@ object UltraShareBatchTransport {
                 digest.digest()
             }
             if (!MessageDigest.isEqual(entry.sha256, actualDigest)) {
+                runCatching { partial.delete() }
                 outcomes += FileOutcome(
                     entry.id, entry.name, null, UltraShareBatchProtocol.FileStatus.FAILED,
                     transferred, "فشل التحقق من بصمة الملف."
@@ -407,7 +409,7 @@ object UltraShareBatchTransport {
             require(count == manifest.entries.size)
             List(count) {
                 val id = data.readUTF()
-                val status = UltraShareBatchProtocol.FileStatus.entries[data.readUnsignedByte()]
+                val status = UltraShareBatchProtocol.FileStatus.values()[data.readUnsignedByte()]
                 val bytes = data.readLong()
                 val error = data.readUTF().ifBlank { null }
                 UltraShareBatchProtocol.FileResult(id, status, bytes, error)
