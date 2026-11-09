@@ -21,7 +21,7 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.security.MessageDigest
 import java.security.SecureRandom
-import java.util.Base64
+import android.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
 import javax.crypto.Mac
@@ -174,7 +174,7 @@ object UltraShareControlChannel {
             ) { "استجابة قبول الاتصال غير صالحة." }
             if (responseParts[0] == "ACCEPT") {
                 val remoteName = responseParts.getOrNull(2)?.let {
-                    runCatching { String(Base64.getUrlDecoder().decode(it), Charsets.UTF_8) }.getOrNull()
+                    runCatching { String(Base64.decode(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING), Charsets.UTF_8) }.getOrNull()
                 }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
                 socket.soTimeout = SESSION_TIMEOUT_MS
                 val session = ClientSession(socket, input, output, remoteName)
@@ -268,7 +268,7 @@ object UltraShareControlChannel {
             peerAddress = socket.inetAddress.hostAddress.orEmpty()
         )
         val decision = withTimeoutOrNull(30_000L) { onRequest(request) } ?: Decision.REJECTED
-        val encodedLocalName = Base64.getUrlEncoder().withoutPadding().encodeToString(localPeerName.take(48).toByteArray(Charsets.UTF_8))
+        val encodedLocalName = Base64.encodeToString(localPeerName.take(48).toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
         val payload = if (decision == Decision.ACCEPTED) "ACCEPT|$requestId|$encodedLocalName" else "REJECT|$requestId"
         val nonce = ByteArray(NONCE_BYTES).also(SecureRandom()::nextBytes)
         val ciphertext = encrypt(key, nonce, payload)
