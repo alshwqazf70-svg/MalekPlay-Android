@@ -80,6 +80,16 @@ object UltraShareTransport {
     private const val GCM_TAG_BYTES = 16
     private const val SOCKET_TIMEOUT_MS = 20_000
     private const val HANDSHAKE_TIMEOUT_MS = 5_000
+    private val destinationPublicationLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
+    /** Serialize final-name selection and publication across all receive protocols. */
+    internal fun <T> withDestinationPublicationLock(directory: File, action: () -> T): T {
+        val key = directory.absoluteFile.path
+        val lock = destinationPublicationLocks[key] ?: Any().let { candidate ->
+            destinationPublicationLocks.putIfAbsent(key, candidate) ?: candidate
+        }
+        return synchronized(lock) { action() }
+    }
 
     data class Progress(
         val fileName: String,
@@ -501,10 +511,10 @@ object UltraShareTransport {
                 val verified = MessageDigest.isEqual(expectedDigest, actualDigest) &&
                     partial.length() == size
                 val resultMessage = if (verified) "تم التحقق من سلامة الملف." else "فشل التحقق من سلامة الملف؛ أُزيلت النسخة غير المطابقة ويمكن إعادة الإرسال."
-                val finalFile = if (verified) uniqueDestination(destinationDirectory, fileName) else null
-                if (verified) {
+                val finalFile = if (verified) withDestinationPublicationLock(destinationDirectory) {
+                    val target = uniqueDestination(destinationDirectory, fileName)
                     val markerTemp = File(destinationDirectory, ".ultrashare-$transferId.received.tmp")
-                    val markerContent = "$size:$expectedDigestHex:" + finalFile!!.name
+                    val markerContent = "$size:$expectedDigestHex:" + target.name
                     FileOutputStream(markerTemp).use { markerOutput ->
                         markerOutput.write(markerContent.toByteArray(Charsets.UTF_8))
                         markerOutput.fd.sync()
@@ -513,10 +523,17 @@ object UltraShareTransport {
                         "تعذر تحديث سجل الاستلام."
                     }
                     check(markerTemp.renameTo(receiptMarker)) { "تعذر حفظ سجل الاستلام." }
-                    if (!partial.renameTo(finalFile)) {
-                        receiptMarker.delete()
-                        error("تم استلام الملف لكن تعذر نقله إلى مجلد الملفات المكتملة.")
+                    try {
+                        check(partial.renameTo(target)) {
+                            "تم استلام الملف لكن تعذر نقله إلى مجلد الملفات المكتملة."
+                        }
+                    } catch (failure: Exception) {
+                        runCatching { receiptMarker.delete() }
+                        throw failure
                     }
+                    target
+                } else null
+                if (verified) {
                     if (resumeMarker.exists()) resumeMarker.delete()
                 } else {
                     partial.delete()
