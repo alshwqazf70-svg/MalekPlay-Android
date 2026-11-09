@@ -82,7 +82,9 @@ class MainActivity : ComponentActivity() {
      */
     private fun showFirstLaunchPermissionMessage() {
         val preferences = getSharedPreferences("startup_permissions", MODE_PRIVATE)
-        if (preferences.getBoolean("intro_shown", false)) return
+        val libraryAccessReady = MediaPermissions.hasAudioAccess(this) &&
+            (MediaPermissions.hasFullVideoAccess(this) || MediaPermissions.hasPartialAccess(this))
+        if (preferences.getBoolean("intro_shown", false) && libraryAccessReady) return
         AlertDialog.Builder(this)
             .setTitle("تجهيز MalekPlay")
             .setMessage(
