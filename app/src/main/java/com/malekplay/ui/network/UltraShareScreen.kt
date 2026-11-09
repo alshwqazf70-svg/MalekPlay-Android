@@ -319,20 +319,16 @@ class UltraShareViewModel @Inject constructor(
             try {
                 // Short repeated discovery windows make newly-started receivers appear
                 // without forcing the user to restart the scan manually.
-                repeat(8) {
+                while (true) {
                     val peers = UltraShareDiscovery.discoverPeers(scanWindowMs = 1_500L)
                     peers.forEach { peer -> found[UltraShareDiscovery.identityKey(peer)] = peer }
                     _state.value = _state.value.copy(
                         discoveredPeers = found.values.toList(),
-                        status = if (found.isEmpty()) "ما زلنا نبحث عن أجهزة قريبة..."
-                        else "تم العثور على ${found.size} جهاز؛ البحث ما زال نشطاً."
+                        status = if (found.isEmpty()) "نبحث باستمرار عن أجهزة MalekPlay القريبة..."
+                        else "تم العثور على ${found.size} جهاز؛ البحث مستمر."
                     )
                     delay(350)
                 }
-                _state.value = _state.value.copy(
-                    status = if (found.isEmpty()) context.getString(R.string.ultra_share_no_devices)
-                    else context.getString(R.string.ultra_share_devices_found, found.size)
-                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -597,8 +593,15 @@ fun UltraShareScreen(
     var pendingMediaUris by remember(initialUris) {
         mutableStateOf(initialUris.distinct().filter(::isMediaUri))
     }
-    var showDeviceRoom by remember { mutableStateOf(false) }
+    var showDeviceRoom by remember { mutableStateOf(true) }
     val mediaMimeTypes = arrayOf("video/*", "audio/*", "image/*")
+
+    // Make the phone discoverable and scan automatically when Ultra Share opens.
+    // Pairing approval remains explicit on both phones.
+    LaunchedEffect(Unit) {
+        if (!state.receiving) viewModel.startReceiving()
+        if (!state.scanning) viewModel.scanNearbyDevices()
+    }
     fun pastePairingDetails() {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         val raw = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
