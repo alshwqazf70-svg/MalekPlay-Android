@@ -46,6 +46,27 @@ class UltraShareBatchProtocolTest {
         assertEquals(0L, decoded.entries.single().sizeBytes)
     }
 
+    @Test fun rejectsApplicationPackagesAndOtherNonMediaTypes() {
+        val packageEntry = UltraShareBatchProtocol.newEntry(
+            name = "sample.apk",
+            mimeType = "application/vnd.android.package-archive",
+            sizeBytes = 1L,
+            sha256 = MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            UltraShareBatchProtocol.validate(
+                UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(packageEntry))
+            )
+        }
+    }
+
+    @Test fun acceptsVideoAudioAndImageMediaTypes() {
+        listOf("video/mp4", "audio/mpeg", "image/jpeg").forEach { mime ->
+            assertTrue(UltraShareTransport.isSupportedMediaMimeType(mime))
+        }
+        assertTrue(!UltraShareTransport.isSupportedMediaMimeType("application/vnd.android.package-archive"))
+    }
+
     @Test fun rejectsDuplicateFileIds() {
         val item = entry("one.bin", "alpha")
         val duplicate = item.copy(name = "two.bin")
