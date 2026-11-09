@@ -66,6 +66,7 @@ object UltraShareTransport {
     const val CHUNK_BYTES = 256 * 1024
     const val MIN_TUNABLE_CHUNK_BYTES = 64 * 1024
     private const val SOCKET_BUFFER_BYTES = 1024 * 1024
+    private const val IO_BUFFER_BYTES = 1024 * 1024
     private const val DIGEST_BUFFER_BYTES = 1024 * 1024
     const val MAX_FILE_BYTES = 100L * 1024 * 1024 * 1024
     private const val MAGIC = 0x4D505531 // MPU1
@@ -237,8 +238,10 @@ object UltraShareTransport {
         require(sizeBytes in 0..MAX_FILE_BYTES) { "حجم الملف غير مدعوم." }
         val effectiveChunkBytes = validateChunkBytes(chunkBytes)
         val safeName = sanitizeFileName(fileName)
-        val digest = resolver.openInputStream(uri)?.use { stream ->
-            digestStream(stream, sizeBytes)
+        val digest = resolver.openInputStream(uri)?.use { rawStream ->
+            // A larger read-ahead buffer smooths slow ContentProvider/storage reads
+            // before encryption, while the on-wire v1 frame remains capped at 256 KiB.
+            digestStream(BufferedInputStream(rawStream, IO_BUFFER_BYTES), sizeBytes)
         } ?: error("تعذر فتح الملف المحدد.")
 
         Socket().use { socket ->
@@ -280,7 +283,8 @@ object UltraShareTransport {
 
             var startedAt = System.nanoTime()
             var transferred = offset
-            resolver.openInputStream(uri)?.use { source ->
+            resolver.openInputStream(uri)?.use { rawSource ->
+                BufferedInputStream(rawSource, IO_BUFFER_BYTES).use { source ->
                 skipFully(source, offset)
                 startedAt = System.nanoTime()
                 val buffer = ByteArray(effectiveChunkBytes)
@@ -297,6 +301,7 @@ object UltraShareTransport {
                 }
                 check(source.read() == -1) { "تغير حجم الملف أثناء الإرسال؛ أعد المحاولة." }
                 writeEncryptedFrame(output, sendKey, noncePrefix, sequence, ByteArray(0))
+                }
             } ?: error("تعذر إعادة فتح الملف للإرسال.")
 
             val acknowledgement = readEncryptedFrame(input, receiveKey, noncePrefix, 1L, 1024)
