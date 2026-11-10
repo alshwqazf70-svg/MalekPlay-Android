@@ -241,6 +241,11 @@ class UltraShareViewModel @Inject constructor(
             _state.value = _state.value.copy(error = "أدخل عنوان الجهاز ورمز الاقتران الصحيح أولاً.")
             return
         }
+        val discoveredCandidates = candidates.ifEmpty {
+            _state.value.discoveredPeers.firstOrNull { peer ->
+                peer.host == host.trim() || peer.candidates.any { it.host == host.trim() }
+            }?.candidates.orEmpty()
+        }
         viewModelScope.launch {
             approvedPeerCandidates = emptyList()
             _state.value = _state.value.copy(approvedPeerHost = null, requestingConnection = true, error = null, status = "تم إرسال طلب الاتصال؛ بانتظار موافقة الجهاز الآخر...")
@@ -260,7 +265,7 @@ class UltraShareViewModel @Inject constructor(
                         host = host.trim(),
                         role = "أرسل طلب الاتصال"
                     )
-                    approvedPeerCandidates = UltraShareNegotiation.orderedCandidates(candidates)
+                    approvedPeerCandidates = UltraShareNegotiation.orderedCandidates(discoveredCandidates)
                     _state.value = _state.value.copy(
                         approvedPeerHost = host.trim(),
                         status = if (approvedPeerCandidates.size > 1)
