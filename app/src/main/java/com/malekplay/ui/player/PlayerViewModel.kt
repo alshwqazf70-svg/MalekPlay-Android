@@ -23,7 +23,6 @@ import androidx.media3.session.SessionToken
 import com.malekplay.data.local.entity.BookmarkEntity
 import com.malekplay.data.local.entity.TrackPreferenceEntity
 import com.malekplay.data.repository.MediaRepository
-import com.malekplay.data.preferences.SettingsRepository
 import com.malekplay.data.repository.UserDataRepository
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem as DomainMedia
@@ -89,7 +88,6 @@ class PlayerViewModel @Inject constructor(
     @ApplicationContext private val app: Context,
     private val mediaRepository: MediaRepository,
     private val userDataRepository: UserDataRepository,
-    private val settingsRepository: SettingsRepository,
     val audioEffects: AudioEffectsController,
     val pipController: PipController,
     private val onlineSubtitleRepository: OnlineSubtitleRepository,
@@ -195,7 +193,6 @@ class PlayerViewModel @Inject constructor(
     private var sleepTimerJob: Job? = null
     private var lastGroups: List<Tracks.Group> = emptyList()
     private var currentMediaId: String? = null
-    private var lastAcknowledgedPlaybackMediaId: String? = null
     private val restoredTrackPreferenceIds = mutableSetOf<String>()
     private val trackPreferenceRestoreInFlight = mutableSetOf<String>()
     private val trackPreferencesByMediaId = mutableMapOf<String, TrackPreferenceEntity?>()
@@ -229,10 +226,7 @@ class PlayerViewModel @Inject constructor(
                     _connectionError.value = false
                     _isPlaying.value = connected.isPlaying
                     publishPlayerSnapshot(connected)
-                    if (connected.isPlaying) {
-                        startTicker()
-                        markCurrentMediaSeen()
-                    }
+                    if (connected.isPlaying) startTicker()
                 } else {
                     // Clear so a later connect() can retry instead of returning early.
                     controllerFuture = null
@@ -243,33 +237,10 @@ class PlayerViewModel @Inject constructor(
         )
     }
 
-    /**
-     * A media item stops being "new" only after playback actually starts.
-     * This central hook covers Library, Movies, Series, Music, queues and auto-next.
-     */
-    private fun markCurrentMediaSeen() {
-        val mediaId = currentMediaId?.takeIf(String::isNotBlank) ?: return
-        if (lastAcknowledgedPlaybackMediaId == mediaId) return
-        lastAcknowledgedPlaybackMediaId = mediaId
-        viewModelScope.launch {
-            val media = runCatchingCancellable { mediaRepository.getMedia(mediaId) }.getOrNull()
-            if (media == null) {
-                if (lastAcknowledgedPlaybackMediaId == mediaId) {
-                    lastAcknowledgedPlaybackMediaId = null
-                }
-                return@launch
-            }
-            runCatchingCancellable {
-                settingsRepository.markNewMediaSeen(mediaId, media.addedAtMs)
-            }
-        }
-    }
-
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _isPlaying.value = isPlaying
             if (isPlaying) {
-                markCurrentMediaSeen()
                 startTicker()
             } else {
                 tickerJob?.cancel()
@@ -312,7 +283,6 @@ class PlayerViewModel @Inject constructor(
             _currentItemId.value = nextMediaId
             _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
             _queueSize.value = _controller.value?.mediaItemCount ?: 0
-            if (_controller.value?.isPlaying == true) markCurrentMediaSeen()
             // Favourite state is already observed as a single StateFlow above;
             // querying the repository on every queue transition was unused work.
         }
