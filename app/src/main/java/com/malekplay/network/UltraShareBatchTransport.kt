@@ -1,5 +1,6 @@
 package com.malekplay.network
 
+import android.net.Network
 import android.content.ContentResolver
 import android.net.Uri
 import kotlinx.coroutines.CancellationException
@@ -173,6 +174,7 @@ object UltraShareBatchTransport {
         host: String,
         port: Int = DEFAULT_PORT,
         pairingSecret: String,
+        network: Network? = null,
         onProgress: (FileProgress) -> Unit = {}
     ): BatchOutcome = withContext(Dispatchers.IO) {
         require(sources.isNotEmpty() && sources.size <= UltraShareBatchProtocol.MAX_FILES)
@@ -208,6 +210,8 @@ object UltraShareBatchTransport {
         )
         val target = java.net.InetAddress.getByName(host)
         Socket().use { socket ->
+            // Use the same Android network selected for this peer's control channel.
+            network?.bindSocket(socket)
             socket.connect(InetSocketAddress(target, port), HANDSHAKE_TIMEOUT_MS)
             configure(socket)
             val input = DataInputStream(BufferedInputStream(socket.getInputStream(), BUFFER_BYTES))
