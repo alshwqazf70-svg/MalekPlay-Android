@@ -500,7 +500,9 @@ class UltraShareForegroundService : Service() {
                 val uris = intent.parcelableUriList(EXTRA_URIS).orEmpty()
                 val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
-                startSendingQueue(uris, host, secret)
+                val candidates = intent.getStringExtra(EXTRA_ROUTE_OFFER)?.let(UltraShareNegotiation::decode)
+                    ?.candidates.orEmpty()
+                startSendingQueue(uris, host, secret, candidates = candidates)
             }
             ACTION_RETRY_FILE -> {
                 val uri = intent.parcelableUri<Uri>(EXTRA_URI)
@@ -811,7 +813,8 @@ class UltraShareForegroundService : Service() {
         uris: List<Uri>,
         host: String,
         secret: String,
-        replaceQueue: Boolean = true
+        replaceQueue: Boolean = true,
+        candidates: List<UltraShareNegotiation.Candidate> = emptyList()
     ) {
         if (uris.isEmpty() || host.isBlank() || !UltraShareTransport.isValidPrivateLanHost(host) || !UltraShareTransport.isValidPairingSecret(secret)) {
             updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
@@ -873,7 +876,14 @@ class UltraShareForegroundService : Service() {
                 if (v2Candidates.isNotEmpty()) {
                     try {
                         beginTransfer(isReceiving = false)
-                        val batch = sendBatchWithRetry(v2Candidates.map { it.second }, host, secret) { progress ->
+                        var activeV2Host = host
+                        val batch = sendBatchWithRetry(
+                            sources = v2Candidates.map { it.second },
+                            host = host,
+                            secret = secret,
+                            candidates = candidates,
+                            onHostChanged = { activeV2Host = it }
+                        ) { progress ->
                             if (v2ProgressFileId != null && v2ProgressFileId != progress.fileId) {
                                 v2ProgressCompletedBytes = if (Long.MAX_VALUE - v2ProgressCompletedBytes < v2ProgressFileSize)
                                     Long.MAX_VALUE else v2ProgressCompletedBytes + v2ProgressFileSize
@@ -882,7 +892,7 @@ class UltraShareForegroundService : Service() {
                             v2ProgressFileSize = progress.totalBytes
                             updateState { current ->
                                 val peerTransfer = UltraSharePeerTransfer(
-                                    host = host,
+                                    host = activeV2Host,
                                     fileName = progress.fileName,
                                     transferredBytes = progress.transferredBytes,
                                     totalBytes = progress.totalBytes,
@@ -890,7 +900,7 @@ class UltraShareForegroundService : Service() {
                                     status = "يرسل الآن"
                                 )
                                 current.copy(
-                                    peerTransfers = current.peerTransfers.filterNot { it.host == host } + peerTransfer,
+                                    peerTransfers = current.peerTransfers.filterNot { it.host == activeV2Host } + peerTransfer,
                                     progress = UltraShareTransport.Progress(
                                         progress.fileName, progress.transferredBytes, progress.totalBytes,
                                         progress.bytesPerSecond, false
@@ -909,8 +919,8 @@ class UltraShareForegroundService : Service() {
                         updateState { current ->
                             val completed = batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }
                             val failed = batch.files.size - completed
-                            val previous = current.peerTransfers.firstOrNull { it.host == host }
-                            val summary = (previous ?: UltraSharePeerTransfer(host, "", 0L, 0L, 0L, "اكتملت الدفعة"))
+                            val previous = current.peerTransfers.firstOrNull { it.host == activeV2Host }
+                            val summary = (previous ?: UltraSharePeerTransfer(activeV2Host, "", 0L, 0L, 0L, "اكتملت الدفعة"))
                                 .copy(
                                     fileName = "نتيجة الدفعة",
                                     transferredBytes = batch.files.sumOf { it.transferredBytes.coerceAtLeast(0L) },
@@ -919,7 +929,7 @@ class UltraShareForegroundService : Service() {
                                     status = if (failed == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failed",
                                     updatedAtMillis = System.currentTimeMillis()
                                 )
-                            current.copy(peerTransfers = current.peerTransfers.filterNot { it.host == host } + summary)
+                            current.copy(peerTransfers = current.peerTransfers.filterNot { it.host == activeV2Host } + summary)
                         }
                         batch.files.forEachIndexed { index, outcome ->
                             val uri = uriById[outcome.fileId] ?: return@forEachIndexed
@@ -1096,50 +1106,100 @@ class UltraShareForegroundService : Service() {
         sources: List<UltraShareBatchTransport.Source>,
         host: String,
         secret: String,
+        candidates: List<UltraShareNegotiation.Candidate> = emptyList(),
+        onHostChanged: (String) -> Unit = {},
         onProgress: (UltraShareBatchTransport.FileProgress) -> Unit
     ): UltraShareBatchTransport.BatchOutcome {
+        var activeHost = host
+        val fallbackCandidates = UltraShareNegotiation.orderedCandidates(candidates)
+            .filterNot { it.host == host }
+        var fallbackIndex = 0
         var retry = 0
+        var lastFailure: IOException? = null
+
         while (true) {
             try {
                 return UltraShareBatchTransport.sendBatch(
                     resolver = contentResolver,
                     sources = sources,
-                    host = host,
+                    host = activeHost,
                     pairingSecret = secret,
-                    network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, host),
+                    network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, activeHost),
                     onProgress = onProgress
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (failure: java.net.ConnectException) {
-                throw failure
             } catch (failure: IOException) {
-                if (retry >= 2) throw failure
-                retry++
-                if (!UltraShareControlChannel.isSessionActive(host)) {
-                    updateState { current -> current.copy(
-                        status = "انقطع الاتصال؛ نعيد طلب الموافقة من الجهاز المستقبل قبل استئناف الملفات..."
-                    ) }
-                    val decision = UltraShareControlChannel.request(
-                        host = host,
-                        pairingSecret = secret,
-                        peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
-                        network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, host),
-                        onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
-                    )
-                    check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
-                        "لم يوافق الجهاز المستقبل على إعادة الاتصال."
+                lastFailure = failure
+                val isImmediateConnectFailure = failure is java.net.ConnectException
+                if (!isImmediateConnectFailure && retry < 2) {
+                    retry++
+                    if (!UltraShareControlChannel.isSessionActive(activeHost)) {
+                        updateState { current -> current.copy(
+                            status = "انقطع الاتصال؛ نعيد طلب الموافقة من الجهاز المستقبل قبل استئناف الملفات..."
+                        ) }
+                        val decision = UltraShareControlChannel.request(
+                            host = activeHost,
+                            pairingSecret = secret,
+                            peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                            network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, activeHost),
+                            onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
+                        )
+                        check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                            "لم يوافق الجهاز المستقبل على إعادة الاتصال."
+                        }
+                        registerApprovedPeer(
+                            name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlay المستقبل",
+                            host = activeHost,
+                            role = "أعاد الموافقة على الاتصال"
+                        )
                     }
-                    registerApprovedPeer(
-                        name = UltraShareControlChannel.sessionPeerName(host) ?: "جهاز MalekPlay المستقبل",
-                        host = host,
-                        role = "أعاد الموافقة على الاتصال"
-                    )
+                    updateState { current -> current.copy(
+                        status = "انقطع اتصال البيانات؛ استئناف الدفعة تلقائياً ${retry} من 2"
+                    ) }
+                    kotlinx.coroutines.delay(retry * 1_000L)
+                    continue
                 }
-                updateState { current -> current.copy(
-                    status = "انقطع اتصال البيانات؛ استئناف الدفعة تلقائياً ${retry} من 2"
-                ) }
-                kotlinx.coroutines.delay(retry * 1_000L)
+
+                var switched = false
+                while (fallbackIndex < fallbackCandidates.size && !switched) {
+                    val candidate = fallbackCandidates[fallbackIndex++]
+                    UltraShareControlChannel.closeSession(activeHost)
+                    disconnectApprovedPeer(activeHost)
+                    updateState { current -> current.copy(
+                        status = "المسار الحالي تعذّر؛ نجرب مسار ${candidate.transport} إلى الجهاز نفسه..."
+                    ) }
+                    try {
+                        val decision = UltraShareControlChannel.request(
+                            host = candidate.host,
+                            pairingSecret = secret,
+                            peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                            network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, candidate.host),
+                            onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
+                        )
+                        check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                            "لم يوافق الجهاز المستقبل على المسار البديل."
+                        }
+                        activeHost = candidate.host
+                        onHostChanged(activeHost)
+                        registerApprovedPeer(
+                            name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlay المستقبل",
+                            host = activeHost,
+                            role = "اتصال عبر مسار بديل ${candidate.transport}"
+                        )
+                        retry = 0
+                        switched = true
+                        updateState { current -> current.copy(
+                            status = "تم التبديل إلى مسار ${candidate.transport}؛ نتابع إرسال الملفات."
+                        ) }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (fallbackFailure: Exception) {
+                        lastFailure = fallbackFailure as? IOException
+                            ?: IOException(fallbackFailure.localizedMessage ?: "فشل الاتصال عبر المسار البديل.", fallbackFailure)
+                    }
+                }
+                if (!switched) throw (lastFailure ?: failure)
             }
         }
     }
@@ -1243,6 +1303,7 @@ class UltraShareForegroundService : Service() {
         private const val EXTRA_HOST = "host"
         private const val EXTRA_URI = "uri"
         private const val EXTRA_URIS = "uris"
+        private const val EXTRA_ROUTE_OFFER = "route_offer"
         const val ACTION_STOP = "com.malekplay.ultrashare.STOP"
         const val ACTION_CANCEL = "com.malekplay.ultrashare.CANCEL"
         const val ACTION_CANCEL_SEND = "com.malekplay.ultrashare.CANCEL_SEND"
@@ -1312,12 +1373,28 @@ class UltraShareForegroundService : Service() {
             start(context, intent)
         }
 
-        fun startSendingBatch(context: Context, uris: List<Uri>, host: String, secret: String) {
+        fun startSendingBatch(
+            context: Context,
+            uris: List<Uri>,
+            host: String,
+            secret: String,
+            candidates: List<UltraShareNegotiation.Candidate> = emptyList()
+        ) {
+            val routeOffer = candidates.take(8).takeIf { it.isNotEmpty() }?.let {
+                UltraShareNegotiation.encode(
+                    UltraShareNegotiation.Offer(
+                        peerId = "route-fallback",
+                        displayName = "MalekPlay",
+                        candidates = it
+                    )
+                )
+            }
             val intent = Intent(context, UltraShareForegroundService::class.java)
                 .setAction(ACTION_SEND_BATCH)
                 .putParcelableArrayListExtra(EXTRA_URIS, ArrayList(uris))
                 .putExtra(EXTRA_HOST, host)
                 .putExtra(EXTRA_SECRET, secret)
+                .putExtra(EXTRA_ROUTE_OFFER, routeOffer)
             start(context, intent)
         }
 
