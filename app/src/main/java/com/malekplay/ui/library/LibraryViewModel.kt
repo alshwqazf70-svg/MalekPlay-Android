@@ -67,15 +67,21 @@ class LibraryViewModel @Inject constructor(
         seenNewMediaIds,
         newMediaBaselineMs
     ) { folderRows, mediaRows, seenIds, baselineMs ->
-        // Only files added after the first app launch are candidates for "new".
-        // Once eligible, a file remains new indefinitely until the user opens it.
+        // Count unseen arrivals in one pass. Existing files at the first baseline
+        // are excluded; a newly indexed item remains new until playback starts.
+        val unseenByFolder = unseenNewMediaCountsByFolder(
+            records = mediaRows.asSequence().map { row ->
+                NewMediaRecord(
+                    folderPath = row.media.folderPath,
+                    mediaId = row.media.id,
+                    addedAtMs = row.media.addedAtMs
+                )
+            },
+            baselineMs = baselineMs,
+            seenIds = seenIds
+        )
         folderRows.map { folder ->
-            val unseenCount = if (baselineMs <= 0L) 0 else mediaRows.count { row ->
-                row.media.folderPath == folder.path &&
-                    row.media.addedAtMs >= baselineMs &&
-                    row.media.id !in seenIds
-            }
-            folder.copy(newItemCount = unseenCount)
+            folder.copy(newItemCount = unseenByFolder[folder.path] ?: 0)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -138,10 +144,6 @@ class LibraryViewModel @Inject constructor(
     fun search(query: String) = mediaRepository.observeSearch(query)
 
     fun folderContents(path: String) = mediaRepository.observeFolder(path)
-
-    fun markNewMediaSeen(mediaId: String) {
-        viewModelScope.launch { settingsRepository.markNewMediaSeen(mediaId) }
-    }
 
     fun toggleFavourite(mediaId: String) {
         viewModelScope.launch { userDataRepository.toggleFavourite(mediaId) }
