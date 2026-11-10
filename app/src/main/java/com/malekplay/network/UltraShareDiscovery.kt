@@ -117,28 +117,25 @@ object UltraShareDiscovery {
                     val v2 = UltraShareNegotiation.decode(message)
                     if (v2 != null) {
                         v2SourceHosts += host
-                        // Probe each advertised path against the authenticated control listener.
-                        // Interface visibility alone does not prove that this phone joined the
-                        // same Wi-Fi Direct group or hotspot.
-                        val ordered = v2.candidates
+                        // Verify both the authenticated control listener and the actual V2
+                        // data listener on every advertised interface. A reachable control
+                        // socket alone is not enough to prove that file transfer can use a path.
+                        // Keep all verified candidates so the selected path can be inspected and
+                        // a lower-priority path remains available to the caller.
+                        val testedCandidates = v2.candidates
                             .filter { it.connected && UltraShareTransport.isValidPrivateLanHost(it.host) }
-                            .sortedWith(compareBy<UltraShareNegotiation.Candidate> {
-                                when (it.transport) {
-                                    UltraShareNegotiation.Transport.WIFI_DIRECT -> 0
-                                    UltraShareNegotiation.Transport.WLAN -> 1
-                                    UltraShareNegotiation.Transport.HOTSPOT -> 2
-                                }
-                            }.thenByDescending { it.priority })
-                        val endpoint = ordered.firstOrNull { candidate ->
-                            probeControlEndpoint(candidate.host)
-                        } ?: continue
+                            .map { candidate ->
+                                candidate.copy(reachable = probeCandidate(candidate))
+                            }
+                        val endpoint = UltraShareNegotiation.selectCandidate(testedCandidates)
+                            ?: continue
                         peers.remove("host:$host") // Upgrade an earlier V1 sighting to its stable V2 identity.
                         peers["id:${v2.peerId}"] = Peer(
                             host = endpoint.host,
                             port = endpoint.port,
                             name = v2.displayName,
                             peerId = v2.peerId,
-                            candidates = v2.candidates
+                            candidates = testedCandidates
                         )
                         continue
                     }
@@ -206,10 +203,16 @@ object UltraShareDiscovery {
         return preferences.getString("peer_id", generated) ?: generated
     }
 
-    private fun probeControlEndpoint(host: String): Boolean = runCatching {
+    private fun probeCandidate(candidate: UltraShareNegotiation.Candidate): Boolean {
+        if (!probeEndpoint(candidate.host, UltraShareControlChannel.DEFAULT_PORT)) return false
+        // Candidate.port is the advertised V2 batch-data port, not the legacy V1 port.
+        return probeEndpoint(candidate.host, candidate.port)
+    }
+
+    private fun probeEndpoint(host: String, port: Int): Boolean = runCatching {
         Socket().use { socket ->
             socket.tcpNoDelay = true
-            socket.connect(InetSocketAddress(host, UltraShareControlChannel.DEFAULT_PORT), 700)
+            socket.connect(InetSocketAddress(host, port), 700)
             true
         }
     }.getOrDefault(false)
