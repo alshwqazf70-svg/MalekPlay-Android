@@ -251,7 +251,7 @@ object UltraShareBatchTransport {
                                 data.writeInt(read)
                                 data.write(buffer, 0, read)
                             }
-                            writeFrame(output, sendKey, noncePrefix, sendSequence++, frame.toByteArray())
+                            writeFrame(output, sendKey, noncePrefix, sendSequence++, frame.toByteArray(), flush = false)
                             transferred += read
                             onProgress(FileProgress(
                                 entry.id, entry.name, transferred, entry.sizeBytes,
@@ -523,14 +523,14 @@ object UltraShareBatchTransport {
         socket.keepAlive = true
     }
 
-    private fun writeFrame(output: DataOutputStream, key: ByteArray, prefix: ByteArray, sequence: Long, plain: ByteArray) {
+    private fun writeFrame(output: DataOutputStream, key: ByteArray, prefix: ByteArray, sequence: Long, plain: ByteArray, flush: Boolean = true) {
         require(plain.size <= UltraShareBatchProtocol.MAX_MANIFEST_BYTES + 64)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce(prefix, sequence)))
         val encrypted = cipher.doFinal(plain)
         output.writeInt(encrypted.size)
         output.write(encrypted)
-        output.flush()
+        if (flush) output.flush()
     }
 
     private fun readFrame(input: DataInputStream, key: ByteArray, prefix: ByteArray, sequence: Long, maximum: Int): ByteArray {
