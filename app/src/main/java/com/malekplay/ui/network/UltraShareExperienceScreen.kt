@@ -274,6 +274,19 @@ fun UltraShareExperienceScreen(
                 }
                 Icon(Icons.Filled.Wifi, contentDescription = null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(32.dp))
             }
+            Box(Modifier.fillMaxWidth().height(226.dp), contentAlignment = Alignment.Center) {
+                UltraShareRadar(
+                    isScanning = state.scanning,
+                    discoveredCount = state.discoveredPeers.size,
+                    modifier = Modifier.size(218.dp)
+                )
+                Box(
+                    Modifier.size(78.dp).background(Color(0xFF241531), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Filled.Wifi, contentDescription = "رادار الأجهزة القريبة", tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(38.dp))
+                }
+            }
             StatusPanel(
                 title = when {
                     state.sending -> "جارٍ إرسال الملفات"
