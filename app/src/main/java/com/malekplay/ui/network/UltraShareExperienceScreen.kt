@@ -318,6 +318,7 @@ fun UltraShareExperienceScreen(
             ActionTile(Modifier.fillMaxWidth(), "غرفة النقل المباشر", "الأجهزة المتصلة وسرعة وتقدم كل ملف", { Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF65D6A2), modifier = Modifier.size(28.dp)) }) {
                 page = UltraSharePage.TRANSFERS
             }
+            UltraShareHelpCard()
             state.pendingConnection?.let {
                 IncomingRequestPanel(it, viewModel::acceptConnection, viewModel::rejectConnection)
             }
