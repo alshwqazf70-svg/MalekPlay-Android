@@ -1199,6 +1199,14 @@ fun UltraShareScreen(
                     )
                 }
                 visibleDiscoveredPeers.forEach { peer ->
+                    val connectionPathLabel = when (
+                        UltraShareNegotiation.selectCandidate(peer.candidates)?.transport
+                    ) {
+                        UltraShareNegotiation.Transport.WIFI_DIRECT -> "Wi-Fi Direct"
+                        UltraShareNegotiation.Transport.WLAN -> "شبكة Wi-Fi"
+                        UltraShareNegotiation.Transport.HOTSPOT -> "نقطة اتصال"
+                        null -> "شبكة محلية"
+                    }
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
@@ -1220,6 +1228,12 @@ fun UltraShareScreen(
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(peer.name, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(peer.host, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    connectionPathLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MalekPlayColors.PurpleBright,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                                 Text("متاح على الشبكة القريبة", style = MaterialTheme.typography.labelSmall, color = Color(0xFF65D6A2), fontWeight = FontWeight.SemiBold)
                             }
                             Button(
