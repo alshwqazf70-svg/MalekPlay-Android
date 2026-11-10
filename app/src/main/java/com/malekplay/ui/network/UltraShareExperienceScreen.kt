@@ -701,7 +701,7 @@ private fun StatusPanel(title: String, subtitle: String, active: Boolean) {
 }
 
 @Composable
-private fun InfoPanel(title: String, body: String) {
+internal fun InfoPanel(title: String, body: String) {
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
@@ -711,7 +711,7 @@ private fun InfoPanel(title: String, body: String) {
 }
 
 @Composable
-private fun ErrorPanel(message: String) {
+internal fun ErrorPanel(message: String) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) {
         Text(message, modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onErrorContainer)
     }
