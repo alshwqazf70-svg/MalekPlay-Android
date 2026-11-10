@@ -3,6 +3,7 @@ package com.malekplay.network
 import android.content.Context
 import android.os.Build
 import java.net.Socket
+import java.io.DataInputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
@@ -205,14 +206,30 @@ object UltraShareDiscovery {
 
     private fun probeCandidate(candidate: UltraShareNegotiation.Candidate): Boolean {
         if (!probeEndpoint(candidate.host, UltraShareControlChannel.DEFAULT_PORT)) return false
-        // Candidate.port is the advertised V2 batch-data port, not the legacy V1 port.
-        return probeEndpoint(candidate.host, candidate.port)
+        // Candidate.port is the V2 batch-data port. Complete its explicit probe
+        // preamble so the receiver can distinguish discovery from a broken transfer.
+        return probeV2DataEndpoint(candidate.host, candidate.port)
     }
 
     private fun probeEndpoint(host: String, port: Int): Boolean = runCatching {
         Socket().use { socket ->
             socket.tcpNoDelay = true
             socket.connect(InetSocketAddress(host, port), 700)
+            true
+        }
+    }.getOrDefault(false)
+
+    private fun probeV2DataEndpoint(host: String, port: Int): Boolean = runCatching {
+        Socket().use { socket ->
+            socket.tcpNoDelay = true
+            socket.soTimeout = 700
+            socket.connect(InetSocketAddress(host, port), 700)
+            val input = DataInputStream(socket.getInputStream())
+            check(input.readInt() == 0x4D505532) { "V2 data listener handshake is unavailable." }
+            val challenge = ByteArray(32)
+            input.readFully(challenge)
+            socket.getOutputStream().write(UltraShareBatchTransport.discoveryProbeProof())
+            socket.getOutputStream().flush()
             true
         }
     }.getOrDefault(false)
