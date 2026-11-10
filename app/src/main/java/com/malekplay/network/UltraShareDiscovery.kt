@@ -84,7 +84,8 @@ object UltraShareDiscovery {
     }
 
     suspend fun discoverPeers(
-        scanWindowMs: Long = SCAN_WINDOW_MS
+        scanWindowMs: Long = SCAN_WINDOW_MS,
+        context: Context? = null
     ): List<Peer> = withContext(Dispatchers.IO) {
         require(scanWindowMs in 500L..15_000L)
         val broadcasts = findBroadcastAddresses()
@@ -126,7 +127,7 @@ object UltraShareDiscovery {
                         val testedCandidates = v2.candidates
                             .filter { it.connected && UltraShareTransport.isValidPrivateLanHost(it.host) }
                             .map { candidate ->
-                                candidate.copy(reachable = probeCandidate(candidate))
+                                candidate.copy(reachable = probeCandidate(candidate, context))
                             }
                         val endpoint = UltraShareNegotiation.selectCandidate(testedCandidates)
                             ?: continue
@@ -204,25 +205,28 @@ object UltraShareDiscovery {
         return preferences.getString("peer_id", generated) ?: generated
     }
 
-    private fun probeCandidate(candidate: UltraShareNegotiation.Candidate): Boolean {
-        if (!probeEndpoint(candidate.host, UltraShareControlChannel.DEFAULT_PORT)) return false
+    private fun probeCandidate(candidate: UltraShareNegotiation.Candidate, context: Context?): Boolean {
+        val network = context?.let { UltraShareNetworkRouting.findNetworkForHost(it, candidate.host) }
+        if (!probeEndpoint(candidate.host, UltraShareControlChannel.DEFAULT_PORT, network)) return false
         // Candidate.port is the V2 batch-data port. Complete its explicit probe
         // preamble so the receiver can distinguish discovery from a broken transfer.
-        return probeV2DataEndpoint(candidate.host, candidate.port)
+        return probeV2DataEndpoint(candidate.host, candidate.port, network)
     }
 
-    private fun probeEndpoint(host: String, port: Int): Boolean = runCatching {
+    private fun probeEndpoint(host: String, port: Int, network: android.net.Network?): Boolean = runCatching {
         Socket().use { socket ->
             socket.tcpNoDelay = true
+            network?.bindSocket(socket)
             socket.connect(InetSocketAddress(host, port), 700)
             true
         }
     }.getOrDefault(false)
 
-    private fun probeV2DataEndpoint(host: String, port: Int): Boolean = runCatching {
+    private fun probeV2DataEndpoint(host: String, port: Int, network: android.net.Network?): Boolean = runCatching {
         Socket().use { socket ->
             socket.tcpNoDelay = true
             socket.soTimeout = 700
+            network?.bindSocket(socket)
             socket.connect(InetSocketAddress(host, port), 700)
             val input = DataInputStream(socket.getInputStream())
             check(input.readInt() == 0x4D505532) { "V2 data listener handshake is unavailable." }
