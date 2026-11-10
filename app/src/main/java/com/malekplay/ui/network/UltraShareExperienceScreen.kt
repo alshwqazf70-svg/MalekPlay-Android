@@ -169,8 +169,13 @@ fun UltraShareExperienceScreen(
     }
     fun loadPhoneMedia(type: MediaType) {
         pendingMediaType = type
-        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && type == MediaType.IMAGE) {
-            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+            (type == MediaType.IMAGE || type == MediaType.VIDEO)
+        ) {
+            arrayOf(
+                if (type == MediaType.IMAGE) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+            )
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(when (type) {
                 MediaType.VIDEO -> Manifest.permission.READ_MEDIA_VIDEO
