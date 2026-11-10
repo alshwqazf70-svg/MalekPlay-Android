@@ -84,7 +84,13 @@ class NsdDiscoveryManager(private val context: Context) {
             // Mark before calling the framework: a synchronous exception still enters
             // finally and attempts a harmless best-effort stop for this listener.
             discoveryRequested = true
-            nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
+            try {
+                nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
+            } catch (failure: Exception) {
+                runCatching { nsdManager.stopServiceDiscovery(discoveryListener) }
+                    .onFailure { Log.w(TAG, "تعذر تنظيف اكتشاف NSD بعد فشل البدء.", it) }
+                throw failure
+            }
 
             awaitClose {
                 if (discoveryRequested) {
