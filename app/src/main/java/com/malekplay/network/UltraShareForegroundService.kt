@@ -461,32 +461,45 @@ class UltraShareForegroundService : Service() {
                                     disconnectApprovedPeer(request.peerAddress)
                                 }
                             ) { request ->
-                                // The room currently exposes one approval card at a time.
-                                // Reject an overlapping invitation instead of overwriting its
-                                // deferred decision and accidentally accepting the wrong peer.
-                                if (pendingConnectionDecision != null) {
-                                    return@serveOnce UltraShareControlChannel.Decision.REJECTED
-                                }
-                                val decision = CompletableDeferred<UltraShareControlChannel.Decision>()
-                                pendingConnectionDecision = decision
-                                updateState { current -> current.copy(
-                                    pendingConnection = request,
-                                    status = "طلب اتصال وارد من " + request.peerName
-                                ) }
+                                // The UI presents one approval card at a time. Keep each
+                                // authenticated request alive in its own server coroutine and
+                                // serialize only the human decision, rather than rejecting peers
+                                // merely because another device is currently being approved.
+                                pendingConnectionMutex.lock()
                                 try {
-                                    val result = decision.await()
-                                    if (result == UltraShareControlChannel.Decision.ACCEPTED) {
-                                        registerApprovedPeer(
-                                            name = request.peerName,
-                                            host = request.peerAddress,
-                                            role = "استقبل طلب الاتصال",
-                                            sessionId = request.requestId
-                                        )
+                                    val decision = CompletableDeferred<UltraShareControlChannel.Decision>()
+                                    pendingConnectionDecision = decision
+                                    updateState { current -> current.copy(
+                                        pendingConnection = request,
+                                        status = "طلب اتصال وارد من " + request.peerName
+                                    ) }
+                                    try {
+                                        // Leave enough time for requests queued behind another
+                                        // approval to reach the foreground approval card.
+                                        val result = kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+                                            decision.await()
+                                        } ?: UltraShareControlChannel.Decision.REJECTED
+                                        if (result == UltraShareControlChannel.Decision.ACCEPTED) {
+                                            registerApprovedPeer(
+                                                name = request.peerName,
+                                                host = request.peerAddress,
+                                                role = "استقبل طلب الاتصال",
+                                                sessionId = request.requestId
+                                            )
+                                        }
+                                        result
+                                    } finally {
+                                        if (pendingConnectionDecision === decision) {
+                                            pendingConnectionDecision = null
+                                        }
+                                        updateState { current ->
+                                            if (current.pendingConnection?.requestId == request.requestId) {
+                                                current.copy(pendingConnection = null)
+                                            } else current
+                                        }
                                     }
-                                    result
                                 } finally {
-                                    pendingConnectionDecision = null
-                                    updateState { current -> current.copy(pendingConnection = null) }
+                                    pendingConnectionMutex.unlock()
                                 }
                             }
                         } catch (cancelled: CancellationException) {
