@@ -467,58 +467,29 @@ fun UltraShareExperienceScreen(
                 }
 
                 UltraSharePage.RECEIVE -> {
-                    StatusPanel(
-                        if (state.receiving) "هاتفك جاهز للاستقبال" else "الاستقبال متوقف",
-                        if (state.receiving) "امسح رمز QR من هاتف الإرسال" else "ابدأ الاستقبال لإنشاء رمز الاتصال",
-                        state.receiving
-                    )
-                    if (state.receiving) {
-                        InfoPanel("رمز الاقتران", state.pairingSecret.chunked(3).joinToString(" "))
-                        InfoPanel("عناوين الشبكة", state.localAddresses.joinToString("\n").ifBlank { "جارٍ تجهيز عنوان الشبكة..." })
-                        qrBitmap?.let { bitmap ->
-                            Card(colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth()) {
-                                Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                    ComposeImage(bitmap.asImageBitmap(), contentDescription = "رمز QR للاتصال", modifier = Modifier.size(220.dp))
-                                    Text("امسح الرمز من هاتف الإرسال", color = Color.Black, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                        OutlinedButton(onClick = {
+                    ReceiveScreen(
+                        state = state,
+                        qrBitmap = qrBitmap,
+                        qrPayload = qrPayload,
+                        onCopyQr = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                             clipboard?.setPrimaryClip(ClipData.newPlainText("MalekPlay pairing", qrPayload.orEmpty()))
                             Toast.makeText(context, "تم نسخ بيانات الاقتران.", Toast.LENGTH_SHORT).show()
-                        }, modifier = Modifier.fillMaxWidth(), enabled = !qrPayload.isNullOrBlank()) { Text("نسخ بيانات QR") }
-                    }
-                    if (state.hotspotActive) {
-                        InfoPanel("شبكة MalekPlay", "اسم الشبكة: " + state.hotspotSsid.orEmpty() + "\nكلمة المرور: " + (state.hotspotPassword ?: "غير متاحة"))
-                        OutlinedButton(onClick = viewModel::stopHotspot, modifier = Modifier.fillMaxWidth()) { Text("إيقاف نقطة الاتصال") }
-                    } else {
-                        OutlinedButton(onClick = ::startHotspot, modifier = Modifier.fillMaxWidth(), enabled = !state.hotspotStarting) {
-                            if (state.hotspotStarting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Text("إنشاء نقطة اتصال محلية")
-                        }
-                    }
-                    Button(onClick = { if (state.receiving) viewModel.stopReceiving() else viewModel.startReceiving() }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (state.receiving) "إيقاف الاستقبال" else "بدء الاستقبال")
-                    }
-                    state.pendingConnection?.let { IncomingRequestPanel(it, viewModel::acceptConnection, viewModel::rejectConnection) }
-                    state.receivedFile?.let { received ->
-                        InfoPanel("آخر ملف مستلم", received.fileName + "\n" + formatUltraBytes(received.sizeBytes))
-                        received.publishedUri?.let { publishedUri ->
-                            OutlinedButton(onClick = {
-                                val intent = Intent(Intent.ACTION_VIEW)
-                                    .setDataAndType(publishedUri, received.mimeType)
-                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                runCatching { context.startActivity(intent) }
-                                    .onFailure { Toast.makeText(context, "لا يوجد تطبيق مناسب لفتح الملف.", Toast.LENGTH_LONG).show() }
-                            }, modifier = Modifier.fillMaxWidth()) { Text("فتح الملف المستلم") }
-                        }
-                        OutlinedButton(onClick = { exportLauncher.launch(received.fileName) }, modifier = Modifier.fillMaxWidth()) {
-                            Text("حفظ نسخة في مكان آخر")
-                        }
-                    }
+                        },
+                        onStartHotspot = ::startHotspot,
+                        onStopHotspot = viewModel::stopHotspot,
+                        onToggleReceiving = { if (state.receiving) viewModel.stopReceiving() else viewModel.startReceiving() },
+                        onAcceptConnection = viewModel::acceptConnection,
+                        onRejectConnection = viewModel::rejectConnection,
+                        onOpenReceived = { uri, mimeType ->
+                            val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, mimeType)
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            runCatching { context.startActivity(intent) }
+                                .onFailure { Toast.makeText(context, "لا يوجد تطبيق مناسب لفتح الملف.", Toast.LENGTH_LONG).show() }
+                        },
+                        onExportReceived = { fileName -> exportLauncher.launch(fileName) }
+                    )
                 }
-
                 UltraSharePage.JOIN -> {
                     InfoPanel("الانضمام الآمن", "افتح شاشة الاستقبال على الهاتف الآخر، ثم وجّه كاميرا هاتفك إلى رمز QR الظاهر هناك. لن يبدأ نقل الملفات قبل موافقة الطرفين.")
                     Button(onClick = ::scanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
