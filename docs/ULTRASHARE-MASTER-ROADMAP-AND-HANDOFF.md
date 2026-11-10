@@ -181,3 +181,10 @@ Primary evidence documents:
 - The exact current source head `e79180a5bb5c839f659703a0a07d6c8962745d81` had no reported commit status checks available through the connected GitHub status endpoint at audit time. A documentation-only audit update is being committed to this same feature branch to request a fresh push-triggered build; no application source files are changed by this audit note.
 - Physical two-device validation (same WLAN, hotspot, Wi-Fi Direct, disconnect/resume, and large-file throughput) remains outstanding and cannot be established by source inspection or CI alone.
 - `main` remains untouched.
+
+
+## Kotlin compile repair — 2026-11-10
+
+- Fixed the invalid explicit imports of the scoped Compose `Modifier.weight` extension in the extracted UltraShare UI files. The extension is resolved from the enclosing RowScope/ColumnScope and must not be imported as a top-level public function.
+- Added the missing Coil Compose 2.7.0 dependency through the version catalog and app module dependency declaration, preserving the media thumbnail rendering used by `SendFileScreen` rather than removing the preview.
+- These repairs address the exact compiler diagnostics observed in workflow run 42877359676. A clean exact-head CI pass is still required; earlier follow-up workflow attempts were cancelled while multiple commits/reruns overlapped.
