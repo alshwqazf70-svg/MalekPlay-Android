@@ -77,22 +77,10 @@ class DlnaRendererClient(
                 }
                 parser.next()
             }
-            val positionMs = parseClockTime(relativeTime) ?: return@withContext null
-            val durationMs = parseClockTime(duration) ?: 0L
+            val positionMs = parseDlnaClockTime(relativeTime) ?: return@withContext null
+            val durationMs = parseDlnaClockTime(duration) ?: 0L
             PlaybackPosition(positionMs, durationMs)
         }
-
-    private fun parseClockTime(value: String?): Long? {
-        if (value.isNullOrBlank() || value == "NOT_IMPLEMENTED") return null
-        val parts = value.trim().split(':')
-        if (parts.size != 3) return null
-        return runCatching {
-            val hours = parts[0].toLong()
-            val minutes = parts[1].toLong()
-            val seconds = parts[2].toDouble()
-            ((hours * 3600 + minutes * 60) * 1000 + (seconds * 1000).toLong())
-        }.getOrNull()?.takeIf { it >= 0 }
-    }
 
     private suspend fun command(device: DiscoveredNetworkDevice, action: String, arguments: String) =
         withContext(Dispatchers.IO) { soap(resolveAvTransportEndpoint(device), action, arguments) }
@@ -104,12 +92,15 @@ class DlnaRendererClient(
             device.services.any { it.contains("MediaRenderer", true) }) {
             "الجهاز المكتشف لا يعلن خدمة DLNA MediaRenderer."
         }
-        endpointCache[device.id]?.let { return it }
         require(isPrivateLanHost(device.host)) {
             "أوامر DLNA مسموحة لأجهزة الشبكة المحلية فقط."
         }
         val description = device.descriptionUrl
             ?: throw IOException("لم يعلن التلفزيون رابط وصف UPnP؛ أعد اكتشاف الأجهزة.")
+        // A renderer may keep the same discovery identity while its DHCP address
+        // or description endpoint changes. Never reuse a control URL across hosts.
+        val cacheKey = dlnaEndpointCacheKey(device.id, device.host, description)
+        endpointCache[cacheKey]?.let { return it }
         val descriptionUrl = URL(description)
         require(descriptionUrl.protocol == "http" || descriptionUrl.protocol == "https")
         require(descriptionUrl.host.equals(device.host, ignoreCase = true)) {
@@ -142,7 +133,7 @@ class DlnaRendererClient(
                             "تم رفض عنوان تحكم DLNA خارج الجهاز المكتشف."
                         }
                         val endpoint = AvTransportEndpoint(resolved, serviceType!!)
-                        endpointCache[device.id] = endpoint
+                        endpointCache[cacheKey] = endpoint
                         return endpoint
                     }
                     inService = false
@@ -217,4 +208,46 @@ class DlnaRendererClient(
     private fun xmlEscape(value: String): String = value
         .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         .replace("\"", "&quot;").replace("'", "&apos;")
+}
+
+
+/**
+ * Builds a cache key from the complete discovered endpoint identity, not only
+ * the device UUID. This prevents stale UPnP control URLs after DHCP changes.
+ */
+internal fun dlnaEndpointCacheKey(deviceId: String, host: String, descriptionUrl: String): String =
+    listOf(deviceId, host.lowercase(), descriptionUrl).joinToString("\u0000")
+
+/**
+ * Parses the UPnP HH:MM:SS[.fraction] clock format without allowing malformed
+ * or oversized remote values to overflow Long arithmetic.
+ */
+internal fun parseDlnaClockTime(value: String?): Long? {
+    if (value.isNullOrBlank() || value.trim().equals("NOT_IMPLEMENTED", ignoreCase = true)) {
+        return null
+    }
+    val parts = value.trim().split(':')
+    if (parts.size != 3) return null
+
+    return try {
+        val hours = parts[0].toLong()
+        val minutes = parts[1].toLong()
+        val seconds = java.math.BigDecimal(parts[2])
+        if (hours < 0L || minutes !in 0L..59L ||
+            seconds < java.math.BigDecimal.ZERO ||
+            seconds >= java.math.BigDecimal.valueOf(60L)
+        ) return null
+
+        val secondMillis = seconds
+            .multiply(java.math.BigDecimal.valueOf(1_000L))
+            .setScale(0, java.math.RoundingMode.DOWN)
+            .longValueExact()
+        val hourMillis = Math.multiplyExact(hours, 3_600_000L)
+        val minuteMillis = Math.multiplyExact(minutes, 60_000L)
+        Math.addExact(Math.addExact(hourMillis, minuteMillis), secondMillis)
+    } catch (_: NumberFormatException) {
+        null
+    } catch (_: ArithmeticException) {
+        null
+    }
 }
