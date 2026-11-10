@@ -13,6 +13,9 @@ import java.net.NetworkInterface
 import java.net.SocketTimeoutException
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -124,11 +127,12 @@ object UltraShareDiscovery {
                         // socket alone is not enough to prove that file transfer can use a path.
                         // Keep all verified candidates so the selected path can be inspected and
                         // a lower-priority path remains available to the caller.
-                        val testedCandidates = v2.candidates
-                            .filter { it.connected && UltraShareTransport.isValidPrivateLanHost(it.host) }
-                            .map { candidate ->
-                                candidate.copy(reachable = probeCandidate(candidate, context))
-                            }
+                        val testedCandidates = probeCandidates(
+                            v2.candidates.filter {
+                                it.connected && UltraShareTransport.isValidPrivateLanHost(it.host)
+                            },
+                            context
+                        )
                         val endpoint = UltraShareNegotiation.selectCandidate(testedCandidates)
                             ?: continue
                         peers.remove("host:$host") // Upgrade an earlier V1 sighting to its stable V2 identity.
@@ -203,6 +207,22 @@ object UltraShareDiscovery {
         val generated = UUID.randomUUID().toString()
         preferences.edit().putString("peer_id", generated).commit()
         return preferences.getString("peer_id", generated) ?: generated
+    }
+
+    /**
+     * Probe up to the protocol's eight advertised paths concurrently. Sequential
+     * 700ms control/data timeouts could otherwise stall discovery for many seconds
+     * and overrun the caller's scan window.
+     */
+    private suspend fun probeCandidates(
+        candidates: List<UltraShareNegotiation.Candidate>,
+        context: Context?
+    ): List<UltraShareNegotiation.Candidate> = coroutineScope {
+        candidates.map { candidate ->
+            async(Dispatchers.IO) {
+                candidate.copy(reachable = probeCandidate(candidate, context))
+            }
+        }.awaitAll()
     }
 
     private fun probeCandidate(candidate: UltraShareNegotiation.Candidate, context: Context?): Boolean {
