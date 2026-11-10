@@ -77,7 +77,9 @@ import com.malekplay.ui.videos.VideoCategoryScreen
 import com.malekplay.ui.local.LocalScreen
 import com.malekplay.ui.music.MusicScreen
 import com.malekplay.ui.network.NetworkScreen
-import com.malekplay.ui.network.UltraShareScreen
+import com.malekplay.ui.network.TransferHomeScreen // الشاشة الجديدة (الرادار)
+import com.malekplay.ui.network.SendFileScreen   // شاشة الإرسال
+import com.malekplay.ui.network.ReceiveScreen   // شاشة الاستقبال
 import com.malekplay.ui.player.audio.AudioPlayerScreen
 import com.malekplay.ui.player.video.VideoPlayerScreen
 import com.malekplay.ui.playlists.PlaylistScreen
@@ -91,7 +93,7 @@ import com.malekplay.safety.ParentalControlManager
 
 private const val ANIM_MS = 260
 
-// Five primary destinations keep touch targets and labels comfortable on phones.
+// المسارات السفلية
 private val BOTTOM_DESTINATIONS = listOf(
     TopLevelDestination.HOME,
     TopLevelDestination.MOVIES,
@@ -127,11 +129,11 @@ fun MalekPlayNavHost(
         onDispose { resolver.unregisterContentObserver(mediaStoreObserver) }
     }
     val openMedia: (MediaItem) -> Unit = { item ->
-        // New-media acknowledgement is persisted by MediaRepository only after
-        // PlaybackService confirms that the media session has actually started.
         navController.openMedia(item)
     }
     val parentalControl = remember(context) { ParentalControlManager(context) }
+    
+    // متغير لحفظ الملفات القادمة من تطبيقات أخرى (مثل الواتساب)
     var pendingTransferUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     val openTransferForUris: (List<Uri>) -> Unit = { uris ->
         pendingTransferUris = uris.distinct()
@@ -150,6 +152,8 @@ fun MalekPlayNavHost(
             navController.navigate(Screen.KidsMode.route) { launchSingleTop = true }
         }
     }
+    
+    // إخفاء الشريط السفلي في شاشات المشغل والإرسال والاستقبال
     val showBottomBar = BOTTOM_DESTINATIONS.any { it.screen.route == currentRoute }
 
     Scaffold(
@@ -183,7 +187,6 @@ fun MalekPlayNavHost(
             }
         ) {
             composable(Screen.KidsMode.route) {
-                // Capture the entry mode: parent exit flips the stored flag before invoking onBack.
                 val enteredAsKidsMode = parentalControl.isEnabled
                 KidsModeScreen(
                     onBack = {
@@ -250,13 +253,48 @@ fun MalekPlayNavHost(
                 )
             }
 
+            // =========================================================
+            // 🔥 قسم النقل الجديد (Transfer / UltraShare) 🔥
+            // =========================================================
+            
+            // 1. شاشة الرادار الرئيسية
             composable(Screen.UltraShare.route) {
-                UltraShareScreen(
-                    contentPadding = padding,
-                    onBack = { pendingTransferUris = emptyList(); navController.popBackStack() },
-                    initialUris = pendingTransferUris
+                TransferHomeScreen(
+                    onNavigateToSend = { navController.navigate("transfer_send") },
+                    onNavigateToReceive = { navController.navigate("transfer_receive") },
+                    onNavigateToHistory = { /* TODO: إضافة شاشة السجل لاحقاً */ },
+                    onNavigateToSettings = { /* TODO: إضافة شاشة الإعدادات لاحقاً */ },
+                    initialUris = pendingTransferUris, // الملفات القادمة من التطبيقات الأخرى
+                    onBack = { 
+                        pendingTransferUris = emptyList()
+                        navController.popBackStack() 
+                    }
                 )
             }
+
+            // 2. شاشة اختيار الملفات للإرسال
+            composable(
+                route = "transfer_send",
+                enterTransition = { slideInVertically(tween(ANIM_MS)) { it } + fadeIn(tween(ANIM_MS)) },
+                exitTransition = { slideOutVertically(tween(ANIM_MS)) { it } + fadeOut(tween(ANIM_MS)) }
+            ) {
+                SendFileScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            // 3. شاشة الاستقبال (رمز الـ QR)
+            composable(
+                route = "transfer_receive",
+                enterTransition = { slideInVertically(tween(ANIM_MS)) { it } + fadeIn(tween(ANIM_MS)) },
+                exitTransition = { slideOutVertically(tween(ANIM_MS)) { it } + fadeOut(tween(ANIM_MS)) }
+            ) {
+                ReceiveScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            
+            // =========================================================
 
             composable(Screen.Profile.route) {
                 ProfileScreen(
@@ -400,11 +438,6 @@ fun MalekPlayNavHost(
 
 /**
  * Switch primary tabs from one stable root.
- *
- * Always normalize the stack to Home before opening the requested tab. This
- * avoids relying on a possibly stale back-stack lookup while a destination
- * transition is still settling, and launchSingleTop makes rapid repeated taps
- * idempotent.
  */
 private fun NavHostController.navigateToTopLevel(destination: TopLevelDestination) {
     val route = destination.screen.route
@@ -420,7 +453,7 @@ private fun NavHostController.navigateToTopLevel(destination: TopLevelDestinatio
     }
 }
 
-/** Routes network media by its remote file extension instead of opening every item as video. */
+/** Routes network media by its remote file extension */
 private fun NavHostController.openNetworkMedia(rawUri: String) {
     val extension = Uri.parse(rawUri).lastPathSegment
         ?.substringAfterLast('.', "")
