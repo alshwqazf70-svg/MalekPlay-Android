@@ -24,7 +24,7 @@ object UltraShareQrCode {
     private const val MAX_DECODE_DIMENSION = 2048
 
     fun createPayload(host: String, port: Int, pairingSecret: String): String {
-        require(port == UltraShareTransport.DEFAULT_PORT) { "منفذ قناة الاقتران غير متوافق." }
+        require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ قناة الاقتران غير متوافق." }
         require(UltraShareTransport.isValidPrivateLanHost(host)) {
             "عنوان QR يجب أن يكون IPv4 خاصاً بالشبكة المحلية."
         }
@@ -64,7 +64,7 @@ object UltraShareQrCode {
             .toIntOrNull() ?: throw IllegalArgumentException("منفذ الاقتران غير صالح.")
         val secret = requireNotNull(uri.getQueryParameter("secret")) { "رمز الاقتران غير موجود في رمز QR." }
         require(UltraShareTransport.isValidPairingSecret(secret)) { "رمز الاقتران في QR غير صالح." }
-        require(port == UltraShareTransport.DEFAULT_PORT) { "منفذ MalekPlay Ultra Share غير متوافق." }
+        require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ MalekPlay Ultra Share غير متوافق." }
         return PairingDetails(host, port, secret)
     }
 
