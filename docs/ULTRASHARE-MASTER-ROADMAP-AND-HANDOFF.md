@@ -171,3 +171,13 @@ Primary evidence documents:
 - Regression tests were added for the centralized receiver QR endpoint and V2 stream forward progress after a zero-byte bulk read.
 - V1 transport remains in place for protocol compatibility; V2 remains the primary batch transfer path. Do not remove V1 until compatibility requirements and all call sites are formally retired.
 - **Verification status:** source changes are committed, but Gradle build, unit tests, lint, and two-device transfer tests have not yet been confirmed for this head. Do not label this revision production-ready until those checks pass.
+
+
+## Pre-install source audit — 2026-11-10
+
+- Reviewed the current feature-branch UltraShare experience coordinator, send/receive pages, nearby-device picker, radar, session room, ViewModels, media picker repository, QR payload implementation, V1/V2 transport sources, foreground-service manifest declaration, and existing protocol tests.
+- Static source scan of the reviewed Kotlin UI/ViewModel/transport files found no TODO markers or GlobalScope usage. This is a source review result, not a substitute for compilation or runtime testing.
+- Confirmed that the branch workflow `.github/workflows/android.yml` is configured for pushes to this feature branch and includes ABI debug APK assembly, a universal install APK package, release APK/AAB packaging, Android unit tests, Android lint, and desktop protocol tests.
+- The exact current source head `e79180a5bb5c839f659703a0a07d6c8962745d81` had no reported commit status checks available through the connected GitHub status endpoint at audit time. A documentation-only audit update is being committed to this same feature branch to request a fresh push-triggered build; no application source files are changed by this audit note.
+- Physical two-device validation (same WLAN, hotspot, Wi-Fi Direct, disconnect/resume, and large-file throughput) remains outstanding and cannot be established by source inspection or CI alone.
+- `main` remains untouched.
