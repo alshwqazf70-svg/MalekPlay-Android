@@ -1,9 +1,6 @@
 package com.malekplay.ui.network
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,10 +33,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.malekplay.core.ui.theme.MalekPlayColors
+import com.malekplay.core.ui.util.MediaPermissionType
+import com.malekplay.core.ui.util.MediaPermissions
 import com.malekplay.network.UltraShareControlChannel
 
 // --- نماذج البيانات (Data Models) ---
@@ -73,45 +71,21 @@ fun SendFileScreen(
     // حالة فتح نافذة اختيار الأجهزة
     var showDevicePicker by remember { mutableStateOf(false) }
 
-    // Request only the permission needed by the active media tab. On Android 14+,
-    // selected visual-media access is also sufficient for the media the user selected.
-    val fullMediaPermission = when (selectedTab) {
-        0 -> Manifest.permission.READ_MEDIA_VIDEO
-        1 -> Manifest.permission.READ_MEDIA_AUDIO
-        else -> Manifest.permission.READ_MEDIA_IMAGES
+    val mediaPermissionType = when (selectedTab) {
+        0 -> MediaPermissionType.VIDEO
+        1 -> MediaPermissionType.AUDIO
+        else -> MediaPermissionType.IMAGE
     }
-    val partialVisualPermission = if (
-        Build.VERSION.SDK_INT >= 34 && selectedTab != 1
-    ) Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED else null
-    val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        listOfNotNull(fullMediaPermission, partialVisualPermission).toTypedArray()
-    } else {
-        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-    }
-
-    fun hasCurrentMediaPermission(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            return ContextCompat.checkSelfPermission(
-                context, Manifest.permission.READ_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED
-        }
-        val fullGranted = ContextCompat.checkSelfPermission(
-            context, fullMediaPermission
-        ) == PackageManager.PERMISSION_GRANTED
-        val partialGranted = partialVisualPermission?.let { permission ->
-            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
-        } ?: false
-        return fullGranted || partialGranted
-    }
+    val permissionsToRequest = MediaPermissions.requiredFor(mediaPermissionType)
 
     var hasPermission by remember(selectedTab) {
-        mutableStateOf(hasCurrentMediaPermission())
+        mutableStateOf(MediaPermissions.hasAccess(context, mediaPermissionType))
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        hasPermission = hasCurrentMediaPermission()
+        hasPermission = MediaPermissions.hasAccess(context, mediaPermissionType)
     }
 
     // جلب البيانات عند تغيير التبويب أو الحصول على الإذن
