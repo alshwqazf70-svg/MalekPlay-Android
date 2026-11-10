@@ -325,7 +325,11 @@ object UltraShareControlChannel {
             // Publish the approved server-side session before the ACCEPT frame reaches
             // the sender. Otherwise the first v2 data socket can race this map update.
             socket.soTimeout = SESSION_TIMEOUT_MS
-            serverSessions[request.peerAddress] = socket
+            // A reconnect from the same address replaces the prior session atomically.
+            // Closing the old socket prevents an orphaned heartbeat from surviving the new approval.
+            serverSessions.put(request.peerAddress, socket)?.takeIf { it !== socket }?.let { previous ->
+                runCatching { previous.close() }
+            }
             serverSessionPeerIds.remove(request.peerAddress)
             request.peerId?.let { serverSessionPeerIds[request.peerAddress] = it }
             output.writeInt(frame.size)
@@ -342,10 +346,13 @@ object UltraShareControlChannel {
                 }
             }
         } finally {
-            if (serverSessions.remove(request.peerAddress, socket)) {
+            // A stale socket must never report the newer session as disconnected.
+            // Only the coroutine that still owns the address entry may clear it.
+            val wasCurrentSession = serverSessions.remove(request.peerAddress, socket)
+            if (wasCurrentSession) {
                 serverSessionPeerIds.remove(request.peerAddress)
+                onSessionClosed(request)
             }
-            onSessionClosed(request)
         }
     }
 
