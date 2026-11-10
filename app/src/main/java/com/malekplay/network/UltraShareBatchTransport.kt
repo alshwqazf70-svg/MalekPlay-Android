@@ -300,11 +300,12 @@ object UltraShareBatchTransport {
         val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_BYTES))
         output.writeInt(HANDSHAKE_MAGIC)
         val challenge = ByteArray(CHALLENGE_BYTES).also(SecureRandom()::nextBytes)
-        val secret = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
         output.write(challenge)
         output.flush()
         val proof = ByteArray(32).also(input::readFully)
+        // Detect the explicit reachability probe before running the expensive PIN KDF.
         if (isDiscoveryProbeProof(proof)) throw DiscoveryProbeConnection()
+        val secret = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
         val authenticated = MessageDigest.isEqual(proof, hmac(secret, challenge))
         val peerHost = socket.inetAddress.hostAddress.orEmpty()
         // Do not reveal whether the short pairing secret was correct until the
