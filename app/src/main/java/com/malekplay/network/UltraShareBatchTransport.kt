@@ -564,7 +564,7 @@ object UltraShareBatchTransport {
             val skipped = input.skip(remaining)
             if (skipped > 0) remaining -= skipped
             else {
-                val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                val read = readAtMost(input, buffer, minOf(buffer.size.toLong(), remaining).toInt())
                 require(read > 0) { "تعذر الوصول إلى موضع الاستئناف." }
                 remaining -= read
             }
