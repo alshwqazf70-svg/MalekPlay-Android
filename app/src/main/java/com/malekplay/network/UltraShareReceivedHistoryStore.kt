@@ -3,7 +3,6 @@ package com.malekplay.network
 import android.content.Context
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -15,7 +14,7 @@ import java.util.UUID
 
 private val Context.ultraShareReceivedHistoryDataStore by preferencesDataStore(
     name = "ultra_share_received_history",
-    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+    corruptionHandler = ReplaceFileCorruptionHandler { throw it }
 )
 
 data class UltraShareReceivedEntry(
@@ -64,7 +63,7 @@ object UltraShareReceivedHistoryStore {
             publishedUri = publishedUri
         )
         context.applicationContext.ultraShareReceivedHistoryDataStore.edit { preferences ->
-            val old = decode(preferences[HISTORY].orEmpty())
+            val old = decodeForMutation(preferences[HISTORY].orEmpty())
                 .filterNot { it.filePath == canonicalPath && it.sizeBytes == sizeBytes }
             preferences[HISTORY] = encode((listOf(entry) + old).take(MAX_ENTRIES))
         }
@@ -72,7 +71,9 @@ object UltraShareReceivedHistoryStore {
 
     suspend fun remove(context: Context, id: String) {
         context.applicationContext.ultraShareReceivedHistoryDataStore.edit { preferences ->
-            preferences[HISTORY] = encode(decode(preferences[HISTORY].orEmpty()).filterNot { it.id == id })
+            preferences[HISTORY] = encode(
+                decodeForMutation(preferences[HISTORY].orEmpty()).filterNot { it.id == id }
+            )
         }
     }
 
@@ -94,28 +95,45 @@ object UltraShareReceivedHistoryStore {
         }
     }.toString()
 
-    private fun decode(raw: String): List<UltraShareReceivedEntry> = runCatching {
-        val array = JSONArray(raw)
-        buildList {
-            for (index in 0 until array.length()) {
-                val item = array.getJSONObject(index)
-                val path = item.optString("path").takeIf { it.isNotBlank() } ?: continue
-                val name = item.optString("name").takeIf { it.isNotBlank() } ?: continue
+    /** Refuse mutations when the root payload is malformed so the raw history survives. */
+    internal fun decodeForMutation(raw: String): List<UltraShareReceivedEntry> {
+        if (raw.isBlank()) return emptyList()
+        try {
+            JSONArray(raw)
+        } catch (failure: Exception) {
+            throw IllegalStateException(
+                "سجل الملفات المستلمة تالف؛ تم إيقاف التعديل للحفاظ على البيانات الأصلية.",
+                failure
+            )
+        }
+        return decode(raw)
+    }
+
+    /** Decode rows independently so one damaged history item cannot hide the others. */
+    internal fun decode(raw: String): List<UltraShareReceivedEntry> {
+        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        val entries = LinkedHashMap<String, UltraShareReceivedEntry>()
+        for (index in 0 until array.length()) {
+            val entry = runCatching {
+                val item = array.optJSONObject(index) ?: return@runCatching null
+                val path = item.optString("path").takeIf { it.isNotBlank() } ?: return@runCatching null
+                val name = item.optString("name").takeIf { it.isNotBlank() } ?: return@runCatching null
                 val size = item.optLong("size", -1L)
                 val receivedAt = item.optLong("receivedAt", 0L)
-                if (size < 0L || receivedAt <= 0L) continue
-                add(
-                    UltraShareReceivedEntry(
-                        id = item.optString("id").ifBlank { "$path:$receivedAt" },
-                        filePath = path,
-                        fileName = name,
-                        mimeType = item.optString("mime").ifBlank { "application/octet-stream" },
-                        sizeBytes = size,
-                        receivedAtEpochMs = receivedAt,
-                        publishedUri = item.optString("publishedUri").takeIf { it.isNotBlank() && it != "null" }
-                    )
+                if (size < 0L || receivedAt <= 0L) return@runCatching null
+                UltraShareReceivedEntry(
+                    id = item.optString("id").ifBlank { "$path:$receivedAt" },
+                    filePath = path,
+                    fileName = name,
+                    mimeType = item.optString("mime").ifBlank { "application/octet-stream" },
+                    sizeBytes = size,
+                    receivedAtEpochMs = receivedAt,
+                    publishedUri = item.optString("publishedUri")
+                        .takeIf { it.isNotBlank() && it != "null" }
                 )
-            }
-        }.take(MAX_ENTRIES)
-    }.getOrDefault(emptyList())
+            }.getOrNull() ?: continue
+            if (entry.id !in entries) entries[entry.id] = entry
+        }
+        return entries.values.take(MAX_ENTRIES)
+    }
 }
