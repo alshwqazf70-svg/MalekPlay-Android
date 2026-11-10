@@ -10,7 +10,6 @@ import android.content.ClipboardManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.animation.core.RepeatMode
@@ -34,21 +33,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -56,8 +50,6 @@ import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.*
 import com.malekplay.data.repository.MediaRepository
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.widget.Toast
@@ -69,7 +61,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import javax.inject.Inject
 
 // --- حالة الواجهة (State) ---
@@ -118,7 +109,7 @@ class UltraShareViewModel @Inject constructor(
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
     private var approvedPeerCandidates: List<com.malekplay.network.UltraShareNegotiation.Candidate> = emptyList()
     
-    // 🔥 استخدام محرك البحث السريع mDNS
+    // محرك البحث السريع mDNS
     private val nsdDiscoveryManager = NsdDiscoveryManager(context)
 
     init {
@@ -243,7 +234,7 @@ class UltraShareViewModel @Inject constructor(
         _state.value = _state.value.copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (_state.value.sending) UltraShareForegroundService.state.value.sendProgress else null, status = context.getString(R.string.ultra_share_stopped))
     }
 
-    // 🔥 دالة البحث المحدثة (mDNS)
+    // دالة البحث المحدثة (mDNS)
     fun scanNearbyDevices() {
         if (scanJob != null) {
             scanJob?.cancel()
@@ -258,7 +249,7 @@ class UltraShareViewModel @Inject constructor(
                     val newPeer = UltraShareDiscovery.Peer(
                         host = service.host ?: "",
                         name = service.name,
-                        candidates = emptyList() // يمكن إضافة الـ candidates لاحقاً إذا لزم الأمر
+                        candidates = emptyList()
                     )
                     val currentPeers = _state.value.discoveredPeers.toMutableList()
                     if (!currentPeers.any { it.host == newPeer.host }) {
@@ -376,6 +367,8 @@ class UltraShareViewModel @Inject constructor(
 fun UltraShareScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
+    onNavigateToSend: () -> Unit,    // تمت الإضافة
+    onNavigateToReceive: () -> Unit, // تمت الإضافة
     initialUris: List<Uri> = emptyList(),
     viewModel: UltraShareViewModel = hiltViewModel()
 ) {
@@ -485,8 +478,12 @@ fun UltraShareScreen(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // زر الاستقبال
                 Button(
-                    onClick = { if (!state.receiving) viewModel.startReceiving() },
+                    onClick = { 
+                        if (!state.receiving) viewModel.startReceiving() 
+                        onNavigateToReceive() // الانتقال لشاشة الـ QR
+                    },
                     modifier = Modifier.weight(1f).height(80.dp),
                     shape = RoundedCornerShape(20.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MalekPlayColors.PurpleBright)
@@ -497,8 +494,10 @@ fun UltraShareScreen(
                         Text("استقبال", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
                 }
+                
+                // زر الإرسال
                 OutlinedButton(
-                    onClick = { /* سيتم ربطها بشاشة الإرسال */ },
+                    onClick = { onNavigateToSend() }, // الانتقال لشاشة اختيار الملفات
                     modifier = Modifier.weight(1f).height(80.dp),
                     shape = RoundedCornerShape(20.dp),
                     border = BorderStroke(2.dp, MalekPlayColors.PurpleBright),
@@ -514,7 +513,7 @@ fun UltraShareScreen(
         }
     }
 
-    // النافذة السفلية للخيارات المتقدمة والسجلات (لإخفاء الفوضى)
+    // النافذة السفلية للخيارات المتقدمة والسجلات
     if (showAdvancedSheet) {
         ModalBottomSheet(onDismissRequest = { showAdvancedSheet = false }) {
             AdvancedTransferSheet(state = state, viewModel = viewModel, context = context)
@@ -555,7 +554,6 @@ fun AdvancedTransferSheet(state: UltraShareUiState, viewModel: UltraShareViewMod
         Text("خيارات متقدمة", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
         
-        // هنا يمكنك لصق الإعدادات القديمة: سجل النقل، الحالة، إلخ
         Text("الوضع الحالي: ${if (state.sending) "جارٍ الإرسال" else if (state.receiving) "يستقبل" else "خامل"}")
         Text("الأجهزة النشطة: ${state.activePeers.size}")
         
