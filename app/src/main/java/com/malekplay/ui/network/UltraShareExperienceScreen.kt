@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -77,6 +78,9 @@ import com.malekplay.network.UltraShareBatchTransport
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraShareTransport
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class UltraSharePage { HOME, SEND, RECEIVE, JOIN, NEARBY, TRANSFERS, HISTORY }
 
@@ -89,6 +93,7 @@ fun UltraShareExperienceScreen(
     val context = LocalContext.current
     val viewModel: UltraShareViewModel = hiltViewModel()
     val state by viewModel.state.collectAsState()
+    val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf(UltraSharePage.HOME) }
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
@@ -127,6 +132,27 @@ fun UltraShareExperienceScreen(
     }
     val qrScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let(::handleQr)
+    }
+    val qrImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        UltraShareQrCode.parsePayload(
+                            UltraShareQrCode.decodeImage(context.contentResolver, uri)
+                        )
+                    }
+                }.onSuccess { pairing ->
+                    host = pairing.host
+                    secret = pairing.pairingSecret
+                    viewModel.clearApprovedConnection()
+                    viewModel.requestConnection(pairing.host, pairing.pairingSecret)
+                    page = UltraSharePage.SEND
+                }.onFailure {
+                    Toast.makeText(context, "تعذر قراءة رمز QR من الصورة.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
     val wifiPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.all { it }) viewModel.scanWifiDirectPeers()
@@ -407,7 +433,10 @@ fun UltraShareExperienceScreen(
                     InfoPanel("الانضمام الآمن", "افتح شاشة الاستقبال على الهاتف الآخر، ثم وجّه كاميرا هاتفك إلى رمز QR الظاهر هناك. لن يبدأ نقل الملفات قبل موافقة الطرفين.")
                     Button(onClick = ::scanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
                         Icon(Icons.Filled.QrCode, null)
-                        Text("فتح ماسح رمز QR")
+                        Text("فتح ماسح رمز QR بالكاميرا")
+                    }
+                    OutlinedButton(onClick = { qrImagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+                        Text("قراءة QR من صورة محفوظة")
                     }
                     if (state.requestingConnection) {
                         StatusPanel("تم إرسال طلب الاتصال", "بانتظار موافقة جهاز الاستقبال", true)
