@@ -90,9 +90,12 @@ class SettingsRepository(private val context: Context) {
         return baseline
     }
 
-    suspend fun markNewMediaSeen(mediaId: String) {
-        if (mediaId.isBlank()) return
+    suspend fun markNewMediaSeen(mediaId: String, addedAtMs: Long) {
+        if (mediaId.isBlank() || addedAtMs <= 0L) return
         context.malekPlayDataStore.edit { prefs ->
+            val baseline = prefs[Keys.NEW_MEDIA_BASELINE_MS] ?: return@edit
+            // Never store acknowledgements for files that predate the first scan.
+            if (addedAtMs < baseline) return@edit
             val current = prefs[Keys.SEEN_NEW_MEDIA_IDS] ?: emptySet()
             if (mediaId !in current) prefs[Keys.SEEN_NEW_MEDIA_IDS] = current + mediaId
         }
