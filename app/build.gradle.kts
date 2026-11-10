@@ -124,6 +124,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.animation)
     implementation(libs.compose.icons.extended)
+    implementation(libs.coil.compose)
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     implementation(libs.media3.exoplayer)
