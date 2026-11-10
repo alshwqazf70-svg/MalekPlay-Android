@@ -40,6 +40,14 @@ class UltraShareQueueStoreTest {
     }
 
     @Test
+    fun mutationDecoderRejectsCorruptRootInsteadOfReplacingIt() {
+        val failure = runCatching {
+            UltraShareQueueStore.decodeForMutation("{broken-json")
+        }.exceptionOrNull()
+        assertTrue(failure is IllegalStateException)
+    }
+
+    @Test
     fun queueClaimsAreExclusiveAndSkippedItemsCannotBeResumed() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val activeUri = Uri.parse("content://malekplay.test/document/active")
