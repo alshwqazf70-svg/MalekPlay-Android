@@ -128,8 +128,6 @@ import com.malekplay.ui.player.components.StatsSheet
 import com.malekplay.ui.player.components.SubtitleStyleSheet
 import com.malekplay.ui.player.components.TrackPickerSheet
 import com.malekplay.network.DiscoveredNetworkDevice
-import com.malekplay.network.DlnaRendererClient
-import com.malekplay.player.cast.LocalMediaBridgeRegistry
 import com.malekplay.ui.settings.SettingsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -218,6 +216,7 @@ fun VideoPlayerScreen(
     val subtitleTranslationError by viewModel.subtitleTranslationError.collectAsStateWithLifecycle()
     val sleepEndsAt by viewModel.sleepTimerEndsAtMs.collectAsStateWithLifecycle()
     val inPip by viewModel.pipController.inPip.collectAsStateWithLifecycle()
+    val dlnaPlayback by viewModel.dlnaPlayback.collectAsStateWithLifecycle()
 
 
     val eqAvailable by viewModel.audioEffects.available.collectAsStateWithLifecycle()
@@ -374,38 +373,25 @@ fun VideoPlayerScreen(
         showStats || showSubtitleStyle || showEqualizer || showBookmarks || showQueue ||
         showMenu || showTranslationLanguages || showOnlineSubtitles || showDlnaPicker ||
         showRemoteOutputDialog
-    var activeDlnaDevice by remember { mutableStateOf<DiscoveredNetworkDevice?>(null) }
-    var remoteDlnaPlaying by remember { mutableStateOf(false) }
-    var remotePositionMs by remember { mutableLongStateOf(0L) }
-    var remoteDurationMs by remember { mutableLongStateOf(0L) }
-    val dlnaClient = remember { DlnaRendererClient() }
-    val displayedPositionMs = if (activeDlnaDevice != null) remotePositionMs else positionMs
-    val displayedDurationMs = if (activeDlnaDevice != null && remoteDurationMs > 0L) remoteDurationMs else durationMs
+    val activeDlnaDevice = dlnaPlayback.activeDevice
+    val remoteDlnaPlaying = dlnaPlayback.isPlaying
+    val displayedPositionMs = if (activeDlnaDevice != null) dlnaPlayback.positionMs else positionMs
+    val displayedDurationMs = if (activeDlnaDevice != null && dlnaPlayback.durationMs > 0L) dlnaPlayback.durationMs else durationMs
 
     LaunchedEffect(currentVideoId) {
         videoZoom = 1f
-        // Stop the previous receiver before dropping its identity. Otherwise the
-        // television can keep playing an item that the local queue has left behind.
-        activeDlnaDevice?.let { previousReceiver ->
-            scope.launch { runCatching { dlnaClient.stop(previousReceiver) } }
-        }
-        activeDlnaDevice = null
-        remoteDlnaPlaying = false
-        remotePositionMs = 0L
-        remoteDurationMs = 0L
     }
 
-    LaunchedEffect(activeDlnaDevice) {
-        val remote = activeDlnaDevice ?: return@LaunchedEffect
-        while (true) {
-            runCatching { dlnaClient.getPosition(remote) }
-                .onSuccess { position ->
-                    if (position != null) {
-                        remotePositionMs = position.positionMs
-                        remoteDurationMs = position.durationMs
-                    }
-                }
-            delay(1_000L)
+    LaunchedEffect(dlnaPlayback.errorMessage) {
+        dlnaPlayback.errorMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            viewModel.clearDlnaError()
+        }
+    }
+
+    LaunchedEffect(dlnaPlayback.activeDevice?.id) {
+        dlnaPlayback.activeDevice?.let { device ->
+            Toast.makeText(context, "تم إرسال أمر التشغيل إلى ${device.name}", Toast.LENGTH_LONG).show()
         }
     }
     val detectedEpisode = remember(title) {
@@ -489,34 +475,13 @@ fun VideoPlayerScreen(
     }
 
     fun seekByPlayback(deltaMs: Long) {
-        val remote = activeDlnaDevice
-        if (remote == null) {
-            viewModel.seekBy(deltaMs)
-        } else {
-            scope.launch {
-                runCatching { dlnaClient.seek(remote, (remotePositionMs + deltaMs).coerceAtLeast(0L)) }
-                    .onFailure { failure ->
-                        Toast.makeText(context, failure.message ?: "تعذر تغيير موضع الفيديو على التلفزيون.", Toast.LENGTH_LONG).show()
-                    }
-            }
-        }
+        if (activeDlnaDevice == null) viewModel.seekBy(deltaMs)
+        else viewModel.seekDlnaBy(deltaMs)
     }
 
     fun togglePlayback() {
-        val remote = activeDlnaDevice
-        if (remote == null) {
-            viewModel.togglePlayPause()
-        } else {
-            scope.launch {
-                runCatching {
-                    if (remoteDlnaPlaying) dlnaClient.pause(remote) else dlnaClient.resume(remote)
-                }.onSuccess {
-                    remoteDlnaPlaying = !remoteDlnaPlaying
-                }.onFailure { failure ->
-                    Toast.makeText(context, failure.message ?: "تعذر التحكم بالتلفزيون.", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
+        if (activeDlnaDevice == null) viewModel.togglePlayPause()
+        else viewModel.toggleDlnaPlayback()
     }
 
     fun commitSeek() {
@@ -781,17 +746,8 @@ fun VideoPlayerScreen(
                         durationMs = displayedDurationMs,
                         bufferedMs = bufferedMs,
                         onScrubFinished = { targetMs ->
-                            val remote = activeDlnaDevice
-                            if (remote == null) {
-                                viewModel.seekTo(targetMs)
-                            } else {
-                                scope.launch {
-                                    runCatching { dlnaClient.seek(remote, targetMs) }
-                                        .onFailure { failure ->
-                                            Toast.makeText(context, failure.message ?: "تعذر تقديم الفيديو على التلفزيون.", Toast.LENGTH_LONG).show()
-                                        }
-                                }
-                            }
+                            if (activeDlnaDevice == null) viewModel.seekTo(targetMs)
+                            else viewModel.seekDlnaTo(targetMs)
                         }
                     )
                     }
@@ -803,22 +759,12 @@ fun VideoPlayerScreen(
                         hasNext = currentIndex < queue.lastIndex,
                         hasPrevious = currentIndex > 0,
                         onPrevious = {
-                            val remote = activeDlnaDevice
-                            if (remote != null) {
-                                scope.launch { runCatching { dlnaClient.stop(remote) } }
-                                activeDlnaDevice = null
-                                remoteDlnaPlaying = false
-                            }
+                            if (activeDlnaDevice != null) viewModel.stopDlnaPlayback()
                             viewModel.seekToPrevious()
                         },
                         onPlayPause = ::togglePlayback,
                         onNext = {
-                            val remote = activeDlnaDevice
-                            if (remote != null) {
-                                scope.launch { runCatching { dlnaClient.stop(remote) } }
-                                activeDlnaDevice = null
-                                remoteDlnaPlaying = false
-                            }
+                            if (activeDlnaDevice != null) viewModel.stopDlnaPlayback()
                             viewModel.seekToNext()
                         },
                         onQueue = { showQueue = true },
@@ -1135,12 +1081,8 @@ fun VideoPlayerScreen(
             BookmarksSheet(
                 bookmarks = bookmarks,
                 onSelect = { bookmark ->
-                    val remote = activeDlnaDevice
-                    if (remote == null) viewModel.seekTo(bookmark.positionMs)
-                    else scope.launch {
-                        runCatching { dlnaClient.seek(remote, bookmark.positionMs) }
-                            .onFailure { failure -> Toast.makeText(context, failure.message ?: "تعذر الانتقال إلى العلامة.", Toast.LENGTH_LONG).show() }
-                    }
+                    if (activeDlnaDevice == null) viewModel.seekTo(bookmark.positionMs)
+                    else viewModel.seekDlnaTo(bookmark.positionMs)
                     showBookmarks = false
                 },
                 onDelete = viewModel::deleteBookmark,
@@ -1170,17 +1112,7 @@ fun VideoPlayerScreen(
                     TextButton(
                         onClick = {
                             showRemoteOutputDialog = false
-                            if (remote != null) {
-                                scope.launch {
-                                    runCatching { dlnaClient.stop(remote) }
-                                    controller?.let { local ->
-                                        local.seekTo(remotePositionMs)
-                                        local.play()
-                                    }
-                                    activeDlnaDevice = null
-                                    remoteDlnaPlaying = false
-                                }
-                            }
+                            if (remote != null) viewModel.stopDlnaPlayback(resumeLocal = true)
                         }
                     ) { Text("إيقاف الإرسال والعودة للهاتف") }
                 },
@@ -1195,54 +1127,7 @@ fun VideoPlayerScreen(
                 onDismiss = { showDlnaPicker = false },
                 onDeviceSelected = { device: DiscoveredNetworkDevice ->
                     showDlnaPicker = false
-                    scope.launch {
-                        val item = viewModel.currentMediaItem()
-                        val originalUri = item?.localConfiguration?.uri
-                        if (originalUri == null) {
-                            Toast.makeText(context, "لا يوجد فيديو حالي لإرساله.", Toast.LENGTH_LONG).show()
-                            return@launch
-                        }
-                        val scheme = originalUri.scheme?.lowercase()
-                        val mimeType = item.localConfiguration?.mimeType
-                            ?: context.contentResolver.getType(originalUri)
-                            ?: "video/mp4"
-                        // Proxy network credentials and private protocol URIs through the phone.
-                        // The TV receives only a short-lived tokenized LAN URL.
-                        val receiverUri = when (scheme) {
-                            "http" -> originalUri
-                            "content", "file", "https", "maleksmb", "maleksftp",
-                            "malekdlna-http", "malekdlna-https" ->
-                                LocalMediaBridgeRegistry.urlFor(originalUri, mimeType)
-                            else -> null
-                        }
-                        if (receiverUri == null) {
-                            Toast.makeText(
-                                context,
-                                "مصدر هذا الفيديو لا يمكن تقديمه للتلفزيون. تحقق من أن المصدر مدعوم ومتاح على الهاتف.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                            return@launch
-                        }
-                        runCatching {
-                            dlnaClient.play(
-                                device = device,
-                                mediaUrl = receiverUri.toString(),
-                                title = currentVideoTitle,
-                                mimeType = mimeType
-                            )
-                        }.onSuccess {
-                            activeDlnaDevice = device
-                            remoteDlnaPlaying = true
-                            controller?.pause()
-                            Toast.makeText(context, "تم إرسال أمر التشغيل إلى " + device.name, Toast.LENGTH_LONG).show()
-                        }.onFailure { failure ->
-                            Toast.makeText(
-                                context,
-                                failure.message ?: "تعذر إرسال الفيديو إلى التلفزيون.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    }
+                    viewModel.startDlnaPlayback(device, currentVideoTitle)
                 }
             )
         }
