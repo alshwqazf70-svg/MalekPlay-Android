@@ -366,7 +366,10 @@ fun UltraShareExperienceScreen(
                         },
                         host = host,
                         onHostChange = { value ->
-                            if (value.trim() != host) viewModel.clearApprovedConnection()
+                            if (value.trim() != host) {
+                                viewModel.clearApprovedConnection()
+                                secret = ""
+                            }
                             host = value.trim()
                         },
                         secret = secret,
