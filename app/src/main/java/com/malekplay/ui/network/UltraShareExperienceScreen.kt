@@ -297,6 +297,47 @@ fun UltraShareExperienceScreen(
                             else -> "بانتظار الاقتران"
                         })
                     }
+                    var showManualPairing by remember { mutableStateOf(false) }
+                    OutlinedButton(onClick = { showManualPairing = !showManualPairing }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (showManualPairing) "إخفاء الاقتران اليدوي" else "خيارات الاقتران اليدوي")
+                    }
+                    if (showManualPairing) {
+                        OutlinedTextField(
+                            value = host,
+                            onValueChange = { host = it.trim() },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("عنوان الجهاز") }
+                        )
+                        OutlinedTextField(
+                            value = secret,
+                            onValueChange = { secret = it.filter { ch -> ch in '0'..'9' }.take(9) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("رمز الاقتران (9 أرقام)") }
+                        )
+                        OutlinedButton(onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            val raw = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.trim()
+                            if (raw.isNullOrBlank()) {
+                                Toast.makeText(context, "الحافظة فارغة.", Toast.LENGTH_SHORT).show()
+                            } else {
+                                runCatching { UltraShareQrCode.parsePayload(raw) }
+                                    .onSuccess { pairing ->
+                                        host = pairing.host
+                                        secret = pairing.pairingSecret
+                                        viewModel.clearApprovedConnection()
+                                        viewModel.requestConnection(pairing.host, pairing.pairingSecret)
+                                    }
+                                    .onFailure { Toast.makeText(context, "بيانات الاقتران في الحافظة غير صالحة.", Toast.LENGTH_LONG).show() }
+                            }
+                        }, modifier = Modifier.fillMaxWidth()) { Text("لصق بيانات الاقتران") }
+                        Button(
+                            onClick = { viewModel.requestConnection(host, secret) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret) && !state.requestingConnection
+                        ) { Text("طلب اتصال يدوي") }
+                    }
                     if (selectedUris.isNotEmpty()) {
                         Button(
                             onClick = { if (viewModel.sendBatch(selectedUris, host, secret)) selectedUris = emptyList() },
@@ -347,6 +388,15 @@ fun UltraShareExperienceScreen(
                     state.pendingConnection?.let { IncomingRequestPanel(it, viewModel::acceptConnection, viewModel::rejectConnection) }
                     state.receivedFile?.let { received ->
                         InfoPanel("آخر ملف مستلم", received.fileName + "\n" + formatUltraBytes(received.sizeBytes))
+                        received.publishedUri?.let { publishedUri ->
+                            OutlinedButton(onClick = {
+                                val intent = Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(publishedUri, received.mimeType)
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                runCatching { context.startActivity(intent) }
+                                    .onFailure { Toast.makeText(context, "لا يوجد تطبيق مناسب لفتح الملف.", Toast.LENGTH_LONG).show() }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("فتح الملف المستلم") }
+                        }
                         OutlinedButton(onClick = { exportLauncher.launch(received.fileName) }, modifier = Modifier.fillMaxWidth()) {
                             Text("حفظ نسخة في مكان آخر")
                         }
@@ -376,7 +426,10 @@ fun UltraShareExperienceScreen(
                     OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("البحث عن جهاز") })
                     if (state.activePeers.isNotEmpty()) {
                         Text("الأجهزة المتصلة", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
-                        state.activePeers.forEach { peer -> InfoPanel(peer.name, peer.host + " • " + peer.role + "\n" + peer.status) }
+                        state.activePeers.forEach { peer ->
+                            InfoPanel(peer.name, peer.host + " • " + peer.role + "\n" + peer.status)
+                            TextButton(onClick = { viewModel.disconnectPeer(peer.host) }) { Text("قطع الاتصال") }
+                        }
                     }
                     Text("الأجهزة المكتشفة (" + visiblePeers.size + ")", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
                     if (visiblePeers.isEmpty()) InfoPanel("الرادار", if (state.scanning) "جارٍ البحث عن الأجهزة القريبة..." else "لا توجد أجهزة ظاهرة حالياً. تأكد من اتصال الهاتفين بالشبكة نفسها.")
@@ -434,7 +487,35 @@ fun UltraShareExperienceScreen(
                         OutlinedButton(onClick = viewModel::pauseSending, modifier = Modifier.fillMaxWidth()) { Text("إيقاف مؤقت") }
                         OutlinedButton(onClick = viewModel::cancelSending, modifier = Modifier.fillMaxWidth()) { Text("إلغاء الإرسال") }
                     }
-                    state.queueEntries.take(10).forEach { entry -> InfoPanel(entry.displayName, queueStatusLabel(entry.status)) }
+                    state.queueEntries.take(10).forEach { entry ->
+                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Text(entry.displayName, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                                Text(queueStatusLabel(entry.status), color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
+                                entry.error?.takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall) }
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (entry.status == UltraShareQueueStore.STATUS_PENDING || entry.status == UltraShareQueueStore.STATUS_FAILED) {
+                                        TextButton(onClick = { viewModel.skipQueuedFile(entry) }) { Text("تخطّي") }
+                                    }
+                                    if (entry.status == UltraShareQueueStore.STATUS_FAILED) {
+                                        TextButton(
+                                            onClick = { viewModel.retryFile(entry, host, secret) },
+                                            enabled = !state.sending && host.isNotBlank() && state.approvedPeerHost == host && UltraShareTransport.isValidPairingSecret(secret)
+                                        ) { Text("إعادة المحاولة") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (!state.sending && state.queueEntries.any {
+                            it.status == UltraShareQueueStore.STATUS_PENDING || it.status == UltraShareQueueStore.STATUS_FAILED
+                        }) {
+                        OutlinedButton(
+                            onClick = { viewModel.resumePendingBatch(host, secret) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = host.isNotBlank() && state.approvedPeerHost == host && UltraShareTransport.isValidPairingSecret(secret)
+                        ) { Text("استئناف الملفات المتبقية") }
+                    }
                 }
 
                 UltraSharePage.HISTORY -> {
