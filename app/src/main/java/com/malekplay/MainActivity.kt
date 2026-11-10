@@ -78,15 +78,14 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Explain the core permissions once on first launch, then let Android show
-     * its own consent dialogs. Camera and microphone stay deferred until needed.
+     * Ask for the complete video and audio library access whenever it is missing.
+     * This also handles permissions revoked later from Android Settings.
      */
     private fun showFirstLaunchPermissionMessage() {
-        val preferences = getSharedPreferences("startup_permissions", MODE_PRIVATE)
-        // Only full audio + video grants expose the complete media library.
         val libraryAccessReady = MediaPermissions.hasAudioAccess(this) &&
             MediaPermissions.hasFullVideoAccess(this)
-        if (preferences.getBoolean("intro_shown", false) && libraryAccessReady) return
+        if (libraryAccessReady) return
+
         AlertDialog.Builder(this)
             .setTitle("تجهيز MalekPlay")
             .setMessage(
@@ -96,7 +95,6 @@ class MainActivity : ComponentActivity() {
                     "لن يصل التطبيق إلى الكاميرا أو الميكروفون إلا عند استخدام ميزتي QR ومحلل الصوت."
             )
             .setPositiveButton("متابعة ومنح الأذونات") { _, _ ->
-                preferences.edit().putBoolean("intro_shown", true).apply()
                 requestRuntimePermissions()
             }
             .setNegativeButton("لاحقاً", null)
@@ -131,13 +129,6 @@ class MainActivity : ComponentActivity() {
             granted && permission in MediaPermissions.required()
         }
         val hasAnyMediaAccess = MediaPermissions.isGranted(this)
-        if (!hasAnyMediaAccess) {
-            // If the user chose "later" or denied the library access, explain
-            // the requirement again on the next launch instead of silently
-            // leaving the library empty forever.
-            getSharedPreferences("startup_permissions", MODE_PRIVATE)
-                .edit().putBoolean("intro_shown", false).apply()
-        }
         if (mediaAccessChanged || hasAnyMediaAccess) {
             lifecycleScope.launch(Dispatchers.IO) {
                 runCatching { mediaRepository.refresh() }
