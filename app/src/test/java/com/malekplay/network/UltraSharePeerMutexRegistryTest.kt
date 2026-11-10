@@ -2,6 +2,7 @@ package com.malekplay.network
 
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -16,7 +17,7 @@ class UltraSharePeerMutexRegistryTest {
         val active = AtomicInteger()
         val maximum = AtomicInteger()
         coroutineScope {
-            repeat(6) {
+            (1..6).map {
                 async {
                     registry.withLock("stable-peer") {
                         val now = active.incrementAndGet()
