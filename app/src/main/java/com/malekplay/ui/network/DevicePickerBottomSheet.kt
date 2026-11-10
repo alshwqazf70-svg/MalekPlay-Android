@@ -134,7 +134,7 @@ fun DevicePickerBottomSheet(
                 Spacer(Modifier.height(16.dp))
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("أدخل رمز الاقتران (PIN) الظاهر على الجهاز الآخر:", fontWeight = FontWeight.Bold)
+                        Text("أدخل رمز الاقتران المكوّن من 9 أرقام الظاهر على الجهاز الآخر:", fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             value = secretCode,
