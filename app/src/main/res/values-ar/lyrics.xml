@@ -2,7 +2,9 @@
 <resources>
     <string name="lyrics_title">كلمات الأغنية</string>
     <string name="lyrics_choose_file">تحميل LRC</string>
+    <string name="lyrics_choose_folder">اختيار مجلد الكلمات</string>
     <string name="lyrics_loading">جارٍ التحميل…</string>
-    <string name="lyrics_empty_hint">اختر ملف ‎.lrc‎ لمتابعة كلمات الأغنية بالتزامن مع التشغيل.</string>
+    <string name="lyrics_empty_hint">اختر المجلد الذي يحتوي ملفات LRC المطابقة للأغاني، أو حمّل ملفًا يدويًا.</string>
+    <string name="lyrics_not_found">لم يتم العثور على ملف LRC مطابق داخل المجلد المحدد.</string>
     <string name="lyrics_load_error">تعذرت قراءة كلمات صالحة بالتوقيت. اختر ملف LRC بترميز UTF-8 أو UTF-16.</string>
 </resources>
