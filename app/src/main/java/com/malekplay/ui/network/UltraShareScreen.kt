@@ -255,6 +255,7 @@ class UltraShareViewModel @Inject constructor(
                     pairingSecret = secret.trim(),
                     peerName = android.os.Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
                     network = UltraShareNetworkRouting.findNetworkForHost(context, host.trim()),
+                    peerId = UltraShareDiscovery.localPeerId(context),
                     onSessionClosed = { disconnectedHost ->
                         UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
                     }
