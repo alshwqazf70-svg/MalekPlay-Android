@@ -29,41 +29,74 @@ class NsdDiscoveryManager(private val context: Context) {
 
     fun discoverServices(): Flow<DiscoveredNsdService> = callbackFlow {
         val multicastLock = wifiManager.createMulticastLock("malekplay_nsd_lock").apply {
-            setReferenceCounted(true)
-            acquire()
+            setReferenceCounted(false)
         }
+        var lockAcquired = false
+        var discoveryRequested = false
 
-        val discoveryListener = object : NsdManager.DiscoveryListener {
-            override fun onDiscoveryStarted(regType: String) {
-                Log.d(TAG, "بدأ البحث: $regType")
-            }
+        try {
+            multicastLock.acquire()
+            lockAcquired = true
 
-            override fun onServiceFound(service: NsdServiceInfo) {
-                if (service.serviceType == SERVICE_TYPE) {
-                    nsdManager.resolveService(service, object : NsdManager.ResolveListener {
-                        override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                            Log.e(TAG, "فشل استخراج العنوان: $errorCode")
-                        }
+            val discoveryListener = object : NsdManager.DiscoveryListener {
+                override fun onDiscoveryStarted(regType: String) {
+                    Log.d(TAG, "بدأ البحث: $regType")
+                }
 
-                        override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-                            val host = serviceInfo.host?.hostAddress
-                            trySend(DiscoveredNsdService(serviceInfo.serviceName, host, serviceInfo.port))
-                        }
-                    })
+                override fun onServiceFound(service: NsdServiceInfo) {
+                    if (service.serviceType != SERVICE_TYPE) return
+                    runCatching {
+                        nsdManager.resolveService(service, object : NsdManager.ResolveListener {
+                            override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                                Log.w(TAG, "فشل استخراج العنوان: $errorCode")
+                            }
+
+                            override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
+                                val host = serviceInfo.host?.hostAddress
+                                if (!host.isNullOrBlank() && serviceInfo.port in 1..65535) {
+                                    trySend(DiscoveredNsdService(serviceInfo.serviceName, host, serviceInfo.port))
+                                }
+                            }
+                        })
+                    }.onFailure { failure ->
+                        Log.w(TAG, "تعذر بدء حل اسم خدمة NSD.", failure)
+                    }
+                }
+
+                override fun onServiceLost(service: NsdServiceInfo) {
+                    Log.d(TAG, "فُقدت خدمة: ${service.serviceName}")
+                }
+
+                override fun onDiscoveryStopped(serviceType: String) {
+                    Log.d(TAG, "توقف البحث: $serviceType")
+                }
+
+                override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+                    close(IllegalStateException("فشل بدء اكتشاف الأجهزة عبر NSD: $errorCode"))
+                }
+
+                override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
+                    Log.w(TAG, "فشل إيقاف اكتشاف NSD: $errorCode")
+                    close(IllegalStateException("فشل إيقاف اكتشاف الأجهزة عبر NSD: $errorCode"))
                 }
             }
 
-            override fun onServiceLost(service: NsdServiceInfo) {}
-            override fun onDiscoveryStopped(serviceType: String) {}
-            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) { close() }
-            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) { close() }
-        }
+            // Mark before calling the framework: a synchronous exception still enters
+            // finally and attempts a harmless best-effort stop for this listener.
+            discoveryRequested = true
+            nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
 
-        nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
-
-        awaitClose {
-            runCatching { nsdManager.stopServiceDiscovery(discoveryListener) }
-            if (multicastLock.isHeld) multicastLock.release()
+            awaitClose {
+                if (discoveryRequested) {
+                    runCatching { nsdManager.stopServiceDiscovery(discoveryListener) }
+                        .onFailure { Log.w(TAG, "تعذر إيقاف مستمع NSD.", it) }
+                }
+            }
+        } finally {
+            if (lockAcquired && multicastLock.isHeld) {
+                runCatching { multicastLock.release() }
+                    .onFailure { Log.w(TAG, "تعذر تحرير MulticastLock.", it) }
+            }
         }
     }.distinctUntilChanged()
 }
