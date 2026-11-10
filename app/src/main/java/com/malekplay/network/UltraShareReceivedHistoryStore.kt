@@ -1,21 +1,20 @@
 package com.malekplay.network
 
 import android.content.Context
-import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.core.CorruptionException
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
-private val Context.ultraShareReceivedHistoryDataStore by preferencesDataStore(
-    name = "ultra_share_received_history",
-    corruptionHandler = ReplaceFileCorruptionHandler { throw it }
-)
+private val Context.ultraShareReceivedHistoryDataStore by preferencesDataStore(name = "ultra_share_received_history")
 
 data class UltraShareReceivedEntry(
     val id: String,
@@ -35,9 +34,11 @@ object UltraShareReceivedHistoryStore {
     const val MAX_ENTRIES = 100
 
     fun observe(context: Context): Flow<List<UltraShareReceivedEntry>> =
-        context.applicationContext.ultraShareReceivedHistoryDataStore.data.map {
-            decode(it[HISTORY].orEmpty())
-        }
+        context.applicationContext.ultraShareReceivedHistoryDataStore.data
+            .catch { failure ->
+                if (failure is CorruptionException) emit(emptyPreferences()) else throw failure
+            }
+            .map { decode(it[HISTORY].orEmpty()) }
 
     suspend fun record(
         context: Context,
