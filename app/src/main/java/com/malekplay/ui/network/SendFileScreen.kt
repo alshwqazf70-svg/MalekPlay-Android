@@ -2,7 +2,6 @@ package com.malekplay.ui.network
 
 import com.malekplay.network.UltraShareTransport
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.height
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
