@@ -200,9 +200,11 @@ fun UltraShareExperienceScreen(
             Toast.makeText(context, "تم تجاهل العناصر التي ليست فيديو أو موسيقى أو صوراً.", Toast.LENGTH_LONG).show()
         }
         val failedGrants = allowed.count { uri ->
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }.isFailure
+            val resolver = context.contentResolver
+            val alreadyGranted = resolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission }
+            alreadyGranted || runCatching {
+                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }.isFailure.not()
         }
         if (failedGrants > 0) {
             Toast.makeText(context, "تعذر تثبيت إذن الوصول لبعض الملفات المشتركة؛ قد تحتاج إلى إعادة اختيارها.", Toast.LENGTH_LONG).show()
