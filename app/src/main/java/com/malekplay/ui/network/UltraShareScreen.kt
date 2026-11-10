@@ -190,6 +190,9 @@ class UltraShareViewModel @Inject constructor(
                     onSessionClosed = { disconnectedHost -> UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost) }
                 )
                 if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                    check(UltraShareControlChannel.isSessionActive(host.trim())) {
+                        "انقطع اتصال قناة التحكم بعد الموافقة؛ أعد الاقتران قبل الإرسال."
+                    }
                     val orderedCandidates = UltraShareNegotiation.orderedCandidates(discoveredCandidates)
                     UltraShareForegroundService.registerApprovedPeer(
                         name = UltraShareControlChannel.sessionPeerName(host.trim()) ?: "جهاز MalekPlay المستقبل",
