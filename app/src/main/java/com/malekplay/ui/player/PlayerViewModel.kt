@@ -512,9 +512,11 @@ class PlayerViewModel @Inject constructor(
                     return@withLock
                 }
                 val previous = _dlnaPlayback.value.activeDevice
+                var previousStopped = previous == null || previous.id == device.id
                 try {
                     if (previous != null && previous.id != device.id) {
                         dlnaPlaybackController.stop(previous)
+                        previousStopped = true
                         dlnaPollingJob?.cancel()
                         dlnaPollingJob = null
                         dlnaSessionGeneration++
@@ -531,7 +533,9 @@ class PlayerViewModel @Inject constructor(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    val previousStillActive = previous?.takeIf { it.id == device.id }
+                    val previousStillActive = previous?.takeIf {
+                        it.id == device.id || !previousStopped
+                    }
                     _dlnaPlayback.value = DlnaPlaybackState(
                         activeDevice = previousStillActive,
                         isConnected = previousStillActive != null,
