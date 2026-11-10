@@ -77,4 +77,67 @@ class MediaPermissionsTest {
         assertFalse(MediaPermissions.hasPartialAccess(context))
         assertTrue(MediaPermissions.isGranted(context))
     }
+    @Test
+    @Config(sdk = [33])
+    fun android13RequestsOnlyTheSelectedMediaType() {
+        assertArrayEquals(
+            arrayOf(Manifest.permission.READ_MEDIA_IMAGES),
+            MediaPermissions.requiredFor(MediaPermissionType.IMAGE)
+        )
+        assertArrayEquals(
+            arrayOf(Manifest.permission.READ_MEDIA_AUDIO),
+            MediaPermissions.requiredFor(MediaPermissionType.AUDIO)
+        )
+        assertArrayEquals(
+            arrayOf(Manifest.permission.READ_MEDIA_VIDEO),
+            MediaPermissions.requiredFor(MediaPermissionType.VIDEO)
+        )
+    }
+
+    @Test
+    @Config(sdk = [34])
+    fun android14RequestsPartialVisualAccessOnlyForImagesAndVideos() {
+        assertArrayEquals(
+            arrayOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+            ),
+            MediaPermissions.requiredFor(MediaPermissionType.IMAGE)
+        )
+        assertArrayEquals(
+            arrayOf(
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+            ),
+            MediaPermissions.requiredFor(MediaPermissionType.VIDEO)
+        )
+        assertArrayEquals(
+            arrayOf(Manifest.permission.READ_MEDIA_AUDIO),
+            MediaPermissions.requiredFor(MediaPermissionType.AUDIO)
+        )
+    }
+
+    @Test
+    @Config(sdk = [34])
+    fun selectedVisualAccessDoesNotBlockAudioTab() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        shadowOf(context as Application).grantPermissions(
+            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+        )
+
+        assertTrue(MediaPermissions.hasAccess(context, MediaPermissionType.IMAGE))
+        assertTrue(MediaPermissions.hasAccess(context, MediaPermissionType.VIDEO))
+        assertFalse(MediaPermissions.hasAccess(context, MediaPermissionType.AUDIO))
+    }
+
+    @Test
+    @Config(sdk = [34])
+    fun fullImageGrantAllowsImageTabWithoutVisualPartialGrant() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        shadowOf(context as Application).grantPermissions(Manifest.permission.READ_MEDIA_IMAGES)
+
+        assertTrue(MediaPermissions.hasAccess(context, MediaPermissionType.IMAGE))
+        assertFalse(MediaPermissions.hasAccess(context, MediaPermissionType.VIDEO))
+    }
+
 }
