@@ -16,6 +16,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.malekplay.core.ui.theme.MalekPlayColors
@@ -118,6 +120,7 @@ fun DevicePickerBottomSheet(
                                 isConnected = false,
                                 onClick = {
                                     selectedPeerHost = peer.host
+                                    secretCode = ""
                                     showPinInput = true
                                 }
                             )
@@ -143,11 +146,12 @@ fun DevicePickerBottomSheet(
                             placeholder = { Text("مثال: 123456789") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                             shape = RoundedCornerShape(12.dp)
                         )
                         Spacer(Modifier.height(12.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { showPinInput = false; selectedPeerHost = null }) {
+                            TextButton(onClick = { showPinInput = false; selectedPeerHost = null; secretCode = "" }) {
                                 Text("إلغاء")
                             }
                             Spacer(Modifier.width(8.dp))
