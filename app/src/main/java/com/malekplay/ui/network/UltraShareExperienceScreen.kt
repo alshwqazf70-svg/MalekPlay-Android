@@ -194,6 +194,21 @@ fun UltraShareExperienceScreen(
         page = UltraSharePage.HOME
     }
 
+    LaunchedEffect(initialUris) {
+        val allowed = initialUris.distinct().filter { isUltraShareMedia(context, it) }
+        if (allowed.size != initialUris.distinct().size) {
+            Toast.makeText(context, "تم تجاهل العناصر التي ليست فيديو أو موسيقى أو صوراً.", Toast.LENGTH_LONG).show()
+        }
+        val failedGrants = allowed.count { uri ->
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }.isFailure
+        }
+        if (failedGrants > 0) {
+            Toast.makeText(context, "تعذر تثبيت إذن الوصول لبعض الملفات المشتركة؛ قد تحتاج إلى إعادة اختيارها.", Toast.LENGTH_LONG).show()
+        }
+    }
+
     LaunchedEffect(Unit) {
         if (!state.receiving) viewModel.startReceiving()
         if (!state.scanning) viewModel.scanNearbyDevices()
