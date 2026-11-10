@@ -128,14 +128,15 @@ object UltraShareBatchTransport {
                             val peer = socket.inetAddress.hostAddress ?: "unknown"
                             var authenticated = false
                             try {
-                                val peerMutex = peerMutexes[peer] ?: Mutex().let { candidate ->
-                                    peerMutexes.putIfAbsent(peer, candidate) ?: candidate
+                                val peerIdentity = UltraShareControlChannel.serverSessionIdentity(peer) ?: peer
+                                val peerMutex = peerMutexes[peerIdentity] ?: Mutex().let { candidate ->
+                                    peerMutexes.putIfAbsent(peerIdentity, candidate) ?: candidate
                                 }
                                 val result = peerMutex.withLock {
                                     val peerState = File(
                                         destinationDirectory,
                                         ".ultrashare-v2-state/" + MessageDigest.getInstance("SHA-256")
-                                            .digest(peer.toByteArray(Charsets.UTF_8))
+                                            .digest(peerIdentity.toByteArray(Charsets.UTF_8))
                                             .take(12).joinToString("") { "%02x".format(it) }
                                     )
                                     check(peerState.exists() || peerState.mkdirs())
