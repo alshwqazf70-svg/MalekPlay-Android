@@ -121,7 +121,8 @@ fun SyncedLyricsPanel(
         findActiveLyricIndex(lines, synchronizedPositionMs)
     }
     val activeLine = lines.getOrNull(activeIndex)
-    val upcomingLine = lines.getOrNull(activeIndex + 1)
+    val upcomingIndex = if (activeIndex < 0) 1 else activeIndex + 1
+    val upcomingLine = lines.getOrNull(upcomingIndex)
 
     Surface(
         modifier = modifier.fillMaxWidth(),
