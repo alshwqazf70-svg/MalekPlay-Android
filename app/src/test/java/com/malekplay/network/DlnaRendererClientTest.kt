@@ -3,7 +3,11 @@ package com.malekplay.network
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
+import java.io.ByteArrayInputStream
+import java.io.IOException
 
 class DlnaRendererClientTest {
 
@@ -73,4 +77,45 @@ class DlnaRendererClientTest {
             )
         )
     }
+    @Test
+    fun mapsMimeTypesToSpecificUpnpClasses() {
+        assertEquals("object.item.videoItem", dlnaUpnpClassForMime("video/mp4"))
+        assertEquals("object.item.audioItem.musicTrack", dlnaUpnpClassForMime("audio/mpeg"))
+        assertEquals("object.item.imageItem.photo", dlnaUpnpClassForMime("image/jpeg"))
+        assertEquals("object.item.audioItem.musicTrack", dlnaUpnpClassForMime("AUDIO/FLAC; charset=binary"))
+        assertEquals("object.item", dlnaUpnpClassForMime("application/octet-stream"))
+    }
+
+    @Test
+    fun didlMetadataEscapesUntrustedTextAndUsesTheMediaClass() {
+        val metadata = buildDlnaDidlMetadata(
+            title = "Rock & <Jazz>",
+            url = "http://192.168.1.5/music?a=1&b=2",
+            mime = "audio/flac; charset=binary"
+        )
+
+        assertTrue(metadata.contains("<dc:title>Rock &amp; &lt;Jazz&gt;</dc:title>"))
+        assertTrue(metadata.contains("<upnp:class>object.item.audioItem.musicTrack</upnp:class>"))
+        assertTrue(metadata.contains("http-get:*:audio/flac:*"))
+        assertTrue(metadata.contains("music?a=1&amp;b=2"))
+        assertFalse(metadata.contains("object.item.videoItem"))
+    }
+
+    @Test
+    fun boundedReaderAcceptsExactlyTheLimit() {
+        val bytes = "12345".toByteArray()
+        assertEquals(5, readBounded(ByteArrayInputStream(bytes), 5, "too large").size)
+    }
+
+    @Test
+    fun boundedReaderRejectsOversizedBodyBeforeBufferingItCompletely() {
+        val input = ByteArrayInputStream("123456789".toByteArray())
+        val failure = runCatching {
+            readBounded(input, 5, "response too large")
+        }.exceptionOrNull()
+
+        assertTrue(failure is IOException)
+        assertEquals("response too large", failure?.message)
+    }
+
 }
