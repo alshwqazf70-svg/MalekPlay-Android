@@ -23,6 +23,7 @@ import java.io.DataOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -180,8 +181,8 @@ object UltraShareBatchTransport {
         require(sources.isNotEmpty() && sources.size <= UltraShareBatchProtocol.MAX_FILES)
         require(UltraShareTransport.isValidPrivateLanHost(host))
         require(UltraShareTransport.isValidPairingSecret(pairingSecret))
-        check(UltraShareControlChannel.isSessionActive(host)) {
-            "يجب إرسال طلب اتصال وانتظار قبول الجهاز المستقبل قبل بدء نقل V2."
+        if (!UltraShareControlChannel.isSessionActive(host)) {
+            throw IOException("انتهت قناة الموافقة؛ يجب إعادة الاتصال قبل بدء نقل V2.")
         }
         val prepared = sources.map { source ->
             require(source.sizeBytes in 0..UltraShareTransport.MAX_FILE_BYTES)
