@@ -156,3 +156,16 @@ Primary evidence documents:
 6. Update this handoff after meaningful implementation or validation, including exact commit SHA, workflow run ID/status, artifact link/name if verified, and outstanding device tests.
 7. Clearly distinguish implemented, CI-passed, artifact-built, and physically device-tested states.
 8. Never claim the user has a tested final APK unless the exact latest commit's build artifact exists and is verified.
+## Unified UltraShare integration — 2026-11-10
+
+- The active navigation route remains `UltraShareExperienceScreen`; `main` is not changed.
+- The send and receive pages are now extracted into `SendFileScreen.kt` and `ReceiveScreen.kt`, with the nearby-device selection sheet in `DevicePickerBottomSheet.kt`.
+- The home radar is extracted into `UltraShareRadar.kt` and the richer device/session progress room into `UltraShareSessionRoom.kt`.
+- `UltraShareViewModel.kt` now owns the shared state and transfer orchestration independently of the legacy screen file.
+- `MediaPickerViewModel.kt` is restored and wired to `MediaPickerRepository.kt` / `MediaPickerModels.kt` for real MediaStore browsing, with SAF retained as a fallback.
+- Receiver QR creation is centralized through `UltraShareQrCode.createReceiverPayload`, which always uses the control-channel port. The send/receive UI no longer supplies the V2 data port.
+- The unused standalone `NsdDiscoveryManager.kt` was removed; the active UDP discovery and candidate negotiation path remains the single discovery source of truth.
+- V2 bulk data frames are buffered without forcing a flush after every 256 KiB frame; file-end/control frames still flush, and V2 digest/resume readers now handle transient zero-byte reads without spinning or failing prematurely.
+- Regression tests were added for the centralized receiver QR endpoint and V2 stream forward progress after a zero-byte bulk read.
+- V1 transport remains in place for protocol compatibility; V2 remains the primary batch transfer path. Do not remove V1 until compatibility requirements and all call sites are formally retired.
+- **Verification status:** source changes are committed, but Gradle build, unit tests, lint, and two-device transfer tests have not yet been confirmed for this head. Do not label this revision production-ready until those checks pass.
