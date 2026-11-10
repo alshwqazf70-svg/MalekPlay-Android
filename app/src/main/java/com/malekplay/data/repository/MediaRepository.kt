@@ -10,6 +10,7 @@ import com.malekplay.data.local.entity.BookmarkEntity
 import com.malekplay.data.local.entity.PlaybackProgressEntity
 import com.malekplay.data.local.entity.TrackPreferenceEntity
 import com.malekplay.data.local.model.MediaWithState
+import com.malekplay.data.preferences.SettingsRepository
 import com.malekplay.data.scanner.MediaStoreScanner
 import com.malekplay.domain.model.AlbumSummary
 import com.malekplay.domain.model.ArtistSummary
@@ -37,7 +38,8 @@ class MediaRepository @Inject constructor(
     private val mediaDao: MediaDao,
     private val userDataDao: UserDataDao,
     private val scanner: MediaStoreScanner,
-    private val externalProgressStore: ExternalPlaybackProgressStore
+    private val externalProgressStore: ExternalPlaybackProgressStore,
+    private val settingsRepository: SettingsRepository
 ) {
 
     private val refreshMutex = Mutex()
@@ -226,7 +228,16 @@ class MediaRepository @Inject constructor(
         if (!savedInLibrary) {
             externalProgressStore.save(mediaId, safePosition, safeDuration, safeSpeed, markPlayed)
         }
-        if (markPlayed) recordHistory(mediaId)
+        if (markPlayed) {
+            // PlaybackService calls this only after the media session really starts.
+            // This also covers background playback and automatic queue transitions.
+            if (savedInLibrary) {
+                mediaDao.getMedia(mediaId)?.media?.let { media ->
+                    settingsRepository.markNewMediaSeen(mediaId, media.addedAtMs)
+                }
+            }
+            recordHistory(mediaId)
+        }
 
     }
 
