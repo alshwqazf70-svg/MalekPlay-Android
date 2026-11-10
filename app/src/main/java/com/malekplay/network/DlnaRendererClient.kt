@@ -40,8 +40,8 @@ class DlnaRendererClient(
             val endpoint = resolveAvTransportEndpoint(device)
             soap(endpoint, "SetAVTransportURI", """
                 <InstanceID>0</InstanceID>
-                <CurrentURI>${xmlEscape(mediaUrl)}</CurrentURI>
-                <CurrentURIMetaData>${xmlEscape(buildDlnaDidlMetadata(title, mediaUrl, mimeType))}</CurrentURIMetaData>
+                <CurrentURI>${escapeDlnaXml(mediaUrl)}</CurrentURI>
+                <CurrentURIMetaData>${escapeDlnaXml(buildDlnaDidlMetadata(title, mediaUrl, mimeType))}</CurrentURIMetaData>
             """.trimIndent())
             try {
                 soap(endpoint, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
