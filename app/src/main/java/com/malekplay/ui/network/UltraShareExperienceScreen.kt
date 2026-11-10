@@ -356,83 +356,35 @@ fun UltraShareExperienceScreen(
 
             when (page) {
                 UltraSharePage.SEND -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { loadPhoneMedia(MediaType.VIDEO) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
-                            Icon(Icons.Filled.Movie, null); Text("فيديو")
-                        }
-                        OutlinedButton(onClick = { loadPhoneMedia(MediaType.AUDIO) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
-                            Icon(Icons.Filled.FolderOpen, null); Text("موسيقى")
-                        }
-                        OutlinedButton(onClick = { loadPhoneMedia(MediaType.IMAGE) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
-                            Icon(Icons.Filled.Image, null); Text("صور")
-                        }
-                    }
-                    OutlinedButton(onClick = { mediaPicker.launch(arrayOf("video/*", "audio/*", "image/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
-                        Text("اختيار من الملفات والتطبيقات")
-                    }
-                    if (libraryLoading) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Text("جارٍ فهرسة الوسائط…", color = MalekPlayColors.TextSecondary)
-                        }
-                    }
-                    libraryError?.let { ErrorPanel(it) }
-                    if (libraryFiles.isNotEmpty()) {
-                        Text("مكتبة الهاتف • ${libraryFiles.size} عنصر", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            items(libraryFiles, key = { it.id }) { file ->
-                                UltraShareMediaCard(
-                                    file = file,
-                                    selected = file.uri in selectedUris,
-                                    onClick = {
-                                        selectedUris = if (file.uri in selectedUris) selectedUris - file.uri else selectedUris + file.uri
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    InfoPanel("قائمة الإرسال", selectedUris.size.toString() + " عنصر محدد")
-                    if (selectedUris.isNotEmpty()) {
-                        OutlinedButton(onClick = { selectedUris = emptyList() }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) { Text("إفراغ القائمة") }
-                    }
-                    Button(onClick = scanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
-                        Icon(Icons.Filled.QrCode, null); Text("مسح QR لجهاز الاستقبال")
-                    }
-                    OutlinedButton(onClick = { page = UltraSharePage.NEARBY; if (!state.scanning) viewModel.scanNearbyDevices() }, modifier = Modifier.fillMaxWidth()) {
-                        Text("عرض الأجهزة القريبة")
-                    }
-                    OutlinedButton(
-                        onClick = { showDevicePicker = true; if (!state.scanning) viewModel.scanNearbyDevices() },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !state.sending
-                    ) { Text("اختيار جهاز من نافذة الأجهزة القريبة") }
-                    if (host.isNotBlank()) {
-                        InfoPanel("الجهاز المحدد", host + " • " + when {
-                            state.approvedPeerHost == host -> "متصل وموثّق"
-                            state.requestingConnection -> "بانتظار الموافقة"
-                            else -> "بانتظار الاقتران"
-                        })
-                    }
-                    var showManualPairing by remember { mutableStateOf(false) }
-                    OutlinedButton(onClick = { showManualPairing = !showManualPairing }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (showManualPairing) "إخفاء الاقتران اليدوي" else "خيارات الاقتران اليدوي")
-                    }
-                    if (showManualPairing) {
-                        OutlinedTextField(
-                            value = host,
-                            onValueChange = { host = it.trim() },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            label = { Text("عنوان الجهاز") }
-                        )
-                        OutlinedTextField(
-                            value = secret,
-                            onValueChange = { secret = it.filter { ch -> ch in '0'..'9' }.take(9) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            label = { Text("رمز الاقتران (9 أرقام)") }
-                        )
-                        OutlinedButton(onClick = {
+                    SendFileScreen(
+                        state = state,
+                        selectedUris = selectedUris,
+                        onSelectedUrisChange = { selectedUris = it },
+                        libraryFiles = libraryFiles,
+                        libraryLoading = libraryLoading,
+                        libraryError = libraryError,
+                        onLoadPhoneMedia = ::loadPhoneMedia,
+                        onPickMedia = { mimeTypes -> mediaPicker.launch(mimeTypes) },
+                        onScanQr = ::scanQr,
+                        onShowNearby = {
+                            page = UltraSharePage.NEARBY
+                            if (!state.scanning) viewModel.scanNearbyDevices()
+                        },
+                        onOpenDevicePicker = {
+                            showDevicePicker = true
+                            if (!state.scanning) viewModel.scanNearbyDevices()
+                        },
+                        host = host,
+                        onHostChange = { value ->
+                            if (value.trim() != host) viewModel.clearApprovedConnection()
+                            host = value.trim()
+                        },
+                        secret = secret,
+                        onSecretChange = { value ->
+                            viewModel.clearApprovedConnection()
+                            secret = value.filter { it in '0'..'9' }.take(9)
+                        },
+                        onPastePairingDetails = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                             val raw = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.trim()
                             if (raw.isNullOrBlank()) {
@@ -447,25 +399,13 @@ fun UltraShareExperienceScreen(
                                     }
                                     .onFailure { Toast.makeText(context, "بيانات الاقتران في الحافظة غير صالحة.", Toast.LENGTH_LONG).show() }
                             }
-                        }, modifier = Modifier.fillMaxWidth()) { Text("لصق بيانات الاقتران") }
-                        Button(
-                            onClick = { viewModel.requestConnection(host, secret) },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret) && !state.requestingConnection
-                        ) { Text("طلب اتصال يدوي") }
-                    }
-                    if (selectedUris.isNotEmpty()) {
-                        Button(
-                            onClick = { if (viewModel.sendBatch(selectedUris, host, secret)) selectedUris = emptyList() },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !state.sending && host.isNotBlank() && state.approvedPeerHost == host &&
-                                UltraShareTransport.isValidPairingSecret(secret)
-                        ) { Text("إرسال " + selectedUris.size + " ملف الآن") }
-                    }
-                    state.error?.let { ErrorPanel(it) }
-                    state.status?.let { InfoPanel("الحالة", it) }
+                        },
+                        onRequestConnection = { viewModel.requestConnection(host, secret) },
+                        onSendBatch = {
+                            if (viewModel.sendBatch(selectedUris, host, secret)) selectedUris = emptyList()
+                        }
+                    )
                 }
-
                 UltraSharePage.RECEIVE -> {
                     ReceiveScreen(
                         state = state,
@@ -755,34 +695,4 @@ private fun queueStatusLabel(status: String): String = when (status) {
     UltraShareQueueStore.STATUS_FAILED -> "فشل — يمكن إعادة المحاولة"
     UltraShareQueueStore.STATUS_SKIPPED -> "تم التخطي"
     else -> "بانتظار الإرسال"
-}
-
-@Composable
-private fun UltraShareMediaCard(file: MediaFile, selected: Boolean, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.width(148.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF38204F) else Color(0xFF21192D))
-    ) {
-        Column {
-            if (file.type == MediaType.AUDIO) {
-                Box(Modifier.fillMaxWidth().height(104.dp).background(Brush.linearGradient(listOf(Color(0xFF51217A), Color(0xFF17121F)))), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.FolderOpen, contentDescription = null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(38.dp))
-                }
-            } else {
-                AsyncImage(
-                    model = file.thumbnailUrl ?: file.uri,
-                    contentDescription = file.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().height(104.dp)
-                )
-            }
-            Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(file.name, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, maxLines = 2)
-                Text(file.size, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
-                Text(if (selected) "محدد ✓" else "اضغط للتحديد", color = if (selected) Color(0xFF65D6A2) else MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall)
-            }
-        }
-    }
 }
