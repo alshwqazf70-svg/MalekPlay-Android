@@ -152,6 +152,7 @@ class UltraShareViewModel @Inject constructor(
     val state = _state.asStateFlow()
     private var scanJob: Job? = null
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
+    private var approvedPeerCandidates: List<com.malekplay.network.UltraShareNegotiation.Candidate> = emptyList()
 
     init {
         viewModelScope.launch {
@@ -230,12 +231,17 @@ class UltraShareViewModel @Inject constructor(
             }
     }
 
-    fun requestConnection(host: String, secret: String) {
+    fun requestConnection(
+        host: String,
+        secret: String,
+        candidates: List<com.malekplay.network.UltraShareNegotiation.Candidate> = emptyList()
+    ) {
         if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
             _state.value = _state.value.copy(error = "أدخل عنوان الجهاز ورمز الاقتران الصحيح أولاً.")
             return
         }
         viewModelScope.launch {
+            approvedPeerCandidates = emptyList()
             _state.value = _state.value.copy(approvedPeerHost = null, requestingConnection = true, error = null, status = "تم إرسال طلب الاتصال؛ بانتظار موافقة الجهاز الآخر...")
             try {
                 val decision = UltraShareControlChannel.request(
@@ -253,13 +259,17 @@ class UltraShareViewModel @Inject constructor(
                         host = host.trim(),
                         role = "أرسل طلب الاتصال"
                     )
+                    approvedPeerCandidates = UltraShareNegotiation.orderedCandidates(candidates)
                     _state.value = _state.value.copy(
                         approvedPeerHost = host.trim(),
-                        status = "وافق الجهاز الآخر على الاتصال. يمكنك الآن بدء النقل المشفر.",
+                        status = if (approvedPeerCandidates.size > 1)
+                            "وافق الجهاز الآخر على الاتصال. تم تجهيز ${approvedPeerCandidates.size} مسارات قابلة للتجربة."
+                        else "وافق الجهاز الآخر على الاتصال. يمكنك الآن بدء النقل المشفر.",
                         requestingConnection = false,
                         error = null
                     )
                 } else {
+                    approvedPeerCandidates = emptyList()
                     _state.value = _state.value.copy(
                         approvedPeerHost = null,
                         status = "رفض الجهاز الآخر طلب الاتصال.",
@@ -268,6 +278,7 @@ class UltraShareViewModel @Inject constructor(
                     )
                 }
             } catch (failure: Exception) {
+                approvedPeerCandidates = emptyList()
                 _state.value = _state.value.copy(
                     approvedPeerHost = null,
                     requestingConnection = false,
@@ -284,6 +295,7 @@ class UltraShareViewModel @Inject constructor(
 
     fun clearApprovedConnection() {
         _state.value.approvedPeerHost?.let { UltraShareForegroundService.disconnectApprovedPeer(it) }
+        approvedPeerCandidates = emptyList()
         _state.value = _state.value.copy(approvedPeerHost = null)
     }
 
@@ -466,7 +478,7 @@ class UltraShareViewModel @Inject constructor(
             !UltraShareTransport.isValidPairingSecret(secret)
         ) return false
         return runCatching {
-            UltraShareForegroundService.startSendingBatch(context, uris, host, secret)
+            UltraShareForegroundService.startSendingBatch(context, uris, host, secret, approvedPeerCandidates)
             _state.value = _state.value.copy(
                 sending = true, progress = null, queueCompleted = 0,
                 queueTotal = uris.size, queueCurrentName = null, error = null,
@@ -1208,7 +1220,7 @@ fun UltraShareScreen(
                                     viewModel.clearApprovedConnection()
                                     host = peer.host
                                     if (UltraShareTransport.isValidPairingSecret(secret)) {
-                                        viewModel.requestConnection(peer.host, secret.trim())
+                                        viewModel.requestConnection(peer.host, secret.trim(), peer.candidates)
                                     } else {
                                         Toast.makeText(context, "امسح رمز QR الظاهر على جهاز الاستقبال لإتمام الاقتران الآمن.", Toast.LENGTH_SHORT).show()
                                         scanQrWithCamera()
