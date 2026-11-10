@@ -1,10 +1,18 @@
 package com.malekplay.ui.network
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -23,61 +31,94 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.malekplay.core.ui.theme.MalekPlayColors
 
-// --- نموذج بيانات تجريبي (سنستبدله بـ MediaStore لاحقاً) ---
+// --- نماذج البيانات (Data Models) ---
+enum class MediaType { VIDEO, AUDIO, IMAGE }
+
 data class MediaFile(
     val id: String,
     val name: String,
     val size: String,
-    val thumbnailUrl: String = "",
-    val type: String // "video", "audio", "image"
+    val thumbnailUrl: String? = null,
+    val uri: Uri,
+    val type: MediaType
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SendFileScreen(
     onBack: () -> Unit,
-    onSendClick: (List<MediaFile>) -> Unit
+    onSendClick: (List<MediaFile>) -> Unit,
+    viewModel: MediaPickerViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
+    val isLoading by viewModel.isLoading.collectAsState()
+    val allFiles by viewModel.mediaFiles.collectAsState()
+
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("الفيديوهات", "الموسيقى", "الصور")
     
-    // حالة الملفات المختارة
+    // قائمة الملفات المختارة
     val selectedFiles = remember { mutableStateListOf<MediaFile>() }
 
-    // بيانات تجريبية (للعرض فقط)
-    val mockFiles = remember {
-        listOf(
-            MediaFile("1", "Avatar_The_Way_of_Water.mp4", "2.4 GB", "https://image.tmdb.org/t/p/w500/t6HIqrRAclMCA60d0KjUyI6J0iZ.jpg", "video"),
-            MediaFile("2", "Interstellar_4K.mkv", "5.1 GB", "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg", "video"),
-            MediaFile("3", "One Piece EP_1080.mp4", "1.2 GB", "https://image.tmdb.org/t/p/w500/fc4L07N1C3x1H0.jpg", "video"),
-            MediaFile("4", "Relaxing_Music.mp3", "8.5 MB", "", "audio"),
-            MediaFile("5", "Nature_Wallpaper.jpg", "4.2 MB", "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=500", "image"),
-            MediaFile("6", "Travel_Vlog_4K.mp4", "850 MB", "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=500", "video")
+    // --- منطق الأذونات (Permissions) ---
+    val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        arrayOf(
+            Manifest.permission.READ_MEDIA_VIDEO,
+            Manifest.permission.READ_MEDIA_AUDIO,
+            Manifest.permission.READ_MEDIA_IMAGES
+        )
+    } else {
+        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+
+    var hasPermission by remember {
+        mutableStateOf(
+            permissionsToRequest.all {
+                ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+            }
         )
     }
 
-    // تصفية الملفات حسب التبويب المختار
-    val currentFiles = mockFiles.filter { 
-        when(selectedTab) {
-            0 -> it.type == "video"
-            1 -> it.type == "audio"
-            else -> it.type == "image"
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        hasPermission = grants.values.all { it }
+    }
+
+    // جلب البيانات عند تغيير التبويب أو الحصول على الإذن
+    LaunchedEffect(selectedTab, hasPermission) {
+        if (!hasPermission) {
+            permissionLauncher.launch(permissionsToRequest)
+        } else {
+            val type = when (selectedTab) {
+                0 -> MediaType.VIDEO
+                1 -> MediaType.AUDIO
+                else -> MediaType.IMAGE
+            }
+            viewModel.loadMedia(type)
         }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { 
+                title = {
                     Column {
                         Text("اختيار الملفات", fontWeight = FontWeight.Bold)
-                        Text("${selectedFiles.size} ملف محدد", style = MaterialTheme.typography.labelSmall, color = MalekPlayColors.PurpleBright)
+                        Text(
+                            text = "${selectedFiles.size} ملف محدد",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MalekPlayColors.PurpleBright
+                        )
                     }
                 },
                 navigationIcon = {
@@ -89,7 +130,7 @@ fun SendFileScreen(
             )
         },
         bottomBar = {
-            // شريط سفلي عائم يظهر فقط عند اختيار ملفات
+            // الشريط السفلي العائم (Floating Bottom Bar)
             AnimatedVisibility(
                 visible = selectedFiles.isNotEmpty(),
                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -99,7 +140,7 @@ fun SendFileScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp)
-                        .shadow(16.dp, RoundedCornerShape(24.dp)), // ظل خرافي
+                        .shadow(16.dp, RoundedCornerShape(24.dp)),
                     shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
@@ -134,47 +175,77 @@ fun SendFileScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // 1. التبويبات الزجاجية
+            // التبويبات
             TabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = Color.Transparent,
                 contentColor = MalekPlayColors.PurpleBright,
-                divider = {}, // إخفاء الخط الفاصل الافتراضي
+                divider = {},
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 tabs.forEachIndexed { index, title ->
                     Tab(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
-                        text = { 
+                        text = {
                             Text(
-                                title, 
+                                title,
                                 fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
                                 color = if (selectedTab == index) MalekPlayColors.PurpleBright else MaterialTheme.colorScheme.onSurfaceVariant
-                            ) 
+                            )
                         }
                     )
                 }
             }
 
-            // 2. شبكة الملفات (Grid)
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 140.dp),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(currentFiles) { file ->
-                    val isSelected = selectedFiles.contains(file)
-                    MediaFileCard(
-                        file = file,
-                        isSelected = isSelected,
-                        onClick = {
-                            if (isSelected) selectedFiles.remove(file)
-                            else selectedFiles.add(file)
+            // عرض المحتوى بناءً على الحالة
+            if (!hasPermission) {
+                // حالة رفض الإذن
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Lock, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.height(16.dp))
+                        Text("نحتاج إذن الوصول لملفاتك", fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        Button(onClick = { permissionLauncher.launch(permissionsToRequest) }) {
+                            Text("منح الإذن")
                         }
-                    )
+                    }
+                }
+            } else if (isLoading) {
+                // حالة التحميل
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = MalekPlayColors.PurpleBright)
+                }
+            } else if (allFiles.isEmpty()) {
+                // حالة عدم وجود ملفات
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.FolderOpen, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(16.dp))
+                        Text("لا توجد ملفات من هذا النوع", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            } else {
+                // عرض الملفات
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 140.dp),
+                    contentPadding = PaddingValues(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(allFiles) { file ->
+                        val isSelected = selectedFiles.contains(file)
+                        MediaFileCard(
+                            file = file,
+                            isSelected = isSelected,
+                            onClick = {
+                                if (isSelected) selectedFiles.remove(file)
+                                else selectedFiles.add(file)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -187,7 +258,6 @@ fun MediaFileCard(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    // تأثير النيون عند الاختيار
     val borderColor = if (isSelected) MalekPlayColors.PurpleBright else Color.Transparent
     val backgroundColor = if (isSelected) MalekPlayColors.PurpleBright.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceContainerHigh
 
@@ -195,33 +265,33 @@ fun MediaFileCard(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(0.8f) // شكل البطاقة
-            .border(2.dp, borderColor, RoundedCornerShape(16.dp)), // حدود متوهجة
+            .aspectRatio(0.8f)
+            .border(2.dp, borderColor, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = backgroundColor)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // الصورة المصغرة
-            if (file.thumbnailUrl.isNotEmpty()) {
+            // عرض الصورة المصغرة (Coil سيعرض إطاراً للفيديو وصورة للصور)
+            if (file.thumbnailUrl != null) {
                 AsyncImage(
                     model = file.thumbnailUrl,
                     contentDescription = file.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp))
                 )
-                // تدرج لوني لأسفل الصورة لقراءة النص
+                // تدرج لوني لأسفل الصورة
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
                                 startY = 200f
                             )
                         )
                 )
             } else {
-                // لون افتراضي للموسيقى
+                // خلفية افتراضية للموسيقى
                 Box(
                     modifier = Modifier.fillMaxSize().background(
                         Brush.linearGradient(listOf(Color(0xFF2E1065), Color(0xFF0D0D12)))
@@ -232,7 +302,7 @@ fun MediaFileCard(
                 }
             }
 
-            // علامة الاختيار (Checkbox)
+            // علامة الاختيار
             Icon(
                 imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
                 contentDescription = "تحديد",
@@ -244,7 +314,7 @@ fun MediaFileCard(
                     .background(Color.Black.copy(alpha = 0.5f), CircleShape)
             )
 
-            // معلومات الملف في الأسفل
+            // معلومات الملف
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
