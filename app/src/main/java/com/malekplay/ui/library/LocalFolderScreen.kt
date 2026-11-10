@@ -152,7 +152,7 @@ fun LocalFolderScreen(
                 FolderItemRow(
                     item = item,
                     isNew = newMediaBaselineMs > 0L && item.media.addedAtMs >= newMediaBaselineMs && item.media.id !in seenNewMediaIds,
-                    onClick = { viewModel.markNewMediaSeen(item.media.id); onOpenMedia(item.media) },
+                    onClick = { onOpenMedia(item.media) },
                     onSend = { toggleSelection(item.media.uri) },
                     selectionMode = selectionMode,
                     isSelected = item.media.uri in selectedUris,
