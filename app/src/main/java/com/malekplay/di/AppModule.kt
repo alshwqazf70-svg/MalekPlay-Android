@@ -56,8 +56,11 @@ object AppModule {
         mediaDao: MediaDao,
         userDataDao: UserDataDao,
         scanner: MediaStoreScanner,
-        externalProgressStore: ExternalPlaybackProgressStore
-    ): MediaRepository = MediaRepository(mediaDao, userDataDao, scanner, externalProgressStore)
+        externalProgressStore: ExternalPlaybackProgressStore,
+        settingsRepository: SettingsRepository
+    ): MediaRepository = MediaRepository(
+        mediaDao, userDataDao, scanner, externalProgressStore, settingsRepository
+    )
 
     @Provides
     @Singleton
