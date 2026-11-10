@@ -80,8 +80,10 @@ internal class UltraSharePairingAttemptLimiter(
             }
         }
 
-    fun recordSuccess(peerAddress: String) = synchronized(lock) {
-        peers.remove(normalize(peerAddress))
+    fun recordSuccess(peerAddress: String): Unit {
+        synchronized(lock) {
+            peers.remove(normalize(peerAddress))
+        }
     }
 
     private fun pruneGlobal(nowMillis: Long) {
