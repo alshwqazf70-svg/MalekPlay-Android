@@ -68,6 +68,16 @@ object UltraShareControlChannel {
 
     private val clientSessions = ConcurrentHashMap<String, ClientSession>()
     private val serverSessions = ConcurrentHashMap<String, Socket>()
+    private val pairingAttemptLimiter = UltraSharePairingAttemptLimiter()
+
+    internal fun isPairingAttemptAllowed(peerAddress: String, nowMillis: Long = System.currentTimeMillis()): Boolean =
+        pairingAttemptLimiter.isAllowed(peerAddress, nowMillis)
+
+    internal fun recordPairingFailure(peerAddress: String, nowMillis: Long = System.currentTimeMillis()) =
+        pairingAttemptLimiter.recordFailure(peerAddress, nowMillis)
+
+    internal fun recordPairingSuccess(peerAddress: String) =
+        pairingAttemptLimiter.recordSuccess(peerAddress)
 
     suspend fun serveOnce(
         pairingSecret: String,
@@ -233,6 +243,10 @@ object UltraShareControlChannel {
         onRequest: suspend (Request) -> Decision,
         onSessionClosed: suspend (Request) -> Unit
     ) {
+        val peerAddress = socket.inetAddress.hostAddress.orEmpty()
+        check(pairingAttemptLimiter.isAllowed(peerAddress)) {
+            "تم إيقاف محاولات الاقتران مؤقتاً لهذا الجهاز بسبب تكرار المحاولات الفاشلة."
+        }
         val input = DataInputStream(socket.getInputStream())
         val output = DataOutputStream(socket.getOutputStream())
         val challenge = ByteArray(CHALLENGE_BYTES).also(SecureRandom()::nextBytes)
@@ -258,9 +272,11 @@ object UltraShareControlChannel {
 
         val key = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
         val expectedMac = requestAuthentication(key, challenge, requestId, nameBytes)
-        require(MessageDigest.isEqual(expectedMac, suppliedMac)) {
-            "فشل التحقق من رمز الاقتران."
+        if (!MessageDigest.isEqual(expectedMac, suppliedMac)) {
+            pairingAttemptLimiter.recordFailure(peerAddress)
+            error("فشل التحقق من رمز الاقتران.")
         }
+        pairingAttemptLimiter.recordSuccess(peerAddress)
 
         val request = Request(
             requestId = requestId,
