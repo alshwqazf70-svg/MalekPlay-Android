@@ -45,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,21 +77,33 @@ private val Neon = MalekPlayColors.NeonPurple
 private val CardShape = RoundedCornerShape(24.dp)
 
 @Composable
-private fun glassBrush(): Brush = Brush.verticalGradient(
-    colors = listOf(
-        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.075f),
-        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.025f)
-    )
-)
+private fun rememberGlassBrush(): Brush {
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    return remember(onSurface) {
+        Brush.verticalGradient(
+            colors = listOf(
+                onSurface.copy(alpha = 0.075f),
+                onSurface.copy(alpha = 0.025f)
+            )
+        )
+    }
+}
 
 @Composable
-private fun glassBorder(): Brush = Brush.linearGradient(
-    colors = listOf(
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.52f),
-        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
-        MaterialTheme.colorScheme.secondary.copy(alpha = 0.28f)
-    )
-)
+private fun rememberGlassBorder(): Brush {
+    val primary = MaterialTheme.colorScheme.primary
+    val outline = MaterialTheme.colorScheme.outlineVariant
+    val secondary = MaterialTheme.colorScheme.secondary
+    return remember(primary, outline, secondary) {
+        Brush.linearGradient(
+            colors = listOf(
+                primary.copy(alpha = 0.52f),
+                outline.copy(alpha = 0.55f),
+                secondary.copy(alpha = 0.28f)
+            )
+        )
+    }
+}
 
 private data class HomeAction(
     val title: String,
@@ -114,6 +127,7 @@ fun HomeScreen(
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val stats by viewModel.stats.collectAsStateWithLifecycle()
+    val allMedia by viewModel.allMedia.collectAsStateWithLifecycle()
     val continueWatching by viewModel.continueWatching.collectAsStateWithLifecycle()
     val videos by viewModel.videos.collectAsStateWithLifecycle()
     val audio by viewModel.audio.collectAsStateWithLifecycle()
@@ -126,13 +140,36 @@ fun HomeScreen(
     val musicLabel = stringResource(R.string.nav_music)
     val favouritesLabel = stringResource(R.string.nav_favourites)
     val playlistsLabel = stringResource(R.string.nav_playlists)
-    val actions = buildList {
-        onOpenMovies?.let { add(HomeAction(moviesLabel, Icons.Filled.Movie, it)) }
-        onOpenSeries?.let { add(HomeAction(seriesLabel, Icons.Filled.Tv, it)) }
-        add(HomeAction(libraryLabel, Icons.Filled.Folder, onOpenLibrary))
-        onOpenMusic?.let { add(HomeAction(musicLabel, Icons.Filled.MusicNote, it)) }
-        onOpenFavourites?.let { add(HomeAction(favouritesLabel, Icons.Filled.Favorite, it)) }
-        onOpenPlaylists?.let { add(HomeAction(playlistsLabel, Icons.Filled.PlaylistPlay, it)) }
+    val actions = remember(
+        moviesLabel, seriesLabel, libraryLabel, musicLabel, favouritesLabel, playlistsLabel,
+        onOpenMovies, onOpenSeries, onOpenLibrary, onOpenMusic, onOpenFavourites, onOpenPlaylists
+    ) {
+        buildList {
+            onOpenMovies?.let { add(HomeAction(moviesLabel, Icons.Filled.Movie, it)) }
+            onOpenSeries?.let { add(HomeAction(seriesLabel, Icons.Filled.Tv, it)) }
+            add(HomeAction(libraryLabel, Icons.Filled.Folder, onOpenLibrary))
+            onOpenMusic?.let { add(HomeAction(musicLabel, Icons.Filled.MusicNote, it)) }
+            onOpenFavourites?.let { add(HomeAction(favouritesLabel, Icons.Filled.Favorite, it)) }
+            onOpenPlaylists?.let { add(HomeAction(playlistsLabel, Icons.Filled.PlaylistPlay, it)) }
+        }
+    }
+    val networkTitle = stringResource(R.string.home_connection_sharing)
+    val networkSubtitle = stringResource(R.string.home_connection_sharing_summary)
+    val ultraShareLabel = stringResource(R.string.home_send_receive)
+    val computerLabel = stringResource(R.string.home_connect_computer)
+    val castLabel = stringResource(R.string.home_cast_to_tv)
+    val networkActions = remember(
+        ultraShareLabel, computerLabel, castLabel, onOpenUltraShare, onOpenNetwork
+    ) {
+        if (onOpenNetwork != null && onOpenUltraShare != null) {
+            listOf(
+                HomeAction(ultraShareLabel, Icons.Filled.PlayArrow, onOpenUltraShare),
+                HomeAction(computerLabel, Icons.Filled.Folder, onOpenNetwork),
+                HomeAction(castLabel, Icons.Filled.Tv, onOpenNetwork)
+            )
+        } else {
+            emptyList()
+        }
     }
 
     Box(
@@ -216,17 +253,11 @@ fun HomeScreen(
                 item(key = "connection-sharing") {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         SectionHeading(
-                            title = "الاتصال والمشاركة",
-                            subtitle = "انقل وسائطك واربط MalekPlay بالأجهزة القريبة",
+                            title = networkTitle,
+                            subtitle = networkSubtitle,
                             modifier = Modifier.padding(horizontal = 18.dp)
                         )
-                        ActionRail(
-                            listOf(
-                                HomeAction("إرسال واستلام", Icons.Filled.PlayArrow, onOpenUltraShare),
-                                HomeAction("الاتصال بالكمبيوتر", Icons.Filled.Folder, onOpenNetwork),
-                                HomeAction("البث إلى التلفزيون", Icons.Filled.Tv, onOpenNetwork)
-                            )
-                        )
+                        ActionRail(networkActions)
                     }
                 }
             }
@@ -257,7 +288,13 @@ fun HomeScreen(
                 )
             }
             if (videos.isEmpty()) {
-                item(key = "empty-library") { EmptyLibrary(onOpenLibrary) }
+                item(key = if (allMedia.isEmpty()) "empty-library" else "empty-videos") {
+                    if (allMedia.isEmpty()) {
+                        EmptyLibrary(onOpenLibrary)
+                    } else {
+                        EmptyVideos()
+                    }
+                }
             } else {
                 item(key = "recent-rail") {
                     MediaRail(
@@ -329,7 +366,7 @@ private fun HomeHeader(
                 )
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                .border(1.dp, glassBorder(), CircleShape)
+                .border(1.dp, rememberGlassBorder(), CircleShape)
         ) {
             Image(
                 painter = painterResource(R.drawable.ic_malekplay_logo),
@@ -386,8 +423,8 @@ private fun GlassIconButton(
             .size(44.dp)
             .shadow(8.dp, CircleShape, ambientColor = Neon.copy(alpha = 0.12f))
             .clip(CircleShape)
-            .background(glassBrush())
-            .border(1.dp, glassBorder(), CircleShape)
+            .background(rememberGlassBrush())
+            .border(1.dp, rememberGlassBorder(), CircleShape)
             .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -431,7 +468,7 @@ private fun HeroCard(
                     )
                 )
             )
-            .border(1.dp, glassBorder(), shape)
+            .border(1.dp, rememberGlassBorder(), shape)
     ) {
         if (item != null) {
             MediaThumbnail(
@@ -683,8 +720,8 @@ private fun ActionTile(action: HomeAction) {
             .height(108.dp)
             .shadow(10.dp, shape, ambientColor = Neon.copy(alpha = 0.10f))
             .clip(shape)
-            .background(glassBrush())
-            .border(1.dp, glassBorder(), shape)
+            .background(rememberGlassBrush())
+            .border(1.dp, rememberGlassBorder(), shape)
             .clickable(role = Role.Button, onClick = action.onClick)
             .padding(horizontal = 9.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -859,6 +896,40 @@ private fun NeonProgress(
 }
 
 @Composable
+private fun EmptyVideos() {
+    val shape = RoundedCornerShape(22.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(shape)
+            .background(rememberGlassBrush())
+            .border(1.dp, rememberGlassBorder(), shape)
+            .padding(horizontal = 22.dp, vertical = 22.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Movie,
+            contentDescription = null,
+            tint = MalekPlayColors.PurpleBright,
+            modifier = Modifier.size(30.dp)
+        )
+        Text(
+            text = stringResource(R.string.home_empty_videos_title),
+            color = MalekPlayColors.TextPrimary,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = stringResource(R.string.home_empty_videos_body),
+            color = MalekPlayColors.TextSecondary,
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+@Composable
 private fun EmptyLibrary(onOpenLibrary: () -> Unit) {
     val shape = RoundedCornerShape(22.dp)
     Column(
@@ -866,8 +937,8 @@ private fun EmptyLibrary(onOpenLibrary: () -> Unit) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .clip(shape)
-            .background(glassBrush())
-            .border(1.dp, glassBorder(), shape)
+            .background(rememberGlassBrush())
+            .border(1.dp, rememberGlassBorder(), shape)
             .clickable(role = Role.Button, onClick = onOpenLibrary)
             .padding(horizontal = 22.dp, vertical = 26.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -929,7 +1000,7 @@ private fun AudioPanel(
                     )
                 )
             )
-            .border(1.dp, glassBorder(), shape)
+            .border(1.dp, rememberGlassBorder(), shape)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(17.dp),
         verticalAlignment = Alignment.CenterVertically
