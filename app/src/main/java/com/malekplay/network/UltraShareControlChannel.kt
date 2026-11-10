@@ -79,8 +79,9 @@ object UltraShareControlChannel {
     internal fun recordPairingFailure(peerAddress: String, nowMillis: Long = System.currentTimeMillis()) =
         pairingAttemptLimiter.recordFailure(peerAddress, nowMillis)
 
-    internal fun recordPairingSuccess(peerAddress: String) =
+    internal fun recordPairingSuccess(peerAddress: String): Unit {
         pairingAttemptLimiter.recordSuccess(peerAddress)
+    }
 
     suspend fun serveOnce(
         pairingSecret: String,
