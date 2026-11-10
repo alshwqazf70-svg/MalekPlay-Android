@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -56,18 +57,20 @@ data class MediaFile(
 @Composable
 fun SendFileScreen(
     onBack: () -> Unit,
-    onSendClick: (List<MediaFile>) -> Unit,
-    viewModel: MediaPickerViewModel = hiltViewModel()
+    viewModel: MediaPickerViewModel = hiltViewModel(),
+    ultraViewModel: UltraShareViewModel = hiltViewModel() // إضافة محرك النقل
 ) {
     val context = LocalContext.current
     val isLoading by viewModel.isLoading.collectAsState()
     val allFiles by viewModel.mediaFiles.collectAsState()
+    val ultraState by ultraViewModel.state.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("الفيديوهات", "الموسيقى", "الصور")
-    
-    // قائمة الملفات المختارة
     val selectedFiles = remember { mutableStateListOf<MediaFile>() }
+    
+    // حالة فتح نافذة اختيار الأجهزة
+    var showDevicePicker by remember { mutableStateOf(false) }
 
     // --- منطق الأذونات (Permissions) ---
     val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -156,7 +159,12 @@ fun SendFileScreen(
                             Text("${selectedFiles.size} عناصر", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
                         }
                         Button(
-                            onClick = { onSendClick(selectedFiles.toList()) },
+                            onClick = { 
+                                // عند الضغط، نفتح نافذة اختيار الأجهزة
+                                showDevicePicker = true
+                                // نبدأ البحث عن أجهزة إذا لم يكن يبحث
+                                if (!ultraState.scanning) ultraViewModel.scanNearbyDevices()
+                            },
                             shape = RoundedCornerShape(16.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = MalekPlayColors.PurpleBright),
                             modifier = Modifier.height(48.dp)
@@ -200,7 +208,6 @@ fun SendFileScreen(
 
             // عرض المحتوى بناءً على الحالة
             if (!hasPermission) {
-                // حالة رفض الإذن
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.Lock, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.error)
@@ -213,12 +220,10 @@ fun SendFileScreen(
                     }
                 }
             } else if (isLoading) {
-                // حالة التحميل
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = MalekPlayColors.PurpleBright)
                 }
             } else if (allFiles.isEmpty()) {
-                // حالة عدم وجود ملفات
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.FolderOpen, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -250,6 +255,33 @@ fun SendFileScreen(
             }
         }
     }
+
+    // --- نافذة اختيار الأجهزة (Bottom Sheet) ---
+    if (showDevicePicker) {
+        DevicePickerBottomSheet(
+            discoveredPeers = ultraState.discoveredPeers,
+            activePeers = ultraState.activePeers,
+            isScanning = ultraState.scanning,
+            onDismiss = { showDevicePicker = false },
+            onConnect = { host, secret ->
+                // عند إدخال الرمز، نطلب الاتصال
+                ultraViewModel.requestConnection(host, secret)
+                // ملاحظة: عملية الإرسال الفعلية قد تحتاج إلى انتظار الموافقة، 
+                // يمكنك إضافة منطق هنا أو الاعتماد على تحديث الحالة في ViewModel
+                Toast.makeText(context, "جاري الاتصال بالجهاز...", Toast.LENGTH_SHORT).show()
+                showDevicePicker = false
+            },
+            onSendToApprovedPeer = { host ->
+                // إرسال مباشر لجهاز متصل مسبقاً (إذا كان هناك ملفات محددة)
+                val uris = selectedFiles.map { it.uri }
+                if (uris.isNotEmpty()) {
+                    ultraViewModel.sendBatch(uris, host, ultraState.pairingSecret)
+                    selectedFiles.clear() // تفريغ القائمة بعد الإرسال
+                }
+                showDevicePicker = false
+            }
+        )
+    }
 }
 
 @Composable
@@ -271,7 +303,7 @@ fun MediaFileCard(
         colors = CardDefaults.cardColors(containerColor = backgroundColor)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // عرض الصورة المصغرة (Coil سيعرض إطاراً للفيديو وصورة للصور)
+            // عرض الصورة المصغرة
             if (file.thumbnailUrl != null) {
                 AsyncImage(
                     model = file.thumbnailUrl,
