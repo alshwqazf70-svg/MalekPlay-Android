@@ -24,7 +24,7 @@ object UltraShareQrCode {
     private const val MAX_DECODE_DIMENSION = 2048
 
     fun createPayload(host: String, port: Int, pairingSecret: String): String {
-        require(port in 1..65535) { "منفذ الاقتران غير صالح." }
+        require(port == UltraShareTransport.DEFAULT_PORT) { "منفذ قناة الاقتران غير متوافق." }
         require(UltraShareTransport.isValidPrivateLanHost(host)) {
             "عنوان QR يجب أن يكون IPv4 خاصاً بالشبكة المحلية."
         }
