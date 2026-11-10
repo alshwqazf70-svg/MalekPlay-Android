@@ -110,4 +110,23 @@ class UltraShareBatchProtocolTest {
         assertTrue(!UltraShareBatchTransport.isPeerSessionAuthorized(authenticated = false, sessionActive = false))
     }
 
+
+    @Test fun v2ReaderMakesProgressWhenBulkReadTemporarilyReturnsZero() {
+        val source = java.io.ByteArrayInputStream(byteArrayOf(10, 20, 30))
+        val unusual = object : java.io.InputStream() {
+            private var returnZero = true
+            override fun read(): Int = source.read()
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (returnZero) {
+                    returnZero = false
+                    return 0
+                }
+                return source.read(buffer, offset, length)
+            }
+        }
+        val buffer = ByteArray(3)
+        assertEquals(3, UltraShareBatchTransport.readAtMost(unusual, buffer, buffer.size))
+        assertEquals(listOf<Byte>(10, 20, 30), buffer.toList())
+        assertEquals(0, UltraShareBatchTransport.readAtMost(unusual, buffer, buffer.size))
+    }
 }
