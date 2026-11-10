@@ -1,11 +1,9 @@
 package com.malekplay.player.cast
 
 import android.content.Context
-import android.net.Uri
 import androidx.media3.common.MediaItem
 import com.malekplay.network.DiscoveredNetworkDevice
 import com.malekplay.network.DlnaRendererClient
-import com.malekplay.player.cast.LocalMediaBridgeRegistry
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
 import javax.inject.Inject
