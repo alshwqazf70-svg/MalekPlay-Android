@@ -1186,6 +1186,7 @@ class UltraShareForegroundService : Service() {
                             pairingSecret = secret,
                             peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
                             network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, candidate.host),
+                            peerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
                             onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
                         )
                         check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
