@@ -33,11 +33,13 @@ internal class UltraSharePeerMutexRegistry(
             selected
         }
 
-        entry.mutex.lock()
+        var acquired = false
         try {
+            entry.mutex.lock()
+            acquired = true
             return action()
         } finally {
-            entry.mutex.unlock()
+            if (acquired) entry.mutex.unlock()
             synchronized(guard) {
                 entry.references--
                 evictIdleEntries()
