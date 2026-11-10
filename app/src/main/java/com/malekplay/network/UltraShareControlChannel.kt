@@ -216,8 +216,14 @@ object UltraShareControlChannel {
                                 }
                             }
                         } catch (_: Exception) {
-                            closeSession(host)
-                            onSessionClosed(host)
+                            // A stale heartbeat may finish after a replacement session has
+                            // already been installed for this host. Remove only the exact
+                            // session that owns this coroutine; never close its replacement.
+                            val wasCurrentSession = clientSessions.remove(host, session)
+                            if (wasCurrentSession) {
+                                runCatching { session.socket.close() }
+                                onSessionClosed(host)
+                            }
                             break
                         }
                     }
@@ -245,9 +251,12 @@ object UltraShareControlChannel {
 
     fun sessionPeerName(host: String): String? = clientSessions[host]?.peerName
 
-    fun isSessionActive(host: String): Boolean =
-        clientSessions[host]?.socket?.isConnected == true &&
-            clientSessions[host]?.socket?.isClosed == false
+    fun isSessionActive(host: String): Boolean {
+        val session = clientSessions[host] ?: return false
+        val socket = session.socket
+        return socket.isConnected && !socket.isClosed &&
+            !socket.isInputShutdown && !socket.isOutputShutdown
+    }
 
     fun isServerSessionActive(host: String): Boolean =
         serverSessions[host]?.isConnected == true && serverSessions[host]?.isClosed == false
