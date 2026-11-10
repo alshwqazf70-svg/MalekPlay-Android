@@ -60,7 +60,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.navigation.NavHostController
@@ -71,15 +70,14 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.malekplay.core.ui.util.stringResourceByName
 import com.malekplay.domain.model.MediaItem
-import com.malekplay.R
 import com.malekplay.ui.home.HomeScreen
 import com.malekplay.ui.videos.VideoCategoryScreen
 import com.malekplay.ui.local.LocalScreen
 import com.malekplay.ui.music.MusicScreen
 import com.malekplay.ui.network.NetworkScreen
-import com.malekplay.ui.network.TransferHomeScreen // الشاشة الجديدة (الرادار)
-import com.malekplay.ui.network.SendFileScreen   // شاشة الإرسال
-import com.malekplay.ui.network.ReceiveScreen   // شاشة الاستقبال
+import com.malekplay.ui.network.UltraShareScreen // تم التصحيح: استدعاء UltraShareScreen
+import com.malekplay.ui.network.SendFileScreen
+import com.malekplay.ui.network.ReceiveScreen
 import com.malekplay.ui.player.audio.AudioPlayerScreen
 import com.malekplay.ui.player.video.VideoPlayerScreen
 import com.malekplay.ui.playlists.PlaylistScreen
@@ -133,7 +131,7 @@ fun MalekPlayNavHost(
     }
     val parentalControl = remember(context) { ParentalControlManager(context) }
     
-    // متغير لحفظ الملفات القادمة من تطبيقات أخرى (مثل الواتساب)
+    // متغير لحفظ الملفات القادمة من تطبيقات أخرى
     var pendingTransferUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     val openTransferForUris: (List<Uri>) -> Unit = { uris ->
         pendingTransferUris = uris.distinct()
@@ -257,14 +255,13 @@ fun MalekPlayNavHost(
             // 🔥 قسم النقل الجديد (Transfer / UltraShare) 🔥
             // =========================================================
             
-            // 1. شاشة الرادار الرئيسية
+            // 1. شاشة الرادار الرئيسية (تم التصحيح: UltraShareScreen بدلاً من TransferHomeScreen)
             composable(Screen.UltraShare.route) {
-                TransferHomeScreen(
+                UltraShareScreen(
+                    contentPadding = padding,
                     onNavigateToSend = { navController.navigate("transfer_send") },
                     onNavigateToReceive = { navController.navigate("transfer_receive") },
-                    onNavigateToHistory = { /* TODO: إضافة شاشة السجل لاحقاً */ },
-                    onNavigateToSettings = { /* TODO: إضافة شاشة الإعدادات لاحقاً */ },
-                    initialUris = pendingTransferUris, // الملفات القادمة من التطبيقات الأخرى
+                    initialUris = pendingTransferUris,
                     onBack = { 
                         pendingTransferUris = emptyList()
                         navController.popBackStack() 
@@ -293,7 +290,6 @@ fun MalekPlayNavHost(
                     onBack = { navController.popBackStack() }
                 )
             }
-            
             // =========================================================
 
             composable(Screen.Profile.route) {
@@ -304,6 +300,7 @@ fun MalekPlayNavHost(
                 )
             }
 
+            // ... (باقي الشاشات كما هي) ...
             composable(
                 route = Screen.VideoPlayer.route,
                 arguments = listOf(navArgument(Screen.VideoPlayer.ARG_MEDIA_ID) {
