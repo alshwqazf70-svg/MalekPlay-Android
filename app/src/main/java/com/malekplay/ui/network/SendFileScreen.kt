@@ -72,29 +72,45 @@ fun SendFileScreen(
     // حالة فتح نافذة اختيار الأجهزة
     var showDevicePicker by remember { mutableStateOf(false) }
 
-    // --- منطق الأذونات (Permissions) ---
+    // Request only the permission needed by the active media tab. On Android 14+,
+    // selected visual-media access is also sufficient for the media the user selected.
+    val fullMediaPermission = when (selectedTab) {
+        0 -> Manifest.permission.READ_MEDIA_VIDEO
+        1 -> Manifest.permission.READ_MEDIA_AUDIO
+        else -> Manifest.permission.READ_MEDIA_IMAGES
+    }
+    val partialVisualPermission = if (
+        Build.VERSION.SDK_INT >= 34 && selectedTab != 1
+    ) Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED else null
     val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        arrayOf(
-            Manifest.permission.READ_MEDIA_VIDEO,
-            Manifest.permission.READ_MEDIA_AUDIO,
-            Manifest.permission.READ_MEDIA_IMAGES
-        )
+        listOfNotNull(fullMediaPermission, partialVisualPermission).toTypedArray()
     } else {
         arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
     }
 
-    var hasPermission by remember {
-        mutableStateOf(
-            permissionsToRequest.all {
-                ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-            }
-        )
+    fun hasCurrentMediaPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return ContextCompat.checkSelfPermission(
+                context, Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+        val fullGranted = ContextCompat.checkSelfPermission(
+            context, fullMediaPermission
+        ) == PackageManager.PERMISSION_GRANTED
+        val partialGranted = partialVisualPermission?.let { permission ->
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        } ?: false
+        return fullGranted || partialGranted
+    }
+
+    var hasPermission by remember(selectedTab) {
+        mutableStateOf(hasCurrentMediaPermission())
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants ->
-        hasPermission = grants.values.all { it }
+    ) {
+        hasPermission = hasCurrentMediaPermission()
     }
 
     // جلب البيانات عند تغيير التبويب أو الحصول على الإذن
@@ -275,8 +291,12 @@ fun SendFileScreen(
                 // إرسال مباشر لجهاز متصل مسبقاً (إذا كان هناك ملفات محددة)
                 val uris = selectedFiles.map { it.uri }
                 if (uris.isNotEmpty()) {
-                    ultraViewModel.sendBatch(uris, host, ultraState.pairingSecret)
-                    selectedFiles.clear() // تفريغ القائمة بعد الإرسال
+                    val accepted = ultraViewModel.sendBatch(uris, host, ultraState.pairingSecret)
+                    if (accepted) {
+                        selectedFiles.clear()
+                    } else {
+                        Toast.makeText(context, "تعذر بدء الإرسال. تحقق من اتصال الجهاز ورمز الاقتران ثم حاول مجدداً.", Toast.LENGTH_LONG).show()
+                    }
                 }
                 showDevicePicker = false
             }
