@@ -462,21 +462,18 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun send(uri: Uri, host: String, secret: String) {
-        if (_state.value.sending) return
-        runCatching {
-            UltraShareForegroundService.startSending(context, uri, host, secret)
-            _state.value = _state.value.copy(
-                sending = true,
-                progress = null,
-                error = null,
-                status = context.getString(R.string.ultra_share_sending)
-            )
-        }.onFailure {
+        if (_state.value.sending || _state.value.receiving) return
+        if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
             _state.value = _state.value.copy(
                 sending = false,
-                error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
+                error = context.getString(R.string.ultra_share_transfer_failed)
             )
+            return
         }
+        // Route single-file sends through the same approved-peer, durable batch queue
+        // as multi-file sends so retries, interruption recovery and per-file status
+        // cannot diverge between the two entry points.
+        sendBatch(listOf(uri), host, secret)
     }
 
     fun sendBatch(uris: List<Uri>, host: String, secret: String): Boolean {
