@@ -571,7 +571,7 @@ object UltraShareBatchTransport {
         }
     }
 
-    private fun readAtMost(input: java.io.InputStream, buffer: ByteArray, wanted: Int): Int {
+    internal fun readAtMost(input: java.io.InputStream, buffer: ByteArray, wanted: Int): Int {
         var total = 0
         while (total < wanted) {
             val count = input.read(buffer, total, wanted - total)
