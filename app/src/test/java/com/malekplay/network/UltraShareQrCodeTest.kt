@@ -54,6 +54,14 @@ class UltraShareQrCodeTest {
         assertEquals(secret, decoded.pairingSecret)
     }
 
+    @Test
+    fun receiverPayloadAlwaysUsesControlChannelEndpoint() {
+        val secret = UltraShareTransport.createPairingSecret()
+        val payload = UltraShareQrCode.createReceiverPayload("192.168.1.25", secret)
+        val decoded = UltraShareQrCode.parsePayload(payload)
+        assertEquals(UltraShareControlChannel.DEFAULT_PORT, decoded.port)
+        assertEquals(secret, decoded.pairingSecret)
+    }
     @Test(expected = IllegalArgumentException::class)
     fun pairingParserRejectsForeignSchemes() {
         UltraShareQrCode.parsePayload("https://example.com/?secret=anything")
