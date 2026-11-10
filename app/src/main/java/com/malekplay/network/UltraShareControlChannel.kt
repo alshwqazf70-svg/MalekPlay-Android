@@ -306,7 +306,7 @@ object UltraShareControlChannel {
             peerAddress = peerAddress,
             peerId = peerId
         )
-        val decision = withTimeoutOrNull(30_000L) { onRequest(request) } ?: Decision.REJECTED
+        val decision = withTimeoutOrNull(120_000L) { onRequest(request) } ?: Decision.REJECTED
         val encodedLocalName = encodeHex(localPeerName.take(48).toByteArray(Charsets.UTF_8))
         val payload = if (decision == Decision.ACCEPTED) "ACCEPT|$requestId|$encodedLocalName" else "REJECT|$requestId"
         val nonce = ByteArray(NONCE_BYTES).also(SecureRandom()::nextBytes)
