@@ -5,6 +5,18 @@ import org.junit.Test
 
 class UltraShareDiscoveryTest {
     @Test
+    fun discoveryProbeHasDedicatedNonTransferMarker() {
+        val marker = UltraShareBatchTransport.discoveryProbeProof()
+        assertEquals(32, marker.size)
+        assertTrue(UltraShareBatchTransport.isDiscoveryProbeProof(marker))
+        assertFalse(UltraShareBatchTransport.isDiscoveryProbeProof(ByteArray(32)))
+        marker[0] = 0
+        assertTrue(UltraShareBatchTransport.isDiscoveryProbeProof(
+            UltraShareBatchTransport.discoveryProbeProof()
+        ))
+    }
+
+    @Test
     fun stablePeerIdWinsOverChangingNetworkAddress() {
         val first = UltraShareDiscovery.Peer(
             host = "192.168.1.10",
