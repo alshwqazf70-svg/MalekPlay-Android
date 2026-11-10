@@ -190,9 +190,8 @@ object UltraShareBatchTransport {
                 var countTotal = 0L
                 while (true) {
                     currentCoroutineContext().ensureActive()
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    if (count == 0) continue
+                    val count = readAtMost(input, buffer, buffer.size)
+                    if (count == 0) break
                     countTotal += count
                     require(countTotal <= source.sizeBytes) { "تغير حجم الملف أثناء التجهيز: $name" }
                     md.update(buffer, 0, count)
@@ -417,9 +416,9 @@ object UltraShareBatchTransport {
                     val buffer = ByteArray(BUFFER_BYTES)
                     while (true) {
                         currentCoroutineContext().ensureActive()
-                        val count = stream.read(buffer)
-                        if (count < 0) break
-                        if (count > 0) digest.update(buffer, 0, count)
+                        val count = readAtMost(stream, buffer, buffer.size)
+                        if (count == 0) break
+                        digest.update(buffer, 0, count)
                     }
                     digest.digest()
                 }
