@@ -69,6 +69,9 @@ object UltraShareControlChannel {
     )
 
     private val clientSessions = ConcurrentHashMap<String, ClientSession>()
+    // Serialize replacement, explicit close, and stale-heartbeat cleanup so an old
+    // session callback can never tear down a newly approved session for the same host.
+    private val clientSessionGuard = Any()
     private val serverSessions = ConcurrentHashMap<String, Socket>()
     private val serverSessionPeerIds = ConcurrentHashMap<String, String>()
     private val pairingAttemptLimiter = UltraSharePairingAttemptLimiter()
@@ -203,7 +206,7 @@ object UltraShareControlChannel {
                 }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
                 socket.soTimeout = SESSION_TIMEOUT_MS
                 val session = ClientSession(socket, input, output, remoteName)
-                clientSessions[host] = session
+                synchronized(clientSessionGuard) { clientSessions[host] = session }
                 session.heartbeat = CoroutineScope(Dispatchers.IO).launch {
                     while (isActive && !socket.isClosed) {
                         delay(HEARTBEAT_INTERVAL_MS)
@@ -219,10 +222,12 @@ object UltraShareControlChannel {
                             // A stale heartbeat may finish after a replacement session has
                             // already been installed for this host. Remove only the exact
                             // session that owns this coroutine; never close its replacement.
-                            val wasCurrentSession = clientSessions.remove(host, session)
-                            if (wasCurrentSession) {
-                                runCatching { session.socket.close() }
-                                onSessionClosed(host)
+                            synchronized(clientSessionGuard) {
+                                val wasCurrentSession = clientSessions.remove(host, session)
+                                if (wasCurrentSession) {
+                                    runCatching { session.socket.close() }
+                                    onSessionClosed(host)
+                                }
                             }
                             break
                         }
@@ -239,9 +244,11 @@ object UltraShareControlChannel {
     }
 
     fun closeSession(host: String) {
-        val session = clientSessions.remove(host) ?: return
-        session.heartbeat?.cancel()
-        runCatching { session.socket.close() }
+        synchronized(clientSessionGuard) {
+            val session = clientSessions.remove(host) ?: return
+            session.heartbeat?.cancel()
+            runCatching { session.socket.close() }
+        }
     }
 
     fun closeServerSession(host: String) {
