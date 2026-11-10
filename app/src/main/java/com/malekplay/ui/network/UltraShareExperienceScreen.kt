@@ -202,9 +202,9 @@ fun UltraShareExperienceScreen(
         val failedGrants = allowed.count { uri ->
             val resolver = context.contentResolver
             val alreadyGranted = resolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission }
-            alreadyGranted || runCatching {
+            !alreadyGranted && runCatching {
                 resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }.isFailure.not()
+            }.isFailure
         }
         if (failedGrants > 0) {
             Toast.makeText(context, "تعذر تثبيت إذن الوصول لبعض الملفات المشتركة؛ قد تحتاج إلى إعادة اختيارها.", Toast.LENGTH_LONG).show()
