@@ -46,7 +46,7 @@ object UltraShareControlChannel {
     private const val MAX_ID_BYTES = 64
     private const val MAX_FRAME_BYTES = 512
     private const val HANDSHAKE_TIMEOUT_MS = 8_000
-    private const val DECISION_TIMEOUT_MS = 35_000
+    private const val DECISION_TIMEOUT_MS = 125_000
     private const val SESSION_TIMEOUT_MS = 18_000
     private const val HEARTBEAT_INTERVAL_MS = 5_000L
 
