@@ -369,6 +369,11 @@ fun VideoPlayerScreen(
     var showOnlineSubtitles by remember { mutableStateOf(false) }
     var showDlnaPicker by remember { mutableStateOf(false) }
     var showRemoteOutputDialog by remember { mutableStateOf(false) }
+    var chromeInteractionVersion by remember { mutableIntStateOf(0) }
+    val hasOpenPlayerOverlay = showSpeed || showSleep || showAudioTracks || showTextTracks ||
+        showStats || showSubtitleStyle || showEqualizer || showBookmarks || showQueue ||
+        showMenu || showTranslationLanguages || showOnlineSubtitles || showDlnaPicker ||
+        showRemoteOutputDialog
     var activeDlnaDevice by remember { mutableStateOf<DiscoveredNetworkDevice?>(null) }
     var remoteDlnaPlaying by remember { mutableStateOf(false) }
     var remotePositionMs by remember { mutableLongStateOf(0L) }
@@ -379,6 +384,11 @@ fun VideoPlayerScreen(
 
     LaunchedEffect(currentVideoId) {
         videoZoom = 1f
+        // Stop the previous receiver before dropping its identity. Otherwise the
+        // television can keep playing an item that the local queue has left behind.
+        activeDlnaDevice?.let { previousReceiver ->
+            scope.launch { runCatching { dlnaClient.stop(previousReceiver) } }
+        }
         activeDlnaDevice = null
         remoteDlnaPlaying = false
         remotePositionMs = 0L
@@ -426,8 +436,8 @@ fun VideoPlayerScreen(
         }
     }
 
-    LaunchedEffect(chromeVisible, isPlaying, locked) {
-        if (chromeVisible && isPlaying && !locked) {
+    LaunchedEffect(chromeVisible, isPlaying, locked, chromeInteractionVersion, hasOpenPlayerOverlay) {
+        if (chromeVisible && isPlaying && !locked && !hasOpenPlayerOverlay) {
             delay(CHROME_AUTO_HIDE_MS)
             chromeVisible = false
         }
@@ -602,6 +612,14 @@ fun VideoPlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            // Any touch (including toolbar buttons) restarts the chrome timeout.
+            // Do not consume the event; child controls and gesture handling keep working.
+            .pointerInput(chromeVisible) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    chromeInteractionVersion++
+                }
+            }
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -1562,12 +1580,23 @@ private suspend fun captureAndSave(
     val written = runCatching {
         context.contentResolver.openOutputStream(uri)?.use { stream ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-        } != null
+        } == true
     }.getOrDefault(false)
-    if (!written) return@withContext false
+    if (!written) {
+        // Remove the unpublished row so a failed screenshot never leaves a
+        // permanently pending item in the user's Pictures collection.
+        runCatching { context.contentResolver.delete(uri, null, null) }
+        return@withContext false
+    }
 
     values.clear()
     values.put(MediaStore.Images.Media.IS_PENDING, 0)
-    runCatching { context.contentResolver.update(uri, values, null, null) }
+    val published = runCatching {
+        context.contentResolver.update(uri, values, null, null) > 0
+    }.getOrDefault(false)
+    if (!published) {
+        runCatching { context.contentResolver.delete(uri, null, null) }
+        return@withContext false
+    }
     true
 }
