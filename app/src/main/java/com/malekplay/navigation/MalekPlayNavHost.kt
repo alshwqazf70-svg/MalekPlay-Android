@@ -253,7 +253,7 @@ fun MalekPlayNavHost(
             // 🔥 قسم النقل الجديد (Transfer / UltraShare) 🔥
             // =========================================================
             
-            // 1. شاشة الرادار الرئيسية (تم التصحيح: UltraShareScreen بدلاً من TransferHomeScreen)
+            // UltraShare multi-screen experience: each sharing workflow is presented as its own focused page.
             composable(Screen.UltraShare.route) {
                 UltraShareExperienceScreen(
                     contentPadding = padding,
