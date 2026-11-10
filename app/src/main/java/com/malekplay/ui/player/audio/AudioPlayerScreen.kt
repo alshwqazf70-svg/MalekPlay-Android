@@ -372,6 +372,11 @@ fun AudioPlayerScreen(
 
             Spacer(Modifier.height(18.dp))
 
+            SyncedLyricsPanel(
+                mediaId = currentMediaId,
+                positionMs = positionMs
+            )
+
             val total = durationMs.takeIf { it > 0L } ?: 0L
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             Slider(
