@@ -15,7 +15,7 @@ import org.json.JSONObject
 
 private val Context.ultraShareQueueDataStore by preferencesDataStore(
     name = "ultra_share_queue",
-    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+    corruptionHandler = ReplaceFileCorruptionHandler { throw it }
 )
 
 data class UltraShareQueueEntry(
@@ -44,7 +44,9 @@ object UltraShareQueueStore {
                 status = STATUS_PENDING
             )
         }
-        context.applicationContext.ultraShareQueueDataStore.edit { it[QUEUE] = encode(entries) }
+        context.applicationContext.ultraShareQueueDataStore.edit {
+            it[QUEUE] = encode(entries)
+        }
     }
 
     /**
@@ -54,7 +56,7 @@ object UltraShareQueueStore {
     suspend fun enqueue(context: Context, uris: List<Uri>) {
         if (uris.isEmpty()) return
         context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
-            val existing = decode(preferences[QUEUE].orEmpty())
+            val existing = decodeForMutation(preferences[QUEUE].orEmpty())
             val incoming = uris.distinctBy { it.toString() }
             val incomingUris = incoming.mapTo(mutableSetOf()) { it.toString() }
             val retained = existing.filterNot { it.uri in incomingUris }
@@ -77,7 +79,7 @@ object UltraShareQueueStore {
         error: String? = null
     ) {
         context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
-            val entries = decode(preferences[QUEUE].orEmpty()).map { entry ->
+            val entries = decodeForMutation(preferences[QUEUE].orEmpty()).map { entry ->
                 if (entry.uri == uri.toString()) entry.copy(
                     displayName = displayName ?: entry.displayName,
                     status = status,
@@ -90,7 +92,7 @@ object UltraShareQueueStore {
 
     suspend fun recoverInterrupted(context: Context) {
         context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
-            val entries = decode(preferences[QUEUE].orEmpty()).map { entry ->
+            val entries = decodeForMutation(preferences[QUEUE].orEmpty()).map { entry ->
                 if (entry.status == STATUS_SENDING) entry.copy(
                     status = STATUS_PENDING,
                     error = "انقطع التطبيق أثناء النقل؛ يمكنك استئناف الملف."
@@ -107,7 +109,7 @@ object UltraShareQueueStore {
     ): Boolean {
         var claimed = false
         context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
-            val entries = decode(preferences[QUEUE].orEmpty()).map { entry ->
+            val entries = decodeForMutation(preferences[QUEUE].orEmpty()).map { entry ->
                 if (entry.uri == uri.toString() &&
                     (entry.status == STATUS_PENDING || entry.status == STATUS_FAILED)
                 ) {
@@ -126,7 +128,7 @@ object UltraShareQueueStore {
 
     suspend fun skip(context: Context, uri: Uri) {
         context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
-            val entries = decode(preferences[QUEUE].orEmpty()).map { entry ->
+            val entries = decodeForMutation(preferences[QUEUE].orEmpty()).map { entry ->
                 if (entry.uri == uri.toString() &&
                     (entry.status == STATUS_PENDING || entry.status == STATUS_FAILED)
                 ) {
@@ -156,6 +158,24 @@ object UltraShareQueueStore {
     }.toString()
 
     /**
+     * A corrupt root is visible as an empty observation, but every mutating operation
+     * refuses to replace it. This prevents a later status update from silently erasing
+     * the user's recoverable raw queue payload. Malformed individual rows remain isolated.
+     */
+    internal fun decodeForMutation(raw: String): List<UltraShareQueueEntry> {
+        if (raw.isBlank()) return emptyList()
+        try {
+            JSONArray(raw)
+        } catch (failure: Exception) {
+            throw IllegalStateException(
+                "بيانات طابور النقل تالفة؛ تم إيقاف التعديل للحفاظ على البيانات الأصلية.",
+                failure
+            )
+        }
+        return decode(raw)
+    }
+
+    /**
      * Decode entries independently: one malformed queue row must not erase every
      * other pending/completed transfer from the user's local history.
      */
@@ -176,7 +196,6 @@ object UltraShareQueueStore {
                     error = item.optString("error").takeIf { it.isNotBlank() && it != "null" }
                 )
             }.getOrNull() ?: continue
-            // Preserve the first occurrence to keep the original queue order deterministic.
             if (entry.uri !in decoded) decoded[entry.uri] = entry
         }
         return decoded.values.toList()
