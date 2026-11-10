@@ -75,7 +75,7 @@ import com.malekplay.ui.videos.VideoCategoryScreen
 import com.malekplay.ui.local.LocalScreen
 import com.malekplay.ui.music.MusicScreen
 import com.malekplay.ui.network.NetworkScreen
-import com.malekplay.ui.network.UltraShareScreen // تم التصحيح: استدعاء UltraShareScreen
+import com.malekplay.ui.network.UltraShareExperienceScreen
 import com.malekplay.ui.player.audio.AudioPlayerScreen
 import com.malekplay.ui.player.video.VideoPlayerScreen
 import com.malekplay.ui.playlists.PlaylistScreen
@@ -255,7 +255,7 @@ fun MalekPlayNavHost(
             
             // 1. شاشة الرادار الرئيسية (تم التصحيح: UltraShareScreen بدلاً من TransferHomeScreen)
             composable(Screen.UltraShare.route) {
-                UltraShareScreen(
+                UltraShareExperienceScreen(
                     contentPadding = padding,
                     initialUris = pendingTransferUris,
                     onBack = { 
