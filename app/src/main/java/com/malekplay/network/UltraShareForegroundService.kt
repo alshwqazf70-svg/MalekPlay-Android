@@ -476,7 +476,7 @@ class UltraShareForegroundService : Service() {
                                     try {
                                         // Leave enough time for requests queued behind another
                                         // approval to reach the foreground approval card.
-                                        val result = kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+                                        val result = kotlinx.coroutines.withTimeoutOrNull(110_000L) {
                                             decision.await()
                                         } ?: UltraShareControlChannel.Decision.REJECTED
                                         if (result == UltraShareControlChannel.Decision.ACCEPTED) {
