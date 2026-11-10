@@ -22,7 +22,7 @@ class UltraSharePairingAttemptLimiterTest {
         val limiter = UltraSharePairingAttemptLimiter()
         repeat(5) { limiter.recordFailure("peer", 1_000L + it) }
         assertFalse(limiter.isAllowed("peer", 2_000L))
-        repeat(5) { limiter.recordFailure("peer", 40_000L + it) }
+        limiter.recordFailure("peer", 40_000L)
         assertFalse(limiter.isAllowed("peer", 70_000L))
         assertTrue(limiter.isAllowed("peer", 101_000L))
     }
