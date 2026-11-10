@@ -36,11 +36,11 @@ object UltraShareTransport {
     // --- دوال الأمان والاقتران ---
     fun createPairingSecret(): String {
         val random = SecureRandom()
-        return String.format("%09d", random.nextInt(1000000000))
+        return random.nextInt(1_000_000_000).toString().padStart(9, '0')
     }
 
     fun isValidPairingSecret(secret: String): Boolean {
-        return secret.length == 9 && secret.all { it.isDigit() }
+        return secret.length == 9 && secret.all { it in '0'..'9' }
     }
 
     // ⚡️ دالة تحسين الـ Socket للسرعة القصوى
