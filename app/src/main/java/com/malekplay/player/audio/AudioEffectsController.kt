@@ -26,6 +26,8 @@ class AudioEffectsController {
     private var virtualizer: Virtualizer? = null
     private var loudness: LoudnessEnhancer? = null
     private var visualizer: Visualizer? = null
+    // Retain the user's opt-in if the player exposes its audio session later.
+    private var visualizerRequested = false
 
     private var currentSessionId = 0
     private var bands: List<Int> = EqualizerPreset.FLAT.bands.toList()
@@ -75,7 +77,10 @@ class AudioEffectsController {
     @Synchronized
     fun attach(audioSessionId: Int) {
         if (audioSessionId <= 0 || audioSessionId == currentSessionId) return
+        // Preserve an explicit user request across audio-session replacement.
+        val shouldRestartVisualizer = visualizerRequested
         release()
+        visualizerRequested = shouldRestartVisualizer
         currentSessionId = audioSessionId
 
         equalizer = runCatching {
@@ -198,7 +203,13 @@ class AudioEffectsController {
      */
     @Synchronized
     fun startVisualizer() {
-        if (visualizer != null) return
+        visualizerRequested = true
+        startVisualizerIfReady()
+    }
+
+    /** Starts capture only after ExoPlayer has supplied a valid audio session. */
+    private fun startVisualizerIfReady() {
+        if (!visualizerRequested || visualizer != null) return
         val session = currentSessionId
         if (session <= 0) return
         visualizer = runCatching {
@@ -218,6 +229,7 @@ class AudioEffectsController {
 
     @Synchronized
     fun stopVisualizer() {
+        visualizerRequested = false
         runCatching {
             visualizer?.apply {
                 enabled = false
