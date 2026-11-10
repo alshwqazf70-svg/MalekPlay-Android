@@ -200,6 +200,8 @@ object UltraShareDiscovery {
                 .take(8)
         }.getOrDefault(emptyList())
 
+    internal fun localPeerId(context: Context): String = stablePeerId(context)
+
     private fun stablePeerId(context: Context): String {
         val preferences = context.getSharedPreferences("ultra_share_identity", Context.MODE_PRIVATE)
         val existing = preferences.getString("peer_id", null)
