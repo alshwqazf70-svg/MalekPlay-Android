@@ -76,8 +76,6 @@ import com.malekplay.ui.local.LocalScreen
 import com.malekplay.ui.music.MusicScreen
 import com.malekplay.ui.network.NetworkScreen
 import com.malekplay.ui.network.UltraShareScreen // تم التصحيح: استدعاء UltraShareScreen
-import com.malekplay.ui.network.SendFileScreen
-import com.malekplay.ui.network.ReceiveScreen
 import com.malekplay.ui.player.audio.AudioPlayerScreen
 import com.malekplay.ui.player.video.VideoPlayerScreen
 import com.malekplay.ui.playlists.PlaylistScreen
@@ -259,8 +257,6 @@ fun MalekPlayNavHost(
             composable(Screen.UltraShare.route) {
                 UltraShareScreen(
                     contentPadding = padding,
-                    onNavigateToSend = { navController.navigate("transfer_send") },
-                    onNavigateToReceive = { navController.navigate("transfer_receive") },
                     initialUris = pendingTransferUris,
                     onBack = { 
                         pendingTransferUris = emptyList()
@@ -269,28 +265,7 @@ fun MalekPlayNavHost(
                 )
             }
 
-            // 2. شاشة اختيار الملفات للإرسال
-            composable(
-                route = "transfer_send",
-                enterTransition = { slideInVertically(tween(ANIM_MS)) { it } + fadeIn(tween(ANIM_MS)) },
-                exitTransition = { slideOutVertically(tween(ANIM_MS)) { it } + fadeOut(tween(ANIM_MS)) }
-            ) {
-                SendFileScreen(
-                    onBack = { navController.popBackStack() }
-                )
-            }
 
-            // 3. شاشة الاستقبال (رمز الـ QR)
-            composable(
-                route = "transfer_receive",
-                enterTransition = { slideInVertically(tween(ANIM_MS)) { it } + fadeIn(tween(ANIM_MS)) },
-                exitTransition = { slideOutVertically(tween(ANIM_MS)) { it } + fadeOut(tween(ANIM_MS)) }
-            ) {
-                ReceiveScreen(
-                    onBack = { navController.popBackStack() }
-                )
-            }
-            // =========================================================
 
             composable(Screen.Profile.route) {
                 ProfileScreen(
