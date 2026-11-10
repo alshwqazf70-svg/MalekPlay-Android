@@ -239,6 +239,7 @@ object UltraShareControlChannel {
 
     fun closeServerSession(host: String) {
         serverSessions.remove(host)?.let { socket -> runCatching { socket.close() } }
+        serverSessionPeerIds.remove(host)
     }
 
     fun sessionPeerName(host: String): String? = clientSessions[host]?.peerName
