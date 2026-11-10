@@ -598,7 +598,10 @@ class PlayerViewModel @Inject constructor(
      * Stops the remote session. When resumeLocal is true, playback returns to
      * the phone at the last confirmed remote position.
      */
-    fun stopDlnaPlayback(resumeLocal: Boolean = false) {
+    fun stopDlnaPlayback(
+        resumeLocal: Boolean = false,
+        onStopped: (() -> Unit)? = null
+    ) {
         val requested = _dlnaPlayback.value.activeDevice ?: return
         val resumePosition = _dlnaPlayback.value.positionMs
         dlnaPollingJob?.cancel()
@@ -616,17 +619,25 @@ class PlayerViewModel @Inject constructor(
                     stopFailure = error
                 }
 
-                if (resumeLocal) {
-                    _controller.value?.let { local ->
-                        local.seekTo(resumePosition)
-                        local.play()
+                if (stopFailure == null) {
+                    if (resumeLocal) {
+                        _controller.value?.let { local ->
+                            local.seekTo(resumePosition)
+                            local.play()
+                        }
                     }
+                    _dlnaPlayback.value = DlnaPlaybackState()
+                    onStopped?.invoke()
+                } else {
+                    // Keep the device identity so the user can retry stopping it;
+                    // never start local playback while the remote stop is unconfirmed.
+                    _dlnaPlayback.value = _dlnaPlayback.value.copy(
+                        isConnected = false,
+                        errorMessage = stopFailure.message?.takeIf { it.isNotBlank() }
+                            ?: "تعذر تأكيد إيقاف التشغيل على التلفزيون؛ قد يستمر العرض عن بُعد."
+                    )
+                    startDlnaPolling(requested)
                 }
-                _dlnaPlayback.value = DlnaPlaybackState(
-                    errorMessage = stopFailure?.let {
-                        it.message ?: "تعذر تأكيد إيقاف التشغيل على التلفزيون؛ قد يستمر العرض عن بُعد."
-                    }
-                )
             }
         }
     }
