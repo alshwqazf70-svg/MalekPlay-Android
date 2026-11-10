@@ -21,6 +21,38 @@ class UltraShareDiscoveryTest {
     }
 
     @Test
+    fun negotiationFallsBackWhenThePreferredPathCannotReachTheDataListener() {
+        val candidates = listOf(
+            UltraShareNegotiation.Candidate(
+                UltraShareNegotiation.Transport.WIFI_DIRECT,
+                "192.168.49.1",
+                UltraShareBatchTransport.DEFAULT_PORT,
+                reachable = false,
+                priority = 30
+            ),
+            UltraShareNegotiation.Candidate(
+                UltraShareNegotiation.Transport.WLAN,
+                "192.168.1.20",
+                UltraShareBatchTransport.DEFAULT_PORT,
+                reachable = true,
+                priority = 20
+            ),
+            UltraShareNegotiation.Candidate(
+                UltraShareNegotiation.Transport.HOTSPOT,
+                "192.168.43.1",
+                UltraShareBatchTransport.DEFAULT_PORT,
+                reachable = true,
+                priority = 10
+            )
+        )
+
+        assertEquals(
+            UltraShareNegotiation.Transport.WLAN,
+            UltraShareNegotiation.selectCandidate(candidates)?.transport
+        )
+    }
+
+    @Test
     fun legacyPeersFallBackToTheirLanAddress() {
         val peer = UltraShareDiscovery.Peer(
             host = "192.168.1.15",
