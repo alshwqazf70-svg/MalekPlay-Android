@@ -3,6 +3,12 @@ package com.malekplay
 import android.Manifest
 import android.app.AlertDialog
 import android.content.Intent
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import android.provider.MediaStore
+import android.os.Looper
+import android.os.Handler
+import android.database.ContentObserver
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -42,6 +48,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var mediaRepository: MediaRepository
 
+    private var mediaStoreObserver: ContentObserver? = null
+    private var mediaStoreRefreshJob: Job? = null
+
     /** Media handed over by another app, or null for a normal launch. */
     private var externalUri: Uri? = null
 
@@ -65,6 +74,51 @@ class MainActivity : ComponentActivity() {
             }
         }
         showFirstLaunchPermissionMessage()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        registerMediaStoreObserver()
+    }
+
+    override fun onStop() {
+        mediaStoreRefreshJob?.cancel()
+        mediaStoreRefreshJob = null
+        mediaStoreObserver?.let { observer ->
+            runCatching {
+                contentResolver.unregisterContentObserver(observer)
+            }
+        }
+        mediaStoreObserver = null
+        super.onStop()
+    }
+
+    /**
+     * Keep the folder badges live while MalekPlay is visible. Received videos
+     * and songs are published into their MediaStore collections by UltraShare.
+     * Debouncing avoids rescanning once for every provider notification.
+     */
+    private fun registerMediaStoreObserver() {
+        if (mediaStoreObserver != null) return
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                super.onChange(selfChange, uri)
+                mediaStoreRefreshJob?.cancel()
+                mediaStoreRefreshJob = lifecycleScope.launch {
+                    delay(1_200L)
+                    if (MediaPermissions.isGranted(this@MainActivity)) {
+                        runCatching { mediaRepository.refresh() }
+                    }
+                }
+            }
+        }
+        mediaStoreObserver = observer
+        contentResolver.registerContentObserver(
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, observer
+        )
+        contentResolver.registerContentObserver(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, observer
+        )
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -164,7 +218,7 @@ class MainActivity : ComponentActivity() {
         // Refresh after returning from Android permission settings.
         if (MediaPermissions.isGranted(this)) {
             lifecycleScope.launch(Dispatchers.IO) {
-                runCatching { mediaRepository.refreshIfStale() }
+                runCatching { mediaRepository.refreshIfStale(minIntervalMs = 30_000L) }
             }
         }
     }
