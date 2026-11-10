@@ -104,6 +104,7 @@ fun UltraShareExperienceScreen(
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf(UltraSharePage.HOME) }
+    var showDevicePicker by remember { mutableStateOf(false) }
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var search by remember { mutableStateOf("") }
@@ -400,6 +401,11 @@ fun UltraShareExperienceScreen(
                     OutlinedButton(onClick = { page = UltraSharePage.NEARBY; if (!state.scanning) viewModel.scanNearbyDevices() }, modifier = Modifier.fillMaxWidth()) {
                         Text("عرض الأجهزة القريبة")
                     }
+                    OutlinedButton(
+                        onClick = { showDevicePicker = true; if (!state.scanning) viewModel.scanNearbyDevices() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !state.sending
+                    ) { Text("اختيار جهاز من نافذة الأجهزة القريبة") }
                     if (host.isNotBlank()) {
                         InfoPanel("الجهاز المحدد", host + " • " + when {
                             state.approvedPeerHost == host -> "متصل وموثّق"
@@ -656,6 +662,22 @@ fun UltraShareExperienceScreen(
             state.error?.takeIf { page != UltraSharePage.SEND && page != UltraSharePage.NEARBY }?.let { ErrorPanel(it) }
         }
         Spacer(Modifier.height(12.dp))
+    }
+    if (showDevicePicker) {
+        DevicePickerBottomSheet(
+            discoveredPeers = state.discoveredPeers,
+            activePeers = state.activePeers,
+            isScanning = state.scanning,
+            onDismiss = { showDevicePicker = false },
+            onRefresh = viewModel::scanNearbyDevices,
+            onPeerSelected = { selectedHost ->
+                showDevicePicker = false
+                host = selectedHost
+                page = UltraSharePage.SEND
+                val sessionReady = state.approvedPeerHost == selectedHost && UltraShareTransport.isValidPairingSecret(secret)
+                if (!sessionReady) scanQr()
+            }
+        )
     }
 }
 
