@@ -1,6 +1,7 @@
 package com.malekplay.network
 
 import android.util.Xml
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.xmlpull.v1.XmlPullParser
@@ -40,9 +41,18 @@ class DlnaRendererClient(
             soap(endpoint, "SetAVTransportURI", """
                 <InstanceID>0</InstanceID>
                 <CurrentURI>${xmlEscape(mediaUrl)}</CurrentURI>
-                <CurrentURIMetaData>${xmlEscape(didlMetadata(title, mediaUrl, mimeType))}</CurrentURIMetaData>
+                <CurrentURIMetaData>${xmlEscape(buildDlnaDidlMetadata(title, mediaUrl, mimeType))}</CurrentURIMetaData>
             """.trimIndent())
-            soap(endpoint, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
+            try {
+                soap(endpoint, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
+            } catch (failure: Exception) {
+                // Best-effort rollback: retain the original Play failure even if Stop also fails.
+                if (failure is CancellationException) throw failure
+                runCatching {
+                    soap(endpoint, "Stop", "<InstanceID>0</InstanceID>")
+                }
+                throw failure
+            }
         }
 
     suspend fun pause(device: DiscoveredNetworkDevice) = command(device, "Pause", "<InstanceID>0</InstanceID>")
@@ -154,17 +164,11 @@ class DlnaRendererClient(
         try {
             if (connection.responseCode !in 200..299) throw IOException("تعذر قراءة وصف DLNA: HTTP ${connection.responseCode}")
             val bytes = connection.inputStream.use { input ->
-                val output = java.io.ByteArrayOutputStream()
-                val buffer = ByteArray(8192)
-                var total = 0
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    total += count
-                    if (total > 1_000_000) throw IOException("ملف وصف DLNA أكبر من الحد المسموح.")
-                    output.write(buffer, 0, count)
-                }
-                output.toByteArray()
+                readBounded(
+                    input,
+                    maxBytes = 1_000_000,
+                    tooLargeMessage = "ملف وصف DLNA أكبر من الحد المسموح."
+                )
             }
             return String(bytes, StandardCharsets.UTF_8)
         } finally { connection.disconnect() }
@@ -190,26 +194,81 @@ class DlnaRendererClient(
             val status = connection.responseCode
             if (status !in 200..299) {
                 val errorBody = runCatching {
-                    (connection.errorStream ?: connection.inputStream).bufferedReader().use { it.readText().take(1200) }
+                    String(
+                        readBounded(
+                            connection.errorStream ?: connection.inputStream,
+                            maxBytes = 16_384,
+                            tooLargeMessage = "رد خطأ DLNA تجاوز الحد المسموح."
+                        ),
+                        StandardCharsets.UTF_8
+                    ).take(1200)
                 }.getOrDefault("")
                 throw IOException("فشل أمر DLNA $action (HTTP $status): ${errorBody.take(300)}")
             }
-            return connection.inputStream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText().take(256_000) }.orEmpty()
+            return connection.inputStream?.use { input ->
+                String(
+                    readBounded(
+                        input,
+                        maxBytes = 256_000,
+                        tooLargeMessage = "رد SOAP من DLNA تجاوز الحد المسموح."
+                    ),
+                    StandardCharsets.UTF_8
+                )
+            }.orEmpty()
         } finally { connection.disconnect() }
     }
 
-    private fun didlMetadata(title: String, url: String, mime: String): String {
-        val safeTitle = xmlEscape(title.ifBlank { "MalekPlay media" })
-        val safeUrl = xmlEscape(url)
-        val safeMime = xmlEscape(mime.ifBlank { "application/octet-stream" })
-        return """<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="0" parentID="-1" restricted="1"><dc:title>$safeTitle</dc:title><upnp:class>object.item.videoItem</upnp:class><res protocolInfo="http-get:*:$safeMime:*">$safeUrl</res></item></DIDL-Lite>"""
-    }
-
-    private fun xmlEscape(value: String): String = value
-        .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        .replace("\"", "&quot;").replace("'", "&apos;")
 }
 
+
+/**
+ * Reads at most [maxBytes] from an untrusted renderer response.
+ * The extra read detects an oversized body without buffering it in memory.
+ */
+internal fun readBounded(
+    input: java.io.InputStream,
+    maxBytes: Int,
+    tooLargeMessage: String
+): ByteArray {
+    require(maxBytes > 0) { "حد قراءة DLNA غير صالح." }
+    val output = java.io.ByteArrayOutputStream(minOf(maxBytes, 8_192))
+    val buffer = ByteArray(8_192)
+    var total = 0
+    while (true) {
+        val count = input.read(buffer)
+        if (count < 0) break
+        if (count == 0) continue
+        if (count > maxBytes - total) throw IOException(tooLargeMessage)
+        output.write(buffer, 0, count)
+        total += count
+    }
+    return output.toByteArray()
+}
+
+/** Maps media MIME types to the most specific standard UPnP item class. */
+internal fun dlnaUpnpClassForMime(mime: String): String {
+    val normalized = mime.substringBefore(';').trim().lowercase()
+    return when {
+        normalized.startsWith("audio/") -> "object.item.audioItem.musicTrack"
+        normalized.startsWith("image/") -> "object.item.imageItem.photo"
+        normalized.startsWith("video/") -> "object.item.videoItem"
+        else -> "object.item"
+    }
+}
+
+/** Builds escaped DIDL-Lite metadata without assuming every shared item is video. */
+internal fun buildDlnaDidlMetadata(title: String, url: String, mime: String): String {
+    val safeTitle = escapeDlnaXml(title.ifBlank { "MalekPlay media" })
+    val safeUrl = escapeDlnaXml(url)
+    val normalizedMime = mime.substringBefore(';').trim().ifBlank { "application/octet-stream" }
+    val safeMime = escapeDlnaXml(normalizedMime)
+    val upnpClass = dlnaUpnpClassForMime(normalizedMime)
+    return """<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="0" parentID="-1" restricted="1"><dc:title>$safeTitle</dc:title><upnp:class>$upnpClass</upnp:class><res protocolInfo="http-get:*:$safeMime:*">$safeUrl</res></item></DIDL-Lite>"""
+}
+
+private fun escapeDlnaXml(value: String): String = value
+    .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    .replace("\"", "&quot;").replace("'", "&apos;")
 
 /**
  * Builds a cache key from the complete discovered endpoint identity, not only
