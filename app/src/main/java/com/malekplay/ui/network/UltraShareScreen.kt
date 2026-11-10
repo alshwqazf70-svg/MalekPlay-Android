@@ -310,7 +310,13 @@ class UltraShareViewModel @Inject constructor(
         val approvedPeer = UltraShareForegroundService.state.value.activePeers.firstOrNull { peer ->
             peer.host == host.trim() && UltraShareControlChannel.isSessionActive(peer.host)
         } ?: return false
-        if (uris.isEmpty() || _state.value.sending || host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) return false
+        if (
+            uris.isEmpty() ||
+            UltraShareForegroundService.state.value.sending ||
+            _state.value.sending ||
+            host.isBlank() ||
+            !UltraShareTransport.isValidPairingSecret(secret)
+        ) return false
         return runCatching {
             UltraShareForegroundService.startSendingBatch(context, uris, host, secret, approvedPeer.routeCandidates)
             _state.value = _state.value.copy(sending = true, progress = null, queueCompleted = 0, queueTotal = uris.size, error = null, status = "بدأ إرسال ${uris.size} ملفات.")
