@@ -419,7 +419,12 @@ class PlayerViewModel @Inject constructor(
         speed: Float = 1f,
         shuffle: Boolean = false
     ) {
-        if (_dlnaPlayback.value.activeDevice != null) stopDlnaPlayback()
+        if (_dlnaPlayback.value.activeDevice != null) {
+            stopDlnaPlayback {
+                playQueue(items, startIndex, startPositionMs, speed, shuffle)
+            }
+            return
+        }
         val player = _controller.value ?: return
         if (items.isEmpty()) return
         val requestedIndex = startIndex.coerceIn(0, items.lastIndex)
@@ -479,7 +484,12 @@ class PlayerViewModel @Inject constructor(
      * network stream. The Uri doubles as the media id so progress still sticks.
      */
     fun playExternalUri(uri: Uri, startPositionMs: Long = 0L, speed: Float = 1f) {
-        if (_dlnaPlayback.value.activeDevice != null) stopDlnaPlayback()
+        if (_dlnaPlayback.value.activeDevice != null) {
+            stopDlnaPlayback {
+                playExternalUri(uri, startPositionMs, speed)
+            }
+            return
+        }
         playbackGeneration++
         if (parentalControl.isEnabled) {
             _playerError.value = "في وضع الأطفال يمكن تشغيل المحتوى الذي اعتمده الوالد فقط."
