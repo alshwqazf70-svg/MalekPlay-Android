@@ -1,7 +1,6 @@
 package com.malekplay.network
 
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /**
  * Serializes resume-state access per stable peer while retaining only a bounded
@@ -34,9 +33,11 @@ internal class UltraSharePeerMutexRegistry(
             selected
         }
 
+        entry.mutex.lock()
         try {
-            return entry.mutex.withLock { action() }
+            return action()
         } finally {
+            entry.mutex.unlock()
             synchronized(guard) {
                 entry.references--
                 evictIdleEntries()
