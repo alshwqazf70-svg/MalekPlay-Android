@@ -161,7 +161,9 @@ Primary evidence documents:
 - The active navigation route remains `UltraShareExperienceScreen`; `main` is not changed.
 - The send and receive pages are now extracted into `SendFileScreen.kt` and `ReceiveScreen.kt`, with the nearby-device selection sheet in `DevicePickerBottomSheet.kt`.
 - The home radar is extracted into `UltraShareRadar.kt` and the richer device/session progress room into `UltraShareSessionRoom.kt`.
-- `UltraShareViewModel.kt` now owns the shared state and transfer orchestration independently of the legacy screen file.
+- `UltraShareViewModel.kt` owns shared state and transfer orchestration independently of UI. After extracting its useful session-room/help components, the superseded monolithic `UltraShareScreen.kt` was removed from this feature branch.
+- The previous radar component was consolidated into `UltraShareRadar.kt`; the old `TransferHomeScreen.kt` / `TransferNavigation.kt` copies were not reintroduced because the active page coordinator already provides the navigation flow.
+- Manual host/device changes clear any previously entered pairing secret so a PIN from one receiver cannot accidentally be reused against another receiver.
 - `MediaPickerViewModel.kt` is restored and wired to `MediaPickerRepository.kt` / `MediaPickerModels.kt` for real MediaStore browsing, with SAF retained as a fallback.
 - Receiver QR creation is centralized through `UltraShareQrCode.createReceiverPayload`, which always uses the control-channel port. The send/receive UI no longer supplies the V2 data port.
 - The unused standalone `NsdDiscoveryManager.kt` was removed; the active UDP discovery and candidate negotiation path remains the single discovery source of truth.
