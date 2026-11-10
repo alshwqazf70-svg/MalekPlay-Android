@@ -26,11 +26,13 @@ import com.malekplay.data.repository.MediaRepository
 import com.malekplay.data.repository.UserDataRepository
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem as DomainMedia
+import com.malekplay.network.DiscoveredNetworkDevice
 import com.malekplay.network.OnlineSubtitle
 import com.malekplay.network.OnlineSubtitleRepository
 import com.malekplay.player.LocalSubtitleResolver
 import com.malekplay.player.PipController
 import com.malekplay.player.PlaybackService
+import com.malekplay.player.cast.DlnaPlaybackController
 import com.malekplay.player.PlaybackVideoEffects
 import com.malekplay.player.PlaybackValuePolicy
 import com.malekplay.player.mediaItemFromUri
@@ -54,6 +56,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 
 /** A selectable audio or text track surfaced from the current Tracks info. */
@@ -67,6 +71,15 @@ data class TrackDescriptor(
 )
 
 /** Live codec/format telemetry shown in the "Playback info" sheet. */
+data class DlnaPlaybackState(
+    val activeDevice: DiscoveredNetworkDevice? = null,
+    val isPlaying: Boolean = false,
+    val positionMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val isConnected: Boolean = true,
+    val errorMessage: String? = null
+)
+
 data class PlaybackStats(
     val videoCodec: String = "—",
     val videoMimeType: String? = null,
@@ -91,10 +104,13 @@ class PlayerViewModel @Inject constructor(
     val audioEffects: AudioEffectsController,
     val pipController: PipController,
     private val onlineSubtitleRepository: OnlineSubtitleRepository,
-    private val subtitleTranslationEngine: SubtitleTranslationEngine
+    private val subtitleTranslationEngine: SubtitleTranslationEngine,
+    private val dlnaPlaybackController: DlnaPlaybackController
 ) : ViewModel() {
 
     private val _controller = MutableStateFlow<MediaController?>(null)
+    private val _dlnaPlayback = MutableStateFlow(DlnaPlaybackState())
+    val dlnaPlayback: StateFlow<DlnaPlaybackState> = _dlnaPlayback.asStateFlow()
     val controller: StateFlow<MediaController?> = _controller.asStateFlow()
 
     private val _connectionError = MutableStateFlow(false)
@@ -191,6 +207,9 @@ class PlayerViewModel @Inject constructor(
     private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
     private var tickerJob: Job? = null
     private var sleepTimerJob: Job? = null
+    private var dlnaPollingJob: Job? = null
+    private val dlnaCommandMutex = Mutex()
+    private var dlnaSessionGeneration = 0L
     private var lastGroups: List<Tracks.Group> = emptyList()
     private var currentMediaId: String? = null
     private val restoredTrackPreferenceIds = mutableSetOf<String>()
@@ -276,6 +295,7 @@ class PlayerViewModel @Inject constructor(
             // position under the previous item's id.
             val nextMediaId = mediaItem?.mediaId
             if (nextMediaId != currentMediaId) {
+                if (_dlnaPlayback.value.activeDevice != null) stopDlnaPlayback()
                 nextMediaId?.let(restoredTrackPreferenceIds::remove)
                 clearSubtitleTranslationSource()
             }
@@ -475,6 +495,177 @@ class PlayerViewModel @Inject constructor(
         player.prepare()
         player.playWhenReady = true
         refreshStats()
+    }
+
+    /**
+     * Starts remote playback for the current Media3 item. The existing local
+     * player is paused only after the renderer accepts the Play command.
+     */
+    fun startDlnaPlayback(device: DiscoveredNetworkDevice, title: String) {
+        viewModelScope.launch {
+            dlnaCommandMutex.withLock {
+                val player = _controller.value
+                val item = player?.currentMediaItem
+                if (player == null || item == null) {
+                    publishDlnaError("مشغل الفيديو غير جاهز أو لا يوجد فيديو حالي.")
+                    return@withLock
+                }
+                val previous = _dlnaPlayback.value.activeDevice
+                try {
+                    if (previous != null && previous.id != device.id) {
+                        dlnaPlaybackController.stop(previous)
+                    }
+                    dlnaPlaybackController.play(device, item, title)
+                    player.pause()
+                    _dlnaPlayback.value = DlnaPlaybackState(
+                        activeDevice = device,
+                        isPlaying = true,
+                        isConnected = true
+                    )
+                    startDlnaPolling(device)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    _dlnaPlayback.value = _dlnaPlayback.value.copy(
+                        activeDevice = previous,
+                        isConnected = previous != null,
+                        errorMessage = error.message ?: "تعذر إرسال الفيديو إلى التلفزيون."
+                    )
+                }
+            }
+        }
+    }
+
+    fun toggleDlnaPlayback() {
+        val requested = _dlnaPlayback.value.activeDevice ?: return
+        viewModelScope.launch {
+            dlnaCommandMutex.withLock {
+                val state = _dlnaPlayback.value
+                if (state.activeDevice?.id != requested.id) return@withLock
+                try {
+                    if (state.isPlaying) dlnaPlaybackController.pause(requested)
+                    else dlnaPlaybackController.resume(requested)
+                    _dlnaPlayback.value = state.copy(isPlaying = !state.isPlaying, errorMessage = null)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    publishDlnaCommandFailure(error, "تعذر التحكم بالتلفزيون.")
+                }
+            }
+        }
+    }
+
+    fun seekDlnaTo(positionMs: Long) {
+        val requested = _dlnaPlayback.value.activeDevice ?: return
+        val target = positionMs.coerceAtLeast(0L).let { value ->
+            _dlnaPlayback.value.durationMs.takeIf { it > 0L }?.let { value.coerceAtMost(it) } ?: value
+        }
+        viewModelScope.launch {
+            dlnaCommandMutex.withLock {
+                if (_dlnaPlayback.value.activeDevice?.id != requested.id) return@withLock
+                try {
+                    dlnaPlaybackController.seek(requested, target)
+                    _dlnaPlayback.value = _dlnaPlayback.value.copy(positionMs = target, errorMessage = null)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    publishDlnaCommandFailure(error, "تعذر تغيير موضع الفيديو على التلفزيون.")
+                }
+            }
+        }
+    }
+
+    fun seekDlnaBy(deltaMs: Long) {
+        val state = _dlnaPlayback.value
+        if (state.activeDevice == null) return
+        val target = (state.positionMs + deltaMs).coerceAtLeast(0L)
+            .let { if (state.durationMs > 0L) it.coerceAtMost(state.durationMs) else it }
+        seekDlnaTo(target)
+    }
+
+    /**
+     * Stops the remote session. When resumeLocal is true, playback returns to
+     * the phone at the last confirmed remote position.
+     */
+    fun stopDlnaPlayback(resumeLocal: Boolean = false) {
+        val requested = _dlnaPlayback.value.activeDevice ?: return
+        val resumePosition = _dlnaPlayback.value.positionMs
+        dlnaPollingJob?.cancel()
+        dlnaPollingJob = null
+        dlnaSessionGeneration++
+        viewModelScope.launch {
+            dlnaCommandMutex.withLock {
+                if (_dlnaPlayback.value.activeDevice?.id != requested.id) return@withLock
+                var stopFailure: Exception? = null
+                try {
+                    dlnaPlaybackController.stop(requested)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    stopFailure = error
+                }
+
+                if (resumeLocal) {
+                    _controller.value?.let { local ->
+                        local.seekTo(resumePosition)
+                        local.play()
+                    }
+                }
+                _dlnaPlayback.value = DlnaPlaybackState(
+                    errorMessage = stopFailure?.let {
+                        it.message ?: "تعذر تأكيد إيقاف التشغيل على التلفزيون؛ قد يستمر العرض عن بُعد."
+                    }
+                )
+            }
+        }
+    }
+
+    fun clearDlnaError() {
+        _dlnaPlayback.value = _dlnaPlayback.value.copy(errorMessage = null)
+    }
+
+    private fun startDlnaPolling(device: DiscoveredNetworkDevice) {
+        dlnaPollingJob?.cancel()
+        val generation = ++dlnaSessionGeneration
+        dlnaPollingJob = viewModelScope.launch {
+            var consecutiveFailures = 0
+            while (isActive && generation == dlnaSessionGeneration &&
+                _dlnaPlayback.value.activeDevice?.id == device.id
+            ) {
+                try {
+                    val position = dlnaPlaybackController.getPosition(device)
+                    consecutiveFailures = 0
+                    _dlnaPlayback.value = _dlnaPlayback.value.copy(
+                        positionMs = position?.positionMs ?: _dlnaPlayback.value.positionMs,
+                        durationMs = position?.durationMs ?: _dlnaPlayback.value.durationMs,
+                        isConnected = true,
+                        errorMessage = null
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    consecutiveFailures++
+                    if (consecutiveFailures >= DLNA_FAILURES_BEFORE_DISCONNECT) {
+                        _dlnaPlayback.value = _dlnaPlayback.value.copy(
+                            isConnected = false,
+                            errorMessage = "انقطع الاتصال بالتلفزيون. سيحاول MalekPlay إعادة الاتصال تلقائيًا."
+                        )
+                    }
+                }
+                delay(if (consecutiveFailures == 0) DLNA_POLL_INTERVAL_MS else DLNA_RETRY_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun publishDlnaError(message: String) {
+        _dlnaPlayback.value = _dlnaPlayback.value.copy(errorMessage = message)
+    }
+
+    private fun publishDlnaCommandFailure(error: Exception, fallback: String) {
+        _dlnaPlayback.value = _dlnaPlayback.value.copy(
+            isConnected = false,
+            errorMessage = error.message ?: fallback
+        )
     }
 
     fun togglePlayPause() {
@@ -1045,6 +1236,7 @@ class PlayerViewModel @Inject constructor(
     override fun onCleared() {
         tickerJob?.cancel()
         sleepTimerJob?.cancel()
+        dlnaPollingJob?.cancel()
         _controller.value?.removeListener(playerListener)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
@@ -1056,6 +1248,9 @@ class PlayerViewModel @Inject constructor(
         const val LOG_TAG = "MalekPlayPlayer"
         // A one-second UI snapshot is sufficient for the seek bar and halves ticker wakeups.
         const val TICK_INTERVAL_MS = 1_000L
+        const val DLNA_POLL_INTERVAL_MS = 1_500L
+        const val DLNA_RETRY_INTERVAL_MS = 3_000L
+        const val DLNA_FAILURES_BEFORE_DISCONNECT = 2
     }
 }
 
