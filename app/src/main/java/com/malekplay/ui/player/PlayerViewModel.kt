@@ -70,7 +70,7 @@ data class TrackDescriptor(
     val stableId: String?
 )
 
-/** Live codec/format telemetry shown in the "Playback info" sheet. */
+/** Current remote-renderer session state surfaced to the video player UI. */
 data class DlnaPlaybackState(
     val activeDevice: DiscoveredNetworkDevice? = null,
     val isPlaying: Boolean = false,
@@ -80,6 +80,7 @@ data class DlnaPlaybackState(
     val errorMessage: String? = null
 )
 
+/** Live codec/format telemetry shown in the "Playback info" sheet. */
 data class PlaybackStats(
     val videoCodec: String = "—",
     val videoMimeType: String? = null,
@@ -514,6 +515,9 @@ class PlayerViewModel @Inject constructor(
                 try {
                     if (previous != null && previous.id != device.id) {
                         dlnaPlaybackController.stop(previous)
+                        dlnaPollingJob?.cancel()
+                        dlnaPollingJob = null
+                        dlnaSessionGeneration++
                         _dlnaPlayback.value = DlnaPlaybackState()
                     }
                     dlnaPlaybackController.play(device, item, title)
@@ -637,6 +641,9 @@ class PlayerViewModel @Inject constructor(
             ) {
                 try {
                     val position = dlnaPlaybackController.getPosition(device)
+                    if (generation != dlnaSessionGeneration ||
+                        _dlnaPlayback.value.activeDevice?.id != device.id
+                    ) break
                     consecutiveFailures = 0
                     _dlnaPlayback.value = _dlnaPlayback.value.copy(
                         positionMs = position?.positionMs ?: _dlnaPlayback.value.positionMs,
@@ -647,6 +654,9 @@ class PlayerViewModel @Inject constructor(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
+                    if (generation != dlnaSessionGeneration ||
+                        _dlnaPlayback.value.activeDevice?.id != device.id
+                    ) break
                     consecutiveFailures++
                     if (consecutiveFailures >= DLNA_FAILURES_BEFORE_DISCONNECT) {
                         _dlnaPlayback.value = _dlnaPlayback.value.copy(
@@ -1240,6 +1250,17 @@ class PlayerViewModel @Inject constructor(
         tickerJob?.cancel()
         sleepTimerJob?.cancel()
         dlnaPollingJob?.cancel()
+        _dlnaPlayback.value.activeDevice?.let { remoteDevice ->
+            // ViewModel scope is cancelled as this method returns. Use a bounded,
+            // one-shot IO scope to release the receiver session on screen teardown.
+            kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + Dispatchers.IO
+            ).launch {
+                kotlinx.coroutines.withTimeoutOrNull(DLNA_STOP_TIMEOUT_MS) {
+                    runCatchingCancellable { dlnaPlaybackController.stop(remoteDevice) }
+                }
+            }
+        }
         _controller.value?.removeListener(playerListener)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
@@ -1254,6 +1275,7 @@ class PlayerViewModel @Inject constructor(
         const val DLNA_POLL_INTERVAL_MS = 1_500L
         const val DLNA_RETRY_INTERVAL_MS = 3_000L
         const val DLNA_FAILURES_BEFORE_DISCONNECT = 2
+        const val DLNA_STOP_TIMEOUT_MS = 10_000L
     }
 }
 
