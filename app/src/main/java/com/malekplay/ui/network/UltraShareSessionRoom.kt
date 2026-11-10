@@ -435,7 +435,7 @@ private fun UltraShareCompletionPanel(title: String, subtitle: String, detail: S
     }
 }
 
-private fun formatTransferBytes(value: Long): String {
+internal fun formatTransferBytes(value: Long): String {
     if (value < 1024L) return "$value B"
     val units = listOf("KB", "MB", "GB", "TB")
     var amount = value.toDouble()
