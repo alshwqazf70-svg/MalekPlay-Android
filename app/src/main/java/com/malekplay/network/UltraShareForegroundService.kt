@@ -1106,6 +1106,7 @@ class UltraShareForegroundService : Service() {
                     sources = sources,
                     host = host,
                     pairingSecret = secret,
+                    network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, host),
                     onProgress = onProgress
                 )
             } catch (cancelled: CancellationException) {
@@ -1123,6 +1124,7 @@ class UltraShareForegroundService : Service() {
                         host = host,
                         pairingSecret = secret,
                         peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                        network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, host),
                         onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
                     )
                     check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
