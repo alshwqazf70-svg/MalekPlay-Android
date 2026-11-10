@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -44,8 +43,10 @@ object UltraShareQueueStore {
                 status = STATUS_PENDING
             )
         }
-        context.applicationContext.ultraShareQueueDataStore.edit {
-            it[QUEUE] = encode(entries)
+        context.applicationContext.ultraShareQueueDataStore.edit { preferences ->
+            // Do not let an ordinary queue replacement erase an unreadable prior payload.
+            decodeForMutation(preferences[QUEUE].orEmpty())
+            preferences[QUEUE] = encode(entries)
         }
     }
 
