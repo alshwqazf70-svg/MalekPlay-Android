@@ -574,15 +574,13 @@ fun UltraShareExperienceScreen(
                 }
 
                 UltraSharePage.TRANSFERS -> {
-                    StatusPanel(
-                        if (state.sending) "النقل نشط" else "غرفة النقل",
-                        state.activePeers.size.toString() + " جهاز متصل • " + state.queueCompleted + "/" + state.queueTotal + " ملف مكتمل",
-                        state.sending
+                    UltraShareSessionRoom(
+                        state = state,
+                        activeMode = if (state.sending || host.isNotBlank() || selectedUris.isNotEmpty()) "send" else "receive",
+                        localDeviceName = Build.MODEL?.take(40)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                        remoteHost = host.ifBlank { state.activePeers.firstOrNull()?.host.orEmpty() },
+                        selectedMediaCount = selectedUris.size
                     )
-                    state.sendProgress?.let { progress ->
-                        InfoPanel("الملف الحالي", progress.fileName + "\n" + (progress.fraction * 100).toInt() + "% • " + formatUltraBytes(progress.transferredBytes) + " / " + formatUltraBytes(progress.totalBytes))
-                        LinearProgressIndicator(progress = { progress.fraction.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                    }
                     state.peerTransfers.forEach { transfer ->
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
