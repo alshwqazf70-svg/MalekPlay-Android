@@ -81,7 +81,6 @@ import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareTransport
 import com.malekplay.network.UltraShareBatchTransport
-import com.malekplay.network.UltraShareControlChannel
 import com.malekplay.data.repository.MediaRepository
 import com.malekplay.network.UltraShareDiscovery
 import com.malekplay.network.UltraShareNegotiation
@@ -660,7 +659,7 @@ fun UltraShareScreen(
         }
     }
     val qrPayload = state.localAddresses.firstOrNull()?.takeIf { state.receiving }?.let { address ->
-        UltraShareQrCode.createPayload(address, UltraShareControlChannel.DEFAULT_PORT, state.pairingSecret)
+        UltraShareQrCode.createReceiverPayload(address, state.pairingSecret)
     }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
