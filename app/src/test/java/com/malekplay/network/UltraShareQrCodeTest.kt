@@ -67,6 +67,15 @@ class UltraShareQrCodeTest {
         )
     }
     @Test(expected = IllegalArgumentException::class)
+    fun pairingPayloadRejectsDataPortInsteadOfControlPort() {
+        UltraShareQrCode.createPayload(
+            host = "192.168.1.25",
+            port = UltraShareBatchTransport.DEFAULT_PORT,
+            pairingSecret = UltraShareTransport.createPairingSecret()
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
     fun pairingPayloadRejectsPublicInternetHosts() {
         UltraShareQrCode.createPayload(
             host = "example.com",
