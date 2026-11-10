@@ -660,7 +660,7 @@ fun UltraShareScreen(
         }
     }
     val qrPayload = state.localAddresses.firstOrNull()?.takeIf { state.receiving }?.let { address ->
-        UltraShareQrCode.createPayload(address, UltraShareTransport.DEFAULT_PORT, state.pairingSecret)
+        UltraShareQrCode.createPayload(address, UltraShareControlChannel.DEFAULT_PORT, state.pairingSecret)
     }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
