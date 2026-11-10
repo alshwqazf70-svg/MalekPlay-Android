@@ -1168,6 +1168,9 @@ class UltraShareForegroundService : Service() {
                             check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
                                 "لم يوافق الجهاز المستقبل على إعادة الاتصال."
                             }
+                            check(UltraShareControlChannel.isSessionActive(activeHost)) {
+                                "انقطعت قناة التحكم أثناء إعادة الاتصال."
+                            }
                             registerApprovedPeer(
                                 name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlay المستقبل",
                                 host = activeHost,
@@ -1209,6 +1212,9 @@ class UltraShareForegroundService : Service() {
                         )
                         check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
                             "لم يوافق الجهاز المستقبل على المسار البديل."
+                        }
+                        check(UltraShareControlChannel.isSessionActive(candidate.host)) {
+                            "انقطعت قناة التحكم أثناء تفعيل المسار البديل."
                         }
                         activeHost = candidate.host
                         onHostChanged(activeHost)
