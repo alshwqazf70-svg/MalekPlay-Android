@@ -15,7 +15,6 @@ android {
         applicationId = "com.malekplay"
         minSdk = 23
         targetSdk = 35
-        // Allow release versioning to be supplied by CI without editing source files.
         versionCode = providers.gradleProperty("malekplayVersionCode")
             .orNull?.toIntOrNull() ?: 2
         versionName = providers.gradleProperty("malekplayVersionName")
@@ -32,8 +31,6 @@ android {
         buildConfig = true
     }
 
-    // Release signing is optional for local analysis builds. Credentials are read
-    // only from environment variables and must never be committed to the repository.
     val releaseStoreFile = providers.environmentVariable("MALEKPLAY_RELEASE_STORE_FILE").orNull
     val releaseStorePassword = providers.environmentVariable("MALEKPLAY_RELEASE_STORE_PASSWORD").orNull
     val releaseKeyAlias = providers.environmentVariable("MALEKPLAY_RELEASE_KEY_ALIAS").orNull
@@ -56,8 +53,6 @@ android {
 
     buildTypes {
         getByName("release") {
-            // Without all four signing environment variables this remains an
-            // unsigned analysis artifact; never silently use the debug key.
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -70,8 +65,6 @@ android {
         }
     }
 
-    // ABI APK splits are enabled only for APK assembly. Android App Bundles
-    // perform their own device targeting and must be built without APK splits.
     if (providers.gradleProperty("enableAbiSplits").orNull == "true") {
         splits {
             abi {
@@ -118,18 +111,14 @@ dependencies {
     implementation(platform(libs.compose.bom))
     androidTestImplementation(platform(libs.compose.bom))
 
-    // AndroidX core
     implementation(libs.androidx.core.ktx)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.viewmodel.ktx)
     implementation(libs.lifecycle.viewmodel.compose)
-
-    // Navigation
     implementation(libs.navigation.compose)
 
-    // Compose
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
@@ -137,7 +126,6 @@ dependencies {
     implementation(libs.compose.icons.extended)
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // Media3
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation(libs.media3.effect)
@@ -146,23 +134,18 @@ dependencies {
     implementation(libs.media3.cast)
     implementation(project(":ass-media-local"))
 
-    // Room
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
-    // Datastore
     implementation(libs.datastore.preferences)
 
-    // Hilt
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
 
-    // ML Kit on-device translation
     implementation(libs.mlkit.translate)
 
-    // Unit tests and SQLite migration coverage
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("androidx.room:room-testing:2.8.5")
@@ -174,11 +157,13 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
-    // Network protocols
     implementation(libs.smbj)
     implementation(libs.sshj)
     implementation(libs.okhttp)
     implementation(libs.zxing.core)
-    // Standalone camera QR scanner; works without downloading a Google Play services module.
+    
+    // ⚡️ المكتبة السحرية للسرعة (Okio)
+    implementation("com.squareup.okio:okio:3.9.0")
+    
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }
