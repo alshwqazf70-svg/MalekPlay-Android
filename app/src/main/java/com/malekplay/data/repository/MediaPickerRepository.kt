@@ -9,6 +9,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.ensureActive
 
 class MediaPickerRepository @Inject constructor(
     @ApplicationContext private val context: Context
@@ -39,6 +41,7 @@ class MediaPickerRepository @Inject constructor(
             val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
 
             while (cursor.moveToNext()) {
+                coroutineContext.ensureActive()
                 val id = cursor.getLong(idColumn)
                 val name = cursor.getString(nameColumn) ?: "ملف بدون اسم"
                 val sizeBytes = cursor.getLong(sizeColumn)
@@ -61,9 +64,14 @@ class MediaPickerRepository @Inject constructor(
     }
 
     private fun formatFileSize(size: Long): String {
-        if (size <= 0) return "0 B"
-        val units = arrayOf("B", "KB", "MB", "GB", "TB")
-        val digitGroups = (Math.log10(size.toDouble()) / Math.log10(1024.0)).toInt()
-        return String.format("%.1f %s", size / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
+        if (size <= 0L) return "0 B"
+        val units = arrayOf("B", "KB", "MB", "GB", "TB", "PB")
+        var value = size.toDouble()
+        var unitIndex = 0
+        while (value >= 1024.0 && unitIndex < units.lastIndex) {
+            value /= 1024.0
+            unitIndex++
+        }
+        return String.format(java.util.Locale.ROOT, "%.1f %s", value, units[unitIndex])
     }
 }
