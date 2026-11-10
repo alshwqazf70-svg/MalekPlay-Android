@@ -61,6 +61,51 @@ class UltraShareControlChannelTest {
     }
 
     @Test
+    fun reconnectingPeerReplacesItsOldSessionWithoutStaleDisconnect() = runBlocking {
+        val port = ServerSocket(0).use { it.localPort }
+        val secret = "246813579"
+        val firstPeerId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        val secondPeerId = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        val server = async {
+            UltraShareControlChannel.serveOnce(
+                pairingSecret = secret,
+                port = port,
+                localPeerName = "Receiver"
+            ) { UltraShareControlChannel.Decision.ACCEPTED }
+        }
+        delay(150)
+
+        assertEquals(
+            UltraShareControlChannel.Decision.ACCEPTED,
+            UltraShareControlChannel.request(
+                host = "127.0.0.1",
+                pairingSecret = secret,
+                peerName = "Sender one",
+                port = port,
+                peerId = firstPeerId
+            )
+        )
+        assertEquals(firstPeerId, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
+
+        assertEquals(
+            UltraShareControlChannel.Decision.ACCEPTED,
+            UltraShareControlChannel.request(
+                host = "127.0.0.1",
+                pairingSecret = secret,
+                peerName = "Sender two",
+                port = port,
+                peerId = secondPeerId
+            )
+        )
+        assertEquals(secondPeerId, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
+        assertTrue(UltraShareControlChannel.isServerSessionActive("127.0.0.1"))
+
+        UltraShareControlChannel.closeSession("127.0.0.1")
+        UltraShareControlChannel.closeServerSession("127.0.0.1")
+        server.cancelAndJoin()
+    }
+
+    @Test
     fun rejectedRequestReturnsEncryptedRejection() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
         val secret = "987654321"
