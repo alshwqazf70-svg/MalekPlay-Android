@@ -56,6 +56,17 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - Removed duplicate standalone progress cards; received-file actions and receive history are now shown only in Receive mode to keep Send and Receive rooms focused.
 - This is an incremental Zapya-inspired Compose UI pass, not yet proof of pixel-identical Zapya screens or two-device usability.
 
+
+## Latest UI architecture update — 2026-11-10
+
+- The UltraShare navigation entry now opens `UltraShareExperienceScreen`, a dedicated multi-page experience instead of the previous long, mode-switched screen.
+- Separate pages are provided for: Home, Send media, Receive / Create receiving room, Join group by QR, Nearby devices / radar, Live transfer room, and Transfer history.
+- The pages use the existing `UltraShareViewModel`, foreground transfer service, pairing protocol, discovery, Wi-Fi Direct, hotspot, queue and history stores. No parallel transport engine was introduced.
+- The previous `UltraShareScreen` composable remains in the source tree; it was not deleted. The navigation route now points to the new multi-page composable.
+- Preserved in the new flow: media-only selection, persisted URI grants for externally shared media, camera and image QR scanning, manual pairing fallback, incoming request approval/rejection, peer disconnect, batch send, pause/cancel, retry/skip/resume queue actions, hotspot controls, received-file export/open actions, and sent/received history.
+- Internal page back navigation is supported through the Android system Back action and the page header.
+- This is the first structural multi-page pass. It still requires exact-head Android CI/build verification and two-device usability testing before it can be called release-ready.
+
 ## Latest commits in active branch
 
 - `df5a840131cd9733caf447760d3ee950217f3966` — QR-first nearby peer pairing; auto-request after QR scan.
