@@ -55,7 +55,8 @@ object UltraShareControlChannel {
     data class Request(
         val requestId: String,
         val peerName: String,
-        val peerAddress: String
+        val peerAddress: String,
+        val peerId: String? = null
     )
 
     private data class ClientSession(
@@ -69,6 +70,7 @@ object UltraShareControlChannel {
 
     private val clientSessions = ConcurrentHashMap<String, ClientSession>()
     private val serverSessions = ConcurrentHashMap<String, Socket>()
+    private val serverSessionPeerIds = ConcurrentHashMap<String, String>()
     private val pairingAttemptLimiter = UltraSharePairingAttemptLimiter()
 
     internal fun isPairingAttemptAllowed(peerAddress: String, nowMillis: Long = System.currentTimeMillis()): Boolean =
@@ -133,6 +135,7 @@ object UltraShareControlChannel {
         peerName: String,
         port: Int = DEFAULT_PORT,
         network: Network? = null,
+        peerId: String? = null,
         onSessionClosed: (String) -> Unit = {}
     ): Decision = withContext(Dispatchers.IO) {
         require(UltraShareTransport.isValidPrivateLanHost(host) || host == "127.0.0.1") {
@@ -165,7 +168,13 @@ object UltraShareControlChannel {
             val challenge = ByteArray(CHALLENGE_BYTES)
             input.readFully(challenge)
             val key = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
-            val requestId = randomId()
+            // Append the stable device token to the opaque request ID. This remains
+            // wire-compatible with older peers (which already accept up to 64 hex chars)
+            // without changing the displayed device name or control-frame layout.
+            val stableToken = peerId?.replace("-", "")?.lowercase()
+                ?.takeIf { it.length == 32 && it.all { char -> char.digitToIntOrNull(16) != null } }
+                .orEmpty()
+            val requestId = randomId() + stableToken
             val authenticated = requestAuthentication(key, challenge, requestId, nameBytes)
             output.writeUTF(requestId)
             output.writeShort(nameBytes.size)
@@ -241,6 +250,9 @@ object UltraShareControlChannel {
     fun isServerSessionActive(host: String): Boolean =
         serverSessions[host]?.isConnected == true && serverSessions[host]?.isClosed == false
 
+    /** Stable authenticated sender identity survives WLAN/Hotspot/Wi-Fi Direct IP changes. */
+    fun serverSessionIdentity(host: String): String? = serverSessionPeerIds[host]
+
     private suspend fun handleIncoming(
         socket: Socket,
         pairingSecret: String,
@@ -283,10 +295,14 @@ object UltraShareControlChannel {
         }
         pairingAttemptLimiter.recordSuccess(peerAddress)
 
+        val peerId = requestId.takeIf { value ->
+            value.length == MAX_ID_BYTES && value.all { it.digitToIntOrNull(16) != null }
+        }?.takeLast(32)
         val request = Request(
             requestId = requestId,
             peerName = name,
-            peerAddress = socket.inetAddress.hostAddress.orEmpty()
+            peerAddress = peerAddress,
+            peerId = peerId
         )
         val decision = withTimeoutOrNull(30_000L) { onRequest(request) } ?: Decision.REJECTED
         val encodedLocalName = encodeHex(localPeerName.take(48).toByteArray(Charsets.UTF_8))
@@ -308,6 +324,8 @@ object UltraShareControlChannel {
             // the sender. Otherwise the first v2 data socket can race this map update.
             socket.soTimeout = SESSION_TIMEOUT_MS
             serverSessions[request.peerAddress] = socket
+            serverSessionPeerIds.remove(request.peerAddress)
+            request.peerId?.let { serverSessionPeerIds[request.peerAddress] = it }
             output.writeInt(frame.size)
             output.write(frame)
             output.flush()
@@ -322,7 +340,9 @@ object UltraShareControlChannel {
                 }
             }
         } finally {
-            serverSessions.remove(request.peerAddress, socket)
+            if (serverSessions.remove(request.peerAddress, socket)) {
+                serverSessionPeerIds.remove(request.peerAddress)
+            }
             onSessionClosed(request)
         }
     }
