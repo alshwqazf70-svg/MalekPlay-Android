@@ -135,8 +135,12 @@ fun DevicePickerBottomSheet(
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             value = secretCode,
-                            onValueChange = { if (it.length <= 6 && it.all { char -> char.isDigit() }) secretCode = it },
-                            placeholder = { Text("مثال: 123456") },
+                            onValueChange = { value ->
+                                secretCode = value.mapNotNull { char ->
+                                    char.digitToIntOrNull()?.takeIf { digit -> digit in 0..9 }?.digitToChar()
+                                }.joinToString("").take(9)
+                            },
+                            placeholder = { Text("مثال: 123456789") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp)
@@ -153,7 +157,7 @@ fun DevicePickerBottomSheet(
                                         onConnect(host, secretCode)
                                     }
                                 },
-                                enabled = secretCode.length >= 4,
+                                enabled = secretCode.length == 9,
                                 colors = ButtonDefaults.buttonColors(containerColor = MalekPlayColors.PurpleBright)
                             ) {
                                 Text("اتصال وإرسال")
