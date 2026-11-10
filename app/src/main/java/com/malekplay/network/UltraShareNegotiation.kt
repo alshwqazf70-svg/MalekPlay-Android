@@ -66,14 +66,18 @@ object UltraShareNegotiation {
     }
 
     /** Prefer a connected/reachable P2P path, then WLAN, then hotspot. */
-    fun selectCandidate(candidates: List<Candidate>): Candidate? =
+    fun orderedCandidates(candidates: List<Candidate>): List<Candidate> =
         candidates.asSequence()
             .filter { it.isUsable() }
+            .distinctBy { "${it.transport}:${it.host}:${it.port}" }
             .sortedWith(
                 compareBy<Candidate> { transportRank(it.transport) }
                     .thenByDescending { it.priority }
             )
-            .firstOrNull()
+            .toList()
+
+    fun selectCandidate(candidates: List<Candidate>): Candidate? =
+        orderedCandidates(candidates).firstOrNull()
 
     fun encode(offer: Offer): String {
         require(offer.protocolVersion == VERSION)
