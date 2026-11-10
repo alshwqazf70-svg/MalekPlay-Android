@@ -67,6 +67,37 @@ class UltraShareDiscoveryTest {
     }
 
     @Test
+    fun fallbackRoutesAreOrderedByTransportAndDiscardUnusableDuplicates() {
+        val candidates = listOf(
+            UltraShareNegotiation.Candidate(
+                UltraShareNegotiation.Transport.HOTSPOT, "192.168.43.1",
+                UltraShareBatchTransport.DEFAULT_PORT, reachable = true, priority = 99
+            ),
+            UltraShareNegotiation.Candidate(
+                UltraShareNegotiation.Transport.WLAN, "192.168.1.20",
+                UltraShareBatchTransport.DEFAULT_PORT, reachable = true, priority = 1
+            ),
+            UltraShareNegotiation.Candidate(
+                UltraShareNegotiation.Transport.WIFI_DIRECT, "192.168.49.1",
+                UltraShareBatchTransport.DEFAULT_PORT, reachable = true, priority = 0
+            ),
+            UltraShareNegotiation.Candidate(
+                UltraShareNegotiation.Transport.WIFI_DIRECT, "192.168.49.2",
+                UltraShareBatchTransport.DEFAULT_PORT, reachable = false, priority = 100
+            )
+        )
+        val ordered = UltraShareNegotiation.orderedCandidates(candidates)
+        assertEquals(
+            listOf(
+                UltraShareNegotiation.Transport.WIFI_DIRECT,
+                UltraShareNegotiation.Transport.WLAN,
+                UltraShareNegotiation.Transport.HOTSPOT
+            ),
+            ordered.map { it.transport }
+        )
+    }
+
+    @Test
     fun legacyPeersFallBackToTheirLanAddress() {
         val peer = UltraShareDiscovery.Peer(
             host = "192.168.1.15",
