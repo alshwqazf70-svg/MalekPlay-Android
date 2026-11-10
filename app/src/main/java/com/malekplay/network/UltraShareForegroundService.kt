@@ -118,6 +118,9 @@ class UltraShareForegroundService : Service() {
     private var advertisementJob: Job? = null
     @Volatile private var controlJob: Job? = null
     @Volatile private var pendingConnectionDecision: CompletableDeferred<UltraShareControlChannel.Decision>? = null
+    // Serialize approval prompts, not incoming sockets: concurrent peers wait in order
+    // instead of having every request after the first one rejected.
+    private val pendingConnectionMutex = kotlinx.coroutines.sync.Mutex()
     private var hotspotReservation: AutoCloseable? = null
     private var hotspotCallback: Any? = null
     private lateinit var notificationManager: NotificationManager
