@@ -43,14 +43,14 @@ class UltraShareQrCodeTest {
         val secret = UltraShareTransport.createPairingSecret()
         val payload = UltraShareQrCode.createPayload(
             host = "192.168.1.25",
-            port = UltraShareTransport.DEFAULT_PORT,
+            port = UltraShareControlChannel.DEFAULT_PORT,
             pairingSecret = secret
         )
 
         val decoded = UltraShareQrCode.parsePayload(payload)
 
         assertEquals("192.168.1.25", decoded.host)
-        assertEquals(UltraShareTransport.DEFAULT_PORT, decoded.port)
+        assertEquals(UltraShareControlChannel.DEFAULT_PORT, decoded.port)
         assertEquals(secret, decoded.pairingSecret)
     }
 
@@ -63,9 +63,17 @@ class UltraShareQrCodeTest {
     fun pairingParserRejectsUnsupportedVersions() {
         val secret = UltraShareTransport.createPairingSecret()
         UltraShareQrCode.parsePayload(
-            "malekplay://ultra-share?v=99&host=192.168.1.25&port=${UltraShareTransport.DEFAULT_PORT}&secret=$secret"
+            "malekplay://ultra-share?v=99&host=192.168.1.25&port=${UltraShareControlChannel.DEFAULT_PORT}&secret=$secret"
         )
     }
+    @Test(expected = IllegalArgumentException::class)
+    fun pairingParserRejectsDataChannelPort() {
+        val secret = UltraShareTransport.createPairingSecret()
+        UltraShareQrCode.parsePayload(
+            "malekplay://ultra-share?v=1&host=192.168.1.25&port=${UltraShareBatchTransport.DEFAULT_PORT}&secret=$secret"
+        )
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun pairingPayloadRejectsDataPortInsteadOfControlPort() {
         UltraShareQrCode.createPayload(
@@ -79,7 +87,7 @@ class UltraShareQrCodeTest {
     fun pairingPayloadRejectsPublicInternetHosts() {
         UltraShareQrCode.createPayload(
             host = "example.com",
-            port = UltraShareTransport.DEFAULT_PORT,
+            port = UltraShareControlChannel.DEFAULT_PORT,
             pairingSecret = UltraShareTransport.createPairingSecret()
         )
     }
@@ -88,7 +96,7 @@ class UltraShareQrCodeTest {
     fun pairingParserRejectsLoopbackHosts() {
         val secret = UltraShareTransport.createPairingSecret()
         UltraShareQrCode.parsePayload(
-            "malekplay://ultra-share?v=1&host=127.0.0.1&port=${UltraShareTransport.DEFAULT_PORT}&secret=$secret"
+            "malekplay://ultra-share?v=1&host=127.0.0.1&port=${UltraShareControlChannel.DEFAULT_PORT}&secret=$secret"
         )
     }
 
@@ -96,7 +104,7 @@ class UltraShareQrCodeTest {
     fun pairingParserRejectsMalformedIpv4Hosts() {
         val secret = UltraShareTransport.createPairingSecret()
         UltraShareQrCode.parsePayload(
-            "malekplay://ultra-share?v=1&host=192.168.1.999&port=${UltraShareTransport.DEFAULT_PORT}&secret=$secret"
+            "malekplay://ultra-share?v=1&host=192.168.1.999&port=${UltraShareControlChannel.DEFAULT_PORT}&secret=$secret"
         )
     }
 
