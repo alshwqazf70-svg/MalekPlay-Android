@@ -514,6 +514,7 @@ class PlayerViewModel @Inject constructor(
                 try {
                     if (previous != null && previous.id != device.id) {
                         dlnaPlaybackController.stop(previous)
+                        _dlnaPlayback.value = DlnaPlaybackState()
                     }
                     dlnaPlaybackController.play(device, item, title)
                     player.pause()
@@ -526,10 +527,12 @@ class PlayerViewModel @Inject constructor(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    _dlnaPlayback.value = _dlnaPlayback.value.copy(
-                        activeDevice = previous,
-                        isConnected = previous != null,
-                        errorMessage = error.message ?: "تعذر إرسال الفيديو إلى التلفزيون."
+                    val previousStillActive = previous?.takeIf { it.id == device.id }
+                    _dlnaPlayback.value = DlnaPlaybackState(
+                        activeDevice = previousStillActive,
+                        isConnected = previousStillActive != null,
+                        errorMessage = error.message?.takeIf { it.isNotBlank() }
+                            ?: "تعذر إرسال الفيديو إلى التلفزيون."
                     )
                 }
             }
@@ -664,7 +667,7 @@ class PlayerViewModel @Inject constructor(
     private fun publishDlnaCommandFailure(error: Exception, fallback: String) {
         _dlnaPlayback.value = _dlnaPlayback.value.copy(
             isConnected = false,
-            errorMessage = error.message ?: fallback
+            errorMessage = error.message?.takeIf { it.isNotBlank() } ?: fallback
         )
     }
 
