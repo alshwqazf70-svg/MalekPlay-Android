@@ -333,25 +333,50 @@ private fun FolderTile(folder: MediaFolder, onClick: () -> Unit) {
             .clickable(onClick = onClick).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer.copy(.25f))
-                .border(1.dp, MaterialTheme.colorScheme.primary.copy(.35f), RoundedCornerShape(13.dp)),
-            contentAlignment = Alignment.Center
-        ) { Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary) }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(folder.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                if (folder.newItemCount > 0) {
-                    Spacer(Modifier.width(4.dp))
-                    Box(Modifier.clip(CircleShape).background(Color(0xFFE84D75)).padding(horizontal = 7.dp, vertical = 3.dp)) {
-                        Text(folder.newItemCount.toString(), color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    }
+        Box {
+            Box(
+                Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(.25f))
+                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(.35f), RoundedCornerShape(13.dp)),
+                contentAlignment = Alignment.Center
+            ) { Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary) }
+            // MX-style badge: this is the unseen-new count, not the folder total.
+            if (folder.newItemCount > 0) {
+                Box(
+                    Modifier.align(Alignment.TopStart).offset(x = (-5).dp, y = (-5).dp)
+                        .clip(CircleShape).background(MaterialTheme.colorScheme.primary)
+                        .border(1.dp, colors.surface, CircleShape)
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        folder.newItemCount.toString(),
+                        color = colors.onPrimary,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
-            Text("${folder.videoCount} فيديو • ${folder.audioCount} موسيقى", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
-            if (folder.newItemCount > 0) Text("${folder.newItemCount} ملف جديد لم تشاهده بعد", color = Color(0xFFE84D75), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                folder.name,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${folder.itemCount} ملف • ${folder.videoCount} فيديو • ${folder.audioCount} موسيقى",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2
+            )
+            Text(
+                formatFileSize(folder.totalBytes),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall
+            )
         }
     }
 }
