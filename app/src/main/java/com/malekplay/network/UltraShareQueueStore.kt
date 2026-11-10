@@ -2,20 +2,19 @@ package com.malekplay.network
 
 import android.content.Context
 import android.net.Uri
-import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.core.CorruptionException
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
 
-private val Context.ultraShareQueueDataStore by preferencesDataStore(
-    name = "ultra_share_queue",
-    corruptionHandler = ReplaceFileCorruptionHandler { throw it }
-)
+private val Context.ultraShareQueueDataStore by preferencesDataStore(name = "ultra_share_queue")
 
 data class UltraShareQueueEntry(
     val uri: String,
@@ -30,7 +29,11 @@ object UltraShareQueueStore {
     private val QUEUE = stringPreferencesKey("queue_json")
 
     fun observe(context: Context): Flow<List<UltraShareQueueEntry>> =
-        context.applicationContext.ultraShareQueueDataStore.data.map { decode(it[QUEUE].orEmpty()) }
+        context.applicationContext.ultraShareQueueDataStore.data
+            .catch { failure ->
+                if (failure is CorruptionException) emit(emptyPreferences()) else throw failure
+            }
+            .map { decode(it[QUEUE].orEmpty()) }
 
     suspend fun pending(context: Context): List<UltraShareQueueEntry> =
         observe(context).first().filter { it.status == STATUS_PENDING || it.status == STATUS_FAILED }
