@@ -38,7 +38,7 @@ class DlnaRendererClientTest {
     @Test
     fun rejectsClockValuesThatWouldOverflowMilliseconds() {
         assertNull(parseDlnaClockTime("999999999999999999999:00:00"))
-        assertNull(parseDlnaClockTime("2562047788:00:00"))
+        assertNull(parseDlnaClockTime("2562047788016:00:00"))
     }
 
     @Test
