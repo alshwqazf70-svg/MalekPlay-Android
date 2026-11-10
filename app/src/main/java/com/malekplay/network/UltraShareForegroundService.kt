@@ -70,7 +70,9 @@ data class UltraSharePeerSession(
     val host: String,
     val role: String,
     val approvedAtMillis: Long,
-    val status: String = "تم القبول • قناة التحكم نشطة"
+    val status: String = "تم القبول • قناة التحكم نشطة",
+    /** Routes negotiated for this approved peer; shared across navigation-scoped ViewModels. */
+    val routeCandidates: List<UltraShareNegotiation.Candidate> = emptyList()
 )
 
 /** Latest independent data-channel progress for one remote peer. */
@@ -1358,6 +1360,7 @@ class UltraShareForegroundService : Service() {
             name: String,
             host: String,
             role: String,
+            routeCandidates: List<UltraShareNegotiation.Candidate> = emptyList(),
             sessionId: String = java.util.UUID.randomUUID().toString()
         ) {
             mutableState.update { current ->
@@ -1367,7 +1370,8 @@ class UltraShareForegroundService : Service() {
                         name = name.take(96),
                         host = host,
                         role = role,
-                        approvedAtMillis = System.currentTimeMillis()
+                        approvedAtMillis = System.currentTimeMillis(),
+                        routeCandidates = routeCandidates.toList()
                     )
                 current.copy(activePeers = updated)
             }
