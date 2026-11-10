@@ -33,7 +33,9 @@ import androidx.compose.ui.unit.dp
 import com.malekplay.R
 import com.malekplay.player.audio.LrcLine
 import com.malekplay.player.audio.LrcParser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -55,14 +57,16 @@ fun SyncedLyricsPanel(
     var fileName by remember(mediaId) { mutableStateOf<String?>(null) }
     var loading by remember(mediaId) { mutableStateOf(false) }
     var failed by remember(mediaId) { mutableStateOf(false) }
+    var loadJob by remember { mutableStateOf<Job?>(null) }
 
     val documentPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
+            loadJob?.cancel()
             loading = true
             failed = false
-            scope.launch {
+            loadJob = scope.launch {
                 try {
                     val text = readLrcText(context, uri)
                     val parsed = withContext(Dispatchers.Default) { LrcParser.parse(text) }
@@ -71,6 +75,8 @@ fun SyncedLyricsPanel(
                     }
                     lines = parsed
                     fileName = queryDisplayName(context, uri)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (_: Exception) {
                     lines = emptyList()
                     fileName = null
@@ -83,6 +89,7 @@ fun SyncedLyricsPanel(
     }
 
     LaunchedEffect(mediaId) {
+        loadJob?.cancel()
         lines = emptyList()
         fileName = null
         failed = false
