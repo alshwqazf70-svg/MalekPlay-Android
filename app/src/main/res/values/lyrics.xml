@@ -2,7 +2,9 @@
 <resources>
     <string name="lyrics_title">Synced lyrics</string>
     <string name="lyrics_choose_file">Load LRC</string>
+    <string name="lyrics_choose_folder">Choose lyrics folder</string>
     <string name="lyrics_loading">Loading…</string>
-    <string name="lyrics_empty_hint">Choose an .lrc file to follow the song line by line.</string>
+    <string name="lyrics_empty_hint">Choose the folder containing your song’s .lrc files, or load one file manually.</string>
+    <string name="lyrics_not_found">No matching .lrc file was found in the selected folder.</string>
     <string name="lyrics_load_error">Could not read valid timed lyrics. Choose a UTF-8 or UTF-16 LRC file.</string>
 </resources>
