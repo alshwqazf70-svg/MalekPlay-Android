@@ -56,7 +56,7 @@ object UltraShareBatchTransport {
     private const val TYPE_CHUNK = 1
     private const val TYPE_FILE_END = 2
     private const val TYPE_BATCH_END = 3
-    private val peerMutexes = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+    private val peerMutexRegistry = UltraSharePeerMutexRegistry()
 
     data class Source(
         val uri: Uri,
@@ -129,10 +129,7 @@ object UltraShareBatchTransport {
                             var authenticated = false
                             try {
                                 val peerIdentity = UltraShareControlChannel.serverSessionIdentity(peer) ?: peer
-                                val peerMutex = peerMutexes[peerIdentity] ?: Mutex().let { candidate ->
-                                    peerMutexes.putIfAbsent(peerIdentity, candidate) ?: candidate
-                                }
-                                val result = peerMutex.withLock {
+                                val result = peerMutexRegistry.withLock(peerIdentity) {
                                     val peerState = File(
                                         destinationDirectory,
                                         ".ultrashare-v2-state/" + MessageDigest.getInstance("SHA-256")
