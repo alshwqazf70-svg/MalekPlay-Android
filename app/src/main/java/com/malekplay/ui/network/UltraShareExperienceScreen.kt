@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -66,6 +68,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -74,6 +77,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.malekplay.core.ui.theme.MalekPlayColors
+import coil.compose.AsyncImage
 import com.malekplay.network.UltraShareControlChannel
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareQrCode
@@ -92,6 +96,11 @@ fun UltraShareExperienceScreen(
 ) {
     val context = LocalContext.current
     val viewModel: UltraShareViewModel = hiltViewModel()
+    val mediaPickerViewModel: MediaPickerViewModel = hiltViewModel()
+    val libraryFiles by mediaPickerViewModel.mediaFiles.collectAsState()
+    val libraryLoading by mediaPickerViewModel.isLoading.collectAsState()
+    val libraryError by mediaPickerViewModel.error.collectAsState()
+    var pendingMediaType by remember { mutableStateOf(MediaType.VIDEO) }
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf(UltraSharePage.HOME) }
@@ -154,6 +163,25 @@ fun UltraShareExperienceScreen(
             }
         }
     }
+    val mediaPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        if (grants.values.any { it }) mediaPickerViewModel.loadMedia(pendingMediaType)
+        else Toast.makeText(context, "يلزم إذن قراءة هذا النوع من الوسائط أو استخدم اختيار الملفات.", Toast.LENGTH_LONG).show()
+    }
+    fun loadPhoneMedia(type: MediaType) {
+        pendingMediaType = type
+        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && type == MediaType.IMAGE) {
+            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(when (type) {
+                MediaType.VIDEO -> Manifest.permission.READ_MEDIA_VIDEO
+                MediaType.AUDIO -> Manifest.permission.READ_MEDIA_AUDIO
+                MediaType.IMAGE -> Manifest.permission.READ_MEDIA_IMAGES
+            })
+        } else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        val missing = required.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isEmpty()) mediaPickerViewModel.loadMedia(type) else mediaPermission.launch(missing.toTypedArray())
+    }
+
     val wifiPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.all { it }) viewModel.scanWifiDirectPeers()
         else Toast.makeText(context, "يلزم إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
@@ -310,18 +338,39 @@ fun UltraShareExperienceScreen(
             when (page) {
                 UltraSharePage.SEND -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { mediaPicker.launch(arrayOf("video/*")) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
+                        OutlinedButton(onClick = { loadPhoneMedia(MediaType.VIDEO) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
                             Icon(Icons.Filled.Movie, null); Text("فيديو")
                         }
-                        OutlinedButton(onClick = { mediaPicker.launch(arrayOf("audio/*")) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
+                        OutlinedButton(onClick = { loadPhoneMedia(MediaType.AUDIO) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
                             Icon(Icons.Filled.FolderOpen, null); Text("موسيقى")
                         }
-                        OutlinedButton(onClick = { mediaPicker.launch(arrayOf("image/*")) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
+                        OutlinedButton(onClick = { loadPhoneMedia(MediaType.IMAGE) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
                             Icon(Icons.Filled.Image, null); Text("صور")
                         }
                     }
-                    OutlinedButton(onClick = { mediaPicker.launch(arrayOf("video/*", "audio/*", "image/*")) }, modifier = Modifier.fillMaxWidth()) {
-                        Text("اختيار عدة وسائط")
+                    OutlinedButton(onClick = { mediaPicker.launch(arrayOf("video/*", "audio/*", "image/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+                        Text("اختيار من الملفات والتطبيقات")
+                    }
+                    if (libraryLoading) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Text("جارٍ فهرسة الوسائط…", color = MalekPlayColors.TextSecondary)
+                        }
+                    }
+                    libraryError?.let { ErrorPanel(it) }
+                    if (libraryFiles.isNotEmpty()) {
+                        Text("مكتبة الهاتف • ${libraryFiles.size} عنصر", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(libraryFiles, key = { it.id }) { file ->
+                                UltraShareMediaCard(
+                                    file = file,
+                                    selected = file.uri in selectedUris,
+                                    onClick = {
+                                        selectedUris = if (file.uri in selectedUris) selectedUris - file.uri else selectedUris + file.uri
+                                    }
+                                )
+                            }
+                        }
                     }
                     InfoPanel("قائمة الإرسال", selectedUris.size.toString() + " عنصر محدد")
                     if (selectedUris.isNotEmpty()) {
@@ -697,4 +746,34 @@ private fun queueStatusLabel(status: String): String = when (status) {
     UltraShareQueueStore.STATUS_FAILED -> "فشل — يمكن إعادة المحاولة"
     UltraShareQueueStore.STATUS_SKIPPED -> "تم التخطي"
     else -> "بانتظار الإرسال"
+}
+
+@Composable
+private fun UltraShareMediaCard(file: MediaFile, selected: Boolean, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.width(148.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF38204F) else Color(0xFF21192D))
+    ) {
+        Column {
+            if (file.type == MediaType.AUDIO) {
+                Box(Modifier.fillMaxWidth().height(104.dp).background(Brush.linearGradient(listOf(Color(0xFF51217A), Color(0xFF17121F)))), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.FolderOpen, contentDescription = null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(38.dp))
+                }
+            } else {
+                AsyncImage(
+                    model = file.thumbnailUrl ?: file.uri,
+                    contentDescription = file.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().height(104.dp)
+                )
+            }
+            Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(file.name, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, maxLines = 2)
+                Text(file.size, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
+                Text(if (selected) "محدد ✓" else "اضغط للتحديد", color = if (selected) Color(0xFF65D6A2) else MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
 }
