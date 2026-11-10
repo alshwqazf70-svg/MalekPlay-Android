@@ -84,6 +84,7 @@ import com.malekplay.network.UltraShareBatchTransport
 import com.malekplay.network.UltraShareControlChannel
 import com.malekplay.data.repository.MediaRepository
 import com.malekplay.network.UltraShareDiscovery
+import com.malekplay.network.UltraShareNetworkRouting
 import com.malekplay.network.UltraShareQueueEntry
 import com.malekplay.network.UltraShareReceivedEntry
 import com.malekplay.network.UltraShareReceivedHistoryStore
@@ -241,6 +242,7 @@ class UltraShareViewModel @Inject constructor(
                     host = host.trim(),
                     pairingSecret = secret.trim(),
                     peerName = android.os.Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                    network = UltraShareNetworkRouting.findNetworkForHost(context, host.trim()),
                     onSessionClosed = { disconnectedHost ->
                         UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
                     }
@@ -328,7 +330,7 @@ class UltraShareViewModel @Inject constructor(
                 // Short repeated discovery windows make newly-started receivers appear
                 // without forcing the user to restart the scan manually.
                 while (true) {
-                    val peers = UltraShareDiscovery.discoverPeers(scanWindowMs = 1_500L)
+                    val peers = UltraShareDiscovery.discoverPeers(scanWindowMs = 1_500L, context = context)
                     peers.forEach { peer -> found[UltraShareDiscovery.identityKey(peer)] = peer }
                     _state.value = _state.value.copy(
                         discoveredPeers = found.values.toList(),
