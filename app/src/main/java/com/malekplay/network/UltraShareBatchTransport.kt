@@ -149,6 +149,8 @@ object UltraShareBatchTransport {
                                 onBatchFinished(peer, result)
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
+                            } catch (_: DiscoveryProbeConnection) {
+                                // A deliberate reachability probe is not a failed transfer.
                             } catch (failure: Exception) {
                                 onPeerError(peer, failure)
                             } finally {
@@ -296,6 +298,7 @@ object UltraShareBatchTransport {
         output.write(challenge)
         output.flush()
         val proof = ByteArray(32).also(input::readFully)
+        if (isDiscoveryProbeProof(proof)) throw DiscoveryProbeConnection()
         val authenticated = MessageDigest.isEqual(proof, hmac(secret, challenge))
         val peerHost = socket.inetAddress.hostAddress.orEmpty()
         // Do not reveal whether the short pairing secret was correct until the
@@ -602,7 +605,15 @@ object UltraShareBatchTransport {
     }
 
     private const val HANDSHAKE_MAGIC = 0x4D505532 // MPU2 data-session handshake
+    private val DISCOVERY_PROBE_PROOF = ByteArray(32) { 0x5A }
+
+    internal fun discoveryProbeProof(): ByteArray = DISCOVERY_PROBE_PROOF.copyOf()
+
+    internal fun isDiscoveryProbeProof(proof: ByteArray): Boolean =
+        MessageDigest.isEqual(proof, DISCOVERY_PROBE_PROOF)
 }
+
+private class DiscoveryProbeConnection : Exception("Discovery reachability probe")
 
 
 /**
