@@ -1,5 +1,9 @@
 package com.malekplay.ui.network
 
+import com.malekplay.network.UltraShareTransport
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.height
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -136,18 +140,18 @@ fun SendFileScreen(
 private fun UltraShareMediaCard(file: MediaFile, selected: Boolean, onClick: () -> Unit) {
     Card(
         onClick = onClick,
-        modifier = Modifier.padding(vertical = 1.dp),
+        modifier = Modifier.width(148.dp),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF38204F) else Color(0xFF21192D))
     ) {
         Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (file.type == MediaType.AUDIO) {
                 androidx.compose.foundation.layout.Box(
-                    Modifier.fillMaxWidth().padding(vertical = 30.dp),
+                    Modifier.fillMaxWidth().height(104.dp),
                     contentAlignment = Alignment.Center
                 ) { Icon(Icons.Filled.FolderOpen, null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.padding(8.dp)) }
             } else {
-                AsyncImage(model = file.thumbnailUrl ?: file.uri, contentDescription = file.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp))
+                AsyncImage(model = file.thumbnailUrl ?: file.uri, contentDescription = file.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(104.dp))
             }
             Text(file.name, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium, maxLines = 2)
             Text(file.size, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
