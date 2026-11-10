@@ -17,6 +17,7 @@ class UltraShareControlChannelTest {
     fun authenticatedRequestWaitsForAndReceivesApproval() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
         val secret = "123456789"
+        val stablePeerId = "0123456789abcdef0123456789abcdef"
         val sessionClosed = CompletableDeferred<Unit>()
         val server = async {
             UltraShareControlChannel.serveOnce(
@@ -27,6 +28,7 @@ class UltraShareControlChannelTest {
             ) { request ->
                 assertEquals("Sender Phone", request.peerName)
                 assertTrue(request.peerAddress == "127.0.0.1")
+                assertEquals(stablePeerId, request.peerId)
                 UltraShareControlChannel.Decision.ACCEPTED
             }
         }
@@ -35,12 +37,14 @@ class UltraShareControlChannelTest {
             host = "127.0.0.1",
             pairingSecret = secret,
             peerName = "Sender Phone",
-            port = port
+            port = port,
+            peerId = stablePeerId
         )
         assertEquals(UltraShareControlChannel.Decision.ACCEPTED, decision)
         assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
         assertTrue(UltraShareControlChannel.isServerSessionActive("127.0.0.1"))
         assertEquals("Receiver Phone", UltraShareControlChannel.sessionPeerName("127.0.0.1"))
+        assertEquals(stablePeerId, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
 
         // A second malformed peer must be isolated in its own worker and must not
         // tear down the already approved heartbeat session.
@@ -52,6 +56,7 @@ class UltraShareControlChannelTest {
 
         UltraShareControlChannel.closeSession("127.0.0.1")
         withTimeout(2_000L) { sessionClosed.await() }
+        assertEquals(null, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
         server.cancelAndJoin()
     }
 
