@@ -374,7 +374,9 @@ fun AudioPlayerScreen(
 
             SyncedLyricsPanel(
                 mediaId = currentMediaId,
-                positionMs = positionMs
+                positionMs = positionMs,
+                isPlaying = isPlaying,
+                player = controller
             )
 
             val total = durationMs.takeIf { it > 0L } ?: 0L
