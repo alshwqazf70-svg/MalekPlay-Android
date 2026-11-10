@@ -30,12 +30,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.media3.common.Player
 import com.malekplay.R
 import com.malekplay.player.audio.LrcLine
 import com.malekplay.player.audio.LrcParser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -49,6 +52,8 @@ private const val MAX_LRC_BYTES = 512 * 1024
 fun SyncedLyricsPanel(
     mediaId: String,
     positionMs: Long,
+    isPlaying: Boolean,
+    player: Player?,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -58,6 +63,7 @@ fun SyncedLyricsPanel(
     var loading by remember(mediaId) { mutableStateOf(false) }
     var failed by remember(mediaId) { mutableStateOf(false) }
     var loadJob by remember { mutableStateOf<Job?>(null) }
+    var synchronizedPositionMs by remember(mediaId) { mutableStateOf(positionMs) }
 
     val documentPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -74,7 +80,7 @@ fun SyncedLyricsPanel(
                         throw IOException("No valid timestamped lyric lines")
                     }
                     lines = parsed
-                    fileName = queryDisplayName(context, uri)
+                    fileName = withContext(Dispatchers.IO) { queryDisplayName(context, uri) }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -96,8 +102,23 @@ fun SyncedLyricsPanel(
         loading = false
     }
 
-    val activeIndex = remember(lines, positionMs) {
-        findActiveLyricIndex(lines, positionMs)
+    LaunchedEffect(mediaId, isPlaying, player, lines.isNotEmpty()) {
+        if (!isPlaying || player == null || lines.isEmpty()) {
+            synchronizedPositionMs = positionMs
+            return@LaunchedEffect
+        }
+        while (isActive) {
+            synchronizedPositionMs = player.currentPosition.coerceAtLeast(0L)
+            delay(200L)
+        }
+    }
+
+    LaunchedEffect(positionMs, isPlaying) {
+        if (!isPlaying) synchronizedPositionMs = positionMs
+    }
+
+    val activeIndex = remember(lines, synchronizedPositionMs) {
+        findActiveLyricIndex(lines, synchronizedPositionMs)
     }
     val activeLine = lines.getOrNull(activeIndex)
     val upcomingLine = lines.getOrNull(activeIndex + 1)
@@ -111,7 +132,7 @@ fun SyncedLyricsPanel(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 52.dp, max = 116.dp)
+                .heightIn(min = 52.dp, max = 86.dp)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.Center
         ) {
