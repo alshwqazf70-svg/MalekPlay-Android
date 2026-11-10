@@ -32,8 +32,9 @@ internal object UltraShareNetworkRouting {
                 else -> 1
             }
             Triple(network, rank, matchingLink.prefixLength)
-        }.maxWithOrNull(compareBy<Triple<Network, Int, Int>> { it.second }.thenBy { it.third })
-            ?.first
+        }.maxWithOrNull(
+            compareBy<Triple<Network, Int, Int>> { it.third }.thenBy { it.second }
+        )?.first
     }.getOrNull()
 
     internal fun isInPrefix(
