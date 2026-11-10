@@ -36,7 +36,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Image as ImageIcon
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
@@ -317,7 +317,7 @@ fun UltraShareExperienceScreen(
                             Icon(Icons.Filled.FolderOpen, null); Text("موسيقى")
                         }
                         OutlinedButton(onClick = { mediaPicker.launch(arrayOf("image/*")) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
-                            Icon(Icons.Filled.Image, null); Text("صور")
+                            Icon(Icons.Filled.ImageIcon, null); Text("صور")
                         }
                     }
                     OutlinedButton(onClick = { mediaPicker.launch(arrayOf("video/*", "audio/*", "image/*")) }, modifier = Modifier.fillMaxWidth()) {
