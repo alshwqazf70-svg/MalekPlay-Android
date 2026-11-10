@@ -284,6 +284,14 @@
     <string name="home_hero_title">ترفيهك كله في مكان واحد</string>
     <string name="home_hero_subtitle">تابع من حيث توقفت أو استكشف مكتبتك.</string>
     <string name="home_total_media">الوسائط</string>
+    <string name="home_connection_sharing">الاتصال والمشاركة</string>
+    <string name="home_connection_sharing_summary">انقل وسائطك واربط MalekPlay بالأجهزة القريبة.</string>
+    <string name="home_send_receive">إرسال واستلام</string>
+    <string name="home_connect_computer">الاتصال بالكمبيوتر</string>
+    <string name="home_cast_to_tv">البث إلى التلفزيون</string>
+    <string name="home_empty_videos_title">لا توجد فيديوهات حديثة</string>
+    <string name="home_empty_videos_body">تحتوي مكتبتك على وسائط أخرى، لكن لا توجد فيديوهات لعرضها هنا حالياً.</string>
+
     <string name="player_search_subtitle_online">البحث عن ترجمة عبر الإنترنت</string>
     <string name="subtitle_search_title">اسم الفيلم أو المسلسل</string>
     <string name="subtitle_season">الموسم</string>
