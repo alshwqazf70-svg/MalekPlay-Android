@@ -374,6 +374,7 @@ fun AudioPlayerScreen(
 
             SyncedLyricsPanel(
                 mediaId = currentMediaId,
+                mediaTitle = item?.title ?: displayTitle,
                 positionMs = positionMs,
                 isPlaying = isPlaying,
                 player = controller
