@@ -3,7 +3,6 @@ package com.malekplay.ui.network
 import android.content.Context
 import android.os.Build
 import android.net.Uri
-import androidx.compose.foundation.layout.size
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.malekplay.R
