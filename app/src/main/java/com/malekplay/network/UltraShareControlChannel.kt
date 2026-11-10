@@ -1,5 +1,6 @@
 package com.malekplay.network
 
+import android.net.Network
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -131,6 +132,7 @@ object UltraShareControlChannel {
         pairingSecret: String,
         peerName: String,
         port: Int = DEFAULT_PORT,
+        network: Network? = null,
         onSessionClosed: (String) -> Unit = {}
     ): Decision = withContext(Dispatchers.IO) {
         require(UltraShareTransport.isValidPrivateLanHost(host) || host == "127.0.0.1") {
@@ -148,6 +150,9 @@ object UltraShareControlChannel {
         val socket = Socket()
         var retained = false
         try {
+            // Bind before connect so the control approval uses the same Android
+            // network that advertised this candidate, not whichever route is default.
+            network?.bindSocket(socket)
             socket.connect(InetSocketAddress(InetAddress.getByName(host), port), HANDSHAKE_TIMEOUT_MS)
             socket.soTimeout = HANDSHAKE_TIMEOUT_MS
             socket.tcpNoDelay = true
