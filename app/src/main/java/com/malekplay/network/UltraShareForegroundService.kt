@@ -1287,9 +1287,13 @@ class UltraShareForegroundService : Service() {
             .sortedWith(compareBy<Pair<String, Inet4Address>>(
                 { (name, _) ->
                     when {
-                        name.startsWith("p2p") -> 0
+                        // A shared WLAN is the primary Zapya-style route when both
+                        // phones are already connected to the same access point.
+                        name.startsWith("wlan") || name.startsWith("swlan") -> 0
+                        // A local hotspot is next; Wi-Fi Direct is only preferred
+                        // after its group has actually been formed and joined.
                         name.startsWith("ap") -> 1
-                        name.startsWith("wlan") || name.startsWith("swlan") -> 2
+                        name.startsWith("p2p") -> 2
                         else -> 3
                     }
                 },
