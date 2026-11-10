@@ -74,7 +74,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.malekplay.core.ui.theme.MalekPlayColors
-import com.malekplay.network.UltraShareBatchTransport
+import com.malekplay.network.UltraShareControlChannel
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraShareTransport
@@ -218,7 +218,7 @@ fun UltraShareExperienceScreen(
 
     val qrPayload = state.localAddresses.firstOrNull()
         ?.takeIf { state.receiving && state.pairingSecret.isNotBlank() }
-        ?.let { UltraShareQrCode.createPayload(it, UltraShareBatchTransport.DEFAULT_PORT, state.pairingSecret) }
+        ?.let { UltraShareQrCode.createPayload(it, UltraShareControlChannel.DEFAULT_PORT, state.pairingSecret) }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { runCatching { UltraShareQrCode.createBitmap(it) }.getOrNull() }
     }
