@@ -8,17 +8,11 @@ import android.content.pm.PackageManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -75,41 +69,21 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.malekplay.R
+import import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareTransport
 import com.malekplay.network.UltraShareBatchTransport
-import com.malekplay.data.repository.MediaRepository
-import com.malekplay.network.UltraShareDiscovery
-import com.malekplay.network.UltraShareNegotiation
-import com.malekplay.network.UltraShareNetworkRouting
-import com.malekplay.network.UltraShareQueueEntry
-import com.malekplay.network.UltraShareReceivedEntry
-import com.malekplay.network.UltraShareReceivedHistoryStore
-import com.malekplay.network.UltraShareQueueStore
+import import import com.malekplay.network.UltraShareNegotiation
+import import import import import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraShareQrCode
-import com.malekplay.network.UltraShareWifiDirect
-import com.journeyapps.barcodescanner.ScanContract
+import import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
-import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
-import android.widget.Toast
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import import import android.widget.Toast
+import import kotlinx.coroutines.Dispatchers
+import import import import import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.net.Inet4Address
-import java.net.NetworkInterface
-import javax.inject.Inject
-
+import import import import 
 @Composable
 fun UltraShareScreen(
     contentPadding: PaddingValues,
