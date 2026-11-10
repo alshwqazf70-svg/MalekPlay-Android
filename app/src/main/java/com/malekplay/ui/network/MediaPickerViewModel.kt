@@ -6,6 +6,7 @@ import com.malekplay.data.repository.MediaPickerRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -29,6 +30,7 @@ class MediaPickerViewModel @Inject constructor(
     fun loadMedia(type: MediaType) {
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
+            val thisJob = currentCoroutineContext()[Job]
             _isLoading.value = true
             _error.value = null
             try {
@@ -42,7 +44,7 @@ class MediaPickerViewModel @Inject constructor(
                 _mediaFiles.value = emptyList()
                 _error.value = failure.localizedMessage ?: "تعذر تحميل ملفات الوسائط."
             } finally {
-                _isLoading.value = false
+                if (loadJob === thisJob) _isLoading.value = false
             }
         }
     }
