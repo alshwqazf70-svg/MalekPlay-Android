@@ -77,7 +77,7 @@ import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraShareTransport
 
-private enum class UltraSharePage { HOME, SEND, RECEIVE, NEARBY, TRANSFERS, HISTORY }
+private enum class UltraSharePage { HOME, SEND, RECEIVE, JOIN, NEARBY, TRANSFERS, HISTORY }
 
 @Composable
 fun UltraShareExperienceScreen(
@@ -227,6 +227,9 @@ fun UltraShareExperienceScreen(
                     page = UltraSharePage.HISTORY
                 }
             }
+            ActionTile(Modifier.fillMaxWidth(), "الانضمام إلى مجموعة", "امسح رمز QR الذي يعرضه جهاز الاستقبال", { Icon(Icons.Filled.QrCode, null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(28.dp)) }) {
+                page = UltraSharePage.JOIN
+            }
             ActionTile(Modifier.fillMaxWidth(), "غرفة النقل المباشر", "الأجهزة المتصلة وسرعة وتقدم كل ملف", { Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF65D6A2), modifier = Modifier.size(28.dp)) }) {
                 page = UltraSharePage.TRANSFERS
             }
@@ -238,6 +241,7 @@ fun UltraShareExperienceScreen(
                 title = when (page) {
                     UltraSharePage.SEND -> "إرسال الوسائط"
                     UltraSharePage.RECEIVE -> "استقبال الملفات"
+                    UltraSharePage.JOIN -> "الانضمام إلى مجموعة"
                     UltraSharePage.NEARBY -> "الأجهزة القريبة"
                     UltraSharePage.TRANSFERS -> "غرفة النقل"
                     UltraSharePage.HISTORY -> "سجل النقل"
@@ -246,6 +250,7 @@ fun UltraShareExperienceScreen(
                 subtitle = when (page) {
                     UltraSharePage.SEND -> "اختر الملفات ثم اتصل بالجهاز المستقبل"
                     UltraSharePage.RECEIVE -> "اعرض رمز الاتصال للهاتف الآخر"
+                    UltraSharePage.JOIN -> "امسح رمز QR الذي يظهر على هاتف الاستقبال"
                     UltraSharePage.NEARBY -> "اكتشف الأجهزة المتاحة على الشبكة"
                     UltraSharePage.TRANSFERS -> "متابعة كل جهاز وكل ملف"
                     UltraSharePage.HISTORY -> "الملفات المرسلة والمستلمة"
@@ -341,6 +346,19 @@ fun UltraShareExperienceScreen(
                             Text("حفظ نسخة في مكان آخر")
                         }
                     }
+                }
+
+                UltraSharePage.JOIN -> {
+                    InfoPanel("الانضمام الآمن", "افتح شاشة الاستقبال على الهاتف الآخر، ثم وجّه كاميرا هاتفك إلى رمز QR الظاهر هناك. لن يبدأ نقل الملفات قبل موافقة الطرفين.")
+                    Button(onClick = ::scanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+                        Icon(Icons.Filled.QrCode, null)
+                        Text("فتح ماسح رمز QR")
+                    }
+                    if (state.requestingConnection) {
+                        StatusPanel("تم إرسال طلب الاتصال", "بانتظار موافقة جهاز الاستقبال", true)
+                    }
+                    state.error?.let { ErrorPanel(it) }
+                    state.status?.let { InfoPanel("حالة الاقتران", it) }
                 }
 
                 UltraSharePage.NEARBY -> {
