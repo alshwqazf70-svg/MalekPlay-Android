@@ -1,143 +1,745 @@
 package com.malekplay.network
 
-import android.util.Log
+import android.content.ContentResolver
+import android.net.Uri
+import android.os.Environment
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import okio.buffer
-import okio.sink
-import okio.source
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.InputStream
+import java.net.InetAddress
+import java.net.Inet4Address
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketTimeoutException
+import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Locale
+import javax.crypto.Cipher
+import javax.crypto.Mac
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
+
+/**
+ * First LAN transport for MalekPlay Ultra Share.
+ *
+ * The receiver accepts one authenticated transfer per invocation. The 256-bit
+ * pairing secret is exchanged out-of-band (the QR/pairing UI is added separately).
+ * File data and metadata use AES-GCM; the challenge-response prevents sending
+ * the reusable secret over the LAN.
+ */
+/**
+ * Guarantees forward progress for unusual InputStreams that return zero from bulk reads.
+ * Returns -1 only at EOF and otherwise copies at least one byte into the destination.
+ */
+internal fun readStreamWithProgress(
+    input: InputStream,
+    buffer: ByteArray,
+    offset: Int = 0,
+    length: Int = buffer.size - offset
+): Int {
+    require(offset >= 0 && length >= 0 && offset <= buffer.size - length)
+    if (length == 0) return 0
+    val count = input.read(buffer, offset, length)
+    if (count != 0) return count
+    val single = input.read()
+    if (single < 0) return -1
+    buffer[offset] = single.toByte()
+    return 1
+}
 
 object UltraShareTransport {
-    private const val TAG = "UltraShareTransport"
-    const val CHUNK_BYTES = 64 * 1024 // 64KB (مثالي للسرعة)
-    const val DEFAULT_PORT = 8089
+    const val DEFAULT_PORT = 38741
+    const val CHUNK_BYTES = 256 * 1024
+    const val MIN_TUNABLE_CHUNK_BYTES = 64 * 1024
+    private const val SOCKET_BUFFER_BYTES = 1024 * 1024
+    private const val IO_BUFFER_BYTES = 1024 * 1024
+    private const val DIGEST_BUFFER_BYTES = 1024 * 1024
+    const val MAX_FILE_BYTES = 100L * 1024 * 1024 * 1024
+    private const val MAGIC = 0x4D505531 // MPU1
+    private const val VERSION = 1
+    private const val SECRET_BYTES = 32
+    private const val PIN_LENGTH = 9
+    private const val PIN_KDF_ITERATIONS = 210_000
+    private const val PIN_SALT_BYTES = 16
+    private const val CHALLENGE_BYTES = 32
+    private const val NONCE_PREFIX_BYTES = 4
+    private const val GCM_TAG_BYTES = 16
+    private const val SOCKET_TIMEOUT_MS = 20_000
+    private const val HANDSHAKE_TIMEOUT_MS = 5_000
+    private val destinationPublicationLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
+    /** Serialize final-name selection and publication across all receive protocols. */
+    internal fun <T> withDestinationPublicationLock(directory: File, action: () -> T): T {
+        val key = directory.absoluteFile.path
+        val lock = destinationPublicationLocks[key] ?: Any().let { candidate ->
+            destinationPublicationLocks.putIfAbsent(key, candidate) ?: candidate
+        }
+        return synchronized(lock) { action() }
+    }
 
     data class Progress(
         val fileName: String,
         val transferredBytes: Long,
         val totalBytes: Long,
-        val bytesPerSecond: Long = 0L
+        val bytesPerSecond: Long,
+        val receiving: Boolean
     ) {
-        val fraction: Float get() = if (totalBytes > 0) transferredBytes.toFloat() / totalBytes else 0f
+        val fraction: Float
+            get() = if (totalBytes <= 0L) 0f
+            else (transferredBytes.toDouble() / totalBytes).toFloat().coerceIn(0f, 1f)
     }
 
     data class ReceivedFile(
+        val file: File,
         val fileName: String,
         val sizeBytes: Long,
-        val file: File,
         val mimeType: String,
-        val publishedUri: String? = null
+        val publishedUri: Uri? = null
     )
 
-    // --- دوال الأمان والاقتران ---
+    /** Generates a compact, human-friendly one-time numeric pairing PIN. */
     fun createPairingSecret(): String {
-        val random = SecureRandom()
-        return random.nextInt(1_000_000_000).toString().padStart(9, '0')
+        // A nine-digit one-time PIN is easy to read aloud; challenge-response
+        // and the per-session PBKDF2 key keep the PIN off the network.
+        val value = SecureRandom().nextInt(1_000_000_000)
+        return String.format(Locale.US, "%09d", value)
     }
 
-    fun isValidPairingSecret(secret: String): Boolean {
-        return secret.length == 9 && secret.all { it in '0'..'9' }
-    }
+    fun isValidPairingSecret(value: String): Boolean =
+        (value.length == PIN_LENGTH && value.all { it in '0'..'9' }) ||
+            (value.length == SECRET_BYTES * 2 && value.all { it in "0123456789abcdefABCDEF" })
 
-    // ⚡️ دالة تحسين الـ Socket للسرعة القصوى
-    private fun optimizeSocket(socket: Socket) {
-        try {
-            socket.tcpNoDelay = true // منع التأخير
-            socket.sendBufferSize = CHUNK_BYTES // 64KB
-            socket.receiveBufferSize = CHUNK_BYTES // 64KB
-            socket.keepAlive = true
-        } catch (e: Exception) {
-            Log.e(TAG, "فشل تحسين إعدادات الـ Socket", e)
+    /**
+     * Keeps benchmark tuning within the v1 receiver's maximum encrypted-frame size.
+     * Smaller frames remain wire-compatible; larger frames require a negotiated protocol version.
+     */
+    internal fun validateChunkBytes(value: Int): Int {
+        require(value in MIN_TUNABLE_CHUNK_BYTES..CHUNK_BYTES) {
+            "حجم كتلة النقل يجب أن يكون بين 64 و256 كيلوبايت في البروتوكول الحالي."
         }
+        return value
     }
 
-    // --- دوال الإرسال (Sender) ---
-    suspend fun sendFile(
-        host: String,
-        port: Int,
-        file: File,
-        onProgress: (Progress) -> Unit
-    ) = withContext(Dispatchers.IO) {
-        val socket = Socket(host, port)
-        optimizeSocket(socket) // ⚡️ تطبيق التحسينات
-        
-        try {
-            val totalBytes = file.length()
-            var transferredBytes = 0L
-            val startTime = System.currentTimeMillis()
+    /** Accepts only literal private/link-local IPv4 endpoints; never resolves hostnames. */
+    fun isValidPrivateLanHost(host: String): Boolean = runCatching {
+        resolvePrivateLanAddress(host)
+        true
+    }.getOrDefault(false)
 
-            // استخدام Okio للإرسال السريع
-            val sink = socket.getOutputStream().sink().buffer()
-            file.source().use { source ->
-                val buffer = okio.Buffer()
-                var read: Long
-                while (source.read(buffer, CHUNK_BYTES.toLong()).also { read = it } != -1L) {
-                    sink.write(buffer, read)
-                    transferredBytes += read
-                    
-                    val elapsed = System.currentTimeMillis() - startTime
-                    val speed = if (elapsed > 0) (transferredBytes * 1000 / elapsed) else 0L
-                    
-                    onProgress(Progress(file.name, transferredBytes, totalBytes, speed))
-                }
+    /** Derives a per-handshake key; the fresh receiver challenge supplies the PBKDF2 salt. */
+    internal fun derivePairingKey(value: String, challenge: ByteArray): ByteArray {
+        require(isValidPairingSecret(value)) { "رمز الاقتران غير صالح." }
+        require(challenge.size == CHALLENGE_BYTES) { "تحدي الاقتران غير صالح." }
+        if (value.length == PIN_LENGTH) {
+            val spec = PBEKeySpec(value.toCharArray(), challenge.copyOfRange(0, PIN_SALT_BYTES), PIN_KDF_ITERATIONS, SECRET_BYTES * 8)
+            return try {
+                SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+            } finally {
+                spec.clearPassword()
             }
-            sink.flush()
-            Log.d(TAG, "تم إرسال الملف بنجاح: ${file.name}")
-        } finally {
-            socket.close()
+        }
+        return ByteArray(SECRET_BYTES) { index ->
+            value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
         }
     }
 
-    // --- دوال الاستقبال (Receiver) ---
-    suspend fun receiveFile(
-        serverSocket: ServerSocket,
-        targetDirectory: File,
-        expectedFileName: String,
+    fun sanitizeFileName(raw: String): String {
+        val leaf = raw.replace('\\', '/').substringAfterLast('/')
+        var cleaned = buildString(leaf.length) {
+            var index = 0
+            while (index < leaf.length) {
+                val codePoint = leaf.codePointAt(index)
+                index += Character.charCount(codePoint)
+                val type = Character.getType(codePoint)
+                val forbidden = codePoint == ':'.code || codePoint == '*'.code ||
+                    codePoint == '?'.code || codePoint == '"'.code ||
+                    codePoint == '<'.code || codePoint == '>'.code ||
+                    codePoint == '|'.code || Character.isISOControl(codePoint) ||
+                    type == Character.FORMAT.toInt()
+                if (!forbidden) appendCodePoint(codePoint)
+            }
+        }.trim().trim('.')
+
+        // Bound the UTF-8 filename without splitting a Unicode code point.
+        while (cleaned.isNotEmpty() && cleaned.toByteArray(Charsets.UTF_8).size > 180) {
+            val lastCodePoint = cleaned.codePointBefore(cleaned.length)
+            cleaned = cleaned.dropLast(Character.charCount(lastCodePoint))
+        }
+        require(cleaned.isNotBlank() && cleaned != "." && cleaned != "..") {
+            "اسم الملف غير صالح."
+        }
+        return cleaned
+    }
+
+    fun sanitizeMimeType(raw: String): String {
+        val candidate = raw.trim()
+        val token = "[A-Za-z0-9!#$&^_.+-]+"
+        return if (candidate.length <= 160 && Regex("^$token/$token$").matches(candidate)) {
+            candidate
+        } else {
+            "application/octet-stream"
+        }
+    }
+
+    fun isSupportedMediaMimeType(raw: String): Boolean {
+        val mime = sanitizeMimeType(raw).lowercase(java.util.Locale.ROOT)
+        return mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/")
+    }
+
+    /**
+     * A resume file belongs to the exact content, not just its visible name and size.
+     * This prevents two different same-name/same-size files from sharing partial bytes.
+     */
+    internal fun buildTransferId(fileName: String, size: Long, contentDigest: ByteArray): String {
+        require(size in 0..MAX_FILE_BYTES)
+        require(contentDigest.size == 32) { "بصمة الملف غير صالحة." }
+        val nameBytes = sanitizeFileName(fileName).toByteArray(Charsets.UTF_8)
+        val identity = ByteArrayOutputStream().use { bytes ->
+            DataOutputStream(bytes).use { data ->
+                data.writeInt(nameBytes.size)
+                data.write(nameBytes)
+                data.writeLong(size)
+                data.write(contentDigest)
+            }
+            bytes.toByteArray()
+        }
+        return MessageDigest.getInstance("SHA-256")
+            .digest(identity)
+            .take(12)
+            .joinToString("") { "%02x".format(it) }
+    }
+
+    internal fun completedReceiptFileName(
+        markerContent: String,
         expectedSize: Long,
-        onProgress: (Progress) -> Unit
-    ): ReceivedFile? = withContext(Dispatchers.IO) {
-        try {
-            val socket = serverSocket.accept()
-            optimizeSocket(socket) // ⚡️ تطبيق التحسينات
-            
-            val targetFile = File(targetDirectory, expectedFileName)
-            targetDirectory.mkdirs()
+        expectedDigestHex: String
+    ): String? = runCatching {
+        val fields = markerContent.split(':', limit = 3)
+        if (fields.size != 3 || fields[0].toLongOrNull() != expectedSize ||
+            fields[1] != expectedDigestHex
+        ) return@runCatching null
+        sanitizeFileName(fields[2])
+    }.getOrNull()
 
-            var transferredBytes = 0L
-            val startTime = System.currentTimeMillis()
+    suspend fun send(
+        resolver: ContentResolver,
+        uri: Uri,
+        host: String,
+        port: Int = DEFAULT_PORT,
+        pairingSecret: String,
+        fileName: String,
+        mimeType: String = "application/octet-stream",
+        sizeBytes: Long,
+        chunkBytes: Int = CHUNK_BYTES,
+        onProgress: (Progress) -> Unit = {}
+    ) = withContext(Dispatchers.IO) {
+        require(host.isNotBlank()) { "أدخل عنوان الجهاز المستقبل." }
+        val targetAddress = resolvePrivateLanAddress(host)
+        require(port in 1..65535) { "منفذ الاتصال غير صالح." }
+        require(sizeBytes in 0..MAX_FILE_BYTES) { "حجم الملف غير مدعوم." }
+        val effectiveChunkBytes = validateChunkBytes(chunkBytes)
+        val safeName = sanitizeFileName(fileName)
+        val digest = resolver.openInputStream(uri)?.use { rawStream ->
+            // A larger read-ahead buffer smooths slow ContentProvider/storage reads
+            // before encryption, while the on-wire v1 frame remains capped at 256 KiB.
+            digestStream(BufferedInputStream(rawStream, IO_BUFFER_BYTES), sizeBytes)
+        } ?: error("تعذر فتح الملف المحدد.")
 
-            // استخدام Okio للاستقبال السريع
-            val source = socket.getInputStream().source().buffer()
-            targetFile.sink().buffer().use { sink ->
-                val buffer = okio.Buffer()
-                var read: Long
-                while (source.read(buffer, CHUNK_BYTES.toLong()).also { read = it } != -1L) {
-                    sink.write(buffer, read)
-                    transferredBytes += read
-                    
-                    val elapsed = System.currentTimeMillis() - startTime
-                    val speed = if (elapsed > 0) (transferredBytes * 1000 / elapsed) else 0L
-                    
-                    onProgress(Progress(expectedFileName, transferredBytes, expectedSize, speed))
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress(targetAddress, port), SOCKET_TIMEOUT_MS)
+            socket.soTimeout = SOCKET_TIMEOUT_MS
+            socket.sendBufferSize = SOCKET_BUFFER_BYTES
+            socket.receiveBufferSize = SOCKET_BUFFER_BYTES
+            socket.tcpNoDelay = true
+            socket.keepAlive = true
+            val input = DataInputStream(BufferedInputStream(socket.getInputStream(), SOCKET_BUFFER_BYTES))
+            val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), SOCKET_BUFFER_BYTES))
+
+            check(input.readInt() == MAGIC) { "الجهاز الآخر لا يشغّل MalekPlay Ultra Share." }
+            val challenge = ByteArray(CHALLENGE_BYTES).also(input::readFully)
+            val secret = derivePairingKey(pairingSecret, challenge)
+            val proof = hmac(secret, challenge)
+            output.write(proof)
+            output.flush()
+            check(input.readBoolean()) { "رفض الجهاز المستقبل رمز الاقتران." }
+            val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(input::readFully)
+            val sendKey = deriveSessionKey(secret, challenge, "client-to-server")
+            val receiveKey = deriveSessionKey(secret, challenge, "server-to-client")
+
+            val metadata = ByteArrayOutputStream().use { bytes ->
+                DataOutputStream(bytes).use { data ->
+                    data.writeShort(VERSION)
+                    writeUtf8(data, safeName, 768)
+                    data.writeLong(sizeBytes)
+                    writeUtf8(data, sanitizeMimeType(mimeType), 192)
+                    data.write(digest)
+                }
+                bytes.toByteArray()
+            }
+            writeEncryptedFrame(output, sendKey, noncePrefix, 0L, metadata)
+
+            val offsetPayload = readEncryptedFrame(input, receiveKey, noncePrefix, 0L, 64)
+            val offset = DataInputStream(ByteArrayInputStream(offsetPayload)).use { it.readLong() }
+            require(offset in 0..sizeBytes) { "موضع الاستئناف الذي أرسله المستقبل غير صالح." }
+
+            var startedAt = System.nanoTime()
+            var transferred = offset
+            resolver.openInputStream(uri)?.use { rawSource ->
+                BufferedInputStream(rawSource, IO_BUFFER_BYTES).use { source ->
+                skipFully(source, offset)
+                startedAt = System.nanoTime()
+                val buffer = ByteArray(effectiveChunkBytes)
+                var read: Int
+                var sequence = 1L
+                while (transferred < sizeBytes) {
+                    currentCoroutineContext().ensureActive()
+                    val wanted = minOf(buffer.size.toLong(), sizeBytes - transferred).toInt()
+                    read = readAtMost(source, buffer, wanted)
+                    check(read > 0) { "انتهى الملف قبل اكتمال نقله." }
+                    // Batch adjacent encrypted frames in the 1 MiB stream buffer.
+                    // The final empty frame flushes the batch before the receiver waits for EOF.
+                    writeEncryptedFrame(
+                        output, sendKey, noncePrefix, sequence++, buffer, 0, read, flush = false
+                    )
+                    transferred += read
+                    onProgress(progress(safeName, transferred, sizeBytes, startedAt, false, offset))
+                }
+                check(source.read() == -1) { "تغير حجم الملف أثناء الإرسال؛ أعد المحاولة." }
+                writeEncryptedFrame(output, sendKey, noncePrefix, sequence, ByteArray(0))
+                }
+            } ?: error("تعذر إعادة فتح الملف للإرسال.")
+
+            val acknowledgement = readEncryptedFrame(input, receiveKey, noncePrefix, 1L, 1024)
+            DataInputStream(ByteArrayInputStream(acknowledgement)).use { data ->
+                val accepted = data.readBoolean()
+                val message = readUtf8(data, 512)
+                check(accepted) { message.ifBlank { "تعذر التحقق من الملف على الجهاز المستقبل." } }
+            }
+            onProgress(progress(safeName, sizeBytes, sizeBytes, startedAt, false, offset))
+        }
+    }
+
+    suspend fun receiveOnce(
+        port: Int = DEFAULT_PORT,
+        pairingSecret: String,
+        destinationDirectory: File,
+        onProgress: (Progress) -> Unit = {}
+    ): ReceivedFile = withContext(Dispatchers.IO) {
+        require(port in 1..65535) { "منفذ الاستقبال غير صالح." }
+        check(destinationDirectory.exists() || destinationDirectory.mkdirs()) {
+            "تعذر إنشاء مجلد الملفات المستلمة."
+        }
+        check(destinationDirectory.isDirectory) { "مسار الاستقبال ليس مجلداً." }
+
+        ServerSocket().use { server ->
+            server.reuseAddress = true
+            server.bind(InetSocketAddress(port), 1)
+            server.soTimeout = 1_000
+            var accepted: Socket? = null
+            while (accepted == null) {
+                currentCoroutineContext().ensureActive()
+                try {
+                    val candidate = server.accept()
+                    if (isPrivateLanAddress(candidate.inetAddress)) accepted = candidate
+                    else candidate.close()
+                } catch (_: SocketTimeoutException) {
+                    // Poll cancellation while keeping the receiver available for the user.
                 }
             }
+            val clientSocket = requireNotNull(accepted)
+            clientSocket.use { socket ->
+                // Do not let an unauthenticated LAN peer hold the single receiver
+                // socket indefinitely while slowly sending the pairing proof.
+                socket.soTimeout = HANDSHAKE_TIMEOUT_MS
+                socket.receiveBufferSize = SOCKET_BUFFER_BYTES
+                socket.sendBufferSize = SOCKET_BUFFER_BYTES
+                socket.tcpNoDelay = true
+                socket.keepAlive = true
+                val input = DataInputStream(BufferedInputStream(socket.getInputStream(), SOCKET_BUFFER_BYTES))
+                val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), SOCKET_BUFFER_BYTES))
 
-            socket.close()
-            Log.d(TAG, "تم استقبال الملف بنجاح: ${targetFile.name}")
+                output.writeInt(MAGIC)
+                val challenge = ByteArray(CHALLENGE_BYTES).also(SecureRandom()::nextBytes)
+                val secret = derivePairingKey(pairingSecret, challenge)
+                output.write(challenge)
+                output.flush()
 
-            ReceivedFile(
-                fileName = targetFile.name,
-                sizeBytes = transferredBytes,
-                file = targetFile,
-                mimeType = "application/octet-stream" // يمكنك تحسين هذا لاحقاً بناءً على الامتداد
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "فشل استقبال الملف", e)
-            null
+                val suppliedProof = ByteArray(32).also(input::readFully)
+                val authenticated = MessageDigest.isEqual(suppliedProof, hmac(secret, challenge))
+                output.writeBoolean(authenticated)
+                output.flush()
+                check(authenticated) { "فشل التحقق من رمز الاقتران." }
+                socket.soTimeout = SOCKET_TIMEOUT_MS
+
+                val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(SecureRandom()::nextBytes)
+                output.write(noncePrefix)
+                output.flush()
+                val receiveKey = deriveSessionKey(secret, challenge, "client-to-server")
+                val sendKey = deriveSessionKey(secret, challenge, "server-to-client")
+
+                val metadataBytes = readEncryptedFrame(input, receiveKey, noncePrefix, 0L, 1024)
+                val metadata = DataInputStream(ByteArrayInputStream(metadataBytes))
+                require(metadata.readUnsignedShort() == VERSION) { "إصدار بروتوكول النقل غير مدعوم." }
+                val fileName = sanitizeFileName(readUtf8(metadata, 768))
+                val size = metadata.readLong()
+                require(size in 0..MAX_FILE_BYTES) { "حجم الملف المرسل غير مسموح." }
+                val mime = sanitizeMimeType(readUtf8(metadata, 192))
+                require(isSupportedMediaMimeType(mime)) { "يسمح MalekPlay باستقبال الفيديوهات والموسيقى والصور فقط." }
+                val expectedDigest = ByteArray(32).also(metadata::readFully)
+                require(metadata.available() == 0) { "بيانات الملف المرسل غير مكتملة." }
+
+                val transferId = buildTransferId(fileName, size, expectedDigest)
+                val receiptMarker = File(destinationDirectory, ".ultrashare-$transferId.received")
+                val expectedDigestHex = expectedDigest.joinToString("") { "%02x".format(it) }
+                // A damaged or temporarily unreadable receipt must not abort a new
+                // transfer. Treat it as untrusted metadata and continue through the
+                // normal resume path, which removes the stale marker below.
+                val completedReceipt = receiptMarker.takeIf { it.isFile }?.let { marker ->
+                    runCatching {
+                        UltraShareTransport.completedReceiptFileName(
+                            marker.readText(Charsets.UTF_8),
+                            size,
+                            expectedDigestHex
+                        )?.let { safeName ->
+                            val completedFile = File(destinationDirectory, safeName)
+                            if (!completedFile.isFile || completedFile.length() != size) null
+                            else {
+                                val actual = FileInputStream(completedFile).use { digestStreamRaw(it) }
+                                completedFile.takeIf { MessageDigest.isEqual(expectedDigest, actual) }
+                            }
+                        }
+                    }.getOrNull()
+                }
+                if (completedReceipt != null) {
+                    val offsetPayload = ByteArrayOutputStream().use { bytes ->
+                        DataOutputStream(bytes).use { it.writeLong(size) }
+                        bytes.toByteArray()
+                    }
+                    writeEncryptedFrame(output, sendKey, noncePrefix, 0L, offsetPayload)
+                    val end = readEncryptedFrame(input, receiveKey, noncePrefix, 1L, 64)
+                    require(end.isEmpty()) { "إشارة نهاية النقل غير صالحة." }
+                    val ack = ByteArrayOutputStream().use { bytes ->
+                        DataOutputStream(bytes).use { data ->
+                            data.writeBoolean(true)
+                            writeUtf8(data, "الملف مستلم مسبقاً وتم التحقق منه.", 512)
+                        }
+                        bytes.toByteArray()
+                    }
+                    writeEncryptedFrame(output, sendKey, noncePrefix, 1L, ack)
+                    return@withContext ReceivedFile(completedReceipt, fileName, size, mime)
+                }
+                if (receiptMarker.exists()) {
+                    check(receiptMarker.delete()) { "تعذر تنظيف سجل استلام قديم." }
+                }
+                val partial = File(destinationDirectory, ".ultrashare-$transferId.part")
+                val resumeMarker = File(destinationDirectory, ".ultrashare-$transferId.meta")
+                val expectedMarker = "$size:" + expectedDigest.joinToString("") { "%02x".format(it) }
+                // Resume metadata is untrusted local state. If it is unreadable,
+                // discard the partial data and rebuild the marker instead of failing
+                // the whole receive session before the sender can retry.
+                val existingMarker = resumeMarker.takeIf { it.isFile }?.let { marker ->
+                    runCatching { marker.readText(Charsets.UTF_8) }.getOrNull()
+                }
+                if (existingMarker != expectedMarker) {
+                    if (partial.exists()) check(partial.delete()) { "تعذر تنظيف ملف استئناف غير مطابق." }
+                    if (resumeMarker.exists()) check(resumeMarker.delete()) { "تعذر تنظيف بيانات الاستئناف القديمة." }
+                    val markerTemp = File(destinationDirectory, ".ultrashare-$transferId.meta.tmp")
+                    if (markerTemp.exists()) check(markerTemp.delete()) { "تعذر تنظيف بيانات الاستئناف المؤقتة." }
+                    FileOutputStream(markerTemp).use { markerOutput ->
+                        markerOutput.write(expectedMarker.toByteArray(Charsets.UTF_8))
+                        markerOutput.fd.sync()
+                    }
+                    check(markerTemp.renameTo(resumeMarker)) { "تعذر حفظ بيانات استئناف النقل." }
+                }
+                if (partial.exists() && partial.length() > size) {
+                    check(partial.delete()) { "تعذر تنظيف ملف استئناف قديم." }
+                }
+                // A disconnect can leave a full-sized partial before the final
+                // receipt/acknowledgement. Reuse it only if its complete digest matches.
+                if (partial.isFile && partial.length() == size) {
+                    val partialDigest = FileInputStream(partial).use { digestStreamRaw(it) }
+                    if (!MessageDigest.isEqual(expectedDigest, partialDigest)) {
+                        check(partial.delete()) { "تعذر تنظيف ملف استئناف مكتمل لكنه تالف." }
+                    }
+                }
+                val offset = if (partial.isFile) partial.length() else 0L
+                val offsetPayload = ByteArrayOutputStream().use { bytes ->
+                    DataOutputStream(bytes).use { it.writeLong(offset) }
+                    bytes.toByteArray()
+                }
+                writeEncryptedFrame(output, sendKey, noncePrefix, 0L, offsetPayload)
+
+                val startedAt = System.nanoTime()
+                var transferred = offset
+                FileOutputStream(partial, true).use { fileOutput ->
+                    try {
+                        var sequence = 1L
+                        while (transferred < size) {
+                            currentCoroutineContext().ensureActive()
+                            val chunk = readEncryptedFrame(input, receiveKey, noncePrefix, sequence++, CHUNK_BYTES)
+                            require(chunk.isNotEmpty() && chunk.size.toLong() <= size - transferred) {
+                                "وصلت كتلة بيانات بحجم غير صالح."
+                            }
+                            fileOutput.write(chunk)
+                            transferred += chunk.size
+                            onProgress(progress(fileName, transferred, size, startedAt, true, offset))
+                        }
+                        val end = readEncryptedFrame(input, receiveKey, noncePrefix, sequence, 64)
+                        require(end.isEmpty()) { "إشارة نهاية النقل غير صالحة." }
+                    } finally {
+                        // A dropped connection must leave a durable resume offset.
+                        // Sync once per attempt (not per chunk) to avoid destroying throughput.
+                        fileOutput.fd.sync()
+                    }
+                }
+
+                val actualDigest = FileInputStream(partial).use { digestStreamRaw(it) }
+                val verified = MessageDigest.isEqual(expectedDigest, actualDigest) &&
+                    partial.length() == size
+                val resultMessage = if (verified) "تم التحقق من سلامة الملف." else "فشل التحقق من سلامة الملف؛ أُزيلت النسخة غير المطابقة ويمكن إعادة الإرسال."
+                val finalFile = if (verified) withDestinationPublicationLock(destinationDirectory) {
+                    val target = uniqueDestination(destinationDirectory, fileName)
+                    val markerTemp = File(destinationDirectory, ".ultrashare-$transferId.received.tmp")
+                    val markerContent = "$size:$expectedDigestHex:" + target.name
+                    FileOutputStream(markerTemp).use { markerOutput ->
+                        markerOutput.write(markerContent.toByteArray(Charsets.UTF_8))
+                        markerOutput.fd.sync()
+                    }
+                    if (receiptMarker.exists()) check(receiptMarker.delete()) {
+                        "تعذر تحديث سجل الاستلام."
+                    }
+                    check(markerTemp.renameTo(receiptMarker)) { "تعذر حفظ سجل الاستلام." }
+                    try {
+                        check(partial.renameTo(target)) {
+                            "تم استلام الملف لكن تعذر نقله إلى مجلد الملفات المكتملة."
+                        }
+                    } catch (failure: Exception) {
+                        runCatching { receiptMarker.delete() }
+                        throw failure
+                    }
+                    target
+                } else null
+                if (verified) {
+                    if (resumeMarker.exists()) resumeMarker.delete()
+                } else {
+                    partial.delete()
+                    resumeMarker.delete()
+                }
+                val ack = ByteArrayOutputStream().use { bytes ->
+                    DataOutputStream(bytes).use { data ->
+                        data.writeBoolean(verified)
+                        writeUtf8(data, resultMessage, 512)
+                    }
+                    bytes.toByteArray()
+                }
+                writeEncryptedFrame(output, sendKey, noncePrefix, 1L, ack)
+                check(verified) { resultMessage }
+                onProgress(progress(fileName, size, size, startedAt, true, offset))
+                ReceivedFile(requireNotNull(finalFile), fileName, size, mime)
+            }
         }
+    }
+
+    fun defaultReceiveDirectory(context: android.content.Context): File {
+        val base = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            ?: File(context.filesDir, "downloads")
+        return File(base, "MalekPlay/Received")
+    }
+
+    private fun resolvePrivateLanAddress(host: String): InetAddress {
+        require(host.matches(Regex("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}"))) {
+            "أدخل عنوان IPv4 المحلي الظاهر على جهاز الاستقبال."
+        }
+        val address = InetAddress.getByName(host)
+        require(address is Inet4Address && isPrivateLanAddress(address)) {
+            "عنوان الاستقبال يجب أن يكون عنواناً خاصاً أو محلياً على الشبكة."
+        }
+        return address
+    }
+
+    private fun isPrivateLanAddress(address: InetAddress): Boolean =
+        !address.isAnyLocalAddress &&
+            !address.isLoopbackAddress &&
+            !address.isMulticastAddress &&
+            (address.isSiteLocalAddress || address.isLinkLocalAddress)
+
+    private fun uniqueDestination(directory: File, fileName: String): File {
+        val original = File(directory, fileName)
+        if (!original.exists()) return original
+        val dot = fileName.lastIndexOf('.').takeIf { it > 0 } ?: fileName.length
+        val stem = fileName.substring(0, dot)
+        val extension = fileName.substring(dot)
+        var index = 1
+        while (index < 10_000) {
+            val candidate = File(directory, "$stem ($index)$extension")
+            if (!candidate.exists()) return candidate
+            index++
+        }
+        error("تعذر إنشاء اسم فريد للملف المستلم.")
+    }
+
+    private suspend fun digestStream(
+        stream: InputStream,
+        expectedSize: Long
+    ): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-256")
+        // Hashing is local disk I/O, independent from the negotiated wire-frame size.
+        val buffer = ByteArray(DIGEST_BUFFER_BYTES)
+        var total = 0L
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val count = readStreamWithProgress(stream, buffer)
+            if (count < 0) break
+            total += count
+            require(total <= expectedSize) { "تغير حجم الملف أثناء قراءة المصدر." }
+            digest.update(buffer, 0, count)
+        }
+        require(total == expectedSize) { "حجم الملف لا يطابق الحجم المعلن." }
+        return digest.digest()
+    }
+
+    private suspend fun digestStreamRaw(stream: InputStream): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(DIGEST_BUFFER_BYTES)
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val count = readStreamWithProgress(stream, buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+        return digest.digest()
+    }
+
+    private fun hmac(secret: ByteArray, message: ByteArray): ByteArray =
+        Mac.getInstance("HmacSHA256").run {
+            init(SecretKeySpec(secret, "HmacSHA256"))
+            doFinal(message)
+        }
+
+    private fun deriveSessionKey(secret: ByteArray, challenge: ByteArray, direction: String): ByteArray {
+        val label = "MalekPlay Ultra Share v1/$direction".toByteArray(Charsets.UTF_8)
+        return hmac(secret, challenge + label)
+    }
+
+    private fun nonce(prefix: ByteArray, sequence: Long): ByteArray =
+        ByteArray(NONCE_PREFIX_BYTES + 8).also { result ->
+            prefix.copyInto(result, 0)
+            for (index in 0 until 8) {
+                result[NONCE_PREFIX_BYTES + index] = (sequence ushr (56 - index * 8)).toByte()
+            }
+        }
+
+    private fun writeEncryptedFrame(
+        output: DataOutputStream,
+        key: ByteArray,
+        noncePrefix: ByteArray,
+        sequence: Long,
+        plain: ByteArray,
+        plainOffset: Int = 0,
+        plainLength: Int = plain.size,
+        flush: Boolean = true
+    ) {
+        require(plainOffset >= 0 && plainLength >= 0 && plainOffset <= plain.size - plainLength)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce(noncePrefix, sequence)))
+        val encrypted = cipher.doFinal(plain, plainOffset, plainLength)
+        output.writeInt(encrypted.size)
+        output.write(encrypted)
+        if (flush) output.flush()
+    }
+
+    private fun readEncryptedFrame(
+        input: DataInputStream,
+        key: ByteArray,
+        noncePrefix: ByteArray,
+        sequence: Long,
+        maximumPlainBytes: Int
+    ): ByteArray {
+        val encryptedSize = input.readInt()
+        require(encryptedSize in GCM_TAG_BYTES..(maximumPlainBytes + GCM_TAG_BYTES)) {
+            "حجم حزمة النقل غير صالح."
+        }
+        val encrypted = ByteArray(encryptedSize).also(input::readFully)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce(noncePrefix, sequence)))
+        return cipher.doFinal(encrypted).also {
+            require(it.size <= maximumPlainBytes) { "تجاوزت حزمة النقل الحد المسموح." }
+        }
+    }
+
+    private fun writeUtf8(output: DataOutputStream, value: String, maximumBytes: Int) {
+        val bytes = value.toByteArray(Charsets.UTF_8)
+        require(bytes.size <= maximumBytes) { "بيانات النص أطول من الحد المسموح." }
+        output.writeShort(bytes.size)
+        output.write(bytes)
+    }
+
+    private fun readUtf8(input: DataInputStream, maximumBytes: Int): String {
+        val length = input.readUnsignedShort()
+        require(length <= maximumBytes) { "بيانات النص الواردة أطول من الحد المسموح." }
+        val bytes = ByteArray(length).also(input::readFully)
+        return bytes.toString(Charsets.UTF_8)
+    }
+
+    private suspend fun skipFully(input: InputStream, count: Long) {
+        var remaining = count
+        val discard = ByteArray(64 * 1024)
+        while (remaining > 0L) {
+            currentCoroutineContext().ensureActive()
+            val skipped = input.skip(remaining)
+            if (skipped > 0L) {
+                remaining -= skipped
+            } else {
+                val wanted = minOf(discard.size.toLong(), remaining).toInt()
+                val read = input.read(discard, 0, wanted)
+                require(read > 0) { "تعذر استئناف قراءة الملف من الموضع المطلوب." }
+                remaining -= read
+            }
+        }
+    }
+
+    private fun readAtMost(input: InputStream, buffer: ByteArray, wanted: Int): Int {
+        var total = 0
+        while (total < wanted) {
+            val count = input.read(buffer, total, wanted - total)
+            if (count < 0) break
+            if (count == 0) {
+                val single = input.read()
+                if (single < 0) break
+                buffer[total++] = single.toByte()
+            } else {
+                total += count
+            }
+        }
+        return total
+    }
+
+    private fun progress(
+        fileName: String,
+        transferred: Long,
+        total: Long,
+        startedAtNanos: Long,
+        receiving: Boolean,
+        initialBytes: Long = 0L
+    ): Progress {
+        val elapsed = (System.nanoTime() - startedAtNanos).coerceAtLeast(1L)
+        val newlyTransferred = (transferred - initialBytes).coerceAtLeast(0L)
+        val rate = ((newlyTransferred.toDouble() * 1_000_000_000.0) / elapsed.toDouble())
+            .coerceAtMost(Long.MAX_VALUE.toDouble()).toLong().coerceAtLeast(0L)
+        return Progress(fileName, transferred, total, rate, receiving)
     }
 }
