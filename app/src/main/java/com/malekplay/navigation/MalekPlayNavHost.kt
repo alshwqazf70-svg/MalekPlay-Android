@@ -127,8 +127,8 @@ fun MalekPlayNavHost(
         onDispose { resolver.unregisterContentObserver(mediaStoreObserver) }
     }
     val openMedia: (MediaItem) -> Unit = { item ->
-        // Persist the seen state for audio and video before navigating to playback.
-        libraryViewModel.markNewMediaSeen(item.id)
+        // New-media acknowledgement is persisted by MediaRepository only after
+        // PlaybackService confirms that the media session has actually started.
         navController.openMedia(item)
     }
     val parentalControl = remember(context) { ParentalControlManager(context) }
