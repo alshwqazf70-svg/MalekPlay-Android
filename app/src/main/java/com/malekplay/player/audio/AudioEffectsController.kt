@@ -122,6 +122,7 @@ class AudioEffectsController {
 
         _available.value = equalizer != null || bassBoost != null ||
             virtualizer != null || loudness != null
+        if (visualizerRequested) startVisualizerIfReady()
     }
 
     @Synchronized
