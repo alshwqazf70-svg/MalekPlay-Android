@@ -263,7 +263,7 @@ fun LibraryScreen(
                         gridItems(visibleItems, key = { it.media.id }) { item ->
                             MediaGridCard(
                                 item = item,
-                                onPlay = { viewModel.markNewMediaSeen(item.media.id); onVideoClick(item) },
+                                onPlay = { onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
                                 onAddToPlaylist = { playlistTarget = item.media },
                                 onDeleted = viewModel::refresh
@@ -278,7 +278,7 @@ fun LibraryScreen(
                         items(visibleItems, key = { it.media.id }) { item ->
                             PremiumVideoRow(
                                 item = item,
-                                onClick = { viewModel.markNewMediaSeen(item.media.id); onVideoClick(item) },
+                                onClick = { onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
                                 onAddToPlaylist = { playlistTarget = item.media },
                                 onDeleted = viewModel::refresh
