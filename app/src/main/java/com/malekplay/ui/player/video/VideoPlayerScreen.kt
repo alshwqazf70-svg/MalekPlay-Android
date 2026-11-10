@@ -759,13 +759,23 @@ fun VideoPlayerScreen(
                         hasNext = currentIndex < queue.lastIndex,
                         hasPrevious = currentIndex > 0,
                         onPrevious = {
-                            if (activeDlnaDevice != null) viewModel.stopDlnaPlayback()
-                            viewModel.seekToPrevious()
+                            if (activeDlnaDevice != null) {
+                                viewModel.stopDlnaPlayback(resumeLocal = true) {
+                                    viewModel.seekToPrevious()
+                                }
+                            } else {
+                                viewModel.seekToPrevious()
+                            }
                         },
                         onPlayPause = ::togglePlayback,
                         onNext = {
-                            if (activeDlnaDevice != null) viewModel.stopDlnaPlayback()
-                            viewModel.seekToNext()
+                            if (activeDlnaDevice != null) {
+                                viewModel.stopDlnaPlayback(resumeLocal = true) {
+                                    viewModel.seekToNext()
+                                }
+                            } else {
+                                viewModel.seekToNext()
+                            }
                         },
                         onQueue = { showQueue = true },
                         onPip = { viewModel.pipController.request() },
@@ -1106,7 +1116,12 @@ fun VideoPlayerScreen(
             val remote = activeDlnaDevice
             AlertDialog(
                 onDismissRequest = { showRemoteOutputDialog = false },
-                title = { Text("الفيديو يُعرض على التلفزيون") },
+                title = {
+                    Text(
+                        if (dlnaPlayback.isConnected) "الفيديو يُعرض على التلفزيون"
+                        else "الاتصال بالتلفزيون غير مستقر"
+                    )
+                },
                 text = { Text(remote?.name ?: "جهاز DLNA") },
                 confirmButton = {
                     TextButton(
