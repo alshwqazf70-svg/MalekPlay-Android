@@ -1134,31 +1134,42 @@ class UltraShareForegroundService : Service() {
                 val isImmediateConnectFailure = failure is java.net.ConnectException
                 if (!isImmediateConnectFailure && retry < 2) {
                     retry++
-                    if (!UltraShareControlChannel.isSessionActive(activeHost)) {
+                    var samePathReady = UltraShareControlChannel.isSessionActive(activeHost)
+                    if (!samePathReady) {
                         updateState { current -> current.copy(
                             status = "انقطع الاتصال؛ نعيد طلب الموافقة من الجهاز المستقبل قبل استئناف الملفات..."
                         ) }
-                        val decision = UltraShareControlChannel.request(
-                            host = activeHost,
-                            pairingSecret = secret,
-                            peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
-                            network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, activeHost),
-                            onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
-                        )
-                        check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
-                            "لم يوافق الجهاز المستقبل على إعادة الاتصال."
+                        try {
+                            val decision = UltraShareControlChannel.request(
+                                host = activeHost,
+                                pairingSecret = secret,
+                                peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                                network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, activeHost),
+                                onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
+                            )
+                            check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                                "لم يوافق الجهاز المستقبل على إعادة الاتصال."
+                            }
+                            registerApprovedPeer(
+                                name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlay المستقبل",
+                                host = activeHost,
+                                role = "أعاد الموافقة على الاتصال"
+                            )
+                            samePathReady = true
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (reconnectFailure: Exception) {
+                            lastFailure = reconnectFailure as? IOException
+                                ?: IOException(reconnectFailure.localizedMessage ?: "تعذرت إعادة الاتصال بالمسار الحالي.", reconnectFailure)
                         }
-                        registerApprovedPeer(
-                            name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlay المستقبل",
-                            host = activeHost,
-                            role = "أعاد الموافقة على الاتصال"
-                        )
                     }
-                    updateState { current -> current.copy(
-                        status = "انقطع اتصال البيانات؛ استئناف الدفعة تلقائياً ${retry} من 2"
-                    ) }
-                    kotlinx.coroutines.delay(retry * 1_000L)
-                    continue
+                    if (samePathReady) {
+                        updateState { current -> current.copy(
+                            status = "انقطع اتصال البيانات؛ استئناف الدفعة تلقائياً ${retry} من 2"
+                        ) }
+                        kotlinx.coroutines.delay(retry * 1_000L)
+                        continue
+                    }
                 }
 
                 var switched = false
