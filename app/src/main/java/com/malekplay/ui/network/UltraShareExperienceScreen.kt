@@ -464,10 +464,14 @@ fun UltraShareExperienceScreen(
                                     Text(peer.host, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
                                 }
                                 Button(onClick = {
+                                    val sessionReady = state.approvedPeerHost == peer.host && UltraShareTransport.isValidPairingSecret(secret)
                                     host = peer.host
                                     page = UltraSharePage.SEND
-                                    if (UltraShareTransport.isValidPairingSecret(secret)) viewModel.requestConnection(peer.host, secret, peer.candidates)
-                                    else scanQr()
+                                    if (!sessionReady) {
+                                        secret = ""
+                                        viewModel.clearApprovedConnection()
+                                        scanQr()
+                                    }
                                 }, enabled = !state.requestingConnection && !state.sending) { Text("اتصال") }
                             }
                         }
@@ -576,7 +580,11 @@ fun UltraShareExperienceScreen(
                 host = selectedHost
                 page = UltraSharePage.SEND
                 val sessionReady = state.approvedPeerHost == selectedHost && UltraShareTransport.isValidPairingSecret(secret)
-                if (!sessionReady) scanQr()
+                if (!sessionReady) {
+                    secret = ""
+                    viewModel.clearApprovedConnection()
+                    scanQr()
+                }
             }
         )
     }
