@@ -614,8 +614,8 @@ fun FolderRow(
                         )
                     }
                 }
-                // Badge: how many files live in the folder.
-                if (folder.itemCount > 0) {
+                // Badge follows MX Player semantics: unseen new files, not total folder contents.
+                if (folder.newItemCount > 0) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
@@ -624,7 +624,7 @@ fun FolderRow(
                             .padding(horizontal = 5.dp, vertical = 1.dp)
                     ) {
                         Text(
-                            text = folder.itemCount.toString(),
+                            text = folder.newItemCount.toString(),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimary
                         )
