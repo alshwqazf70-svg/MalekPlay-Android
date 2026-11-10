@@ -23,6 +23,9 @@ object UltraShareQrCode {
     private const val VERSION = "1"
     private const val MAX_DECODE_DIMENSION = 2048
 
+    /** Builds a receiver QR using the authenticated control endpoint, never the data port. */
+    fun createReceiverPayload(host: String, pairingSecret: String): String =
+        createPayload(host, UltraShareControlChannel.DEFAULT_PORT, pairingSecret)
     fun createPayload(host: String, port: Int, pairingSecret: String): String {
         require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ قناة الاقتران غير متوافق." }
         require(UltraShareTransport.isValidPrivateLanHost(host)) {
