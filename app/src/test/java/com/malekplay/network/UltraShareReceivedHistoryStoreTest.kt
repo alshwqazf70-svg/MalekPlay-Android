@@ -15,6 +15,26 @@ import java.io.File
 class UltraShareReceivedHistoryStoreTest {
 
     @Test
+    fun malformedRowsDoNotHideValidReceivedHistoryRows() {
+        val raw = """[
+            {"id":"valid","path":"/tmp/a.bin","name":"a.bin","mime":"application/octet-stream","size":3,"receivedAt":1800000000000},
+            null,
+            {"id":"invalid","path":"","name":"missing.bin","size":-1,"receivedAt":0}
+        ]"""
+        val decoded = UltraShareReceivedHistoryStore.decode(raw)
+        assertEquals(1, decoded.size)
+        assertEquals("valid", decoded.single().id)
+    }
+
+    @Test
+    fun mutationDecoderRejectsCorruptRootInsteadOfReplacingIt() {
+        val failure = runCatching {
+            UltraShareReceivedHistoryStore.decodeForMutation("{broken-json")
+        }.exceptionOrNull()
+        assertTrue(failure is IllegalStateException)
+    }
+
+    @Test
     fun recordPersistsVerifiedFileMetadataAndCanRemoveEntry() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val file = File(context.cacheDir, "ultrashare-history-test.bin").apply {
