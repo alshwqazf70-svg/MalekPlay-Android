@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -86,6 +87,7 @@ class UltraShareControlChannelTest {
             )
         )
         assertEquals(firstPeerId, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
+        assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
 
         assertEquals(
             UltraShareControlChannel.Decision.ACCEPTED,
@@ -99,8 +101,10 @@ class UltraShareControlChannelTest {
         )
         assertEquals(secondPeerId, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
         assertTrue(UltraShareControlChannel.isServerSessionActive("127.0.0.1"))
+        assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
 
         UltraShareControlChannel.closeSession("127.0.0.1")
+        assertFalse(UltraShareControlChannel.isSessionActive("127.0.0.1"))
         UltraShareControlChannel.closeServerSession("127.0.0.1")
         server.cancelAndJoin()
     }
