@@ -284,6 +284,14 @@
     <string name="home_hero_title">Your entertainment, in one place</string>
     <string name="home_hero_subtitle">Pick up where you left off or explore your library.</string>
     <string name="home_total_media">Media</string>
+    <string name="home_connection_sharing">Connection &amp; sharing</string>
+    <string name="home_connection_sharing_summary">Send media and connect MalekPlay to nearby devices.</string>
+    <string name="home_send_receive">Send &amp; receive</string>
+    <string name="home_connect_computer">Connect to computer</string>
+    <string name="home_cast_to_tv">Cast to TV</string>
+    <string name="home_empty_videos_title">No recent videos</string>
+    <string name="home_empty_videos_body">Your library contains other media, but no videos are available here yet.</string>
+
     <string name="player_search_subtitle_online">Search subtitles online</string>
     <string name="subtitle_search_title">Movie or series title</string>
     <string name="subtitle_season">Season</string>
