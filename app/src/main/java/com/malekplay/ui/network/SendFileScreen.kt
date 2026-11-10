@@ -40,6 +40,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.malekplay.core.ui.theme.MalekPlayColors
+import com.malekplay.network.UltraShareControlChannel
 
 // --- نماذج البيانات (Data Models) ---
 enum class MediaType { VIDEO, AUDIO, IMAGE }
@@ -276,7 +277,7 @@ fun SendFileScreen(
     if (showDevicePicker) {
         DevicePickerBottomSheet(
             discoveredPeers = ultraState.discoveredPeers,
-            activePeers = ultraState.activePeers,
+            activePeers = ultraState.activePeers.filter { peer -> UltraShareControlChannel.isSessionActive(peer.host) },
             isScanning = ultraState.scanning,
             onDismiss = { showDevicePicker = false },
             onConnect = { host, secret ->
