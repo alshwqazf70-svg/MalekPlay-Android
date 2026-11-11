@@ -73,6 +73,9 @@ class UltraShareViewModel @Inject constructor(
     private var scanJob: Job? = null
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
     private var approvedPeerCandidates: List<com.malekplay.network.UltraShareNegotiation.Candidate> = emptyList()
+    private companion object {
+        const val PEER_SIGHTING_TTL_MS = 12_000L
+    }
 
     init {
         viewModelScope.launch {
@@ -263,17 +266,26 @@ class UltraShareViewModel @Inject constructor(
             status = "جارٍ البحث المستمر عن أجهزة MalekPlay على الشبكة..."
         )
         scanJob = viewModelScope.launch {
-            val found = LinkedHashMap<String, UltraShareDiscovery.Peer>()
+            // Keep the latest sighting time per stable peer identity. A device that
+            // leaves Wi-Fi must disappear from the radar instead of remaining selectable.
+            val found = LinkedHashMap<String, Pair<UltraShareDiscovery.Peer, Long>>()
             try {
                 // Short repeated discovery windows make newly-started receivers appear
                 // without forcing the user to restart the scan manually.
                 while (true) {
                     val peers = UltraShareDiscovery.discoverPeers(scanWindowMs = 1_500L, context = context)
-                    peers.forEach { peer -> found[UltraShareDiscovery.identityKey(peer)] = peer }
+                    val now = System.currentTimeMillis()
+                    peers.forEach { peer ->
+                        found[UltraShareDiscovery.identityKey(peer)] = peer to now
+                    }
+                    found.entries.removeAll { (_, sighting) ->
+                        now - sighting.second > PEER_SIGHTING_TTL_MS
+                    }
+                    val visible = found.values.map { it.first }
                     _state.value = _state.value.copy(
-                        discoveredPeers = found.values.toList(),
-                        status = if (found.isEmpty()) "نبحث باستمرار عن أجهزة MalekPlay القريبة..."
-                        else "تم العثور على ${found.size} جهاز؛ البحث مستمر."
+                        discoveredPeers = visible,
+                        status = if (visible.isEmpty()) "نبحث باستمرار عن أجهزة MalekPlay القريبة..."
+                        else "تم العثور على ${visible.size} جهاز؛ البحث مستمر."
                     )
                     delay(350)
                 }
