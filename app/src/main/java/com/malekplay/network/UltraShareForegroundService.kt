@@ -1167,6 +1167,7 @@ class UltraShareForegroundService : Service() {
             val queue = uris.distinctBy { it.toString() }
             val metadata = LinkedHashMap<Uri, Triple<String, String, Long>>()
             var totalBytes = 0L
+            var transferLockStarted = false
             try {
                 UltraShareQueueStore.enqueue(this@UltraShareForegroundService, queue)
                 queue.forEach { uri ->
@@ -1205,6 +1206,8 @@ class UltraShareForegroundService : Service() {
                     peerTargets
                 )
 
+                beginTransfer(isReceiving = false)
+                transferLockStarted = true
                 UltraShareMultiRecipientCoordinator.execute(
                     targets = peerTargets,
                     onStatus = { delivery ->
@@ -1408,6 +1411,7 @@ class UltraShareForegroundService : Service() {
                     )
                 }
             } finally {
+                if (transferLockStarted) endTransfer(isReceiving = false)
                 sendJob = null
                 updateState { current ->
                     current.copy(
