@@ -500,7 +500,10 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
         ))
         receive_sequence += 1
 
-        identity = peer_identity or address[0]
+        with _CONTROL_PEER_LOCK:
+            active_peer = _CONTROL_PEER_SESSIONS.get(address[0])
+            authenticated_peer_id = active_peer[0] if active_peer else None
+        identity = peer_identity or authenticated_peer_id or address[0]
         peer_folder = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
         state = directory / ".ultrashare-v2-state" / peer_folder
         state.mkdir(parents=True, exist_ok=True)
@@ -725,6 +728,8 @@ CONTROL_PORT = 38744
 CONTROL_MAGIC = 0x4D504332  # MPC2
 CONTROL_VERSION = 1
 CONTROL_AAD = b"MPULTRA_CONTROL_DECISION|1"
+_CONTROL_PEER_SESSIONS: dict[str, tuple[str, socket.socket]] = {}
+_CONTROL_PEER_LOCK = threading.Lock()
 
 
 def _control_subkey(master: bytes, label: str) -> bytes:
@@ -819,28 +824,43 @@ def serve_control_once(port: int, secret: str, local_name: str,
             raise PermissionError("MPC2 pairing authentication failed.")
 
         accepted = bool(approve(peer_name, address[0]))
-        encoded_local_name = name_bytes.hex()
-        response = (
-            f"ACCEPT|{request_id}|{encoded_local_name}"
-            if accepted else f"REJECT|{request_id}"
+        peer_id = (
+            request_id[-32:].lower()
+            if len(request_id) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in request_id[-32:])
+            else None
         )
-        nonce = secrets.token_bytes(12)
-        frame = nonce + _control_encrypt(pairing_key, nonce, response)
-        if len(frame) > 512:
-            raise ValueError("MPC2 decision frame exceeds its limit.")
-        connection.sendall(struct.pack(">I", len(frame)) + frame)
-        if not accepted:
-            return
-
-        connection.settimeout(18.0)
-        while True:
-            command = _read_java_utf_socket(connection)
-            if command == "PING":
-                _write_java_utf_socket(connection, "PONG")
-            elif command == "CLOSE":
+        if accepted and peer_id:
+            with _CONTROL_PEER_LOCK:
+                _CONTROL_PEER_SESSIONS[address[0]] = (peer_id, connection)
+        try:
+            encoded_local_name = name_bytes.hex()
+            response = (
+                f"ACCEPT|{request_id}|{encoded_local_name}"
+                if accepted else f"REJECT|{request_id}"
+            )
+            nonce = secrets.token_bytes(12)
+            frame = nonce + _control_encrypt(pairing_key, nonce, response)
+            if len(frame) > 512:
+                raise ValueError("MPC2 decision frame exceeds its limit.")
+            connection.sendall(struct.pack(">I", len(frame)) + frame)
+            if not accepted:
                 return
-            else:
-                raise ValueError("Unknown MPC2 control command.")
+
+            connection.settimeout(18.0)
+            while True:
+                command = _read_java_utf_socket(connection)
+                if command == "PING":
+                    _write_java_utf_socket(connection, "PONG")
+                elif command == "CLOSE":
+                    return
+                else:
+                    raise ValueError("Unknown MPC2 control command.")
+        finally:
+            if peer_id:
+                with _CONTROL_PEER_LOCK:
+                    current = _CONTROL_PEER_SESSIONS.get(address[0])
+                    if current is not None and current[1] is connection:
+                        _CONTROL_PEER_SESSIONS.pop(address[0], None)
 
 
 class ControlSession:
