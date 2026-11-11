@@ -179,7 +179,9 @@ def run_web_share(
                         return
                     name = protocol.safe_name(parse_qs(urlparse(self.path).query).get("name", [""])[0])
                     upload_id = uuid.uuid4().hex
-                    target = pending_dir / (upload_id + ".upload")
+                    upload_dir = pending_dir / upload_id
+                    upload_dir.mkdir(mode=0o700)
+                    target = upload_dir / name
                     remaining = length
                     with target.open("xb") as stream:
                         while remaining:
@@ -212,12 +214,11 @@ def run_web_share(
                     if source is None or name is None or not source.is_file():
                         self._json(404, {"error": "انتهت صلاحية الملف المؤقت؛ أعد اختياره."})
                         return
-                    renamed = pending_dir / (upload_id + "-" + name.name)
-                    source.replace(renamed)
                     try:
-                        protocol.send_file(host, transfer_port, secret, renamed)
+                        protocol.send_file(host, transfer_port, secret, source)
                     finally:
-                        renamed.unlink(missing_ok=True)
+                        source.unlink(missing_ok=True)
+                        source.parent.rmdir()
                     self._json(200, {"message": "تم إرسال الملف والتحقق من سلامته: " + name.name})
                     return
                 self._json(404, {"error": "المسار غير موجود."})
@@ -257,8 +258,13 @@ def run_web_share(
     finally:
         server.shutdown()
         server.server_close()
-        for path in pending_dir.glob("*.upload"):
-            path.unlink(missing_ok=True)
+        for upload_dir in pending_dir.iterdir():
+            if upload_dir.is_dir():
+                for upload in upload_dir.iterdir():
+                    upload.unlink(missing_ok=True)
+                upload_dir.rmdir()
+            else:
+                upload_dir.unlink(missing_ok=True)
         pending_dir.rmdir() if not any(pending_dir.iterdir()) else None
 
 
