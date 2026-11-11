@@ -74,8 +74,8 @@ fun SendFileScreen(
                 Icon(Icons.Filled.Image, null); Text("صور")
             }
         }
-        OutlinedButton(onClick = { onPickMedia(arrayOf("video/*", "audio/*", "image/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
-            Text("اختيار من الملفات والتطبيقات")
+        OutlinedButton(onClick = { onPickMedia(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+            Text("اختيار جميع أنواع الملفات")
         }
         if (libraryLoading) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
