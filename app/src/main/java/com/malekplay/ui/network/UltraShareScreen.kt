@@ -261,24 +261,25 @@ class UltraShareViewModel @Inject constructor(
             pendingInvitation = null
             if (connectedHost != null) {
                 val remotePeerId = UltraShareControlChannel.sessionPeerId(connectedHost)
-                    ?: java.util.UUID.randomUUID().toString()
                 val remotePeerName = UltraShareControlChannel.sessionPeerName(connectedHost)
                     ?: "جهاز MalekPlay"
-                // Keep the authenticated route and secret in process memory so the
-                // transfer service can resume against the same peer after IP changes.
+                // Keep a reconnect target only when the remote peer supplied a
+                // verified stable identity; never invent an ID for rediscovery.
                 UltraShareForegroundService.registerApprovedPeer(
                     name = remotePeerName,
                     host = connectedHost,
                     role = "اتصال آمن عبر QR أو الرمز",
-                    sessionId = remotePeerId
+                    sessionId = remotePeerId ?: java.util.UUID.randomUUID().toString()
                 )
-                UltraShareForegroundService.registerApprovedSendTarget(
-                    UltraShareApprovedSendTarget(
-                        sessionId = remotePeerId,
-                        host = connectedHost,
-                        secret = pairing.pairingSecret
+                if (!remotePeerId.isNullOrBlank()) {
+                    UltraShareForegroundService.registerApprovedSendTarget(
+                        UltraShareApprovedSendTarget(
+                            sessionId = remotePeerId,
+                            host = connectedHost,
+                            secret = pairing.pairingSecret
+                        )
                     )
-                )
+                }
                 _state.value = _state.value.copy(
                     wifiDirectHost = connectedHost,
                     scanning = false,
