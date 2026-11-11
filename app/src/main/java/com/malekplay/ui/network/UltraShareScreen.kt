@@ -130,6 +130,7 @@ class UltraShareViewModel @Inject constructor(
     private val _state = MutableStateFlow(UltraShareUiState())
     val state = _state.asStateFlow()
     private var scanJob: Job? = null
+    private var wifiDirectScanTimeout: Job? = null
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
 
     init {
@@ -280,7 +281,8 @@ class UltraShareViewModel @Inject constructor(
                 status = "جارٍ البحث عن أجهزة Wi-Fi Direct..."
             )
             session.discover()
-            viewModelScope.launch {
+            wifiDirectScanTimeout?.cancel()
+            wifiDirectScanTimeout = viewModelScope.launch {
                 delay(15_000)
                 // Discovery is deliberately bounded to the user's explicit scan action.
                 // Stop the radio scan even when the UI timeout fires; otherwise Android
@@ -294,6 +296,7 @@ class UltraShareViewModel @Inject constructor(
                         else _state.value.status
                     )
                 }
+                wifiDirectScanTimeout = null
             }
         } catch (failure: Exception) {
             _state.value = _state.value.copy(
@@ -458,6 +461,7 @@ class UltraShareViewModel @Inject constructor(
 
     override fun onCleared() {
         scanJob?.cancel()
+        wifiDirectScanTimeout?.cancel()
         wifiDirectSession?.close()
         wifiDirectSession = null
         // Transfer jobs belong to the foreground service and deliberately outlive this ViewModel.
