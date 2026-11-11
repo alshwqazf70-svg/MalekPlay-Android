@@ -290,8 +290,9 @@ object UltraShareFolderArchive {
 
     internal fun validatedArchiveSegments(rawName: String, directory: Boolean): List<String> {
         require(rawName.isNotBlank()) { "اسم عنصر الأرشيف فارغ." }
-        require(!rawName.startsWith("/") && !rawName.startsWith("\\\\") &&
-            !rawName.contains('\\\\') && !rawName.contains('\\u0000')
+        val separator = 92.toChar()
+        require(!rawName.startsWith("/") && !rawName.startsWith(separator.toString()) &&
+            !rawName.contains(separator) && !rawName.contains(0.toChar())
         ) { "يحتوي الأرشيف على مسار غير آمن." }
         val normalized = if (directory) rawName.removeSuffix("/") else rawName
         val parts = normalized.split('/')
