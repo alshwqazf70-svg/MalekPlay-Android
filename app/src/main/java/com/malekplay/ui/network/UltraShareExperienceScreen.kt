@@ -70,6 +70,7 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareFolderArchive
+import com.malekplay.network.UltraSharePeerDeliveryStore
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraShareTransport
