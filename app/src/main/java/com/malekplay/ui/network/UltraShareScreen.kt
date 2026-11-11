@@ -98,6 +98,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import java.util.UUID
 import javax.inject.Inject
 
 data class UltraShareUiState(
@@ -119,7 +120,8 @@ data class UltraShareUiState(
     val queueEntries: List<UltraShareQueueEntry> = emptyList(),
     val receivedHistory: List<UltraShareReceivedEntry> = emptyList(),
     val wifiDirectPeers: List<UltraShareWifiDirect.Peer> = emptyList(),
-    val wifiDirectHost: String? = null
+    val wifiDirectHost: String? = null,
+    val invitationId: String? = null
 )
 
 @HiltViewModel
@@ -132,6 +134,9 @@ class UltraShareViewModel @Inject constructor(
     private var scanJob: Job? = null
     private var wifiDirectScanTimeout: Job? = null
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
+    private var invitationTimeout: Job? = null
+    private var pendingInvitation: UltraShareQrCode.PairingDetails? = null
+    private var pendingInvitationReady: ((String) -> Unit)? = null
 
     init {
         viewModelScope.launch {
@@ -178,11 +183,72 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
+    private fun completeInvitationConnection(host: String, message: String) {
+        val callback = pendingInvitationReady ?: return
+        pendingInvitationReady = null
+        pendingInvitation = null
+        invitationTimeout?.cancel()
+        invitationTimeout = null
+        _state.value = _state.value.copy(
+            wifiDirectHost = host,
+            scanning = false,
+            error = null,
+            status = message
+        )
+        callback(host)
+    }
+
+    private fun ensureWifiDirectSession(): UltraShareWifiDirect.Session {
+        return wifiDirectSession ?: UltraShareWifiDirect.open(
+            context = context,
+            onPeers = { peers ->
+                _state.value = _state.value.copy(wifiDirectPeers = peers)
+            },
+            onConnected = { remoteHost, isGroupOwner ->
+                if (isGroupOwner) {
+                    if (_state.value.receiving) {
+                        UltraShareForegroundService.refreshLocalAddresses(context)
+                        _state.value = _state.value.copy(
+                            status = "مجموعة Wi-Fi Direct جاهزة للاستقبال."
+                        )
+                    } else {
+                        val fallback = pendingInvitation?.hosts?.firstOrNull()
+                        if (!fallback.isNullOrBlank()) {
+                            completeInvitationConnection(fallback, "تعذر تحديد مسار Wi-Fi Direct؛ سيتم استخدام شبكة Wi-Fi العادية.")
+                        }
+                    }
+                } else if (!remoteHost.isNullOrBlank()) {
+                    if (pendingInvitationReady != null) {
+                        completeInvitationConnection(remoteHost, "تم الاتصال تلقائياً عبر Wi-Fi Direct؛ الجهاز جاهز للإرسال.")
+                    } else {
+                        _state.value = _state.value.copy(
+                            wifiDirectHost = remoteHost,
+                            status = "تم اتصال Wi-Fi Direct."
+                        )
+                    }
+                }
+            },
+            onError = { message ->
+                val fallback = pendingInvitation?.hosts?.firstOrNull()
+                if (pendingInvitationReady != null && !fallback.isNullOrBlank()) {
+                    completeInvitationConnection(fallback, "تعذر Wi-Fi Direct؛ تم اختيار مسار Wi-Fi العادي تلقائياً.")
+                } else {
+                    _state.value = _state.value.copy(
+                        scanning = false,
+                        error = message
+                    )
+                }
+            }
+        ).also { wifiDirectSession = it }
+    }
+
     fun startReceiving() {
         if (_state.value.receiving || _state.value.sending) return
         val secret = UltraShareTransport.createPairingSecret()
+        val invitationId = UUID.randomUUID().toString().replace("-", "")
         _state.value = _state.value.copy(
             pairingSecret = secret,
+            invitationId = invitationId,
             receiving = true,
             sending = false,
             progress = null,
@@ -194,12 +260,101 @@ class UltraShareViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     receiving = false,
                     pairingSecret = "",
+                    invitationId = null,
                     error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
                 )
+                return
             }
+        // Build the receiver-owned P2P group and publish only the opaque invitation ID.
+        // If the OEM reports ERROR(0), regular WLAN remains available in the QR payload.
+        runCatching {
+            ensureWifiDirectSession().createGroup {
+                runCatching {
+                    ensureWifiDirectSession().advertiseInvitation(invitationId) {
+                        _state.value = _state.value.copy(
+                            status = "الجهاز جاهز. امسح رمز QR للاتصال التلقائي."
+                        )
+                    }
+                }.onFailure { failure ->
+                    _state.value = _state.value.copy(
+                        status = "الاستقبال جاهز عبر Wi-Fi العادية؛ تعذر إعلان Wi-Fi Direct.",
+                        error = failure.localizedMessage
+                    )
+                }
+            }
+        }.onFailure { failure ->
+            _state.value = _state.value.copy(
+                status = "الاستقبال جاهز عبر Wi-Fi العادية؛ تعذر إنشاء مجموعة Wi-Fi Direct.",
+                error = failure.localizedMessage
+            )
+        }
     }
 
+    fun connectInvitation(pairing: UltraShareQrCode.PairingDetails, onReady: (String) -> Unit) {
+        val fallbackHost = pairing.hosts.firstOrNull()
+        if (pairing.invitationId.isNullOrBlank()) {
+            if (!fallbackHost.isNullOrBlank()) onReady(fallbackHost)
+            else _state.value = _state.value.copy(error = "لا يوجد عنوان اتصال احتياطي في رمز QR.")
+            return
+        }
+        pendingInvitation = pairing
+        pendingInvitationReady = onReady
+        _state.value = _state.value.copy(
+            scanning = true,
+            wifiDirectHost = null,
+            error = null,
+            status = "جارٍ العثور على جهاز الاستقبال المطابق لرمز QR..."
+        )
+        runCatching {
+            val session = ensureWifiDirectSession()
+            session.discoverInvitation(pairing.invitationId) { peer ->
+                if (pendingInvitationReady == null) return@discoverInvitation
+                session.stopInvitationDiscovery {
+                    runCatching {
+                        session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
+                    }.onFailure {
+                        val fallback = pairing.hosts.firstOrNull()
+                        if (!fallback.isNullOrBlank()) {
+                            completeInvitationConnection(fallback, "تعذر إنشاء اتصال Wi-Fi Direct؛ تم التحويل إلى شبكة Wi-Fi العادية.")
+                        } else {
+                            _state.value = _state.value.copy(scanning = false, error = it.localizedMessage)
+                        }
+                    }
+                }
+            }
+            invitationTimeout?.cancel()
+            invitationTimeout = viewModelScope.launch {
+                delay(15_000)
+                if (pendingInvitationReady != null) {
+                    session.stopInvitationDiscovery()
+                    val fallback = pairing.hosts.firstOrNull()
+                    if (!fallback.isNullOrBlank()) {
+                        completeInvitationConnection(fallback, "لم يظهر الجهاز عبر Wi-Fi Direct؛ جارٍ استخدام شبكة Wi-Fi العادية.")
+                    } else {
+                        pendingInvitationReady = null
+                        pendingInvitation = null
+                        _state.value = _state.value.copy(
+                            scanning = false,
+                            error = "لم يتم العثور على الجهاز. تأكد من تشغيل الاستقبال وابقاء رمز QR مفتوحاً."
+                        )
+                    }
+                }
+            }
+        }.onFailure { failure ->
+            val fallback = pairing.hosts.firstOrNull()
+            if (!fallback.isNullOrBlank()) {
+                completeInvitationConnection(fallback, "تعذر بدء Wi-Fi Direct؛ تم اختيار شبكة Wi-Fi العادية.")
+            } else {
+                pendingInvitationReady = null
+                pendingInvitation = null
+                _state.value = _state.value.copy(scanning = false, error = failure.localizedMessage)
+            }
+        }
+    }
     fun stopReceiving() {
+        wifiDirectSession?.stopInvitationAdvertisement()
+        wifiDirectSession?.removeGroup()
+        _state.value = _state.value.copy(invitationId = null)
         UltraShareForegroundService.cancel(context)
         _state.value = _state.value.copy(
             receiving = false,
@@ -236,44 +391,7 @@ class UltraShareViewModel @Inject constructor(
 
     fun scanWifiDirectPeers() {
         try {
-            val session = wifiDirectSession ?: UltraShareWifiDirect.open(
-                context = context,
-                onPeers = { peers ->
-                    _state.value = _state.value.copy(
-                        wifiDirectPeers = peers,
-                        scanning = false,
-                        status = if (peers.isEmpty()) "لم يتم العثور على أجهزة Wi-Fi Direct."
-                        else "تم العثور على " + peers.size + " أجهزة عبر Wi-Fi Direct."
-                    )
-                },
-                onConnected = { remoteHost, isGroupOwner ->
-                    if (isGroupOwner) {
-                        val receiving = UltraShareForegroundService.state.value.receiving
-                        if (receiving) {
-                            UltraShareForegroundService.refreshLocalAddresses(context)
-                            _state.value = _state.value.copy(
-                                status = "اتصل Wi-Fi Direct بنجاح؛ هذا الهاتف جاهز للاستقبال."
-                            )
-                        } else {
-                            _state.value = _state.value.copy(
-                                status = "أصبح هذا الهاتف مالك مجموعة Wi-Fi Direct. أعد الاتصال مع جعل جهاز الاستقبال هو مالك المجموعة."
-                            )
-                        }
-                    } else if (!remoteHost.isNullOrBlank()) {
-                        _state.value = _state.value.copy(
-                            wifiDirectHost = remoteHost,
-                            status = "تم اتصال Wi-Fi Direct. أدخل رمز الاقتران الظاهر على جهاز الاستقبال."
-                        )
-                    }
-                },
-                onError = { message ->
-                    _state.value = _state.value.copy(
-                        scanning = false,
-                        wifiDirectHost = null,
-                        error = message
-                    )
-                }
-            ).also { wifiDirectSession = it }
+            val session = ensureWifiDirectSession()
             _state.value = _state.value.copy(
                 scanning = true,
                 wifiDirectHost = null,
@@ -462,6 +580,7 @@ class UltraShareViewModel @Inject constructor(
     override fun onCleared() {
         scanJob?.cancel()
         wifiDirectScanTimeout?.cancel()
+        invitationTimeout?.cancel()
         wifiDirectSession?.close()
         wifiDirectSession = null
         // Transfer jobs belong to the foreground service and deliberately outlive this ViewModel.
