@@ -42,6 +42,10 @@ object UltraShareDiscovery {
     internal fun identityKey(peer: Peer): String =
         peer.peerId?.takeIf { it.isNotBlank() }?.let { "id:$it" } ?: "host:${peer.host}"
 
+    /** A peer remains visible briefly to absorb small UDP discovery gaps, then expires. */
+    internal fun isSightingFresh(lastSeenMillis: Long, nowMillis: Long, ttlMillis: Long): Boolean =
+        ttlMillis >= 0L && lastSeenMillis <= nowMillis && nowMillis - lastSeenMillis <= ttlMillis
+
     suspend fun advertiseWhileReceiving(
         transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT,
         legacyTransferPort: Int = UltraShareTransport.DEFAULT_PORT,
