@@ -131,6 +131,15 @@ def read_text(data: bytes, offset: int, maximum: int) -> tuple[str, int]:
     return data[offset:offset + length].decode("utf-8"), offset + length
 
 
+def is_supported_media(filename: str, declared_mime: str = "") -> bool:
+    """Accept only video, audio, and image payloads at the desktop transfer boundary."""
+    guessed_mime = mimetypes.guess_type(filename)[0] or ""
+    if guessed_mime:
+        return guessed_mime.startswith(("video/", "audio/", "image/"))
+    normalized = declared_mime.split(";", 1)[0].strip().lower()
+    return normalized.startswith(("video/", "audio/", "image/"))
+
+
 def safe_name(raw: str) -> str:
     name = raw.replace("\\", "/").split("/")[-1]
     name = "".join(
@@ -239,6 +248,8 @@ def send_once(host: str, port: int, secret: str, source: Path) -> None:
         raise ValueError("The file size is outside the supported range.")
     filename = safe_name(source.name)
     mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    if not is_supported_media(filename, mime):
+        raise ValueError("Ultra Share accepts video, audio, and image files only.")
     digest = hashlib.sha256()
     with source.open("rb") as stream:
         while True:
@@ -378,7 +389,9 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
         send_key = derive_key(pairing_key, challenge, "server-to-client")
 
         metadata = read_frame(connection, receive_key, nonce_prefix, 0, 1024)
-        filename, size, _mime, expected_digest = parse_metadata(metadata)
+        filename, size, mime, expected_digest = parse_metadata(metadata)
+        if not is_supported_media(filename, mime):
+            raise PermissionError("Only video, audio, and image files are accepted.")
         transfer_id = build_transfer_id(filename, size, expected_digest)
         partial = directory / f".ultrashare-{transfer_id}.part"
         marker = directory / f".ultrashare-{transfer_id}.meta"
