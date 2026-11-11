@@ -316,6 +316,9 @@ class UltraShareViewModel @Inject constructor(
             error = null,
             status = "جارٍ الاتصال بـ " + peer.name + " عبر Wi-Fi Direct..."
         )
+        // Discovery is no longer needed once the user has chosen a peer.
+        // Stop it before negotiation so it cannot keep consuming radio time.
+        session.stopDiscovery()
         runCatching {
             session.connect(
                 peer.deviceAddress,
