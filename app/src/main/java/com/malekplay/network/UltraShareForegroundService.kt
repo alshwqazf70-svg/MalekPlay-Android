@@ -485,10 +485,27 @@ class UltraShareForegroundService : Service() {
                                     disconnectApprovedPeer(request.peerAddress)
                                 }
                             ) { request ->
-                                // The UI presents one approval card at a time. Keep each
-                                // authenticated request alive in its own server coroutine and
-                                // serialize only the human decision, rather than rejecting peers
-                                // merely because another device is currently being approved.
+                                // A current MalekPlay client proves possession of the one-session
+                                // QR/PIN secret and supplies its stable device identity in the
+                                // authenticated MPC2 handshake. This is the explicit QR/manual
+                                // pairing action, so accept it without a second approval tap.
+                                // Legacy clients without an identity keep the manual approval flow.
+                                if (!request.peerId.isNullOrBlank()) {
+                                    registerApprovedPeer(
+                                        name = request.peerName,
+                                        host = request.peerAddress,
+                                        role = "اقتران آمن تلقائي عبر QR أو الرمز",
+                                        sessionId = request.peerId
+                                    )
+                                    updateState { current -> current.copy(
+                                        pendingConnection = null,
+                                        status = "تم الاتصال الآمن تلقائياً مع " + request.peerName,
+                                        error = null
+                                    ) }
+                                    UltraShareControlChannel.Decision.ACCEPTED
+                                } else {
+                                // Legacy peer: retain explicit approval for clients that cannot
+                                // prove a stable MalekPlay device identity.
                                 pendingConnectionMutex.lock()
                                 try {
                                     val decision = CompletableDeferred<UltraShareControlChannel.Decision>()
@@ -524,6 +541,7 @@ class UltraShareForegroundService : Service() {
                                     }
                                 } finally {
                                     pendingConnectionMutex.unlock()
+                                }
                                 }
                             }
                         } catch (cancelled: CancellationException) {
