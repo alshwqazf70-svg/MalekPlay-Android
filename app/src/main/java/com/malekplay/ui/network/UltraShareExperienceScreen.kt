@@ -734,7 +734,7 @@ fun UltraShareExperienceScreen(
                     }
                     UltraShareRadar(
                         isScanning = state.scanning || state.wifiDirectScanning || state.bluetoothScanning,
-                        discoveredCount = visiblePeers.size,
+                        discoveredCount = visiblePeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size,
                         modifier = Modifier.fillMaxWidth().height(340.dp),
                         peerNames = visiblePeers.take(4).map { it.name },
                         onPeerClick = { index ->
@@ -775,7 +775,7 @@ fun UltraShareExperienceScreen(
                             }
                         }
                     }
-                    Text("الأجهزة المكتشفة (" + visiblePeers.size + ")", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
+                    Text("الأجهزة المكتشفة (" + (visiblePeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size) + ")", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
                     if (visiblePeers.isEmpty() && state.wifiDirectPeers.isEmpty() && state.bluetoothPeers.isEmpty()) InfoPanel("الرادار", if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning) "جارٍ البحث عبر الشبكة المحلية وWi-Fi Direct وBluetooth..." else "لا توجد أجهزة ظاهرة حالياً. تأكد من تشغيل Wi-Fi أو Bluetooth أو استخدم QR أو نقطة الاتصال.")
                     visiblePeers.drop(4).forEach { peer ->
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
