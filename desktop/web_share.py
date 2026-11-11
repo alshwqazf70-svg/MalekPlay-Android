@@ -80,6 +80,33 @@ def _size_label(size: int) -> str:
     return f"{size} B"
 
 
+def list_received_files(output: Path) -> list[dict[str, object]]:
+    root = output.resolve()
+    result: list[dict[str, object]] = []
+    for item in sorted(output.iterdir(), key=lambda path: path.name.casefold()):
+        try:
+            resolved = item.resolve()
+            if resolved.parent != root or not resolved.is_file() or item.name.startswith("."):
+                continue
+            stat = resolved.stat()
+            result.append({"name": item.name, "size": stat.st_size, "sizeLabel": _size_label(stat.st_size)})
+        except OSError:
+            continue
+    return result
+
+
+def resolve_download_file(output: Path, raw_name: str) -> Path | None:
+    try:
+        name = protocol.safe_name(raw_name)
+        root = output.resolve()
+        candidate = (root / name).resolve()
+        if candidate.parent != root or not candidate.is_file() or candidate.name.startswith("."):
+            return None
+        return candidate
+    except (OSError, ValueError):
+        return None
+
+
 def run_web_share(
     output: Path,
     web_port: int,
@@ -134,20 +161,11 @@ def run_web_share(
                 self._json(403, {"error": "رمز جلسة المتصفح غير صالح."})
                 return
             if path == "/api/files":
-                files = []
-                for item in sorted(output.iterdir(), key=lambda p: p.name.casefold()):
-                    try:
-                        if item.is_file() and item.parent == output and not item.name.startswith("."):
-                            stat = item.stat()
-                            files.append({"name": item.name, "size": stat.st_size, "sizeLabel": _size_label(stat.st_size)})
-                    except OSError:
-                        continue
-                self._json(200, {"files": files})
+                self._json(200, {"files": list_received_files(output)})
                 return
             if path.startswith("/download/"):
-                name = protocol.safe_name(unquote(path[len("/download/"):]))
-                candidate = (output / name).resolve()
-                if candidate.parent != output or not candidate.is_file() or candidate.name.startswith("."):
+                candidate = resolve_download_file(output, unquote(path[len("/download/"):]))
+                if candidate is None:
                     self._json(404, {"error": "الملف غير موجود."})
                     return
                 size = candidate.stat().st_size
