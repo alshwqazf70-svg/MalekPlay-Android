@@ -119,7 +119,13 @@ fun malekPlayTypography(isDark: Boolean, textColor: Color? = null): Typography {
         bodyLarge = applyTextPalette(MalekPlayTypography.bodyLarge),
         bodyMedium = applyTextPalette(MalekPlayTypography.bodyMedium),
         bodySmall = applyTextPalette(MalekPlayTypography.bodySmall),
-        labelLarge = applyTextPalette(MalekPlayTypography.labelLarge),
+        // Material buttons provide their own semantic content color (onPrimary,
+        // onSecondary, etc.). A fixed global label color overrides that contract and
+        // can make button captions disappear against the accent-colored button surface.
+        labelLarge = MalekPlayTypography.labelLarge.copy(
+            brush = null,
+            color = Color.Unspecified
+        ),
         labelMedium = applyTextPalette(MalekPlayTypography.labelMedium),
         labelSmall = applyTextPalette(MalekPlayTypography.labelSmall)
     )
