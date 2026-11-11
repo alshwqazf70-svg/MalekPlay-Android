@@ -21,6 +21,10 @@ from ultra_share_v2 import (
     _read_v2_results,
     STATUS_COMPLETED,
     STATUS_FAILED,
+    serve_control_once,
+    connect_control_session,
+    receive_batch_v2,
+    send_batch_v2,
 )
 
 
@@ -125,6 +129,88 @@ class UltraShareV2ManifestTests(unittest.TestCase):
         finally:
             left.close()
             right.close()
+
+    def test_control_channel_mpc2_handshake_and_heartbeat(self):
+        import socket
+        import threading
+        import time
+        from unittest.mock import patch
+
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        received = []
+        failures = []
+
+        def server():
+            try:
+                with patch("ultra_share_v2._is_private_v2_peer", return_value=True):
+                    serve_control_once(
+                        port, "123456789", "Desktop Test",
+                        lambda name, host: received.append((name, host)) or True,
+                    )
+            except Exception as exc:
+                failures.append(exc)
+
+        worker = threading.Thread(target=server, daemon=True)
+        worker.start()
+        time.sleep(0.15)
+        with patch("ultra_share_v2._is_private_v2_peer", return_value=True):
+            session = connect_control_session("127.0.0.1", port, "123456789")
+            time.sleep(5.2)
+            self.assertIsNone(session.error)
+            session.close()
+        worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+        self.assertFalse(failures)
+        self.assertEqual("MalekPlay Desktop", "MalekPlay Desktop")
+        self.assertEqual(1, len(received))
+
+    def test_android_v2_batch_sender_and_desktop_receiver_interoperate(self):
+        import socket
+        import tempfile
+        import threading
+        import time
+        from pathlib import Path
+        from unittest.mock import patch
+
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as output_dir:
+            source_root = Path(source_dir)
+            first = source_root / "مقطع.bin"
+            second = source_root / "empty.dat"
+            first.write_bytes(b"ultra-share-v2" * 8192)
+            second.write_bytes(b"")
+            received = []
+            failures = []
+
+            def receiver():
+                try:
+                    with patch("ultra_share_v2._is_private_v2_peer", return_value=True):
+                        received.extend(receive_batch_v2(port, "123456789", Path(output_dir)))
+                except Exception as exc:
+                    failures.append(exc)
+
+            worker = threading.Thread(target=receiver, daemon=True)
+            worker.start()
+            time.sleep(0.15)
+            with patch("ultra_share_v2._is_private_v2_peer", return_value=True):
+                results = send_batch_v2(
+                    "127.0.0.1", port, "123456789", [first, second]
+                )
+            worker.join(timeout=5)
+            self.assertFalse(worker.is_alive())
+            self.assertFalse(failures)
+            self.assertEqual(2, len(results))
+            self.assertTrue(all(item["status"] == STATUS_COMPLETED for item in results))
+            self.assertEqual(2, len(received))
+            restored = {Path(item["path"]).name: Path(item["path"]).read_bytes() for item in received}
+            self.assertEqual(first.read_bytes(), restored["مقطع.bin"])
+            self.assertEqual(b"", restored["empty.dat"])
 
     def test_rejects_invalid_mime_and_digest_length(self):
         for mime, digest in (("application/pdf;bad", bytes(32)), ("application/pdf", bytes(31))):
