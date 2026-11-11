@@ -20,6 +20,7 @@ import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraShareApprovedSendTarget
 import com.malekplay.network.UltraSharePeerDeliveryStore
 import com.malekplay.network.UltraShareWifiDirect
+import com.malekplay.network.UltraShareBluetoothDiscovery
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -54,6 +55,8 @@ data class UltraShareUiState(
     val queueEntries: List<UltraShareQueueEntry> = emptyList(),
     val receivedHistory: List<UltraShareReceivedEntry> = emptyList(),
     val wifiDirectPeers: List<UltraShareWifiDirect.Peer> = emptyList(),
+    val bluetoothPeers: List<UltraShareBluetoothDiscovery.Peer> = emptyList(),
+    val bluetoothScanning: Boolean = false,
     val wifiDirectScanning: Boolean = false,
     val wifiDirectHost: String? = null,
     val hotspotSsid: String? = null,
@@ -79,6 +82,7 @@ class UltraShareViewModel @Inject constructor(
     val state = _state.asStateFlow()
     private var scanJob: Job? = null
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
+    private var bluetoothSession: UltraShareBluetoothDiscovery.Session? = null
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
     }
@@ -465,6 +469,35 @@ class UltraShareViewModel @Inject constructor(
         )
     }
 
+    fun scanBluetoothPeers() {
+        if (_state.value.bluetoothScanning) {
+            stopBluetoothDiscovery()
+            return
+        }
+        try {
+            val session = bluetoothSession ?: UltraShareBluetoothDiscovery.open(
+                context = context,
+                onPeers = { peers -> _state.value = _state.value.copy(bluetoothPeers = peers) },
+                onScanning = { scanning -> _state.value = _state.value.copy(bluetoothScanning = scanning) },
+                onError = { message -> _state.value = _state.value.copy(bluetoothScanning = false, error = message) }
+            ).also { bluetoothSession = it }
+            _state.value = _state.value.copy(
+                bluetoothPeers = emptyList(),
+                bluetoothScanning = true,
+                error = null,
+                status = "جارٍ اكتشاف الأجهزة عبر Bluetooth؛ الاقتران ونقل الملفات سيستمران عبر Wi-Fi أو QR."
+            )
+            session.start()
+        } catch (failure: Exception) {
+            _state.value = _state.value.copy(bluetoothScanning = false, error = failure.localizedMessage ?: "تعذر تهيئة اكتشاف Bluetooth.")
+        }
+    }
+
+    fun stopBluetoothDiscovery() {
+        runCatching { bluetoothSession?.stop() }
+        _state.value = _state.value.copy(bluetoothScanning = false, status = "تم إيقاف اكتشاف Bluetooth.")
+    }
+
     fun connectWifiDirectPeer(peer: UltraShareWifiDirect.Peer) {
         val session = wifiDirectSession ?: run {
             scanWifiDirectPeers()
@@ -704,6 +737,8 @@ class UltraShareViewModel @Inject constructor(
         scanJob?.cancel()
         wifiDirectSession?.close()
         wifiDirectSession = null
+        bluetoothSession?.close()
+        bluetoothSession = null
         // Transfer jobs belong to the foreground service and deliberately outlive this ViewModel.
         super.onCleared()
     }
