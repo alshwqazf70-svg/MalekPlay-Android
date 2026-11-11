@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">MalekPlay</string>
+    <string name="app_name">MalekPlayer</string>
     <string name="app_tagline">Universal media player</string>
 
     <!-- Bottom navigation -->
@@ -272,7 +272,7 @@
     <!-- Player extras -->
     <string name="player_brightness">Brightness</string>
     <string name="player_volume">Volume</string>
-    <string name="player_screenshot_saved">Screenshot saved to Pictures/MalekPlay</string>
+    <string name="player_screenshot_saved">Screenshot saved to Pictures/MalekPlayer</string>
     <string name="player_screenshot_failed">Screenshot failed</string>
     <string name="player_aspect_fit">Fit</string>
     <string name="player_aspect_fill">Stretch</string>
@@ -285,7 +285,7 @@
     <string name="home_hero_subtitle">Pick up where you left off or explore your library.</string>
     <string name="home_total_media">Media</string>
     <string name="home_connection_sharing">Connection &amp; sharing</string>
-    <string name="home_connection_sharing_summary">Send media and connect MalekPlay to nearby devices.</string>
+    <string name="home_connection_sharing_summary">Send media and connect MalekPlayer to nearby devices.</string>
     <string name="home_send_receive">Send &amp; receive</string>
     <string name="home_connect_computer">Connect to computer</string>
     <string name="home_cast_to_tv">Cast to TV</string>
@@ -296,7 +296,7 @@
     <string name="subtitle_search_title">Movie or series title</string>
     <string name="subtitle_season">Season</string>
     <string name="subtitle_episode">Episode</string>
-    <string name="subtitle_service_setup">MalekPlay searches automatically without an account or API key. Try another language if no results appear.</string>
+    <string name="subtitle_service_setup">MalekPlayer searches automatically without an account or API key. Try another language if no results appear.</string>
     <string name="subtitle_api_key">OpenSubtitles API key</string>
     <string name="subtitle_username">OpenSubtitles username</string>
     <string name="subtitle_password">OpenSubtitles password</string>
@@ -306,8 +306,8 @@
     <string name="subtitle_translate_ar">Translate English subtitle to Arabic (on device)</string>
     <string name="subtitle_translate_ar_loading">Translating subtitle…</string>
 
-    <!-- MalekPlay Ultra Share -->
-    <string name="ultra_share_title">MalekPlay Ultra Share</string>
+    <!-- MalekPlayer Ultra Share -->
+    <string name="ultra_share_title">MalekPlayer Ultra Share</string>
     <string name="ultra_share_subtitle">Fast, secure transfers over your local network</string>
     <string name="ultra_share_receive">Receive files</string>
     <string name="ultra_share_receive_hint">Start receiving on this phone, then use its address and pairing code on the sending phone.</string>
@@ -335,23 +335,23 @@
 
     <string name="ultra_share_cancel_send">Cancel sending</string>
     <string name="ultra_share_send_cancelled">Sending cancelled. Retry to resume from the completed portion on the receiver.</string>
-    <string name="ultra_share_qr_description">MalekPlay Ultra Share pairing QR code</string>
+    <string name="ultra_share_qr_description">MalekPlayer Ultra Share pairing QR code</string>
     <string name="ultra_share_qr_hint">Scan this code or select a QR image on the sending phone.</string>
     <string name="ultra_share_scan_qr">Read QR code from image</string>
     <string name="ultra_share_scan_success">Pairing details imported.</string>
     <string name="ultra_share_scan_failed">Could not read pairing details from the image.</string>
     <string name="ultra_share_find_devices">Find nearby devices</string>
     <string name="ultra_share_searching">Searching for devices…</string>
-    <string name="ultra_share_no_devices">No MalekPlay receivers found. Make sure the other device is on the same network and receiving is started.</string>
+    <string name="ultra_share_no_devices">No MalekPlayer receivers found. Make sure the other device is on the same network and receiving is started.</string>
     <string name="ultra_share_devices_found">Found %1$d device(s)</string>
     <string name="ultra_share_peer_select">%1$s — %2$s (tap to select)</string>
     <string name="ultra_share_discovery_unavailable">Automatic discovery is unavailable. Enter the IP address or use the QR code.</string>
     <string name="ultra_share_paste_pairing">Paste pairing link from clipboard</string>
     <string name="ultra_share_clipboard_empty">The clipboard does not contain a pairing link.</string>
-    <string name="ultra_share_clipboard_invalid">The copied text is not a valid MalekPlay pairing link.</string>
+    <string name="ultra_share_clipboard_invalid">The copied text is not a valid MalekPlayer pairing link.</string>
     <string name="ultra_share_copy_pairing_link">Copy pairing link</string>
     <string name="ultra_share_pairing_copied">Pairing link copied. Send it to the sending device.</string>
-    <string name="ultra_share_notification_channel">MalekPlay file transfer</string>
+    <string name="ultra_share_notification_channel">MalekPlayer file transfer</string>
     <string name="ultra_share_notification_description">Notification while sending or receiving files over the local network.</string>
     <string name="ultra_share_notification_active">Transfer in progress; you can briefly switch to another app.</string>
     <string name="ultra_share_background_unavailable">Background transfer notification could not start. Keep the app open during the transfer.</string>
