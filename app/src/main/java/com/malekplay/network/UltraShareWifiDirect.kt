@@ -12,6 +12,9 @@ import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceRequest
 import android.net.wifi.p2p.WifiP2pManager
 import android.net.wifi.WpsInfo
 import android.os.Looper
+import android.os.Handler
+import android.os.Build
+import android.location.LocationManager
 import androidx.core.content.ContextCompat
 import java.io.Closeable
 
@@ -40,6 +43,10 @@ object UltraShareWifiDirect {
         private var localInvitationId: String? = null
         private var invitationRequest: WifiP2pDnsSdServiceRequest? = null
         private var invitationMatch: ((Peer) -> Unit)? = null
+        private val mainHandler = Handler(Looper.getMainLooper())
+        private var connectionInProgress = false
+        private var connectionAttemptToken = 0
+        private var connectionTimeout: Runnable? = null
 
         private val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
