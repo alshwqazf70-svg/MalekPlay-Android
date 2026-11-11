@@ -64,13 +64,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.malekplay.core.ui.theme.MalekPlayColors
+import com.malekplay.network.UltraShareFolderArchive
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraShareTransport
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -145,6 +148,58 @@ fun UltraShareExperienceScreen(
             ).show()
         }
         selectedUris = (selectedUris + accepted).distinct()
+    }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+        if (treeUri != null) {
+            scope.launch {
+                val resolver = context.contentResolver
+                val alreadyPersisted = resolver.persistedUriPermissions.any {
+                    it.uri == treeUri && it.isReadPermission
+                }
+                val hasDurableReadAccess = alreadyPersisted || runCatching {
+                    resolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    resolver.persistedUriPermissions.any {
+                        it.uri == treeUri && it.isReadPermission
+                    }
+                }.getOrDefault(false)
+                if (!hasDurableReadAccess) {
+                    Toast.makeText(
+                        context,
+                        "تعذر حفظ إذن قراءة المجلد. اختره مرة أخرى من مدير الملفات.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    try {
+                        Toast.makeText(context, "جارٍ تجهيز المجلد مع الحفاظ على ترتيب ملفاته...", Toast.LENGTH_SHORT).show()
+                        val archive = withContext(Dispatchers.IO) {
+                            UltraShareFolderArchive.create(context, treeUri)
+                        }
+                        val archiveUri = FileProvider.getUriForFile(
+                            context,
+                            context.packageName + ".fileprovider",
+                            archive.file
+                        )
+                        check(isUltraShareMedia(context, archiveUri)) {
+                            "تعذر فتح أرشيف المجلد بعد إنشائه."
+                        }
+                        selectedUris = (selectedUris + archiveUri).distinct()
+                        Toast.makeText(
+                            context,
+                            "تم تجهيز المجلد: ${archive.includedFiles} ملف و${archive.includedDirectories} مجلد. أصبح جاهزاً للإرسال.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        Toast.makeText(
+                            context,
+                            failure.localizedMessage ?: "تعذر تجهيز المجلد للمشاركة.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+        }
     }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
         if (uri != null) viewModel.exportReceived(uri)
@@ -424,6 +479,7 @@ fun UltraShareExperienceScreen(
                         libraryError = libraryError,
                         onLoadPhoneMedia = ::loadPhoneMedia,
                         onPickMedia = { mimeTypes -> mediaPicker.launch(mimeTypes) },
+                        onPickFolder = { folderPicker.launch(null) },
                         onScanQr = ::scanQr,
                         onShowNearby = {
                             page = UltraSharePage.NEARBY
