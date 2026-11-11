@@ -532,11 +532,16 @@ class UltraShareViewModel @Inject constructor(
                 error = null,
                 status = "جارٍ نشر دعوة الاقتران المباشر..."
             )
-            session.advertiseInvitation(invitationId) {
-                _state.value = _state.value.copy(
-                    error = null,
-                    status = "الجهاز جاهز للاقتران عبر QR؛ لا حاجة للاتصال اليدوي بشبكة Wi-Fi."
-                )
+            // Advertising a DNS-SD invitation alone does not create a Wi-Fi Direct
+            // group. The receiver must own a P2P group before another phone can join it.
+            session.createGroup {
+                session.advertiseInvitation(invitationId) {
+                    UltraShareForegroundService.refreshLocalAddresses(context)
+                    _state.value = _state.value.copy(
+                        error = null,
+                        status = "مجموعة Wi-Fi Direct جاهزة ودعوة QR منشورة؛ يمكن للهاتف الآخر الانضمام مباشرة."
+                    )
+                }
             }
         }.onFailure { failure ->
             _state.value = _state.value.copy(
