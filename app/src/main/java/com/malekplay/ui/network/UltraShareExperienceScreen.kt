@@ -320,9 +320,20 @@ fun UltraShareExperienceScreen(
                 viewModel.advertiseCurrentWifiDirectInvitation()
             } else viewModel.scanWifiDirectPeers()
         } else {
+            val pairing = pendingQrPairing
+            val wasAdvertisingInvitation = pendingInvitationAdvertisement
             pendingQrPairing = null
             pendingInvitationAdvertisement = false
-            Toast.makeText(context, "يلزم إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
+            if (pairing != null && pairing.hosts.isNotEmpty()) {
+                viewModel.requestConnection(
+                    pairing.hosts.first(),
+                    pairing.pairingSecret,
+                    alternateHosts = pairing.hosts.drop(1)
+                )
+            } else if (wasAdvertisingInvitation) {
+                viewModel.disableWifiDirectInvitation()
+            }
+            Toast.makeText(context, "لم يُمنح إذن Wi-Fi Direct؛ سنستخدم الشبكة المحلية إن كانت متاحة.", Toast.LENGTH_LONG).show()
         }
     }
     val allNearbyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
@@ -528,11 +539,18 @@ fun UltraShareExperienceScreen(
     val qrPayload = state.localAddresses
         .takeIf { state.receiving && state.pairingSecret.isNotBlank() }
         ?.let {
-            UltraShareQrCode.createReceiverPayload(
-                hosts = it,
-                pairingSecret = state.pairingSecret,
-                invitationId = state.invitationId
-            )
+            if (state.invitationId.isBlank()) {
+                UltraShareQrCode.createReceiverPayload(
+                    hosts = it,
+                    pairingSecret = state.pairingSecret
+                )
+            } else {
+                UltraShareQrCode.createReceiverPayload(
+                    hosts = it,
+                    pairingSecret = state.pairingSecret,
+                    invitationId = state.invitationId
+                )
+            }
         }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { runCatching { UltraShareQrCode.createBitmap(it) }.getOrNull() }
