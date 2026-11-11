@@ -18,6 +18,7 @@ from ultra_share_pc import (
     get_secret,
     find_completed_receipt,
     is_lan_ipv4,
+    is_supported_media_mime,
     parse_metadata,
     read_frame,
     read_resume_marker,
@@ -51,6 +52,13 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         self.assertEqual("clip.mp4", safe_name("clip\u200b.mp4"))
         self.assertEqual("song.mp3", safe_name("song\u0085.mp3"))
 
+    def test_v1_media_policy_rejects_documents_packages_and_unknown_files(self):
+        for mime in ("video/mp4", "audio/mpeg", "image/jpeg"):
+            self.assertTrue(is_supported_media_mime(mime))
+        for mime in ("application/pdf", "application/vnd.android.package-archive",
+                     "application/zip", "text/plain", "application/octet-stream"):
+            self.assertFalse(is_supported_media_mime(mime))
+
     def test_metadata_round_trip_matches_android_wire_layout(self):
         digest = hashlib.sha256(b"hello").digest()
         encoded = (
@@ -64,6 +72,15 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             ("clip.mp4", 5, "video/mp4", digest),
             parse_metadata(encoded),
         )
+
+    def test_v1_metadata_rejects_non_media_mime_types(self):
+        digest = hashlib.sha256(b"payload").digest()
+        for mime in ("application/pdf", "application/vnd.android.package-archive",
+                     "application/zip", "application/octet-stream"):
+            encoded = (struct.pack(">H", VERSION) + encode_text("payload.bin", 768)
+                       + struct.pack(">q", 7) + encode_text(mime, 192) + digest)
+            with self.assertRaises(ValueError):
+                parse_metadata(encoded)
 
     def test_android_nine_digit_pin_uses_matching_pbkdf2_derivation(self):
         pin = "004219837"
@@ -139,6 +156,17 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             with patch("ultra_share_pc.send_file") as send:
                 with self.assertRaises(FileNotFoundError):
                     send_files("192.168.1.20", DEFAULT_PORT, "004219837", [first, missing])
+            send.assert_not_called()
+
+    def test_batch_rejects_non_media_before_starting_any_transfer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            media, document = directory / "first.mp4", directory / "notes.pdf"
+            media.write_bytes(b"video")
+            document.write_bytes(b"document")
+            with patch("ultra_share_pc.send_file") as send:
+                with self.assertRaises(ValueError):
+                    send_files("192.168.1.20", DEFAULT_PORT, "004219837", [media, document])
             send.assert_not_called()
 
     def test_batch_sends_files_in_selected_order(self):
@@ -225,6 +253,8 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             validate_upload("192.168.1.20", "bad-pin", "clip.mp4", 128)
         with self.assertRaises(ValueError):
             validate_upload("192.168.1.20", "004219837", "clip.mp4", -1)
+        with self.assertRaises(ValueError):
+            validate_upload("192.168.1.20", "004219837", "package.apk", 128)
 
 
 if __name__ == "__main__":

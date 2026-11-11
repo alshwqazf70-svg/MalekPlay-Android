@@ -47,27 +47,25 @@ class UltraShareBatchProtocolTest {
         assertEquals(0L, decoded.entries.single().sizeBytes)
     }
 
-    @Test fun acceptsDocumentsPackagesArchivesAndUnknownBinaryFiles() {
-        listOf(
-            "video/mp4",
-            "audio/mpeg",
-            "image/jpeg",
-            "application/pdf",
-            "application/vnd.android.package-archive",
-            "application/zip",
-            "text/plain",
-            "application/octet-stream"
-        ).forEach { mime ->
+    @Test fun acceptsMediaAndRejectsDocumentsPackagesArchivesAndUnknownFiles() {
+        listOf("video/mp4", "audio/mpeg", "image/jpeg", "video/x-matroska").forEach { mime ->
             assertTrue("Expected supported MIME type: $mime", UltraShareTransport.isSupportedShareMimeType(mime))
-            val item = UltraShareBatchProtocol.newEntry(
-                name = "shared-file",
-                mimeType = mime,
-                sizeBytes = 1L,
-                sha256 = MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
-            )
+            val item = UltraShareBatchProtocol.newEntry("shared-media", mime, 1L,
+                MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1)))
             assertEquals(mime, UltraShareBatchProtocol.validate(
                 UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(item))
             ).entries.single().mimeType)
+        }
+        listOf("application/pdf", "application/vnd.android.package-archive",
+            "application/zip", "text/plain", "application/octet-stream").forEach { mime ->
+            assertFalse(UltraShareTransport.isSupportedShareMimeType(mime))
+            val item = UltraShareBatchProtocol.newEntry("blocked-file", mime, 1L,
+                MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1)))
+            assertThrows(IllegalArgumentException::class.java) {
+                UltraShareBatchProtocol.validate(
+                    UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(item))
+                )
+            }
         }
     }
 

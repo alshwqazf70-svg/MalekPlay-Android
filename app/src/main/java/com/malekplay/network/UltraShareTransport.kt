@@ -195,7 +195,10 @@ object UltraShareTransport {
         }
     }
 
-    /**
+    /** UltraShare intentionally transfers image, audio and video media only. */
+    fun isSupportedShareMimeType(raw: String): Boolean {
+        val candidate = raw.trim().lowercase(Locale.ROOT)
+        val token = "[A-Za-z0-9!#    /**
      * Accepts any syntactically valid MIME type for document sharing (including APK,
      * PDF, archives and unknown binary files). Received files are stored as data only;
      * this check never opens or executes the received content.
@@ -209,6 +212,13 @@ object UltraShareTransport {
 
     /** Kept for source compatibility with older callers; sharing is no longer media-only. */
     @Deprecated("Use isSupportedShareMimeType for all transferable documents.")
+    fun isSupportedMediaMimeType(raw: String): Boolean = isSupportedShareMimeType(raw)^_.+-]+"
+        return candidate.length in 3..160 &&
+            Regex("^$token/$token$").matches(candidate) &&
+            (candidate.startsWith("video/") || candidate.startsWith("audio/") || candidate.startsWith("image/"))
+    }
+
+    @Deprecated("Use isSupportedShareMimeType for image, audio and video.")
     fun isSupportedMediaMimeType(raw: String): Boolean = isSupportedShareMimeType(raw)
 
     /**
@@ -264,6 +274,8 @@ object UltraShareTransport {
         require(sizeBytes in 0..MAX_FILE_BYTES) { "حجم الملف غير مدعوم." }
         val effectiveChunkBytes = validateChunkBytes(chunkBytes)
         val safeName = sanitizeFileName(fileName)
+        val safeMime = sanitizeMimeType(mimeType)
+        require(isSupportedShareMimeType(safeMime)) { "يسمح UltraShare بمشاركة الصور والصوت والفيديو فقط." }
         val digest = resolver.openInputStream(uri)?.use { rawStream ->
             // A larger read-ahead buffer smooths slow ContentProvider/storage reads
             // before encryption, while the on-wire v1 frame remains capped at 256 KiB.
@@ -296,7 +308,7 @@ object UltraShareTransport {
                     data.writeShort(VERSION)
                     writeUtf8(data, safeName, 768)
                     data.writeLong(sizeBytes)
-                    writeUtf8(data, sanitizeMimeType(mimeType), 192)
+                    writeUtf8(data, safeMime, 192)
                     data.write(digest)
                 }
                 bytes.toByteArray()

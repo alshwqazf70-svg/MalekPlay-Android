@@ -66,6 +66,9 @@ def validate_upload(host: str, pin: str, filename: str, size: int) -> tuple[str,
     if size < 0 or size > MAX_FILE_BYTES:
         raise ValueError("حجم الملف خارج الحد المدعوم.")
     clean_name = safe_name(filename)
+    mime = mimetypes.guess_type(clean_name)[0] or "application/octet-stream"
+    if not mime.lower().startswith(("video/", "audio/", "image/")):
+        raise ValueError("يسمح UltraShare بمشاركة الصور والصوت والفيديو فقط.")
     if len(clean_name.encode("utf-8")) > MAX_HTTP_HEADER_NAME:
         raise ValueError("اسم الملف طويل جداً.")
     return host, pin, clean_name
@@ -266,7 +269,7 @@ button,.download{border:0;border-radius:12px;padding:12px 16px;background:linear
 <label for="host">عنوان IP للهاتف المستقبل</label><input id="host" inputmode="decimal" placeholder="مثال: 192.168.1.25">
 <label for="pin">رمز الاقتران الظاهر في MalekPlay</label><input id="pin" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="9 أرقام">
 <button id="discover" type="button">البحث عن الهاتف على الشبكة</button>
-<label for="file">اختر ملفات من الكمبيوتر</label><input id="file" type="file" multiple>
+<label for="file">اختر الصور أو الصوت أو الفيديو من الكمبيوتر</label><input id="file" type="file" accept="image/*,audio/*,video/*" multiple>
 <button id="send">إرسال V1</button><button id="sendV2" type="button">إرسال V2 المشفّر (ملفًا ملفًا)</button><div id="sendStatus" class="status" aria-live="polite"></div>
 <p class="note">تأكد أن الكمبيوتر والهاتف على شبكة Wi-Fi نفسها أو أن الكمبيوتر متصل بنقطة اتصال الهاتف. لا تغلق الصفحة أثناء النقل.</p>
 </section>

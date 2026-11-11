@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import ipaddress
 import mimetypes
+import re
 import os
 import secrets
 import socket
@@ -73,6 +74,26 @@ def private_ipv4(host: str) -> str:
     if not is_lan_ipv4(host):
         raise ValueError("Use the receiver's private IPv4 address on the same LAN.")
     return str(ipaddress.ip_address(host))
+
+
+def is_supported_media_mime(value: str) -> bool:
+    if not isinstance(value, str) or not 3 <= len(value) <= 160:
+        return False
+    if re.fullmatch(r"[A-Za-z0-9!#def private_ipv4(host: str) -> str:
+    if not is_lan_ipv4(host):
+        raise ValueError("Use the receiver's private IPv4 address on the same LAN.")
+    return str(ipaddress.ip_address(host))
+
+
+def recv_exact^_.+-]+/[A-Za-z0-9!#def private_ipv4(host: str) -> str:
+    if not is_lan_ipv4(host):
+        raise ValueError("Use the receiver's private IPv4 address on the same LAN.")
+    return str(ipaddress.ip_address(host))
+
+
+def recv_exact^_.+-]+", value) is None:
+        return False
+    return value.lower().startswith(("video/", "audio/", "image/"))
 
 
 def recv_exact(sock: socket.socket, length: int) -> bytes:
@@ -155,6 +176,8 @@ def parse_metadata(data: bytes) -> tuple[str, int, str, bytes]:
     size = struct.unpack_from(">q", data, offset)[0]
     offset += 8
     mime, offset = read_text(data, offset, 192)
+    if not is_supported_media_mime(mime):
+        raise ValueError("Ultra Share accepts image, audio and video files only.")
     if offset + 32 != len(data):
         raise ValueError("Invalid file digest metadata.")
     digest = data[offset:offset + 32]
@@ -239,6 +262,8 @@ def send_once(host: str, port: int, secret: str, source: Path) -> None:
         raise ValueError("The file size is outside the supported range.")
     filename = safe_name(source.name)
     mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    if not is_supported_media_mime(mime):
+        raise ValueError("Ultra Share accepts image, audio and video files only.")
     digest = hashlib.sha256()
     with source.open("rb") as stream:
         while True:
@@ -337,6 +362,13 @@ def send_files(host: str, port: int, secret: str, sources: list[Path]) -> None:
     if missing:
         raise FileNotFoundError("One or more selected files do not exist: " +
                                 ", ".join(str(path) for path in missing))
+    unsupported = [
+        source for source in sources
+        if not is_supported_media_mime(mimetypes.guess_type(source.name)[0] or "application/octet-stream")
+    ]
+    if unsupported:
+        raise ValueError("Ultra Share accepts image, audio and video files only: " +
+                         ", ".join(source.name for source in unsupported))
     for index, source in enumerate(sources, start=1):
         print(f"\\n[{index}/{len(sources)}] Sending {source.name}")
         send_file(host, port, secret, source)

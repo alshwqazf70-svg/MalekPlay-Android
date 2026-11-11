@@ -8,6 +8,15 @@ import org.junit.Test
 class UltraShareTransportTest {
 
     @Test
+    fun shareMimePolicyAllowsOnlyImagesAudioAndVideo() {
+        listOf("video/mp4", "video/x-matroska", "audio/mpeg", "image/jpeg")
+            .forEach { assertTrue(UltraShareTransport.isSupportedShareMimeType(it)) }
+        listOf("application/pdf", "application/vnd.android.package-archive",
+            "application/zip", "text/plain", "application/octet-stream", "video", "audio/")
+            .forEach { assertFalse(UltraShareTransport.isSupportedShareMimeType(it)) }
+    }
+
+    @Test
     fun transferChunkTuningAcceptsWireCompatibleSizes() {
         assertEquals(UltraShareTransport.MIN_TUNABLE_CHUNK_BYTES, UltraShareTransport.validateChunkBytes(64 * 1024))
         assertEquals(128 * 1024, UltraShareTransport.validateChunkBytes(128 * 1024))

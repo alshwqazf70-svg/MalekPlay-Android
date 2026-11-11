@@ -72,7 +72,8 @@ def _valid_mime(value: str) -> bool:
         return False
     token = r"[A-Za-z0-9!#$&^_.+-]+"
     import re
-    return re.fullmatch(token + "/" + token, value) is not None
+    return (re.fullmatch(token + "/" + token, value) is not None
+            and value.lower().startswith(("video/", "audio/", "image/")))
 
 
 def validate_manifest(manifest: Manifest) -> Manifest:
@@ -90,7 +91,7 @@ def validate_manifest(manifest: Manifest) -> Manifest:
         if not 1 <= len(entry.name.encode("utf-8")) <= MAX_NAME_BYTES:
             raise ValueError("Filename exceeds V2 limit.")
         if not _valid_mime(entry.mime_type):
-            raise ValueError("Invalid V2 MIME type.")
+            raise ValueError("Ultra Share accepts image, audio and video MIME types only.")
         if len(entry.mime_type.encode("utf-8")) > MAX_MIME_BYTES:
             raise ValueError("MIME type exceeds V2 limit.")
         if not isinstance(entry.size_bytes, int) or not 0 <= entry.size_bytes <= MAX_FILE_BYTES:

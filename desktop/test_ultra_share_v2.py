@@ -64,7 +64,7 @@ class UltraShareV2ManifestTests(unittest.TestCase):
                 FileEntry(
                     "ffeeddcc-bbaa-9988-7766-554433221100",
                     "مقطع.bin",
-                    "application/octet-stream",
+                    "video/mp4",
                     6,
                     hashlib.sha256(b"golden").digest(),
                 ),
@@ -73,7 +73,7 @@ class UltraShareV2ManifestTests(unittest.TestCase):
         expected = bytes.fromhex(
             "4d505532000200112233445566778899aabbccddeeff0001"
             "ffeeddccbbaa99887766554433221100000cd985d982d8b7d8b92e62696e"
-            "00186170706c69636174696f6e2f6f637465742d73747265616d"
+            "0009766964656f2f6d7034"
             "0000000000000006"
             "dd56de4137951d9c92681b03416ec15f886b4482a27e3a517d32f085244cbe5d"
         )
@@ -82,19 +82,19 @@ class UltraShareV2ManifestTests(unittest.TestCase):
 
     def test_multi_file_manifest_round_trip_and_total_size(self):
         first = FileEntry(str(uuid.uuid4()), "movie.mp4", "video/mp4", 123, hashlib.sha256(b"a").digest())
-        second = FileEntry(str(uuid.uuid4()), "book.pdf", "application/pdf", 456, hashlib.sha256(b"b").digest())
+        second = FileEntry(str(uuid.uuid4()), "track.mp3", "audio/mpeg", 456, hashlib.sha256(b"b").digest())
         manifest = Manifest(str(uuid.uuid4()), (first, second))
         self.assertEqual(579, decode_manifest(encode_manifest(manifest)).total_bytes)
 
-    def test_zero_byte_document_and_apk_mime_are_allowed(self):
-        for mime in ("application/pdf", "application/vnd.android.package-archive", "application/octet-stream"):
+    def test_zero_byte_media_mime_types_are_allowed(self):
+        for mime in ("video/mp4", "audio/mpeg", "image/jpeg"):
             entry = FileEntry(str(uuid.uuid4()), "payload.bin", mime, 0, hashlib.sha256(b"").digest())
             self.assertEqual(entry, decode_manifest(encode_manifest(Manifest(str(uuid.uuid4()), (entry,)))).entries[0])
 
     def test_rejects_bad_header_truncation_and_trailing_data(self):
         manifest = Manifest(
             str(uuid.uuid4()),
-            (FileEntry(str(uuid.uuid4()), "x.bin", "application/octet-stream", 0, hashlib.sha256(b"").digest()),),
+            (FileEntry(str(uuid.uuid4()), "x.mp4", "video/mp4", 0, hashlib.sha256(b"").digest()),),
         )
         encoded = encode_manifest(manifest)
         for malformed in (b"bad!", encoded[:-1], encoded + b"\x00"):
@@ -104,10 +104,10 @@ class UltraShareV2ManifestTests(unittest.TestCase):
     def test_rejects_duplicate_ids_and_unsanitized_paths(self):
         identifier = str(uuid.uuid4())
         digest = hashlib.sha256(b"x").digest()
-        duplicate = FileEntry(identifier, "one.bin", "application/octet-stream", 1, digest)
+        duplicate = FileEntry(identifier, "one.mp4", "video/mp4", 1, digest)
         with self.assertRaises(ValueError):
             validate_manifest(Manifest(str(uuid.uuid4()), (duplicate, duplicate)))
-        unsafe = FileEntry(str(uuid.uuid4()), "../secret.bin", "application/octet-stream", 1, digest)
+        unsafe = FileEntry(str(uuid.uuid4()), "../secret.mp4", "video/mp4", 1, digest)
         with self.assertRaises(ValueError):
             validate_manifest(Manifest(str(uuid.uuid4()), (unsafe,)))
 
@@ -127,7 +127,7 @@ class UltraShareV2ManifestTests(unittest.TestCase):
 
     def test_v2_offsets_are_bound_to_every_manifest_file(self):
         first = FileEntry(str(uuid.uuid4()), "a.mp4", "video/mp4", 10, hashlib.sha256(b"a").digest())
-        second = FileEntry(str(uuid.uuid4()), "b.bin", "application/octet-stream", 0, hashlib.sha256(b"").digest())
+        second = FileEntry(str(uuid.uuid4()), "b.mp3", "audio/mpeg", 0, hashlib.sha256(b"").digest())
         manifest = Manifest(str(uuid.uuid4()), (first, second))
         encoded = _encode_v2_offsets(manifest, {first.file_id: 7, second.file_id: 0})
         self.assertEqual({first.file_id: 7, second.file_id: 0}, _read_v2_offsets(encoded, manifest))
@@ -135,8 +135,8 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             _read_v2_offsets(encoded[:-1], manifest)
 
     def test_v2_result_codec_preserves_per_file_status_and_arabic_error(self):
-        first = FileEntry(str(uuid.uuid4()), "a.bin", "application/octet-stream", 10, hashlib.sha256(b"a").digest())
-        second = FileEntry(str(uuid.uuid4()), "b.bin", "application/octet-stream", 4, hashlib.sha256(b"b").digest())
+        first = FileEntry(str(uuid.uuid4()), "a.mp4", "video/mp4", 10, hashlib.sha256(b"a").digest())
+        second = FileEntry(str(uuid.uuid4()), "b.mp3", "audio/mpeg", 4, hashlib.sha256(b"b").digest())
         manifest = Manifest(str(uuid.uuid4()), (first, second))
         results = [
             {"file_id": first.file_id, "status": STATUS_COMPLETED, "transferred": 10, "error": None},
@@ -245,8 +245,8 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             control_port = free_port()
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as output_dir:
             source_root = Path(source_dir)
-            first = source_root / "مقطع.bin"
-            second = source_root / "empty.dat"
+            first = source_root / "مقطع.mp4"
+            second = source_root / "empty.mp3"
             first.write_bytes(b"ultra-share-v2" * 8192)
             second.write_bytes(b"")
             received = []
@@ -294,14 +294,18 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             self.assertTrue(all(item["status"] == STATUS_COMPLETED for item in results))
             self.assertEqual(2, len(received))
             restored = {Path(item["path"]).name: Path(item["path"]).read_bytes() for item in received}
-            self.assertEqual(first.read_bytes(), restored["مقطع.bin"])
-            self.assertEqual(b"", restored["empty.dat"])
+            self.assertEqual(first.read_bytes(), restored["مقطع.mp4"])
+            self.assertEqual(b"", restored["empty.mp3"])
 
-    def test_rejects_invalid_mime_and_digest_length(self):
-        for mime, digest in (("application/pdf;bad", bytes(32)), ("application/pdf", bytes(31))):
-            entry = FileEntry(str(uuid.uuid4()), "x.bin", mime, 1, digest)
+    def test_rejects_non_media_mime_and_invalid_digest_length(self):
+        for mime in ("application/pdf", "application/vnd.android.package-archive",
+                     "application/zip", "text/plain", "application/octet-stream"):
+            entry = FileEntry(str(uuid.uuid4()), "x.bin", mime, 1, bytes(32))
             with self.assertRaises(ValueError):
                 validate_manifest(Manifest(str(uuid.uuid4()), (entry,)))
+        malformed = FileEntry(str(uuid.uuid4()), "x.mp4", "video/mp4", 1, bytes(31))
+        with self.assertRaises(ValueError):
+            validate_manifest(Manifest(str(uuid.uuid4()), (malformed,)))
 
 
 if __name__ == "__main__":
