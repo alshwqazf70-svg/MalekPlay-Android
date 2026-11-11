@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-11  
 **MalekPlay branch:** `feature/zapya-engineering-analysis`  
-**MalekPlay audited commit:** `bba536a98f1f0dddbf430e88065d43d48b2386e1`  
+**MalekPlay audited commit:** `28d153302c57c15f78d2598624ef0cb09d2df902`  
 **Zapya analysis repository:** `alshwqazf70-svg/Zapya-Engineering-Analysis`  
 **Zapya analysis commit:** `9aa9e5702b5ecdd5ff09da8ec5c5cb94acc086f3`
 
@@ -43,7 +43,7 @@ At the audited commit the branch contains 256 tracked files, 49 test source file
 - UI: `UltraShareExperienceScreen.kt`, `UltraShareRadar.kt`, `UltraShareSessionRoom.kt`, `UltraShareHelpCard.kt`, plus the existing send/receive/device-picker screens.
 - Desktop/browser: `desktop/ultra_share_v2.py`, `desktop/ultra_share_pc.py`, `desktop/ultra_share_web.py` and their tests.
 
-No UltraShare screen file was removed in the audited tree. This is an inventory check, not a screenshot-by-screenshot visual sign-off.
+`UltraShareScreen.kt` was replaced in the feature branch by the newer `UltraShareExperienceScreen.kt` plus dedicated send/receive/radar/session-room components. This is a source-file refactor, not proof that every old user-facing flow has an equivalent; navigation and screen-by-screen regression checks remain required. This is not a screenshot-by-screenshot visual sign-off.
 
 ## 4. Parity matrix
 
@@ -57,13 +57,13 @@ No UltraShare screen file was removed in the audited tree. This is an inventory 
 | Endpoint negotiation | Candidate lists exist, but current control/data ports are fixed: V1 TCP 38741, V2 TCP 38742, MPC2 TCP 38744; discovery UDP 38742 | Confirmed gap: not a dynamic per-session endpoint/port negotiation |
 | V2 file data | One encrypted TCP connection per batch; manifest supports up to 512 files; per-file results | Implemented in Android and Python source; not the same wire protocol as Zapya |
 | Legacy V1 | Authenticated encrypted one-file sessions retained for compatibility | Implemented |
-| File types | MIME validation accepts syntactically valid document, archive, APK and binary types; picker supports document selection | Broader scope is implemented in V2 source; verify on real Android providers |
+| File types | MIME validation accepts general document, archive and binary types, excluding APK/PDF; picker supports document selection | Broader scope is implemented in V2 source; verify on real Android providers |
 | Integrity | SHA-256 preflight and receive verification; atomic publication and receipt markers | Strong source-level implementation; runtime evidence still required |
 | Resume | Content-derived identity, partial files, durable offsets/receipts and retry logic | Source-level foundation; process-death and changed-source fault tests remain |
-| Multi-recipient | Sender-side approved target list, bounded coordinator, per-peer delivery state; receiver accepts bounded peers | Implemented in engine; session-room presentation still summarizes the first active peer rather than fully presenting every peer |
+| Multi-recipient | Sender-side approved target list, bounded coordinator, per-peer delivery state; receiver accepts bounded peers | Implemented in engine; room now shows all peer cards and summarizes multi-peer headline state, but per-peer per-file result depth still needs validation |
 | Folder transfer | ZIP archive creation and guarded extraction | Implemented in source; large/deep/special-file tests and device validation remain |
 | PC companion | V1 and V2 receiver/sender, MPC2 approval, resume state | Desktop CI passes; no Android↔PC physical test yet |
-| Browser companion | Loopback-only UI; V2 upload path currently sends selected files as separate V2 batches | Partial parity; not one browser-selected multi-file manifest batch |
+| Browser companion | Loopback-only UI; selected files are staged and finalized through `stage-v2` and `send-v2-batch` in one V2 manifest/session | Multi-file browser batch path is implemented in source; desktop CI is the current evidence, not Android↔PC physical validation |
 | Background lifecycle | Foreground service, Wi-Fi/wake locks, persistent queue and hotspot ownership | Source foundations present; screen-off, process death, OEM battery and network-switch tests remain |
 | Performance | Bounded buffers/concurrency and per-file progress | No controlled throughput/CPU/memory/battery comparison |
 | UI | Radar, send/receive, room, device picker, transfer/history screens remain | Functionality present; visual parity and per-peer room detail remain incomplete |
