@@ -409,6 +409,7 @@ class UltraShareViewModel @Inject constructor(
     fun stopReceiving() {
         UltraShareForegroundService.stopReceiving(context)
         runCatching { wifiDirectSession?.stopInvitationAdvertisement() }
+        runCatching { wifiDirectSession?.removeGroup() }
         _state.value = _state.value.copy(
             receiving = false,
             pairingSecret = "",
@@ -510,13 +511,23 @@ class UltraShareViewModel @Inject constructor(
                 }
             },
             onError = { message ->
+                val receiving = UltraShareForegroundService.state.value.receiving
                 _state.value = _state.value.copy(
                     wifiDirectScanning = false,
                     wifiDirectHost = null,
+                    invitationId = if (receiving) "" else _state.value.invitationId,
                     error = message
                 )
             }
         ).also { wifiDirectSession = it }
+    }
+
+    fun disableWifiDirectInvitation() {
+        runCatching { wifiDirectSession?.stopInvitationAdvertisement() }
+        _state.value = _state.value.copy(
+            invitationId = "",
+            status = "تم تعطيل دعوة Wi-Fi Direct؛ يمكنك استخدام رمز QR عبر الشبكة المحلية."
+        )
     }
 
     fun advertiseCurrentWifiDirectInvitation() {
