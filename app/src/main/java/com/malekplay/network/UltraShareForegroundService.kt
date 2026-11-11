@@ -64,6 +64,13 @@ data class UltraShareServiceState(
     val peerTransfers: List<UltraSharePeerTransfer> = emptyList()
 )
 
+internal data class UltraShareApprovedSendTarget(
+    val sessionId: String,
+    val host: String,
+    val secret: String,
+    val candidates: List<UltraShareNegotiation.Candidate> = emptyList()
+)
+
 data class UltraSharePeerSession(
     val sessionId: String,
     val name: String,
@@ -513,6 +520,16 @@ class UltraShareForegroundService : Service() {
                     }
                 }
                 job.start()
+            }
+            ACTION_SEND_MULTI_BATCH -> {
+                val uris = intent.parcelableUriList(EXTRA_URIS).orEmpty()
+                val targets = decodeApprovedSendTargets(intent.getStringExtra(EXTRA_PEER_TARGETS).orEmpty())
+                if (targets.isEmpty()) {
+                    updateState { current -> current.copy(error = "لا توجد أجهزة مقترنة صالحة للإرسال الجماعي.") }
+                    finishService()
+                } else {
+                    startSendingQueueToPeers(uris, targets)
+                }
             }
             ACTION_SEND_BATCH -> {
                 val uris = intent.parcelableUriList(EXTRA_URIS).orEmpty()
@@ -1120,6 +1137,293 @@ class UltraShareForegroundService : Service() {
         sendJob = job
         job.start()
     }
+    private fun startSendingQueueToPeers(
+        uris: List<Uri>,
+        targets: List<UltraShareApprovedSendTarget>
+    ) {
+        if (uris.isEmpty() || targets.isEmpty() || sendJob != null) return
+        if (targets.any {
+                !UltraShareTransport.isValidPrivateLanHost(it.host) ||
+                    !UltraShareTransport.isValidPairingSecret(it.secret)
+            }
+        ) {
+            updateState { current -> current.copy(error = "بيانات أحد الأجهزة المقترنة غير صالحة.") }
+            finishService()
+            return
+        }
+        startForegroundCompat()
+        updateState { current ->
+            current.copy(
+                sending = true,
+                queueTotal = uris.distinctBy { it.toString() }.size,
+                queueCompleted = 0,
+                queueTransferredBytes = 0L,
+                queueTotalBytes = 0L,
+                status = "جارٍ تجهيز الإرسال إلى " + targets.size + " أجهزة مقترنة",
+                error = null
+            )
+        }
+        val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+            val queue = uris.distinctBy { it.toString() }
+            val metadata = LinkedHashMap<Uri, Triple<String, String, Long>>()
+            var totalBytes = 0L
+            try {
+                UltraShareQueueStore.enqueue(this@UltraShareForegroundService, queue)
+                queue.forEach { uri ->
+                    try {
+                        metadata[uri] = readDocumentMetadata(uri)
+                    } catch (failure: Exception) {
+                        UltraShareQueueStore.update(
+                            this@UltraShareForegroundService,
+                            uri,
+                            status = UltraShareQueueStore.STATUS_FAILED,
+                            error = failure.localizedMessage ?: "تعذرت قراءة الملف."
+                        )
+                    }
+                }
+                totalBytes = metadata.values.fold(0L) { total, item ->
+                    if (Long.MAX_VALUE - total < item.third) Long.MAX_VALUE else total + item.third
+                }
+                updateState { current ->
+                    current.copy(
+                        queueTotalBytes = totalBytes,
+                        queueTransferredBytes = 0L,
+                        status = "تم تجهيز " + metadata.size + " ملفات لـ " + targets.size + " أجهزة"
+                    )
+                }
+                if (metadata.isEmpty()) {
+                    updateState { current -> current.copy(error = "لم يمكن تجهيز أي ملف للإرسال.") }
+                    return@launch
+                }
+
+                val peerTargets = targets.map {
+                    UltraShareMultiRecipientCoordinator.Target(it.sessionId, it.host)
+                }
+                UltraSharePeerDeliveryStore.prepare(
+                    this@UltraShareForegroundService,
+                    metadata.map { (uri, details) -> uri to details.first },
+                    peerTargets
+                )
+
+                UltraShareMultiRecipientCoordinator.execute(
+                    targets = peerTargets,
+                    onStatus = { delivery ->
+                        updateState { current ->
+                            current.copy(
+                                status = when (delivery.status) {
+                                    UltraShareMultiRecipientCoordinator.Status.PENDING ->
+                                        "بانتظار دور الجهاز " + delivery.target.host
+                                    UltraShareMultiRecipientCoordinator.Status.SENDING ->
+                                        "جارٍ الإرسال إلى الجهاز " + delivery.target.host
+                                    UltraShareMultiRecipientCoordinator.Status.COMPLETED ->
+                                        "اكتمل الإرسال إلى الجهاز " + delivery.target.host
+                                    UltraShareMultiRecipientCoordinator.Status.FAILED ->
+                                        "تعذر الإرسال إلى الجهاز " + delivery.target.host
+                                }
+                            )
+                        }
+                    }
+                ) { peer ->
+                    val auth = targets.first { it.sessionId == peer.sessionId }
+                    val sources = metadata.map { (uri, details) ->
+                        UltraShareBatchTransport.Source(
+                            uri = uri,
+                            name = details.first,
+                            mimeType = details.second,
+                            sizeBytes = details.third,
+                            fileId = java.util.UUID.randomUUID().toString()
+                        )
+                    }
+                    sources.forEach { source ->
+                        UltraSharePeerDeliveryStore.update(
+                            this@UltraShareForegroundService,
+                            source.uri,
+                            peer.sessionId,
+                            UltraSharePeerDeliveryStore.STATUS_SENDING
+                        )
+                    }
+                    try {
+                        val outcome = try {
+                            sendBatchWithRetry(
+                                sources = sources,
+                                host = auth.host,
+                                secret = auth.secret,
+                                candidates = auth.candidates
+                            ) { progress ->
+                                updateState { current ->
+                                    val transfer = UltraSharePeerTransfer(
+                                        host = auth.host,
+                                        fileName = progress.fileName,
+                                        transferredBytes = progress.transferredBytes,
+                                        totalBytes = progress.totalBytes,
+                                        bytesPerSecond = progress.bytesPerSecond,
+                                        status = "يرسل الآن"
+                                    )
+                                    current.copy(
+                                        peerTransfers = current.peerTransfers.filterNot { it.host == auth.host } + transfer,
+                                        queueCurrentName = progress.fileName,
+                                        status = "إرسال " + progress.fileName + " إلى " + auth.host
+                                    )
+                                }
+                            }
+                        } catch (connectFailure: java.net.ConnectException) {
+                            // Compatibility path for peers that expose the V1 listener only.
+                            sources.forEach { source ->
+                                val details = metadata.getValue(source.uri)
+                                sendWithRetry(source.uri, auth.host, auth.secret, details) { progress ->
+                                    updateState { current ->
+                                        val transfer = UltraSharePeerTransfer(
+                                            host = auth.host,
+                                            fileName = progress.fileName,
+                                            transferredBytes = progress.transferredBytes,
+                                            totalBytes = progress.totalBytes,
+                                            bytesPerSecond = progress.bytesPerSecond,
+                                            status = "يرسل الآن • V1"
+                                        )
+                                        current.copy(
+                                            peerTransfers = current.peerTransfers.filterNot { it.host == auth.host } + transfer,
+                                            queueCurrentName = progress.fileName
+                                        )
+                                    }
+                                }
+                                UltraSharePeerDeliveryStore.update(
+                                    this@UltraShareForegroundService,
+                                    source.uri,
+                                    peer.sessionId,
+                                    UltraSharePeerDeliveryStore.STATUS_COMPLETED
+                                )
+                            }
+                            return@execute "تم الإرسال عبر V1"
+                        }
+
+                        val outcomes = outcome.files.associateBy { it.fileId }
+                        sources.forEach { source ->
+                            val fileOutcome = outcomes[source.fileId]
+                            val completed = fileOutcome?.status == UltraShareBatchProtocol.FileStatus.COMPLETED
+                            UltraSharePeerDeliveryStore.update(
+                                this@UltraShareForegroundService,
+                                source.uri,
+                                peer.sessionId,
+                                if (completed) UltraSharePeerDeliveryStore.STATUS_COMPLETED
+                                else UltraSharePeerDeliveryStore.STATUS_FAILED,
+                                if (completed) null else fileOutcome?.error ?: "لم يؤكد الجهاز استلام الملف."
+                            )
+                        }
+                        val completedCount = sources.count {
+                            outcomes[it.fileId]?.status == UltraShareBatchProtocol.FileStatus.COMPLETED
+                        }
+                        "اكتمل " + completedCount + " من " + sources.size + " ملفات"
+                    } catch (cancelled: CancellationException) {
+                        withContext(NonCancellable) {
+                            sources.forEach { source ->
+                                UltraSharePeerDeliveryStore.update(
+                                    this@UltraShareForegroundService,
+                                    source.uri,
+                                    peer.sessionId,
+                                    UltraSharePeerDeliveryStore.STATUS_PENDING,
+                                    "أُوقف النقل؛ يمكن استئناف هذا الجهاز بعد إعادة الاتصال."
+                                )
+                            }
+                        }
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        withContext(NonCancellable) {
+                            sources.forEach { source ->
+                                UltraSharePeerDeliveryStore.update(
+                                    this@UltraShareForegroundService,
+                                    source.uri,
+                                    peer.sessionId,
+                                    UltraSharePeerDeliveryStore.STATUS_FAILED,
+                                    failure.localizedMessage ?: "فشل الإرسال إلى هذا الجهاز."
+                                )
+                            }
+                        }
+                        throw failure
+                    }
+                }
+
+                val deliveryEntries = UltraSharePeerDeliveryStore.observe(this@UltraShareForegroundService).first()
+                var fullyDeliveredFiles = 0
+                var failedFiles = 0
+                var transferredBytes = 0L
+                metadata.forEach { (uri, details) ->
+                    val perPeer = deliveryEntries.filter {
+                        it.fileUri == uri.toString() && it.peerSessionId in peerTargets.map { target -> target.sessionId }
+                    }
+                    val completeForAll = perPeer.size == peerTargets.size &&
+                        perPeer.all { it.status == UltraSharePeerDeliveryStore.STATUS_COMPLETED }
+                    if (completeForAll) {
+                        fullyDeliveredFiles++
+                        transferredBytes = if (Long.MAX_VALUE - transferredBytes < details.third) {
+                            Long.MAX_VALUE
+                        } else transferredBytes + details.third
+                        UltraShareQueueStore.update(
+                            this@UltraShareForegroundService,
+                            uri,
+                            details.first,
+                            UltraShareQueueStore.STATUS_COMPLETED
+                        )
+                    } else {
+                        failedFiles++
+                        val reason = perPeer.firstOrNull {
+                            it.status != UltraSharePeerDeliveryStore.STATUS_COMPLETED
+                        }?.error ?: "لم يكتمل الاستلام على جميع الأجهزة المحددة."
+                        UltraShareQueueStore.update(
+                            this@UltraShareForegroundService,
+                            uri,
+                            details.first,
+                            UltraShareQueueStore.STATUS_FAILED,
+                            reason
+                        )
+                    }
+                }
+                updateState { current ->
+                    current.copy(
+                        queueCompleted = queue.size,
+                        queueTotal = queue.size,
+                        queueTotalBytes = totalBytes,
+                        queueTransferredBytes = transferredBytes,
+                        status = "اكتمل الإرسال الجماعي: " + fullyDeliveredFiles + " ملفات وصلت إلى جميع الأجهزة",
+                        error = if (failedFiles > 0) {
+                            "هناك " + failedFiles + " ملفات لم تصل إلى كل الأجهزة. يمكنك إعادة المحاولة لكل جهاز."
+                        } else null
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                withContext(NonCancellable) {
+                    UltraSharePeerDeliveryStore.recoverInterrupted(this@UltraShareForegroundService)
+                }
+                updateState { current ->
+                    current.copy(
+                        sending = false,
+                        status = "أُوقف الإرسال الجماعي؛ احتُفظ بحالات كل جهاز للاستئناف."
+                    )
+                }
+                throw cancelled
+            } catch (failure: Exception) {
+                updateState { current ->
+                    current.copy(
+                        error = failure.localizedMessage ?: "فشل الإرسال الجماعي.",
+                        status = "توقف الإرسال الجماعي مع الاحتفاظ بسجل التسليم لكل جهاز."
+                    )
+                }
+            } finally {
+                sendJob = null
+                updateState { current ->
+                    current.copy(
+                        sending = false,
+                        progress = if (current.receiving) current.receiveProgress else null,
+                        sendProgress = null,
+                        queueCurrentName = null
+                    )
+                }
+                finishService()
+            }
+        }
+        sendJob = job
+        job.start()
+    }
+
     private suspend fun sendBatchWithRetry(
         sources: List<UltraShareBatchTransport.Source>,
         host: String,
@@ -1346,6 +1650,7 @@ class UltraShareForegroundService : Service() {
         private const val EXTRA_URI = "uri"
         private const val EXTRA_URIS = "uris"
         private const val EXTRA_ROUTE_OFFER = "route_offer"
+        private const val EXTRA_PEER_TARGETS = "peer_targets"
         const val ACTION_STOP = "com.malekplay.ultrashare.STOP"
         const val ACTION_CANCEL = "com.malekplay.ultrashare.CANCEL"
         const val ACTION_CANCEL_SEND = "com.malekplay.ultrashare.CANCEL_SEND"
@@ -1359,6 +1664,7 @@ class UltraShareForegroundService : Service() {
         const val ACTION_REJECT_CONNECTION = "com.malekplay.ultrashare.REJECT_CONNECTION"
         const val ACTION_SEND = "com.malekplay.ultrashare.SEND"
         const val ACTION_SEND_BATCH = "com.malekplay.ultrashare.SEND_BATCH"
+        const val ACTION_SEND_MULTI_BATCH = "com.malekplay.ultrashare.SEND_MULTI_BATCH"
         const val ACTION_RETRY_FILE = "com.malekplay.ultrashare.RETRY_FILE"
 
         private val mutableState = MutableStateFlow(UltraShareServiceState())
@@ -1441,6 +1747,66 @@ class UltraShareForegroundService : Service() {
                 .putExtra(EXTRA_ROUTE_OFFER, routeOffer)
             start(context, intent)
         }
+
+        fun startSendingBatchToPeers(
+            context: Context,
+            uris: List<Uri>,
+            targets: List<UltraShareApprovedSendTarget>
+        ) {
+            require(uris.isNotEmpty()) { "اختر ملفاً واحداً على الأقل." }
+            require(targets.isNotEmpty()) { "لا توجد أجهزة مقترنة للإرسال." }
+            require(targets.map { it.sessionId }.distinct().size == targets.size) {
+                "تكررت هوية جلسة جهاز في قائمة الإرسال."
+            }
+            require(targets.map { it.host }.distinct().size == targets.size) {
+                "يوجد عنوان جهاز مكرر في قائمة الإرسال."
+            }
+            val encodedTargets = org.json.JSONArray().apply {
+                targets.forEach { target ->
+                    require(target.sessionId.isNotBlank())
+                    require(UltraShareTransport.isValidPrivateLanHost(target.host))
+                    require(UltraShareTransport.isValidPairingSecret(target.secret))
+                    val routeOffer = target.candidates.take(8).takeIf { it.isNotEmpty() }?.let {
+                        UltraShareNegotiation.encode(
+                            UltraShareNegotiation.Offer(
+                                peerId = "route-fallback",
+                                displayName = "MalekPlay",
+                                candidates = it
+                            )
+                        )
+                    }
+                    put(org.json.JSONObject().apply {
+                        put("sessionId", target.sessionId)
+                        put("host", target.host)
+                        put("secret", target.secret)
+                        put("routeOffer", routeOffer ?: org.json.JSONObject.NULL)
+                    })
+                }
+            }.toString()
+            val intent = Intent(context, UltraShareForegroundService::class.java)
+                .setAction(ACTION_SEND_MULTI_BATCH)
+                .putParcelableArrayListExtra(EXTRA_URIS, ArrayList(uris.distinctBy { it.toString() }))
+                .putExtra(EXTRA_PEER_TARGETS, encodedTargets)
+            start(context, intent)
+        }
+
+        private fun decodeApprovedSendTargets(raw: String): List<UltraShareApprovedSendTarget> =
+            runCatching {
+                val array = org.json.JSONArray(raw)
+                (0 until array.length()).mapNotNull { index ->
+                    val item = array.optJSONObject(index) ?: return@mapNotNull null
+                    val sessionId = item.optString("sessionId").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    val host = item.optString("host").takeIf { UltraShareTransport.isValidPrivateLanHost(it) } ?: return@mapNotNull null
+                    val secret = item.optString("secret").takeIf { UltraShareTransport.isValidPairingSecret(it) } ?: return@mapNotNull null
+                    val offer = item.optString("routeOffer").takeIf { it.isNotBlank() && it != "null" }
+                    UltraShareApprovedSendTarget(
+                        sessionId = sessionId,
+                        host = host,
+                        secret = secret,
+                        candidates = offer?.let(UltraShareNegotiation::decode)?.candidates.orEmpty()
+                    )
+                }.distinctBy { it.sessionId }.distinctBy { it.host }
+            }.getOrDefault(emptyList())
 
         fun retryFile(context: Context, uri: Uri, host: String, secret: String) {
             val intent = Intent(context, UltraShareForegroundService::class.java)
