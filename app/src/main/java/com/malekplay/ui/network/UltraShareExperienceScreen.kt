@@ -330,10 +330,10 @@ fun UltraShareExperienceScreen(
                 ) { page = UltraSharePage.HISTORY }
                 ActionTile(
                     Modifier.weight(1f),
-                    "مركز المساعدة",
-                    "إرشادات المشاركة",
-                    { Icon(Icons.Filled.CheckCircle, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
-                ) { page = UltraSharePage.RECEIVE }
+                    "إرسال ملفات",
+                    "اختر فيديو أو موسيقى أو صوراً",
+                    { Icon(Icons.Filled.Send, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
+                ) { page = UltraSharePage.SEND }
             }
             StatusPanel(
                 title = when {
@@ -346,6 +346,7 @@ fun UltraShareExperienceScreen(
                 subtitle = "${state.discoveredPeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
                 active = state.sending || state.activePeers.isNotEmpty()
             )
+            UltraShareHelpCard()
             state.pendingConnection?.let {
                 IncomingRequestPanel(it, viewModel::acceptConnection, viewModel::rejectConnection)
             }
