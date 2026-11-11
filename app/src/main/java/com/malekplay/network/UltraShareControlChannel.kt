@@ -120,7 +120,7 @@ object UltraShareControlChannel {
                                 client.soTimeout = HANDSHAKE_TIMEOUT_MS
                                 client.tcpNoDelay = true
                                 client.keepAlive = true
-                                handleIncoming(client, pairingSecret, localPeerName, onRequest, onSessionClosed)
+                                handleIncoming(client, pairingSecret, localPeerName, localPeerId, onRequest, onSessionClosed)
                             }
                         } catch (cancelled: kotlinx.coroutines.CancellationException) {
                             throw cancelled
@@ -281,6 +281,7 @@ object UltraShareControlChannel {
         socket: Socket,
         pairingSecret: String,
         localPeerName: String,
+        localPeerId: String?,
         onRequest: suspend (Request) -> Decision,
         onSessionClosed: suspend (Request) -> Unit
     ) {
