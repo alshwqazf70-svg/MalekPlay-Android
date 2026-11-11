@@ -173,6 +173,7 @@ def decode_manifest(payload: bytes) -> Manifest:
 import hmac
 import ipaddress
 import os
+import secrets
 import socket
 import struct
 import time
