@@ -122,8 +122,6 @@ class UltraShareMultiRecipientCoordinatorTest {
             ) { Unit }
         }.isSuccess)
     }
-}
-
 
     @Test
     fun disconnectingPeerMidTransferDoesNotCancelAnotherRecipient() = runBlocking {
@@ -177,3 +175,4 @@ class UltraShareMultiRecipientCoordinatorTest {
 
         assertTrue("Peer socket/resource cleanup must run on cancellation.", resourceReleased.get())
     }
+}
