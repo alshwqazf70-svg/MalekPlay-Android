@@ -277,8 +277,12 @@ object UltraShareWifiDirect {
             try {
                 manager.requestGroupInfo(channel) { existingGroup ->
                     if (closed) return@requestGroupInfo
-                    if (existingGroup != null) {
+                    if (existingGroup?.isGroupOwner == true) {
                         onCreated()
+                        return@requestGroupInfo
+                    }
+                    if (existingGroup != null) {
+                        onError("هذا الهاتف متصل حالياً بمجموعة Wi-Fi Direct أخرى. افصل المجموعة الحالية ثم أنشئ مجموعة الاستقبال.")
                         return@requestGroupInfo
                     }
                     manager.createGroup(channel, object : WifiP2pManager.ActionListener {
@@ -366,12 +370,13 @@ object UltraShareWifiDirect {
                     override fun onFailure(reason: Int) {
                         if (closed || token != connectionAttemptToken) return
                         if ((reason == WifiP2pManager.BUSY || reason == WifiP2pManager.ERROR) && attempt < 2) {
-                            val retry = {
+                            val retry: () -> Unit = {
                                 mainHandler.postDelayed({
                                     if (!closed && connectionInProgress && token == connectionAttemptToken) {
                                         connectAttempt(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt + 1)
                                     }
                                 }, 900L * (attempt + 1))
+                                Unit
                             }
                             runCatching {
                                 manager.cancelConnect(channel, object : WifiP2pManager.ActionListener {
