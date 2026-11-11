@@ -1256,74 +1256,88 @@ class UltraShareForegroundService : Service() {
                         )
                     }
                     try {
-                        val outcome = try {
-                            sendBatchWithRetry(
-                                sources = sources,
-                                host = auth.host,
-                                secret = auth.secret,
-                                candidates = auth.candidates
-                            ) { progress ->
-                                updateState { current ->
-                                    val transfer = UltraSharePeerTransfer(
+                        var useLegacyV1 = false
+                        sources.chunked(UltraShareBatchProtocol.MAX_FILES).forEach { chunk ->
+                            val outcome = if (useLegacyV1) null else {
+                                try {
+                                    sendBatchWithRetry(
+                                        sources = chunk,
                                         host = auth.host,
-                                        fileName = progress.fileName,
-                                        transferredBytes = progress.transferredBytes,
-                                        totalBytes = progress.totalBytes,
-                                        bytesPerSecond = progress.bytesPerSecond,
-                                        status = "يرسل الآن"
-                                    )
-                                    current.copy(
-                                        peerTransfers = current.peerTransfers.filterNot { it.host == auth.host } + transfer,
-                                        queueCurrentName = progress.fileName,
-                                        status = "إرسال " + progress.fileName + " إلى " + auth.host
-                                    )
-                                }
-                            }
-                        } catch (connectFailure: java.net.ConnectException) {
-                            // Compatibility path for peers that expose the V1 listener only.
-                            sources.forEach { source ->
-                                val details = metadata.getValue(source.uri)
-                                sendWithRetry(source.uri, auth.host, auth.secret, details) { progress ->
-                                    updateState { current ->
-                                        val transfer = UltraSharePeerTransfer(
-                                            host = auth.host,
-                                            fileName = progress.fileName,
-                                            transferredBytes = progress.transferredBytes,
-                                            totalBytes = progress.totalBytes,
-                                            bytesPerSecond = progress.bytesPerSecond,
-                                            status = "يرسل الآن • V1"
-                                        )
-                                        current.copy(
-                                            peerTransfers = current.peerTransfers.filterNot { it.host == auth.host } + transfer,
-                                            queueCurrentName = progress.fileName
-                                        )
+                                        secret = auth.secret,
+                                        candidates = auth.candidates
+                                    ) { progress ->
+                                        updateState { current ->
+                                            val transfer = UltraSharePeerTransfer(
+                                                host = auth.host,
+                                                fileName = progress.fileName,
+                                                transferredBytes = progress.transferredBytes,
+                                                totalBytes = progress.totalBytes,
+                                                bytesPerSecond = progress.bytesPerSecond,
+                                                status = "يرسل الآن"
+                                            )
+                                            current.copy(
+                                                peerTransfers = current.peerTransfers.filterNot { it.host == auth.host } + transfer,
+                                                queueCurrentName = progress.fileName,
+                                                status = "إرسال " + progress.fileName + " إلى " + auth.host
+                                            )
+                                        }
                                     }
+                                } catch (connectFailure: java.net.ConnectException) {
+                                    // Switch this peer to V1 for the remaining chunks.
+                                    useLegacyV1 = true
+                                    null
                                 }
-                                UltraSharePeerDeliveryStore.update(
-                                    this@UltraShareForegroundService,
-                                    source.uri,
-                                    peer.sessionId,
-                                    UltraSharePeerDeliveryStore.STATUS_COMPLETED
-                                )
                             }
-                            return@execute "تم الإرسال عبر V1"
+                            if (outcome == null) {
+                                // Compatibility path for peers that expose the V1 listener only.
+                                chunk.forEach { source ->
+                                    val details = metadata.getValue(source.uri)
+                                    sendWithRetry(source.uri, auth.host, auth.secret, details) { progress ->
+                                        updateState { current ->
+                                            val transfer = UltraSharePeerTransfer(
+                                                host = auth.host,
+                                                fileName = progress.fileName,
+                                                transferredBytes = progress.transferredBytes,
+                                                totalBytes = progress.totalBytes,
+                                                bytesPerSecond = progress.bytesPerSecond,
+                                                status = "يرسل الآن • V1"
+                                            )
+                                            current.copy(
+                                                peerTransfers = current.peerTransfers.filterNot { it.host == auth.host } + transfer,
+                                                queueCurrentName = progress.fileName
+                                            )
+                                        }
+                                    }
+                                    UltraSharePeerDeliveryStore.update(
+                                        this@UltraShareForegroundService,
+                                        source.uri,
+                                        peer.sessionId,
+                                        UltraSharePeerDeliveryStore.STATUS_COMPLETED
+                                    )
+                                }
+                            } else {
+                                val outcomes = outcome.files.associateBy { it.fileId }
+                                chunk.forEach { source ->
+                                    val fileOutcome = outcomes[source.fileId]
+                                    val completed = fileOutcome?.status == UltraShareBatchProtocol.FileStatus.COMPLETED
+                                    UltraSharePeerDeliveryStore.update(
+                                        this@UltraShareForegroundService,
+                                        source.uri,
+                                        peer.sessionId,
+                                        if (completed) UltraSharePeerDeliveryStore.STATUS_COMPLETED
+                                        else UltraSharePeerDeliveryStore.STATUS_FAILED,
+                                        if (completed) null else fileOutcome?.error ?: "لم يؤكد الجهاز استلام الملف."
+                                    )
+                                }
+                            }
                         }
-
-                        val outcomes = outcome.files.associateBy { it.fileId }
-                        sources.forEach { source ->
-                            val fileOutcome = outcomes[source.fileId]
-                            val completed = fileOutcome?.status == UltraShareBatchProtocol.FileStatus.COMPLETED
-                            UltraSharePeerDeliveryStore.update(
-                                this@UltraShareForegroundService,
-                                source.uri,
-                                peer.sessionId,
-                                if (completed) UltraSharePeerDeliveryStore.STATUS_COMPLETED
-                                else UltraSharePeerDeliveryStore.STATUS_FAILED,
-                                if (completed) null else fileOutcome?.error ?: "لم يؤكد الجهاز استلام الملف."
-                            )
-                        }
-                        val completedCount = sources.count {
-                            outcomes[it.fileId]?.status == UltraShareBatchProtocol.FileStatus.COMPLETED
+                        val completedCount = sources.count { source ->
+                            UltraSharePeerDeliveryStore.observe(this@UltraShareForegroundService).first()
+                                .any {
+                                    it.fileUri == source.uri.toString() &&
+                                        it.peerSessionId == peer.sessionId &&
+                                        it.status == UltraSharePeerDeliveryStore.STATUS_COMPLETED
+                                }
                         }
                         "اكتمل " + completedCount + " من " + sources.size + " ملفات"
                     } catch (cancelled: CancellationException) {
