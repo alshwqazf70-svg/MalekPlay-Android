@@ -139,7 +139,8 @@ object UltraSharePeerDeliveryStore {
                     updatedAtMillis = item.optLong("updatedAtMillis", 0L)
                 )
             }.getOrNull() ?: continue
-            decoded.putIfAbsent(key(entry.fileUri, entry.peerSessionId), entry)
+            val entryKey = key(entry.fileUri, entry.peerSessionId)
+            if (entryKey !in decoded) decoded[entryKey] = entry
         }
         return decoded.values.toList()
     }
