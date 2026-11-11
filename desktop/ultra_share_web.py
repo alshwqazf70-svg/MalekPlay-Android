@@ -267,7 +267,7 @@ button,.download{border:0;border-radius:12px;padding:12px 16px;background:linear
 <label for="pin">رمز الاقتران الظاهر في MalekPlay</label><input id="pin" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="9 أرقام">
 <button id="discover" type="button">البحث عن الهاتف على الشبكة</button>
 <label for="file">اختر ملفات من الكمبيوتر</label><input id="file" type="file" multiple>
-<button id="send">إرسال V1</button><button id="sendV2" type="button">إرسال V2 المشفّر</button><div id="sendStatus" class="status" aria-live="polite"></div>
+<button id="send">إرسال V1</button><button id="sendV2" type="button">إرسال V2 المشفّر (ملفًا ملفًا)</button><div id="sendStatus" class="status" aria-live="polite"></div>
 <p class="note">تأكد أن الكمبيوتر والهاتف على شبكة Wi-Fi نفسها أو أن الكمبيوتر متصل بنقطة اتصال الهاتف. لا تغلق الصفحة أثناء النقل.</p>
 </section>
 <section class="panel"><h2>الملفات المستلمة على الكمبيوتر</h2><div id="files" class="empty">جارٍ تحميل الملفات...</div>
@@ -337,9 +337,12 @@ def main() -> int:
         while not stopped.is_set():
             try:
                 def approve(peer_name: str, peer_host: str) -> bool:
-                    answer = input(
-                        f"\\n{peer_name} ({peer_host}) requests Ultra Share access. Accept? [y/N]: "
-                    ).strip().lower()
+                    try:
+                        answer = input(
+                            f"\\n{peer_name} ({peer_host}) requests Ultra Share access. Accept? [y/N]: "
+                        ).strip().lower()
+                    except EOFError:
+                        return False
                     return answer in {"y", "yes"}
                 serve_control_once(args.control_port, secret, socket.gethostname(), approve)
             except (OSError, ValueError, PermissionError, ConnectionError) as failure:
