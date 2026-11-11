@@ -16,7 +16,7 @@ class BrowserSharePathTests(unittest.TestCase):
             outside.write_text("secret", encoding="utf-8")
 
             self.assertEqual(inside.resolve(), resolve_download_file(root, "video.mp4"))
-            self.assertEqual(inside.resolve(), resolve_download_file(root, "../private.txt"))
+            self.assertIsNone(resolve_download_file(root, "../private.txt"))
             self.assertNotEqual(outside.resolve(), resolve_download_file(root, "../private.txt"))
 
     def test_hidden_partial_files_are_not_listed_or_downloadable(self):
