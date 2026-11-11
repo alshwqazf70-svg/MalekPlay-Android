@@ -117,7 +117,7 @@ fun ReceiveScreen(
                         }
                     }
                     Text(
-                        "شغّل Wi-Fi على الهاتفين فقط ثم امسح الرمز؛ لا يلزم الانضمام يدوياً إلى شبكة Wi-Fi",
+                        "شغّل Wi-Fi وفعّل أذونات الأجهزة القريبة/الموقع عند طلبها؛ لا يلزم الانضمام يدوياً إلى شبكة Wi-Fi",
                         color = Color(0xFF46536A),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
