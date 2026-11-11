@@ -490,7 +490,6 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
             session_active = (
                 active_peer is not None
                 and active_peer[1].fileno() >= 0
-                and not active_peer[1]._closed
             )
         approved = authenticated and session_active
         connection.sendall(b"\x01" if approved else b"\x00")
