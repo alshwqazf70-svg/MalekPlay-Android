@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
@@ -50,7 +51,8 @@ fun ReceiveScreen(
     onAcceptConnection: () -> Unit,
     onRejectConnection: () -> Unit,
     onOpenReceived: (Uri, String) -> Unit,
-    onExportReceived: (String) -> Unit
+    onExportReceived: (String) -> Unit,
+    onExtractReceivedFolder: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
@@ -190,6 +192,14 @@ fun ReceiveScreen(
             }
             OutlinedButton(onClick = { onExportReceived(received.fileName) }, modifier = Modifier.fillMaxWidth()) {
                 Text("حفظ نسخة في مكان آخر")
+            }
+            if (received.mimeType.equals("application/zip", ignoreCase = true) ||
+                received.fileName.endsWith(".zip", ignoreCase = true)
+            ) {
+                OutlinedButton(onClick = onExtractReceivedFolder, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.FolderOpen, contentDescription = null)
+                    Text("استخراج المجلد إلى مكان تختاره", modifier = Modifier.padding(start = 8.dp))
+                }
             }
         }
     }
