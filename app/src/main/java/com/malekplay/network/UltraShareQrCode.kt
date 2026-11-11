@@ -29,6 +29,29 @@ object UltraShareQrCode {
     /** Builds a receiver QR using the authenticated control endpoint, never the data port. */
     fun createReceiverPayload(host: String, pairingSecret: String): String =
         createPayload(host, UltraShareControlChannel.DEFAULT_PORT, pairingSecret)
+    /** Backward-compatible version 2 QR for peers that still rely on shared-LAN host addresses. */
+    fun createReceiverPayload(hosts: List<String>, pairingSecret: String): String {
+        val safeHosts = hosts.asSequence()
+            .map { it.trim() }
+            .filter { UltraShareTransport.isValidPrivateLanHost(it) }
+            .distinct()
+            .take(MAX_QR_HOSTS)
+            .toList()
+        require(safeHosts.isNotEmpty()) { "لا يوجد عنوان شبكة محلي صالح لرمز QR." }
+        require(UltraShareTransport.isValidPairingSecret(pairingSecret)) {
+            "رمز الاقتران غير صالح."
+        }
+        return Uri.Builder()
+            .scheme(SCHEMA)
+            .authority(AUTHORITY)
+            .appendQueryParameter("v", MULTI_HOST_VERSION)
+            .apply { safeHosts.forEach { appendQueryParameter("host", it) } }
+            .appendQueryParameter("port", UltraShareControlChannel.DEFAULT_PORT.toString())
+            .appendQueryParameter("secret", pairingSecret)
+            .build()
+            .toString()
+    }
+
     /** Version 3 QR carries a public, stable peer identity for Wi-Fi Direct service discovery. */
     fun createReceiverPayload(
         hosts: List<String>,
