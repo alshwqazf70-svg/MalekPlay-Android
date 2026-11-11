@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -34,8 +35,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.malekplay.core.ui.theme.MalekPlayColors
 
-private val ShareWhite = Color(0xFF21192D)
-private val ShareCyan = Color(0xFFA855F7)
+private val ShareWhite = Color(0xFFFDFEFF)
+private val ShareCyan = Color(0xFF3D72D4)
 
 @Composable
 fun ReceiveScreen(
@@ -54,7 +55,7 @@ fun ReceiveScreen(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
-            if (state.receiving) "جاري انتظار انضمام الأصدقاء……" else "إنشاء مجموعة",
+            if (state.receiving) "جاري انتظار انضمام الأصدقاء…" else "إنشاء مجموعة",
             color = Color.White,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
@@ -64,50 +65,74 @@ fun ReceiveScreen(
         if (state.receiving) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = ShareWhite)
             ) {
                 Column(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(11.dp)
                 ) {
                     Text(
-                        "اطلب من صديقك مسح كود QR أو البحث عن اسم المجموعة",
-                        color = Color(0xFFF2EAFB),
+                        "اطلب من صديقك مسح رمز QR أو البحث عن اسم المجموعة",
+                        color = Color(0xFF30394C),
                         textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        "اسم المجموعة: ${android.os.Build.MODEL.orEmpty().ifBlank { "MalekPlay" }}",
-                        color = Color(0xFFF8F5FF),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Text(
-                        "كلمة المرور: ${state.pairingSecret}",
-                        color = Color(0xFFC084FC),
                         style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.fillMaxWidth()
+                        fontWeight = FontWeight.SemiBold
                     )
-                    if (qrBitmap != null) {
-                        Image(
-                            bitmap = qrBitmap.asImageBitmap(),
-                            contentDescription = "رمز QR للانضمام إلى مجموعة MalekPlay",
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
+                    Column(
+                        Modifier.fillMaxWidth().background(Color(0xFFF1F5FC), RoundedCornerShape(12.dp)).padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("اسم المجموعة", color = Color(0xFF69758B), style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            android.os.Build.MODEL.orEmpty().ifBlank { "MalekPlay Android" },
+                            color = Color(0xFF30394C),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
                         )
-                    } else {
-                        CircularProgressIndicator(color = ShareCyan)
+                        Text("كلمة المرور", color = Color(0xFF69758B), style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            state.pairingSecret.ifBlank { "جارٍ إنشاء رمز الاقتران…" },
+                            color = Color(0xFF3568C6),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Box(
+                        Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(12.dp)).padding(5.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (qrBitmap != null) {
+                            Image(
+                                bitmap = qrBitmap.asImageBitmap(),
+                                contentDescription = "رمز QR للانضمام إلى مجموعة MalekPlay",
+                                modifier = Modifier.size(290.dp)
+                            )
+                        } else {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CircularProgressIndicator(color = ShareCyan)
+                                Text("جارٍ تجهيز رمز QR…", color = Color(0xFF59677E))
+                            }
+                        }
                     }
                     Text(
-                        "امسح الرمز من الهاتف الآخر للاتصال",
-                        color = Color(0xFFB9B1C8),
+                        "امسح الرمز من الهاتف الآخر للاتصال بالمجموعة",
+                        color = Color(0xFF46536A),
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
+            ShareInfoCard(
+                title = "حالة المجموعة",
+                body = if (state.pendingConnection != null) {
+                    "يوجد طلب اتصال من ${state.pendingConnection.peerName}. راجعه أدناه للموافقة أو الرفض."
+                } else {
+                    "المجموعة جاهزة لاستقبال طلبات الانضمام. لا يبدأ نقل الملفات قبل موافقتك."
+                }
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
