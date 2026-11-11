@@ -79,6 +79,24 @@ object UltraShareNegotiation {
     fun selectCandidate(candidates: List<Candidate>): Candidate? =
         orderedCandidates(candidates).firstOrNull()
 
+    /**
+     * Rebuilds route candidates only from discovery sightings carrying the exact
+     * authenticated/stable peer identity. A changed IP is never trusted by address
+     * similarity or display name alone.
+     */
+    fun candidatesForPeer(
+        peerId: String?,
+        discoveredPeers: List<UltraShareDiscovery.Peer>
+    ): List<Candidate> {
+        if (peerId.isNullOrBlank()) return emptyList()
+        return orderedCandidates(
+            discoveredPeers.asSequence()
+                .filter { it.peerId == peerId }
+                .flatMap { it.candidates.asSequence() }
+                .toList()
+        )
+    }
+
     fun dataPortForHost(host: String, candidates: List<Candidate>, fallbackPort: Int): Int {
         require(fallbackPort in 1..65535)
         return orderedCandidates(candidates).firstOrNull { it.host == host }?.port ?: fallbackPort
