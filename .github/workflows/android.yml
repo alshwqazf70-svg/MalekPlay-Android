@@ -52,42 +52,21 @@ jobs:
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Assemble ABI-specific debug APKs (retry transient dependency downloads)
-        shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            ./gradlew --stacktrace --max-workers=2 -PenableAbiSplits=true :app:assembleDebug && exit 0
-            if [ "$attempt" -lt 3 ]; then
-              echo "Gradle build attempt $attempt failed; retrying after transient dependency/network errors..."
-              sleep 20
-            fi
-          done
-          exit 1
-
-      - name: Upload debug APKs
-        uses: actions/upload-artifact@v4
-        with:
-          name: MalekPlayer-debug
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 14
-
       - name: Assemble universal debug APK for direct installation
         run: |
-          rm -rf app/build/outputs/apk/debug
           ./gradlew --stacktrace --max-workers=2 :app:assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/MalekPlayer-2.0-universal.apk
           cat > dist/README_AR.txt <<'EOF'
           MalekPlayer 2.0 - نسخة Android للتثبيت
-          
+
           طريقة التثبيت:
           1) فك ضغط ملف MalekPlayer-2.0-Android.zip.
           2) افتح MalekPlayer-2.0-universal.apk من هاتف Android.
           3) إذا طلب الهاتف الإذن، اسمح بالتثبيت من هذا المصدر.
           4) أكمل التثبيت ثم افتح MalekPlayer.
-          
+
           هذه حزمة APK شاملة لمعالجات Android الشائعة (ARM و x86).
           EOF
           cd dist
@@ -101,7 +80,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MalekPlayer-universal-install
-          path: dist/MalekPlayer-2.0-Android.zip
+          path: |
+            dist/MalekPlayer-2.0-universal.apk
+            dist/MalekPlayer-2.0-Android.zip
+            dist/README_AR.txt
+            dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
 
