@@ -712,7 +712,7 @@ fun UltraShareExperienceScreen(
                                     if (entry.status == UltraShareQueueStore.STATUS_FAILED) {
                                         TextButton(
                                             onClick = { viewModel.retryFile(entry, host, secret) },
-                                            enabled = !state.sending && host.isNotBlank() && state.approvedPeerHost == host && UltraShareTransport.isValidPairingSecret(secret)
+                                            enabled = !state.sending && host.isNotBlank() && host in state.approvedSenderPeerHosts
                                         ) { Text("إعادة المحاولة") }
                                     }
                                 }
@@ -725,7 +725,7 @@ fun UltraShareExperienceScreen(
                         OutlinedButton(
                             onClick = { viewModel.resumePendingBatch(host, secret) },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = host.isNotBlank() && state.approvedPeerHost == host && UltraShareTransport.isValidPairingSecret(secret)
+                            enabled = host.isNotBlank() && host in state.approvedSenderPeerHosts
                         ) { Text("استئناف الملفات المتبقية") }
                     }
                 }
