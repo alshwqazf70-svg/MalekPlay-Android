@@ -931,6 +931,7 @@ class UltraShareForegroundService : Service() {
                             host = host,
                             secret = secret,
                             candidates = candidates,
+                            expectedPeerId = reconnectableSendTarget(host)?.sessionId,
                             onHostChanged = { activeV2Host = it }
                         ) { progress ->
                             if (v2ProgressFileId != null && v2ProgressFileId != progress.fileId) {
@@ -1280,7 +1281,8 @@ class UltraShareForegroundService : Service() {
                                         sources = chunk,
                                         host = auth.host,
                                         secret = auth.secret,
-                                        candidates = auth.candidates
+                                        candidates = auth.candidates,
+                                        expectedPeerId = auth.sessionId
                                     ) { progress ->
                                         updateState { current ->
                                             val transfer = UltraSharePeerTransfer(
@@ -1486,12 +1488,15 @@ class UltraShareForegroundService : Service() {
         host: String,
         secret: String,
         candidates: List<UltraShareNegotiation.Candidate> = emptyList(),
+        expectedPeerId: String? = null,
         onHostChanged: (String) -> Unit = {},
         onProgress: (UltraShareBatchTransport.FileProgress) -> Unit
     ): UltraShareBatchTransport.BatchOutcome {
         var activeHost = host
+        val activeCandidates = candidates.toMutableList()
         val fallbackCandidates = UltraShareNegotiation.orderedCandidates(candidates)
             .filterNot { it.host == host }
+            .toMutableList()
         var fallbackIndex = 0
         var retry = 0
         var lastFailure: IOException? = null
@@ -1503,7 +1508,7 @@ class UltraShareForegroundService : Service() {
                     sources = sources,
                     host = activeHost,
                     port = UltraShareNegotiation.dataPortForHost(
-                        activeHost, candidates, UltraShareBatchTransport.DEFAULT_PORT
+                        activeHost, activeCandidates, UltraShareBatchTransport.DEFAULT_PORT
                     ),
                     pairingSecret = secret,
                     network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, activeHost),
@@ -1561,6 +1566,31 @@ class UltraShareForegroundService : Service() {
                         ) }
                         kotlinx.coroutines.delay(retry * 1_000L)
                         continue
+                    }
+                }
+
+                // The receiver may have moved to another subnet/IP while the
+                // transfer was active. Rediscover only the exact paired peer identity;
+                // never select a device by display name or by an unauthenticated IP guess.
+                if (!expectedPeerId.isNullOrBlank()) {
+                    updateState { current -> current.copy(
+                        status = "نبحث عن الجهاز نفسه بعد تغيّر عنوان الشبكة..."
+                    ) }
+                    val refreshedRoutes = runCatching {
+                        UltraShareDiscovery.discoverPeers(
+                            scanWindowMs = 2_500L,
+                            context = this@UltraShareForegroundService
+                        )
+                    }.getOrDefault(emptyList()).let {
+                        UltraShareNegotiation.candidatesForPeer(expectedPeerId, it)
+                    }
+                    refreshedRoutes.forEach { route ->
+                        if (route.host != activeHost && fallbackCandidates.none {
+                                it.host == route.host && it.port == route.port
+                            }) {
+                            fallbackCandidates += route
+                            activeCandidates += route
+                        }
                     }
                 }
 
