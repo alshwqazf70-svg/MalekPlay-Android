@@ -430,8 +430,15 @@ fun UltraShareExperienceScreen(
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) {
+            pendingInvitationAdvertisement = false
             viewModel.advertiseCurrentWifiDirectInvitation()
-        } else wifiPermission.launch(missing.toTypedArray())
+        } else {
+            // Preserve the requested action across the Android permission dialog.
+            // Without this flag the callback falls through to peer scanning and never
+            // creates the receiver's P2P group or advertises its QR invitation.
+            pendingInvitationAdvertisement = true
+            wifiPermission.launch(missing.toTypedArray())
+        }
     }
     fun stopReceivingGroup() {
         if (state.receiving) viewModel.stopReceiving()
