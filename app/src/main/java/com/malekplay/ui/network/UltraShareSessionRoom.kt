@@ -222,14 +222,14 @@ fun UltraShareSessionRoom(
                                     color = if (transfer.status.contains("فشل")) MaterialTheme.colorScheme.error else MalekPlayColors.PurpleBright
                                 )
                                 Text(
-                                    "${transfer.fileName.ifBlank { "نقل الملفات" }} • ${(transfer.fraction * 100).toInt()}% • ${formatTransferBytes(transfer.bytesPerSecond)}/s",
+                                    "${transfer.fileName.ifBlank { "نقل الملفات" }} • ${(transfer.fraction * 100).toInt()}% • ${formatSessionTransferBytes(transfer.bytesPerSecond)}/s",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.labelSmall,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    "${formatTransferBytes(transfer.transferredBytes)} / ${formatTransferBytes(transfer.totalBytes)}",
+                                    "${formatSessionTransferBytes(transfer.transferredBytes)} / ${formatSessionTransferBytes(transfer.totalBytes)}",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.labelSmall
                                 )
@@ -520,4 +520,18 @@ internal fun formatTransferBytes(value: Long): String {
         index++
     } while (amount >= 1024.0 && index < units.lastIndex)
     return String.format(java.util.Locale.US, "%.1f %s", amount, units[index])
+}
+
+
+private fun formatSessionTransferBytes(value: Long): String {
+    if (value < 1024L) return "$value B"
+    val units = listOf("KB", "MB", "GB", "TB")
+    var amount = value.toDouble()
+    for (unit in units) {
+        amount /= 1024.0
+        if (amount < 1024.0 || unit == units.last()) {
+            return String.format(java.util.Locale.US, "%.1f %s", amount, unit)
+        }
+    }
+    return "$value B"
 }
