@@ -60,7 +60,7 @@ object UltraShareMultiRecipientCoordinator {
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
-                            Delivery(
+                            Delivery<T>(
                                 target = target,
                                 status = Status.FAILED,
                                 error = failure.message?.take(240) ?: failure.javaClass.simpleName
