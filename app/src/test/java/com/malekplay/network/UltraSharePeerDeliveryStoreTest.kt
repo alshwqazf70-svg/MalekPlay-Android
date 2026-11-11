@@ -110,6 +110,26 @@ class UltraSharePeerDeliveryStoreTest {
     }
 
     @Test
+    fun updateRejectsUnknownFilePeerPairInsteadOfSilentlySucceeding() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        UltraSharePeerDeliveryStore.clear(context)
+        try {
+            val failure = runCatching {
+                UltraSharePeerDeliveryStore.update(
+                    context,
+                    Uri.parse("content://files/missing"),
+                    "unknown-peer",
+                    UltraSharePeerDeliveryStore.STATUS_COMPLETED
+                )
+            }.exceptionOrNull()
+            assertTrue(failure is IllegalStateException)
+            assertTrue(UltraSharePeerDeliveryStore.observe(context).first().isEmpty())
+        } finally {
+            UltraSharePeerDeliveryStore.clear(context)
+        }
+    }
+
+    @Test
     fun corruptRootIsNotOverwrittenByMutation() {
         assertFalse(runCatching {
             UltraSharePeerDeliveryStore.decodeForMutation("{bad")
