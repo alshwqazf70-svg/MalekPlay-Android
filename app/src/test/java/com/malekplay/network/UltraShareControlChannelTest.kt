@@ -25,6 +25,7 @@ class UltraShareControlChannelTest {
                 pairingSecret = secret,
                 port = port,
                 localPeerName = "Receiver Phone",
+                localPeerId = "fedcba9876543210fedcba9876543210",
                 onSessionClosed = { sessionClosed.complete(Unit) }
             ) { request ->
                 assertEquals("Sender Phone", request.peerName)
@@ -45,6 +46,7 @@ class UltraShareControlChannelTest {
         assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
         assertTrue(UltraShareControlChannel.isServerSessionActive("127.0.0.1"))
         assertEquals("Receiver Phone", UltraShareControlChannel.sessionPeerName("127.0.0.1"))
+        assertEquals("fedcba9876543210fedcba9876543210", UltraShareControlChannel.sessionPeerId("127.0.0.1"))
         assertEquals(stablePeerId, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
 
         // A second malformed peer must be isolated in its own worker and must not
@@ -87,6 +89,7 @@ class UltraShareControlChannelTest {
             )
         )
         assertEquals(firstPeerId, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
+        assertEquals(null, UltraShareControlChannel.sessionPeerId("127.0.0.1"))
         assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
 
         assertEquals(
