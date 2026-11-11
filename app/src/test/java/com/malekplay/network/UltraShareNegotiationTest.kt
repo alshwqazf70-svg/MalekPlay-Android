@@ -101,6 +101,14 @@ class UltraShareNegotiationTest {
 
         assertEquals(1, routes.size)
         assertEquals("192.168.49.1", routes.single().host)
+        assertEquals(
+            52344,
+            UltraShareNegotiation.dataPortForHost(
+                routes.single().host,
+                routes,
+                UltraShareBatchTransport.DEFAULT_PORT
+            )
+        )
         assertTrue(UltraShareNegotiation.candidatesForPeer(null, listOf(expected)).isEmpty())
         assertTrue(UltraShareNegotiation.candidatesForPeer("unknown", listOf(expected)).isEmpty())
     }
