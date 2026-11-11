@@ -1,4 +1,4 @@
-# MalekPlay Ultra Share — implementation notes
+# MalekPlayer Ultra Share — implementation notes
 
 ## Implemented Android transfer
 
