@@ -214,11 +214,19 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         self.assertFalse(is_local_host_header("127.0.0.1:9000", 8765))
         self.assertFalse(is_local_host_header("user@127.0.0.1:8765", 8765))
 
-    def test_browser_upload_validates_private_host_pin_and_filename(self):
+    def test_browser_upload_validates_private_host_pin_filename_and_media_type(self):
         self.assertEqual(
             ("192.168.1.20", "004219837", "مقطع.mp4"),
-            validate_upload("192.168.1.20", "004219837", "مقطع.mp4", 128),
+            validate_upload("192.168.1.20", "004219837", "مقطع.mp4", 128, "video/mp4"),
         )
+        self.assertEqual(
+            ("192.168.1.20", "004219837", "cover.png"),
+            validate_upload("192.168.1.20", "004219837", "cover.png", 128, "image/png"),
+        )
+        with self.assertRaises(ValueError):
+            validate_upload("192.168.1.20", "004219837", "installer.apk", 128, "application/vnd.android.package-archive")
+        with self.assertRaises(ValueError):
+            validate_upload("192.168.1.20", "004219837", "notes.pdf", 128, "application/pdf")
         with self.assertRaises(ValueError):
             validate_upload("8.8.8.8", "004219837", "clip.mp4", 128)
         with self.assertRaises(ValueError):
