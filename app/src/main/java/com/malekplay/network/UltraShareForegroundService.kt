@@ -11,6 +11,8 @@ import android.content.Context
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
@@ -1677,6 +1679,7 @@ class UltraShareForegroundService : Service() {
                     fileName = metadata.first,
                     mimeType = metadata.second,
                     sizeBytes = metadata.third,
+                    network = UltraShareNetworkRouter.networkForHost(this@UltraShareForegroundService, host),
                     onProgress = onProgress
                 )
                 return
@@ -1716,7 +1719,22 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun findLocalIpv4Addresses(): List<String> = runCatching {
-        NetworkInterface.getNetworkInterfaces().toList()
+        val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        // The active Wi-Fi network is the reliable default for QR pairing.
+        // A stale p2p interface may still report 192.168.49.1 after its group
+        // disappeared, even while the phone is reachable through a 10.x WLAN.
+        val activeWifiAddresses = connectivity?.activeNetwork?.let { active ->
+            if (connectivity.getNetworkCapabilities(active)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            ) {
+                connectivity.getLinkProperties(active)?.linkAddresses.orEmpty()
+                    .mapNotNull { it.address as? Inet4Address }
+                    .filter { !it.isLoopbackAddress && (it.isSiteLocalAddress || it.isLinkLocalAddress) }
+                    .mapNotNull { it.hostAddress }
+            } else emptyList()
+        }.orEmpty()
+
+        val interfaceAddresses = NetworkInterface.getNetworkInterfaces().toList()
             .filter { network ->
                 val name = network.name.lowercase()
                 network.isUp && !network.isLoopback &&
@@ -1732,11 +1750,7 @@ class UltraShareForegroundService : Service() {
             .sortedWith(compareBy<Pair<String, Inet4Address>>(
                 { (name, _) ->
                     when {
-                        // A shared WLAN is the primary Zapya-style route when both
-                        // phones are already connected to the same access point.
                         name.startsWith("wlan") || name.startsWith("swlan") -> 0
-                        // A local hotspot is next; Wi-Fi Direct is only preferred
-                        // after its group has actually been formed and joined.
                         name.startsWith("ap") -> 1
                         name.startsWith("p2p") -> 2
                         else -> 3
@@ -1745,7 +1759,8 @@ class UltraShareForegroundService : Service() {
                 { (_, address) -> address.hostAddress.orEmpty() }
             ))
             .mapNotNull { (_, address) -> address.hostAddress }
-            .distinct()
+
+        (activeWifiAddresses + interfaceAddresses).distinct()
     }.getOrDefault(emptyList())
 
     @Suppress("DEPRECATION")
