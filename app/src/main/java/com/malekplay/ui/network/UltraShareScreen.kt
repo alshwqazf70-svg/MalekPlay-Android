@@ -536,6 +536,7 @@ fun UltraShareScreen(
                 .onSuccess { pairing ->
                     host = pairing.host
                     secret = pairing.pairingSecret
+                    pendingInvitationPeerId = pairing.peerId
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
@@ -603,6 +604,7 @@ fun UltraShareScreen(
                 .onSuccess { pairing ->
                     host = pairing.host
                     secret = pairing.pairingSecret
+                    pendingInvitationPeerId = pairing.peerId
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
@@ -695,6 +697,7 @@ fun UltraShareScreen(
                 result.onSuccess { pairing ->
                     host = pairing.host
                     secret = pairing.pairingSecret
+                    pendingInvitationPeerId = pairing.peerId
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }.onFailure {
                     Toast.makeText(
@@ -778,7 +781,7 @@ fun UltraShareScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             OutlinedButton(
-                onClick = { if (!state.receiving) viewModel.startReceiving() },
+                onClick = { if (!state.receiving) startReceivingWithWifiDirect() },
                 modifier = Modifier.weight(1f).height(94.dp),
                 enabled = !state.sending && !state.receiving
             ) {
@@ -879,7 +882,7 @@ fun UltraShareScreen(
                     }
                 }
                 Button(
-                    onClick = { if (state.receiving) viewModel.stopReceiving() else viewModel.startReceiving() },
+                    onClick = { if (state.receiving) viewModel.stopReceiving() else startReceivingWithWifiDirect() },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.sending
                 ) {
