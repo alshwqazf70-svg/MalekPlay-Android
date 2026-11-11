@@ -105,7 +105,7 @@ fun SendFileScreen(
         if (selectedUris.isNotEmpty()) {
             OutlinedButton(onClick = { onSelectedUrisChange(emptyList()) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) { Text("إفراغ القائمة") }
         }
-        Button(onClick = onScanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+        Button(colors = ultraShareButtonColors(),onClick = onScanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
             Icon(Icons.Filled.QrCode, null); Text("مسح QR لجهاز الاستقبال")
         }
         OutlinedButton(onClick = onShowNearby, modifier = Modifier.fillMaxWidth()) { Text("عرض الأجهزة القريبة") }
@@ -125,14 +125,14 @@ fun SendFileScreen(
             OutlinedTextField(value = host, onValueChange = onHostChange, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("عنوان الجهاز") })
             OutlinedTextField(value = secret, onValueChange = onSecretChange, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("رمز الاقتران (9 أرقام)") })
             OutlinedButton(onClick = onPastePairingDetails, modifier = Modifier.fillMaxWidth()) { Text("لصق بيانات الاقتران") }
-            Button(
+            Button(colors = ultraShareButtonColors(),
                 onClick = onRequestConnection,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret) && !state.requestingConnection
             ) { Text("طلب اتصال يدوي") }
         }
         if (selectedUris.isNotEmpty()) {
-            Button(
+            Button(colors = ultraShareButtonColors(),
                 onClick = onSendBatch,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.sending && host.isNotBlank() && host in state.approvedSenderPeerHosts
