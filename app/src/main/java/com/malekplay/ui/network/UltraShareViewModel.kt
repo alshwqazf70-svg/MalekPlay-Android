@@ -171,7 +171,8 @@ class UltraShareViewModel @Inject constructor(
     fun requestConnection(
         host: String,
         secret: String,
-        candidates: List<com.malekplay.network.UltraShareNegotiation.Candidate> = emptyList()
+        candidates: List<com.malekplay.network.UltraShareNegotiation.Candidate> = emptyList(),
+        alternateHosts: List<String> = emptyList()
     ) {
         if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
             _state.value = _state.value.copy(error = "أدخل عنوان الجهاز ورمز الاقتران الصحيح أولاً.")
@@ -193,8 +194,11 @@ class UltraShareViewModel @Inject constructor(
                 // Try the selected address first, then every other verified interface
                 // belonging to the same discovered peer. A rejected approval is final;
                 // only transport failures move to another route.
-                val routeHosts = (listOf(host.trim()) + orderedRoutes.map { it.host })
-                    .distinct()
+                val routeHosts = (
+                    listOf(host.trim()) +
+                        alternateHosts.filter(UltraShareTransport::isValidPrivateLanHost) +
+                        orderedRoutes.map { it.host }
+                    ).distinct()
                 var acceptedHost: String? = null
                 var rejected = false
                 var lastFailure: Exception? = null
