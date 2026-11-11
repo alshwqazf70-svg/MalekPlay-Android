@@ -630,7 +630,7 @@ fun UltraShareExperienceScreen(
     ) {
         if (page == UltraSharePage.HOME) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(colors = ultraShareButtonColors(), onClick = onBack) {
+                IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = Color.White)
                 }
                 Text(
@@ -640,7 +640,7 @@ fun UltraShareExperienceScreen(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
-                IconButton(colors = ultraShareButtonColors(), onClick = { page = UltraSharePage.JOIN }) {
+                IconButton(onClick = { page = UltraSharePage.JOIN }) {
                     Icon(Icons.Filled.QrCode, contentDescription = "مسح رمز QR", tint = Color(0xFF75E8F4))
                 }
             }
@@ -901,15 +901,11 @@ fun UltraShareExperienceScreen(
                                 Icon(Icons.Filled.QrCode, null)
                                 Text("مسح رمز QR بالكاميرا", modifier = Modifier.padding(start = 8.dp))
                             }
-                            OutlinedButton(
-                                colors = ultraShareButtonColors(),
-                                onClick = { qrImagePicker.launch(arrayOf("image/*")) },
+                            OutlinedButton(onClick = { qrImagePicker.launch(arrayOf("image/*")) },
                                 modifier = Modifier.fillMaxWidth(),
                                 enabled = !state.sending
                             ) { Text("قراءة QR من صورة محفوظة") }
-                            OutlinedButton(
-                                colors = ultraShareButtonColors(),
-                                onClick = {
+                            OutlinedButton(onClick = {
                                     scanAllNearby()
                                     page = UltraSharePage.NEARBY
                                 },
@@ -950,17 +946,14 @@ fun UltraShareExperienceScreen(
                 UltraSharePage.NEARBY -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                            colors = ultraShareButtonColors(),
-                            onClick = ::scanAllNearby,
+                                                        onClick = ::scanAllNearby,
                             modifier = Modifier.weight(1f),
                             enabled = !state.sending
                         ) {
                             Icon(Icons.Filled.Refresh, null)
                             Text(if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning) "إيقاف البحث" else "بحث شامل")
                         }
-                        OutlinedButton(
-                            colors = ultraShareButtonColors(),
-                            onClick = ::scanQr,
+                        OutlinedButton(onClick = ::scanQr,
                             modifier = Modifier.weight(1f),
                             enabled = !state.sending
                         ) {
@@ -974,7 +967,7 @@ fun UltraShareExperienceScreen(
                         style = MaterialTheme.typography.bodySmall
                     )
                     OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("البحث عن جهاز") })
-                    OutlinedButton(colors = ultraShareButtonColors(), onClick = ::scanBluetooth, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+                    OutlinedButton(onClick = ::scanBluetooth, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
                         Text(if (state.bluetoothScanning || state.bleScanning) "إيقاف بحث Bluetooth/BLE" else "بحث Bluetooth وBLE")
                     }
                     UltraShareRadar(
@@ -996,7 +989,7 @@ fun UltraShareExperienceScreen(
                         Text("الأجهزة المتصلة", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
                         state.activePeers.forEach { peer ->
                             InfoPanel(peer.name, peer.host + " • " + peer.role + "\n" + peer.status)
-                            TextButton(colors = ultraShareButtonColors(), onClick = { viewModel.disconnectPeer(peer.host) }) { Text("قطع الاتصال") }
+                            TextButton(onClick = { viewModel.disconnectPeer(peer.host) }) { Text("قطع الاتصال") }
                         }
                     }
                     val activeHostSet = state.activePeers.mapTo(mutableSetOf()) { it.host }
@@ -1010,10 +1003,10 @@ fun UltraShareExperienceScreen(
                                         Text(peer.name, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
                                         Text(peer.host + " • محفوظ لهذه الجلسة فقط", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
                                     }
-                                    TextButton(colors = ultraShareButtonColors(), onClick = { viewModel.reconnectPeer(peer.host) }, enabled = !state.requestingConnection && !state.sending) {
+                                    TextButton(onClick = { viewModel.reconnectPeer(peer.host) }, enabled = !state.requestingConnection && !state.sending) {
                                         Text("إعادة الاتصال")
                                     }
-                                    TextButton(colors = ultraShareButtonColors(), onClick = { viewModel.forgetPeer(peer.host) }, enabled = !state.sending) {
+                                    TextButton(onClick = { viewModel.forgetPeer(peer.host) }, enabled = !state.sending) {
                                         Text("نسيان")
                                     }
                                 }
@@ -1048,9 +1041,7 @@ fun UltraShareExperienceScreen(
                         state.wifiDirectPeers.filter {
                             it.name.contains(search, true) || it.deviceAddress.contains(search, true)
                         }.forEach { peer ->
-                            OutlinedButton(
-                                colors = ultraShareButtonColors(),
-                                onClick = { viewModel.connectWifiDirectPeer(peer) },
+                            OutlinedButton(onClick = { viewModel.connectWifiDirectPeer(peer) },
                                 modifier = Modifier.fillMaxWidth(),
                                 enabled = !state.requestingConnection && !state.sending
                             ) {
@@ -1102,8 +1093,8 @@ fun UltraShareExperienceScreen(
                     }
                     if (state.peerTransfers.isEmpty() && state.sendProgress == null) InfoPanel("لا توجد عمليات نقل نشطة", "ستظهر هنا سرعة النقل وتقدم كل جهاز عند بدء المشاركة.")
                     if (state.sending) {
-                        OutlinedButton(colors = ultraShareButtonColors(), onClick = viewModel::pauseSending, modifier = Modifier.fillMaxWidth()) { Text("إيقاف مؤقت") }
-                        OutlinedButton(colors = ultraShareButtonColors(), onClick = viewModel::cancelSending, modifier = Modifier.fillMaxWidth()) { Text("إلغاء الإرسال") }
+                        OutlinedButton(onClick = viewModel::pauseSending, modifier = Modifier.fillMaxWidth()) { Text("إيقاف مؤقت") }
+                        OutlinedButton(onClick = viewModel::cancelSending, modifier = Modifier.fillMaxWidth()) { Text("إلغاء الإرسال") }
                     }
                     state.queueEntries.take(10).forEach { entry ->
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
@@ -1113,12 +1104,10 @@ fun UltraShareExperienceScreen(
                                 entry.error?.takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall) }
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     if (entry.status == UltraShareQueueStore.STATUS_PENDING || entry.status == UltraShareQueueStore.STATUS_FAILED) {
-                                        TextButton(colors = ultraShareButtonColors(), onClick = { viewModel.skipQueuedFile(entry) }) { Text("تخطّي") }
+                                        TextButton(onClick = { viewModel.skipQueuedFile(entry) }) { Text("تخطّي") }
                                     }
                                     if (entry.status == UltraShareQueueStore.STATUS_FAILED) {
-                                        TextButton(
-                                            colors = ultraShareButtonColors(),
-                                            onClick = { viewModel.retryFile(entry, host) },
+                                        TextButton(onClick = { viewModel.retryFile(entry, host) },
                                             enabled = !state.sending && host.isNotBlank() && host in state.approvedSenderPeerHosts
                                         ) { Text("إعادة المحاولة") }
                                     }
@@ -1129,9 +1118,7 @@ fun UltraShareExperienceScreen(
                     if (!state.sending && state.queueEntries.any {
                             it.status == UltraShareQueueStore.STATUS_PENDING || it.status == UltraShareQueueStore.STATUS_FAILED
                         }) {
-                        OutlinedButton(
-                            colors = ultraShareButtonColors(),
-                            onClick = { viewModel.resumePendingBatch(host) },
+                        OutlinedButton(onClick = { viewModel.resumePendingBatch(host) },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = host.isNotBlank() && host in state.approvedSenderPeerHosts
                         ) { Text("استئناف الملفات المتبقية") }
@@ -1168,10 +1155,10 @@ fun UltraShareExperienceScreen(
                         InfoPanel(entry.fileName, formatUltraBytes(entry.sizeBytes) + " • " + java.text.DateFormat.getDateTimeInstance().format(java.util.Date(entry.receivedAtEpochMs)))
                     }
                     if (state.receivedHistory.isNotEmpty()) {
-                        OutlinedButton(colors = ultraShareButtonColors(), onClick = viewModel::clearReceivedHistory, modifier = Modifier.fillMaxWidth(), enabled = !state.receiving) { Text("مسح سجل الاستقبال") }
+                        OutlinedButton(onClick = viewModel::clearReceivedHistory, modifier = Modifier.fillMaxWidth(), enabled = !state.receiving) { Text("مسح سجل الاستقبال") }
                     }
                     if (!state.sending && state.queueEntries.isNotEmpty()) {
-                        OutlinedButton(colors = ultraShareButtonColors(), onClick = viewModel::clearQueue, modifier = Modifier.fillMaxWidth()) { Text("مسح سجل الإرسال") }
+                        OutlinedButton(onClick = viewModel::clearQueue, modifier = Modifier.fillMaxWidth()) { Text("مسح سجل الإرسال") }
                     }
                 }
 
@@ -1207,7 +1194,7 @@ fun UltraShareExperienceScreen(
 @Composable
 private fun PageHeader(title: String, subtitle: String, onBack: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(colors = ultraShareButtonColors(), onClick = onBack) {
+        IconButton(onClick = onBack) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = MalekPlayColors.TextPrimary)
         }
         Column(Modifier.weight(1f)) {
@@ -1341,7 +1328,7 @@ private fun IncomingRequestPanel(
             Text(request.peerName + " • " + request.peerAddress, color = MaterialTheme.colorScheme.onTertiaryContainer)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(colors = ultraShareButtonColors(), onClick = onAccept, modifier = Modifier.weight(1f)) { Text("قبول") }
-                OutlinedButton(colors = ultraShareButtonColors(), onClick = onReject, modifier = Modifier.weight(1f)) { Text("رفض") }
+                OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) { Text("رفض") }
             }
         }
     }
