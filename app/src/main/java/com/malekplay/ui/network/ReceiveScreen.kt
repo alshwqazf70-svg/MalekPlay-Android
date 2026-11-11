@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -186,7 +187,7 @@ fun ReceiveScreen(
                 Text("إنشاء نقطة اتصال محلية", modifier = Modifier.padding(start = 8.dp))
             }
         }
-        Button(onClick = onToggleReceiving, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = onToggleReceiving, modifier = Modifier.fillMaxWidth(), colors = ultraShareButtonColors()) {
             Text(if (state.receiving) "إيقاف الاستقبال" else "بدء الاستقبال")
         }
 
@@ -199,8 +200,8 @@ fun ReceiveScreen(
                     Text("طلب اتصال وارد", color = Color.White, fontWeight = FontWeight.Bold)
                     Text(request.peerName + " • " + request.peerAddress, color = Color.White)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = onAcceptConnection, modifier = Modifier.weight(1f)) { Text("قبول") }
-                        OutlinedButton(onClick = onRejectConnection, modifier = Modifier.weight(1f)) { Text("رفض") }
+                        Button(onClick = onAcceptConnection, modifier = Modifier.weight(1f), colors = ultraShareButtonColors()) { Text("قبول") }
+                        OutlinedButton(onClick = onRejectConnection, modifier = Modifier.weight(1f), colors = ultraShareButtonColors()) { Text("رفض") }
                     }
                 }
             }
@@ -241,3 +242,13 @@ private fun ShareInfoCard(title: String, body: String) {
         }
     }
 }
+
+
+/** Keeps primary-action labels readable even when an action is temporarily disabled. */
+@Composable
+internal fun ultraShareButtonColors() = ButtonDefaults.buttonColors(
+    containerColor = Color(0xFF9B5DE5),
+    contentColor = Color.White,
+    disabledContainerColor = Color(0xFF56386F),
+    disabledContentColor = Color(0xFFF7EEFF)
+)
