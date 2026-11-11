@@ -74,7 +74,6 @@ import com.malekplay.network.UltraShareFolderArchive
 import com.malekplay.network.UltraSharePeerDeliveryStore
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareQrCode
-import com.malekplay.network.UltraShareDiscovery
 import com.malekplay.network.UltraShareTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -316,7 +315,7 @@ fun UltraShareExperienceScreen(
                     viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
                 }
             } else if (state.receiving) {
-                viewModel.advertiseWifiDirectInvitation(UltraShareDiscovery.localPeerId(context))
+                viewModel.advertiseCurrentWifiDirectInvitation()
             } else viewModel.scanWifiDirectPeers()
         } else {
             pendingQrPairing = null
@@ -522,7 +521,7 @@ fun UltraShareExperienceScreen(
             UltraShareQrCode.createReceiverPayload(
                 hosts = it,
                 pairingSecret = state.pairingSecret,
-                invitationId = UltraShareDiscovery.localPeerId(context)
+                invitationId = state.invitationId
             )
         }
     val qrBitmap = remember(qrPayload) {
