@@ -534,6 +534,42 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
+    fun resumePendingForAllPeers() {
+        val targets = UltraShareForegroundService.approvedSendTargets()
+        if (targets.isEmpty() || _state.value.sending) return
+        viewModelScope.launch {
+            val peerIds = targets.mapTo(mutableSetOf()) { it.sessionId }
+            val ledger = UltraSharePeerDeliveryStore.observe(context).first()
+            val pendingUris = ledger.filter {
+                it.peerSessionId in peerIds &&
+                    (it.status == UltraSharePeerDeliveryStore.STATUS_PENDING ||
+                        it.status == UltraSharePeerDeliveryStore.STATUS_FAILED)
+            }.map { it.parsedUri }.distinctBy { it.toString() }
+            if (pendingUris.isEmpty()) {
+                _state.value = _state.value.copy(
+                    status = "لا توجد تسليمات متبقية للأجهزة المقترنة حالياً."
+                )
+            } else {
+                runCatching {
+                    UltraShareForegroundService.startSendingBatchToPeers(
+                        context, pendingUris, targets, preserveCompleted = true
+                    )
+                    _state.value = _state.value.copy(
+                        sending = true,
+                        queueCompleted = 0,
+                        queueTotal = pendingUris.size,
+                        error = null,
+                        status = "استئناف الملفات غير المكتملة فقط؛ لن نعيد إرسال ما اكتمل سابقاً."
+                    )
+                }.onFailure { failure ->
+                    _state.value = _state.value.copy(
+                        error = failure.localizedMessage ?: "تعذر استئناف الإرسال الجماعي."
+                    )
+                }
+            }
+        }
+    }
+
     fun resumePendingBatch(host: String) {
         val target = UltraShareForegroundService.approvedSendTarget(host.trim()) ?: return
         if (_state.value.sending) return
@@ -552,7 +588,7 @@ class UltraShareViewModel @Inject constructor(
                 _state.value = _state.value.copy(status = "لا توجد ملفات متبقية لهذا الجهاز؛ تم الحفاظ على الملفات التي استلمها سابقاً.")
             } else {
                 runCatching {
-                    UltraShareForegroundService.startSendingBatchToPeers(context, pendingUris, listOf(target))
+                    UltraShareForegroundService.startSendingBatchToPeers(context, pendingUris, listOf(target), preserveCompleted = true)
                     _state.value = _state.value.copy(
                         sending = true,
                         queueCompleted = 0,
@@ -574,7 +610,7 @@ class UltraShareViewModel @Inject constructor(
         ) return
         runCatching {
             UltraShareForegroundService.startSendingBatchToPeers(
-                context, listOf(entry.parsedUri), listOf(target)
+                context, listOf(entry.parsedUri), listOf(target), preserveCompleted = true
             )
             _state.value = _state.value.copy(
                 sending = true,
