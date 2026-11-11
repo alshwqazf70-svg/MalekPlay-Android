@@ -296,9 +296,9 @@ object UltraShareFolderArchive {
         ) { "يحتوي الأرشيف على مسار غير آمن." }
         val normalized = if (directory) rawName.removeSuffix("/") else rawName
         val parts = normalized.split('/')
-        require(parts.isNotEmpty() && parts.all { segment ->
+        require(parts.isNotEmpty() && parts.size <= MAX_DEPTH && parts.all { segment ->
             segment.isNotBlank() && segment != "." && segment != ".." && segment.length <= 180
-        }) { "يحتوي الأرشيف على مسار غير آمن." }
+        }) { "يحتوي الأرشيف على مسار غير آمن أو متداخل بعمق مفرط." }
         return parts.map(::safeSegment)
     }
 
