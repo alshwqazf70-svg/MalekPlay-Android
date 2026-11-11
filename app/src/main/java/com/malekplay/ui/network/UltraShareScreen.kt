@@ -603,13 +603,17 @@ fun UltraShareScreen(
     var pendingMediaUris by remember(initialUris) { mutableStateOf(initialUris.distinct()) }
 
     fun acceptPairing(pairing: UltraShareQrCode.PairingDetails) {
-        host = pairing.host
         secret = pairing.pairingSecret
-        // Scanning/pasting is the explicit connect action. If files were already
-        // selected, begin their authenticated queue immediately after pairing.
-        val queued = pendingMediaUris
-        if (queued.isNotEmpty()) {
-            if (viewModel.sendBatch(queued, pairing.host, pairing.pairingSecret)) {
+        host = pairing.host
+        // QR v3 triggers an exact DNS-SD invitation lookup and P2P negotiation.
+        // The callback fires only when the direct route is ready or WLAN fallback
+        // has been selected, so files never race ahead of connection setup.
+        viewModel.connectInvitation(pairing) { resolvedHost ->
+            host = resolvedHost
+            val queued = pendingMediaUris
+            if (queued.isNotEmpty() &&
+                viewModel.sendBatch(queued, resolvedHost, pairing.pairingSecret)
+            ) {
                 pendingMediaUris = emptyList()
             }
         }
@@ -632,8 +636,13 @@ fun UltraShareScreen(
                 }
         }
     }
-    val qrPayload = state.localAddresses.firstOrNull()?.takeIf { state.receiving }?.let { address ->
-        UltraShareQrCode.createPayload(address, UltraShareTransport.DEFAULT_PORT, state.pairingSecret)
+    val qrPayload = state.localAddresses.takeIf { state.receiving && it.isNotEmpty() }?.let { addresses ->
+        val invitationId = state.invitationId
+        if (!invitationId.isNullOrBlank()) {
+            UltraShareQrCode.createReceiverPayload(addresses, state.pairingSecret, invitationId)
+        } else {
+            UltraShareQrCode.createReceiverPayload(addresses, state.pairingSecret)
+        }
     }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
