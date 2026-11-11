@@ -1,8 +1,8 @@
-"""Wire-compatible Ultra Share v2 manifest codec.
+"""Android-compatible Ultra Share V2 manifest, data transport and MPC2 control.
 
-This module intentionally implements only the Android V2 manifest layer. The
-existing V1 sender/receiver remains untouched until the complete V2 session
-handshake and frame state machine can be exercised against Android.
+The V1 desktop transport remains available in ultra_share_pc.py for legacy
+peers. V2 uses its own authenticated batch data session and the separately
+approved MPC2 control channel.
 """
 from __future__ import annotations
 
@@ -832,9 +832,12 @@ def serve_control_once(port: int, secret: str, local_name: str,
             if len(request_id) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in request_id[-32:])
             else None
         )
-        if accepted and peer_id:
+        if accepted:
             with _CONTROL_PEER_LOCK:
-                _CONTROL_PEER_SESSIONS[address[0]] = (peer_id, connection)
+                if peer_id:
+                    _CONTROL_PEER_SESSIONS[address[0]] = (peer_id, connection)
+                else:
+                    _CONTROL_PEER_SESSIONS.pop(address[0], None)
         try:
             encoded_local_name = name_bytes.hex()
             response = (
