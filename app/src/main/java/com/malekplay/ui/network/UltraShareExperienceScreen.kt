@@ -476,6 +476,23 @@ fun UltraShareExperienceScreen(
                         OutlinedButton(onClick = ::scanWifiDirect, modifier = Modifier.weight(1f)) { Text("Wi-Fi Direct") }
                     }
                     OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("البحث عن جهاز") })
+                    UltraShareRadar(
+                        isScanning = state.scanning,
+                        discoveredCount = visiblePeers.size,
+                        modifier = Modifier.fillMaxWidth().height(340.dp),
+                        peerNames = visiblePeers.take(4).map { it.name },
+                        onPeerClick = { index ->
+                            visiblePeers.getOrNull(index)?.let { peer ->
+                                host = peer.host
+                                page = UltraSharePage.SEND
+                                if (state.approvedPeerHost != peer.host || !UltraShareTransport.isValidPairingSecret(secret)) {
+                                    secret = ""
+                                    viewModel.clearApprovedConnection()
+                                    scanQr()
+                                }
+                            }
+                        }
+                    )
                     if (state.activePeers.isNotEmpty()) {
                         Text("الأجهزة المتصلة", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
                         state.activePeers.forEach { peer ->
@@ -485,7 +502,7 @@ fun UltraShareExperienceScreen(
                     }
                     Text("الأجهزة المكتشفة (" + visiblePeers.size + ")", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
                     if (visiblePeers.isEmpty()) InfoPanel("الرادار", if (state.scanning) "جارٍ البحث عن الأجهزة القريبة..." else "لا توجد أجهزة ظاهرة حالياً. تأكد من اتصال الهاتفين بالشبكة نفسها.")
-                    visiblePeers.forEach { peer ->
+                    visiblePeers.drop(4).forEach { peer ->
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
                             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Box(Modifier.size(44.dp).background(MalekPlayColors.PurpleBright.copy(alpha = 0.18f), CircleShape), contentAlignment = Alignment.Center) {
