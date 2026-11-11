@@ -279,6 +279,12 @@ object UltraShareWifiDirect {
         @SuppressLint("MissingPermission")
         fun createGroup(onCreated: () -> Unit = {}) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
+            createGroupAttempt(onCreated, 0)
+        }
+
+        @SuppressLint("MissingPermission")
+        private fun createGroupAttempt(onCreated: () -> Unit, attempt: Int) {
+            if (closed) return
             try {
                 manager.requestGroupInfo(channel) { existingGroup ->
                     if (closed) return@requestGroupInfo
@@ -295,7 +301,17 @@ object UltraShareWifiDirect {
                         override fun onSuccess() {
                             if (!closed) awaitReceiverGroup(onCreated, 0)
                         }
-                        override fun onFailure(reason: Int) { onError(groupFailureMessage(reason)) }
+
+                        override fun onFailure(reason: Int) {
+                            if ((reason == WifiP2pManager.ERROR || reason == WifiP2pManager.BUSY) && attempt < 2) {
+                                runCatching { manager.cancelConnect(channel, null) }
+                                mainHandler.postDelayed({
+                                    if (!closed) createGroupAttempt(onCreated, attempt + 1)
+                                }, 1_000L * (attempt + 1))
+                            } else {
+                                onError(groupFailureMessage(reason))
+                            }
+                        }
                     })
                 }
             } catch (failure: SecurityException) {
