@@ -49,16 +49,18 @@ fun UltraShareSessionRoom(
     selectedMediaCount: Int
 ) {
     val isSendingRoom = activeMode == "send"
+    val activePeerCount = state.activePeers.size
     val activePeer = state.activePeers.firstOrNull()
-    val remoteName = activePeer?.name
-        ?: state.pendingConnection?.peerName
-        ?: when {
-            state.requestingConnection -> "جارٍ التحقق من الجهاز"
-            remoteHost.isNotBlank() -> remoteHost
-            isSendingRoom -> "بانتظار جهاز الاستقبال"
-            else -> "بانتظار جهاز الإرسال"
-        }
-    val connected = activePeer != null || state.approvedPeerHost != null
+    val remoteName = when {
+        activePeerCount > 1 -> "$activePeerCount أجهزة متصلة"
+        activePeer != null -> activePeer.name
+        state.pendingConnection != null -> state.pendingConnection.peerName
+        state.requestingConnection -> "جارٍ التحقق من الجهاز"
+        remoteHost.isNotBlank() -> remoteHost
+        isSendingRoom -> "بانتظار جهاز الاستقبال"
+        else -> "بانتظار جهاز الإرسال"
+    }
+    val connected = activePeerCount > 0 || state.approvedPeerHost != null
     val pairingPending = state.requestingConnection || state.pendingConnection != null
     val transferring = state.sending || state.sendProgress != null || state.receiveProgress != null
     val currentBatchEntries = if (state.queueTotal > 0) state.queueEntries.takeLast(state.queueTotal) else emptyList()
@@ -68,12 +70,12 @@ fun UltraShareSessionRoom(
     val receiveCompleted = !isSendingRoom && state.receivedFile != null && state.receiveProgress == null &&
         (state.status?.contains("استلام") == true || state.status?.contains("استُلم") == true || state.status?.contains("اكتملت دفعة") == true)
     val status = when {
-        state.sending -> "يتم إرسال الملفات إلى الجهاز الآخر"
-        state.receiveProgress != null -> "يتم استقبال الملفات من الجهاز الآخر"
+        state.sending -> if (activePeerCount > 1) "يتم إرسال الملفات إلى $activePeerCount أجهزة" else "يتم إرسال الملفات إلى الجهاز الآخر"
+        state.receiveProgress != null -> if (activePeerCount > 1) "يتم استقبال الملفات من $activePeerCount أجهزة" else "يتم استقبال الملفات من الجهاز الآخر"
         state.sendProgress != null -> "جارٍ نقل العنصر الحالي"
         state.pendingConnection != null -> "طلب اتصال وارد — بانتظار موافقتك"
         state.requestingConnection -> "جارٍ التحقق من الاقتران — ننتظر رد الجهاز الآخر"
-        connected -> "اتصال موثّق — الجهازان جاهزان للنقل"
+        connected -> if (activePeerCount > 1) "اتصال موثّق — $activePeerCount أجهزة جاهزة للنقل" else "اتصال موثّق — الجهازان جاهزان للنقل"
         !isSendingRoom && state.receiving -> "هذا الهاتف ظاهر وجاهز لاستقبال الملفات"
         !isSendingRoom -> "ابدأ الاستقبال لعرض رمز الربط واستقبال الملفات"
         selectedMediaCount > 0 -> "${selectedMediaCount} ملف محدد — اختر جهاز الاستقبال"
@@ -88,7 +90,7 @@ fun UltraShareSessionRoom(
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val senderName = if (isSendingRoom) localDeviceName else remoteName
-    val remoteAddress = activePeer?.host ?: state.approvedPeerHost ?: remoteHost
+    val remoteAddress = if (activePeerCount > 1) "جلسة متعددة الأجهزة" else activePeer?.host ?: state.approvedPeerHost ?: remoteHost
     val receiverName = if (isSendingRoom) remoteName else localDeviceName
     val progress = if (isSendingRoom) state.sendProgress else state.receiveProgress
     val overallFraction = if (state.queueTotalBytes > 0L) {
@@ -189,7 +191,7 @@ fun UltraShareSessionRoom(
                             ) {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
-                                        peer?.name ?: transfer?.fileName?.takeIf { it.isNotBlank() } ?: peerHost,
+                                        peer?.name ?: "جهاز مشارك",
                                         color = MaterialTheme.colorScheme.onSurface,
                                         fontWeight = FontWeight.Bold,
                                         style = MaterialTheme.typography.labelMedium,
