@@ -25,7 +25,10 @@ import java.util.UUID
  * BLE is discovery-only; authenticated pairing and file transfer use Wi-Fi.
  */
 object UltraShareBleDiscovery {
-    private val SERVICE_UUID = ParcelUuid(UUID.fromString("b9e4d9b0-2f0a-4d37-9d22-6d616c656b70"))
+    // Lazy initialization keeps pure merge/deduplication unit tests independent of Android stubs.
+    private val SERVICE_UUID by lazy {
+        ParcelUuid(UUID.fromString("b9e4d9b0-2f0a-4d37-9d22-6d616c656b70"))
+    }
 
     data class Peer(val name: String, val address: String, val deviceType: Int)
 
