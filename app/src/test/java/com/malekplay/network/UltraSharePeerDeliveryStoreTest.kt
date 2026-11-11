@@ -166,6 +166,40 @@ class UltraSharePeerDeliveryStoreTest {
     }
 
     @Test
+    fun rePairedStablePeerKeepsCompletedReceiptAndRefreshesItsNewRoute() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val uri = Uri.parse("content://files/repaired-peer")
+        val stablePeerId = "fedcba9876543210fedcba9876543210"
+        UltraSharePeerDeliveryStore.clear(context)
+        try {
+            UltraSharePeerDeliveryStore.prepare(
+                context,
+                listOf(uri to "stable.mp4"),
+                listOf(UltraShareMultiRecipientCoordinator.Target(stablePeerId, "192.168.1.20"))
+            )
+            UltraSharePeerDeliveryStore.update(
+                context, uri, stablePeerId, UltraSharePeerDeliveryStore.STATUS_COMPLETED
+            )
+
+            // Simulate process death followed by re-pairing: the authenticated peer ID
+            // is unchanged even though its DHCP address has changed.
+            UltraSharePeerDeliveryStore.prepare(
+                context,
+                listOf(uri to "stable.mp4"),
+                listOf(UltraShareMultiRecipientCoordinator.Target(stablePeerId, "192.168.1.44"))
+            )
+
+            val entry = UltraSharePeerDeliveryStore.observe(context).first().single()
+            assertEquals(stablePeerId, entry.peerSessionId)
+            assertEquals("192.168.1.44", entry.peerHost)
+            assertEquals(UltraSharePeerDeliveryStore.STATUS_COMPLETED, entry.status)
+            assertTrue(UltraSharePeerDeliveryStore.pending(context, stablePeerId).isEmpty())
+        } finally {
+            UltraSharePeerDeliveryStore.clear(context)
+        }
+    }
+
+    @Test
     fun intentionalNewSendCanResetPreviouslyCompletedReceipt() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val uri = Uri.parse("content://files/new-send")
