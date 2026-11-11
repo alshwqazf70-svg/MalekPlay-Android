@@ -56,7 +56,7 @@ python -m pip install -r requirements.txt
 3. Enter the pairing code shown by MalekPlay when prompted.
 4. On Android, scan for nearby devices and select the computer if discovery is available. Otherwise enter the computer's private IPv4 address manually.
 
-The desktop receiver listens on TCP port **38741** and advertises itself over UDP port **38742**. On Windows, allow Python through Windows Defender Firewall for **Private networks only**. Do not expose these ports to public networks.
+The desktop receiver listens on TCP **38741** (V1), TCP **38742** (V2), and TCP **38744** (MPC2 control), and advertises itself over UDP **38742**. On Windows, allow Python through Windows Defender Firewall for **Private networks only** for TCP 38741/38742/38744 and UDP 38742. Do not expose these ports to public networks.
 
 ## Send a file from the computer to Android
 
