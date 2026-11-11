@@ -67,7 +67,7 @@ object UltraShareBluetoothDiscovery {
                 addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
                 addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             }
-            ContextCompat.registerReceiver(appContext, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+            ContextCompat.registerReceiver(appContext, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
         }
 
         @SuppressLint("MissingPermission")
