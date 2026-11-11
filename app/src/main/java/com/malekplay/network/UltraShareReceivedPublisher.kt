@@ -30,7 +30,7 @@ object UltraShareReceivedPublisher {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, received.fileName)
                 put(MediaStore.MediaColumns.MIME_TYPE, received.mimeType.ifBlank { "application/octet-stream" })
-                put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/MalekPlay/Received")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/MalekPlayer/Received")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
             val uri = runCatching { resolver.insert(collection, values) }.getOrNull()
