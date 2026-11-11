@@ -161,6 +161,83 @@ fun UltraShareSessionRoom(
                 )
             }
             Text(status, color = statusColor, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            // Show each peer independently instead of hiding concurrent sessions
+            // behind the single headline peer identity above.
+            val peerHosts = (state.activePeers.map { it.host } + state.peerTransfers.map { it.host })
+                .distinct()
+            if (peerHosts.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "الأجهزة المشاركة (${peerHosts.size})",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    peerHosts.forEach { peerHost ->
+                        val peer = state.activePeers.firstOrNull { it.host == peerHost }
+                        val transfer = state.peerTransfers.firstOrNull { it.host == peerHost }
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
+                                .padding(horizontal = 11.dp, vertical = 9.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        peer?.name ?: transfer?.fileName?.takeIf { it.isNotBlank() } ?: peerHost,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        peerHost,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Text(
+                                    transfer?.status ?: peer?.status ?: "متصل",
+                                    color = when {
+                                        transfer?.status?.contains("فشل") == true -> MaterialTheme.colorScheme.error
+                                        transfer?.status?.contains("يستقبل") == true -> MalekPlayColors.PurpleBright
+                                        peer != null -> Color(0xFF65D6A2)
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                            if (transfer != null && transfer.totalBytes > 0L) {
+                                LinearProgressIndicator(
+                                    progress = { transfer.fraction },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = if (transfer.status.contains("فشل")) MaterialTheme.colorScheme.error else MalekPlayColors.PurpleBright
+                                )
+                                Text(
+                                    "${transfer.fileName.ifBlank { "نقل الملفات" }} • ${(transfer.fraction * 100).toInt()}% • ${formatTransferBytes(transfer.bytesPerSecond)}/s",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    "${formatTransferBytes(transfer.transferredBytes)} / ${formatTransferBytes(transfer.totalBytes)}",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             if (selectedMediaCount > 0 && isSendingRoom && !state.sending) {
                 Text("${selectedMediaCount} عنصر وسائط جاهز للإرسال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
             }
