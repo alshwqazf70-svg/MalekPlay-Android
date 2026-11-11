@@ -104,7 +104,7 @@ fun malekPlayTypography(isDark: Boolean, textColor: Color? = null): Typography {
     // otherwise TextStyle.brush takes precedence over TextStyle.color.
     val applyTextPalette: (TextStyle) -> TextStyle = { style ->
         if (textColor == null) style.copy(brush = brush)
-        else style.copy(brush = null).copy(color = textColor)
+        else style.copy(brush = null as Brush?).copy(color = textColor)
     }
     return MalekPlayTypography.copy(
         displayLarge = applyTextPalette(MalekPlayTypography.displayLarge),
