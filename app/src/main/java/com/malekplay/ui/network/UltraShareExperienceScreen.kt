@@ -604,7 +604,7 @@ fun UltraShareExperienceScreen(
             state.pendingConnection?.let {
                 IncomingRequestPanel(it, viewModel::acceptConnection, viewModel::rejectConnection)
             }
-        }else {
+        } else {
             PageHeader(
                 title = when (page) {
                     UltraSharePage.SEND -> "إرسال الملفات"
