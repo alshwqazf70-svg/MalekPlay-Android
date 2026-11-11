@@ -16,6 +16,23 @@ class UltraShareMultiRecipientCoordinatorTest {
     }
 
     @Test
+    fun reconnectingKnownHostRetainsDeliverySessionIdentity() {
+        val retained = listOf("192.168.1.20" to "stable-peer-session")
+        assertEquals(
+            "stable-peer-session",
+            UltraShareMultiRecipientCoordinator.resolveSessionId(
+                "192.168.1.20", retained, "new-random-session"
+            )
+        )
+        assertEquals(
+            "new-random-session",
+            UltraShareMultiRecipientCoordinator.resolveSessionId(
+                "192.168.1.21", retained, "new-random-session"
+            )
+        )
+    }
+
+    @Test
     fun sendsToEveryPeerAndPreservesTargetOrder() = runBlocking {
         val results = UltraShareMultiRecipientCoordinator.execute(targets(5)) { target ->
             "sent:" + target.sessionId
