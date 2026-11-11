@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">MalekPlay</string>
+    <string name="app_name">MalekPlayer</string>
     <string name="app_tagline">مشغّل الوسائط الشامل</string>
 
     <!-- Bottom navigation -->
@@ -157,7 +157,7 @@
     <string name="stats_dropped">إطارات مفقودة</string>
 
     <!-- Settings -->
-    <string name="settings_title">إعدادات MalekPlay</string>
+    <string name="settings_title">إعدادات MalekPlayer</string>
     <string name="settings_playback">التشغيل</string>
     <string name="settings_resume">استئناف التشغيل من آخر موضع</string>
     <string name="settings_resume_summary">متابعة المشاهدة من حيث توقفت</string>
@@ -272,7 +272,7 @@
     <!-- Player extras -->
     <string name="player_brightness">السطوع</string>
     <string name="player_volume">الصوت</string>
-    <string name="player_screenshot_saved">تم حفظ الصورة في Pictures/MalekPlay</string>
+    <string name="player_screenshot_saved">تم حفظ الصورة في Pictures/MalekPlayer</string>
     <string name="player_screenshot_failed">تعذر التقاط الصورة</string>
     <string name="player_aspect_fit">ملاءمة</string>
     <string name="player_aspect_fill">تمديد</string>
@@ -285,7 +285,7 @@
     <string name="home_hero_subtitle">تابع من حيث توقفت أو استكشف مكتبتك.</string>
     <string name="home_total_media">الوسائط</string>
     <string name="home_connection_sharing">الاتصال والمشاركة</string>
-    <string name="home_connection_sharing_summary">انقل وسائطك واربط MalekPlay بالأجهزة القريبة.</string>
+    <string name="home_connection_sharing_summary">انقل وسائطك واربط MalekPlayer بالأجهزة القريبة.</string>
     <string name="home_send_receive">إرسال واستلام</string>
     <string name="home_connect_computer">الاتصال بالكمبيوتر</string>
     <string name="home_cast_to_tv">البث إلى التلفزيون</string>
@@ -296,7 +296,7 @@
     <string name="subtitle_search_title">اسم الفيلم أو المسلسل</string>
     <string name="subtitle_season">الموسم</string>
     <string name="subtitle_episode">الحلقة</string>
-    <string name="subtitle_service_setup">سيبحث MalekPlay تلقائيًا دون حساب أو مفتاح API. قد تتوفر نتائج أكثر عند تجربة لغة أخرى.</string>
+    <string name="subtitle_service_setup">سيبحث MalekPlayer تلقائيًا دون حساب أو مفتاح API. قد تتوفر نتائج أكثر عند تجربة لغة أخرى.</string>
     <string name="subtitle_api_key">مفتاح OpenSubtitles API</string>
     <string name="subtitle_username">اسم مستخدم OpenSubtitles</string>
     <string name="subtitle_password">كلمة مرور OpenSubtitles</string>
@@ -306,8 +306,8 @@
     <string name="subtitle_translate_ar">ترجمة الترجمة الإنجليزية إلى العربية (على الجهاز)</string>
     <string name="subtitle_translate_ar_loading">جارٍ ترجمة ملف الترجمة…</string>
 
-    <!-- MalekPlay Ultra Share -->
-    <string name="ultra_share_title">MalekPlay Ultra Share</string>
+    <!-- MalekPlayer Ultra Share -->
+    <string name="ultra_share_title">MalekPlayer Ultra Share</string>
     <string name="ultra_share_subtitle">إرسال واستلام سريع وآمن عبر الشبكة المحلية</string>
     <string name="ultra_share_receive">استلام الملفات</string>
     <string name="ultra_share_receive_hint">ابدأ الاستقبال على هذا الهاتف، ثم استخدم عنوانه ورمز الاقتران في الهاتف المرسل.</string>
@@ -335,23 +335,23 @@
 
     <string name="ultra_share_cancel_send">إلغاء الإرسال</string>
     <string name="ultra_share_send_cancelled">تم إلغاء الإرسال. يمكنك إعادة المحاولة وسيستأنف المستقبل من الجزء المكتمل.</string>
-    <string name="ultra_share_qr_description">رمز QR لاقتران MalekPlay Ultra Share</string>
+    <string name="ultra_share_qr_description">رمز QR لاقتران MalekPlayer Ultra Share</string>
     <string name="ultra_share_qr_hint">يمكن مسح الرمز أو اختيار صورة QR من الهاتف المرسل.</string>
     <string name="ultra_share_scan_qr">قراءة رمز QR من صورة</string>
     <string name="ultra_share_scan_success">تمت قراءة بيانات الاقتران.</string>
     <string name="ultra_share_scan_failed">تعذر قراءة رمز الاقتران من الصورة.</string>
     <string name="ultra_share_find_devices">البحث عن الأجهزة القريبة</string>
     <string name="ultra_share_searching">جارٍ البحث عن الأجهزة…</string>
-    <string name="ultra_share_no_devices">لم نعثر على أجهزة MalekPlay تستقبل حالياً. تأكد من اتصالها بالشبكة نفسها وبدء الاستقبال.</string>
+    <string name="ultra_share_no_devices">لم نعثر على أجهزة MalekPlayer تستقبل حالياً. تأكد من اتصالها بالشبكة نفسها وبدء الاستقبال.</string>
     <string name="ultra_share_devices_found">تم العثور على %1$d جهاز</string>
     <string name="ultra_share_peer_select">%1$s — %2$s (اضغط للاختيار)</string>
     <string name="ultra_share_discovery_unavailable">تعذر اكتشاف الأجهزة تلقائياً؛ يمكنك إدخال عنوان IP أو استخدام رمز QR.</string>
     <string name="ultra_share_paste_pairing">لصق رابط الاقتران من الحافظة</string>
     <string name="ultra_share_clipboard_empty">الحافظة لا تحتوي على رابط اقتران.</string>
-    <string name="ultra_share_clipboard_invalid">النص المنسوخ ليس رابط اقتران صالحاً لـ MalekPlay.</string>
+    <string name="ultra_share_clipboard_invalid">النص المنسوخ ليس رابط اقتران صالحاً لـ MalekPlayer.</string>
     <string name="ultra_share_copy_pairing_link">نسخ رابط الاقتران</string>
     <string name="ultra_share_pairing_copied">تم نسخ رابط الاقتران. أرسله إلى الجهاز المرسل.</string>
-    <string name="ultra_share_notification_channel">نقل ملفات MalekPlay</string>
+    <string name="ultra_share_notification_channel">نقل ملفات MalekPlayer</string>
     <string name="ultra_share_notification_description">إشعار أثناء إرسال أو استقبال الملفات عبر الشبكة المحلية.</string>
     <string name="ultra_share_notification_active">عملية نقل نشطة؛ يمكنك الانتقال مؤقتاً إلى تطبيق آخر.</string>
     <string name="ultra_share_background_unavailable">تعذر تشغيل إشعار النقل في الخلفية؛ أبقِ التطبيق مفتوحاً أثناء النقل.</string>
