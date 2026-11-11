@@ -519,6 +519,7 @@ fun UltraShareScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var pendingInvitationPeerId by remember { mutableStateOf<String?>(null) }
     val viewModel: UltraShareViewModel = androidx.hilt.navigation.compose.hiltViewModel()
     val state by viewModel.state.collectAsState()
     var host by remember { mutableStateOf("") }
@@ -543,7 +544,12 @@ fun UltraShareScreen(
         }
     }
     val qrPayload = state.localAddresses.firstOrNull()?.takeIf { state.receiving }?.let { address ->
-        UltraShareQrCode.createPayload(address, UltraShareTransport.DEFAULT_PORT, state.pairingSecret)
+        UltraShareQrCode.createPayload(
+            address,
+            UltraShareTransport.DEFAULT_PORT,
+            state.pairingSecret,
+            state.wifiDirectPeerId
+        )
     }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
@@ -608,25 +614,63 @@ fun UltraShareScreen(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
         if (grants.values.all { it }) {
-            viewModel.scanWifiDirectPeers()
+            val invitation = pendingInvitationPeerId
+            pendingInvitationPeerId = null
+            if (invitation != null) viewModel.joinWifiDirectInvitation(invitation)
+            else viewModel.scanWifiDirectPeers()
         } else {
-            Toast.makeText(context, "يلزم منح إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
+            pendingInvitationPeerId = null
+            Toast.makeText(context, "يلزم منح إذن الأجهزة القريبة لاستخدام Wi-Fi Direct. يمكنك المتابعة بعنوان الشبكة المحلية.", Toast.LENGTH_LONG).show()
         }
     }
+    fun wifiDirectPermissions(): Array<String> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+    } else {
+        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
     fun requestWifiDirectScan() {
-        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
-        } else {
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-        val missing = required.filter {
+        pendingInvitationPeerId = null
+        val missing = wifiDirectPermissions().filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) viewModel.scanWifiDirectPeers()
         else wifiDirectPermissionLauncher.launch(missing.toTypedArray())
     }
+    fun requestWifiDirectInvitation(peerId: String) {
+        pendingInvitationPeerId = peerId
+        val missing = wifiDirectPermissions().filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) {
+            pendingInvitationPeerId = null
+            viewModel.joinWifiDirectInvitation(peerId)
+        } else {
+            wifiDirectPermissionLauncher.launch(missing.toTypedArray())
+        }
+    }
+    val receiverWifiDirectPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        viewModel.startReceiving()
+        if (grants.values.all { it }) viewModel.createWifiDirectReceiverGroup()
+        else Toast.makeText(context, "بدأ الاستقبال عبر Wi-Fi العادية. يمكنك تفعيل إذن الأجهزة القريبة لاحقاً لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
+    }
+    fun startReceivingWithWifiDirect() {
+        val missing = wifiDirectPermissions().filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) {
+            viewModel.startReceiving()
+            viewModel.createWifiDirectReceiverGroup()
+        } else {
+            receiverWifiDirectPermissionLauncher.launch(missing.toTypedArray())
+        }
+    }
     LaunchedEffect(state.wifiDirectHost) {
-        host = state.wifiDirectHost.orEmpty()
+        state.wifiDirectHost?.let { host = it }
+    }
+    LaunchedEffect(pendingInvitationPeerId) {
+        pendingInvitationPeerId?.let { requestWifiDirectInvitation(it) }
     }
     fun scanQrWithCamera() {
         val options = ScanOptions().apply {
