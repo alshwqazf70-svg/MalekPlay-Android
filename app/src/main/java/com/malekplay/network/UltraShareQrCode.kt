@@ -134,7 +134,7 @@ object UltraShareQrCode {
             .toIntOrNull() ?: throw IllegalArgumentException("منفذ الاقتران غير صالح.")
         val secret = requireNotNull(uri.getQueryParameter("secret")) { "رمز الاقتران غير موجود في رمز QR." }
         require(UltraShareTransport.isValidPairingSecret(secret)) { "رمز الاقتران في QR غير صالح." }
-        require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ MalekPlay Ultra Share غير متوافق." }
+        require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ MalekPlayer Ultra Share غير متوافق." }
         val invitationId = if (version == INVITATION_VERSION) {
             requireNotNull(uri.getQueryParameter("peer")) { "هوية الجهاز غير موجودة في رمز QR." }
                 .also {
