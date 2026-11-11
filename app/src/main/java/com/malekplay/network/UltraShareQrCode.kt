@@ -22,14 +22,22 @@ object UltraShareQrCode {
     private const val AUTHORITY = "ultra-share"
     private const val VERSION = "1"
     private const val MULTI_HOST_VERSION = "2"
+    private const val INVITATION_VERSION = "3"
     private const val MAX_QR_HOSTS = 8
     private const val MAX_DECODE_DIMENSION = 2048
 
     /** Builds a receiver QR using the authenticated control endpoint, never the data port. */
     fun createReceiverPayload(host: String, pairingSecret: String): String =
         createPayload(host, UltraShareControlChannel.DEFAULT_PORT, pairingSecret)
-    /** Multi-interface QR lets a peer select the reachable Wi-Fi, hotspot or Wi-Fi Direct address. */
-    fun createReceiverPayload(hosts: List<String>, pairingSecret: String): String {
+    /** Version 3 QR carries a public, stable peer identity for Wi-Fi Direct service discovery. */
+    fun createReceiverPayload(
+        hosts: List<String>,
+        pairingSecret: String,
+        invitationId: String
+    ): String {
+        require(invitationId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
+            "هوية دعوة الجهاز غير صالحة."
+        }
         val safeHosts = hosts.asSequence()
             .map { it.trim() }
             .filter { UltraShareTransport.isValidPrivateLanHost(it) }
@@ -43,8 +51,9 @@ object UltraShareQrCode {
         return Uri.Builder()
             .scheme(SCHEMA)
             .authority(AUTHORITY)
-            .appendQueryParameter("v", MULTI_HOST_VERSION)
+            .appendQueryParameter("v", INVITATION_VERSION)
             .apply { safeHosts.forEach { appendQueryParameter("host", it) } }
+            .appendQueryParameter("peer", invitationId)
             .appendQueryParameter("port", UltraShareControlChannel.DEFAULT_PORT.toString())
             .appendQueryParameter("secret", pairingSecret)
             .build()
@@ -74,7 +83,8 @@ object UltraShareQrCode {
         val host: String,
         val port: Int,
         val pairingSecret: String,
-        val hosts: List<String> = listOf(host)
+        val hosts: List<String> = listOf(host),
+        val invitationId: String? = null
     )
 
     fun parsePayload(payload: String): PairingDetails {
@@ -83,10 +93,10 @@ object UltraShareQrCode {
             "رمز QR ليس رمز اقتران MalekPlay Ultra Share."
         }
         val version = uri.getQueryParameter("v")
-        require(version == VERSION || version == MULTI_HOST_VERSION) {
+        require(version == VERSION || version == MULTI_HOST_VERSION || version == INVITATION_VERSION) {
             "إصدار رمز الاقتران غير مدعوم."
         }
-        val hosts = (if (version == MULTI_HOST_VERSION) {
+        val hosts = (if (version == MULTI_HOST_VERSION || version == INVITATION_VERSION) {
             uri.getQueryParameters("host")
         } else {
             listOfNotNull(uri.getQueryParameter("host"))
@@ -103,7 +113,15 @@ object UltraShareQrCode {
         val secret = requireNotNull(uri.getQueryParameter("secret")) { "رمز الاقتران غير موجود في رمز QR." }
         require(UltraShareTransport.isValidPairingSecret(secret)) { "رمز الاقتران في QR غير صالح." }
         require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ MalekPlay Ultra Share غير متوافق." }
-        return PairingDetails(host, port, secret, hosts)
+        val invitationId = if (version == INVITATION_VERSION) {
+            requireNotNull(uri.getQueryParameter("peer")) { "هوية الجهاز غير موجودة في رمز QR." }
+                .also {
+                    require(it.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
+                        "هوية الجهاز في رمز QR غير صالحة."
+                    }
+                }
+        } else null
+        return PairingDetails(host, port, secret, hosts, invitationId)
     }
 
     fun createBitmap(payload: String, dimension: Int = 640): Bitmap {
