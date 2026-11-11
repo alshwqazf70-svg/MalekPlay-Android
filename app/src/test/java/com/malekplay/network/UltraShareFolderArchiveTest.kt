@@ -11,7 +11,7 @@ class UltraShareFolderArchiveTest {
     fun safeSegmentRemovesTraversalSeparatorsAndControlCharacters() {
         val sanitized = UltraShareFolderArchive.safeSegment("../photos\\\\2026\u0000:family")
         assertFalse(sanitized.contains('/'))
-        assertFalse(sanitized.contains("\\\\"))
+        assertFalse(sanitized.contains("\\"))
         assertFalse(sanitized.contains(':'))
         assertFalse(sanitized.contains('\u0000'))
         assertTrue(sanitized.isNotBlank())
