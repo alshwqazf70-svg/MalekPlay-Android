@@ -62,6 +62,12 @@ internal object UltraShareNetworkRouting {
         )?.first
     }.getOrNull()
 
+    /** True when the host belongs to Android's conventional Wi-Fi Direct group subnet. */
+    fun isWifiDirectGroupHost(host: String): Boolean = runCatching {
+        val address = InetAddress.getByName(host) as? Inet4Address ?: return@runCatching false
+        isAndroidWifiDirectGroupAddress(address)
+    }.getOrDefault(false)
+
     internal fun isWifiDirectInterfaceName(name: String): Boolean =
         name.trim().lowercase().let { it.startsWith("p2p") }
 
