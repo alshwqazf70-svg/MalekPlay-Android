@@ -566,15 +566,18 @@ class UltraShareViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         status = "تم العثور على جهاز الاستقبال؛ جارٍ إنشاء الاتصال المباشر..."
                     )
-                    session.stopInvitationDiscovery()
-                    runCatching {
-                        session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
-                    }.onFailure { failure ->
-                        _state.value = _state.value.copy(
-                            requestingConnection = false,
-                            error = failure.localizedMessage ?: "تعذر الاتصال بجهاز الدعوة."
-                        )
-                        pendingQrPairing = null
+                    session.stopInvitationDiscovery {
+                        if (pendingQrPairing != null) {
+                            runCatching {
+                                session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
+                            }.onFailure { failure ->
+                                _state.value = _state.value.copy(
+                                    requestingConnection = false,
+                                    error = failure.localizedMessage ?: "تعذر الاتصال بجهاز الدعوة."
+                                )
+                                pendingQrPairing = null
+                            }
+                        }
                     }
                 }
             }
