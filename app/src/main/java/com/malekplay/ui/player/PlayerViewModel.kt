@@ -339,7 +339,13 @@ class PlayerViewModel @Inject constructor(
             // Media3 exceptions can include source Uris and local file paths.
             // Keep diagnostics to the stable error code rather than logging raw
             // exception messages or stack traces that may expose private paths.
-            Log.e(LOG_TAG, "Playback failed: code=${error.errorCodeName}")
+            val causeTypes = generateSequence(error.cause) { it.cause }
+                .take(6)
+                .joinToString(" <- ") { it.javaClass.simpleName }
+            Log.e(
+                LOG_TAG,
+                "Playback failed: code=${error.errorCodeName}, causes=${causeTypes.ifBlank { "none" }}"
+            )
             _playerError.value =
                 "تعذّر تشغيل هذا الفيديو. قد تكون الصيغة أو وحدة فك الترميز غير متوافقة؛ حاول تشغيله مرة أخرى."
         }
