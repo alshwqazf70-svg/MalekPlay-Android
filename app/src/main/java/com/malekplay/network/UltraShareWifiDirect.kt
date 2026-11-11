@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
+import android.net.wifi.p2p.WifiP2pDnsSdServiceInfo
+import android.net.wifi.p2p.WifiP2pDnsSdServiceRequest
 import android.net.wifi.p2p.WifiP2pManager
 import android.net.wifi.WpsInfo
 import android.os.Looper
@@ -34,6 +36,9 @@ object UltraShareWifiDirect {
     ) : Closeable {
         private val appContext = context.applicationContext
         private var closed = false
+        private var localInvitationService: WifiP2pDnsSdServiceInfo? = null
+        private var invitationRequest: WifiP2pDnsSdServiceRequest? = null
+        private var invitationMatch: ((Peer) -> Unit)? = null
 
         private val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -65,6 +70,115 @@ object UltraShareWifiDirect {
                 filter,
                 ContextCompat.RECEIVER_NOT_EXPORTED
             )
+        }
+
+        /**
+         * Advertises this receiver's short-lived invitation identity through Wi-Fi Direct
+         * DNS-SD. The pairing secret is deliberately excluded from the public TXT record.
+         * A sender learns only which P2P device to connect to; MPC2 still authenticates it.
+         */
+        @SuppressLint("MissingPermission")
+        fun advertiseInvitation(peerId: String) {
+            check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
+            require(peerId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
+                "هوية دعوة Wi-Fi Direct غير صالحة."
+            }
+            val service = WifiP2pDnsSdServiceInfo.newInstance(
+                "malekplay",
+                "_malekplay._tcp",
+                mapOf("peer" to peerId)
+            )
+            try {
+                manager.clearLocalServices(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() = Unit
+                    override fun onFailure(reason: Int) = Unit
+                })
+                manager.addLocalService(channel, service, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        if (!closed) localInvitationService = service
+                    }
+                    override fun onFailure(reason: Int) {
+                        onError("تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
+                    }
+                })
+            } catch (failure: SecurityException) {
+                onError("يلزم إذن الأجهزة القريبة لإعلان دعوة Wi-Fi Direct.")
+            }
+        }
+
+        /**
+         * Searches for the exact invitation ID carried by QR. On a match, the caller
+         * receives the P2P device address and can request a direct group connection.
+         * The QR secret is never sent in discovery records.
+         */
+        @SuppressLint("MissingPermission")
+        fun discoverInvitation(peerId: String, onMatch: (Peer) -> Unit) {
+            check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
+            require(peerId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
+                "هوية دعوة Wi-Fi Direct غير صالحة."
+            }
+            invitationMatch = onMatch
+            try {
+                manager.setDnsSdResponseListeners(
+                    channel,
+                    WifiP2pManager.DnsSdServiceResponseListener { _, _, _ -> },
+                    WifiP2pManager.DnsSdTxtRecordListener { _, records, device ->
+                        if (closed || records["peer"] != peerId) return@DnsSdTxtRecordListener
+                        val peer = Peer(
+                            name = device.deviceName?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay",
+                            deviceAddress = device.deviceAddress.orEmpty(),
+                            status = statusLabel(device.status)
+                        )
+                        if (peer.deviceAddress.isNotBlank()) invitationMatch?.invoke(peer)
+                    }
+                )
+                val request = WifiP2pDnsSdServiceRequest.newInstance()
+                manager.clearServiceRequests(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        if (closed) return
+                        manager.addServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
+                            override fun onSuccess() {
+                                if (closed) return
+                                invitationRequest = request
+                                manager.discoverServices(channel, object : WifiP2pManager.ActionListener {
+                                    override fun onSuccess() = Unit
+                                    override fun onFailure(reason: Int) {
+                                        onError("تعذر البحث عن دعوة Wi-Fi Direct (رمز $reason).")
+                                    }
+                                })
+                            }
+                            override fun onFailure(reason: Int) {
+                                onError("تعذر تهيئة البحث عن دعوة Wi-Fi Direct (رمز $reason).")
+                            }
+                        })
+                    }
+                    override fun onFailure(reason: Int) {
+                        onError("تعذر تنظيف طلبات اكتشاف Wi-Fi Direct (رمز $reason).")
+                    }
+                })
+            } catch (failure: SecurityException) {
+                onError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        fun stopInvitationDiscovery() {
+            if (closed) return
+            invitationMatch = null
+            runCatching {
+                manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() = Unit
+                    override fun onFailure(reason: Int) = Unit
+                })
+            }
+            invitationRequest?.let { request ->
+                runCatching {
+                    manager.removeServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
+                        override fun onSuccess() { invitationRequest = null }
+                        override fun onFailure(reason: Int) { invitationRequest = null }
+                    })
+                }
+            }
         }
 
         @SuppressLint("MissingPermission")
@@ -168,6 +282,11 @@ object UltraShareWifiDirect {
             // not tear down an established group, so an in-flight TCP transfer can
             // continue over the existing Wi-Fi Direct connection.
             runCatching { manager.stopPeerDiscovery(channel, null) }
+            runCatching { manager.clearServiceRequests(channel, null) }
+            runCatching { manager.clearLocalServices(channel, null) }
+            invitationMatch = null
+            invitationRequest = null
+            localInvitationService = null
             runCatching { appContext.unregisterReceiver(receiver) }
         }
 
