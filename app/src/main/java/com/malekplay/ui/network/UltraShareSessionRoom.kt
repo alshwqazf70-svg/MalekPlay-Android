@@ -77,8 +77,9 @@ fun UltraShareSessionRoom(
         !isSendingRoom && state.receiving -> "هذا الهاتف ظاهر وجاهز لاستقبال الملفات"
         !isSendingRoom -> "ابدأ الاستقبال لعرض رمز الربط واستقبال الملفات"
         selectedMediaCount > 0 -> "${selectedMediaCount} ملف محدد — اختر جهاز الاستقبال"
-        state.scanning -> "نبحث عن أجهزة MalekPlay القريبة"
-        else -> "اختر الوسائط ثم اربط الجهازين"
+        state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning ->
+            "نبحث عن أجهزة MalekPlay القريبة"
+        else -> "اختر الملفات ثم اربط الجهازين"
     }
     val statusColor = when {
         transferring -> MalekPlayColors.PurpleBright
@@ -233,6 +234,14 @@ fun UltraShareSessionRoom(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.labelSmall
                                 )
+                                val remainingBytes = (transfer.totalBytes - transfer.transferredBytes).coerceAtLeast(0L)
+                                if (transfer.bytesPerSecond > 0L && remainingBytes > 0L) {
+                                    Text(
+                                        "الوقت المتبقي التقريبي: ${formatSessionDuration(remainingBytes / transfer.bytesPerSecond)}",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
                             }
                         }
                     }
@@ -522,6 +531,18 @@ internal fun formatTransferBytes(value: Long): String {
     return String.format(java.util.Locale.US, "%.1f %s", amount, units[index])
 }
 
+
+private fun formatSessionDuration(seconds: Long): String {
+    val safe = seconds.coerceAtLeast(0L)
+    val hours = safe / 3600L
+    val minutes = (safe % 3600L) / 60L
+    val remainder = safe % 60L
+    return when {
+        hours > 0L -> "${hours}س ${minutes}د"
+        minutes > 0L -> "${minutes}د ${remainder}ث"
+        else -> "${remainder}ث"
+    }
+}
 
 private fun formatSessionTransferBytes(value: Long): String {
     if (value < 1024L) return "$value B"

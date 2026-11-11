@@ -1667,8 +1667,8 @@ class UltraShareForegroundService : Service() {
         val mimeType = UltraShareTransport.sanitizeMimeType(
             contentResolver.getType(uri) ?: "application/octet-stream"
         )
-        require(UltraShareTransport.isSupportedShareMimeType(mimeType)) {
-            "تعذر تحديد نوع ملف صالح للمشاركة."
+        require(UltraShareTransport.isAllowedShareFile(name, mimeType)) {
+            "لا يمكن مشاركة ملفات APK أو PDF."
         }
         return Triple(name, mimeType, size)
     }
