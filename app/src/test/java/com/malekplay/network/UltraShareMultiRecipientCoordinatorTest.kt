@@ -1,7 +1,9 @@
 package com.malekplay.network
 
 import java.util.concurrent.atomic.AtomicInteger
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -121,3 +123,57 @@ class UltraShareMultiRecipientCoordinatorTest {
         }.isSuccess)
     }
 }
+
+
+    @Test
+    fun disconnectingPeerMidTransferDoesNotCancelAnotherRecipient() = runBlocking {
+        val targets = targets(2)
+        val disconnectedPeerStarted = CompletableDeferred<Unit>()
+        val results = UltraShareMultiRecipientCoordinator.execute(targets) { target ->
+            when (target.sessionId) {
+                "session-1" -> {
+                    disconnectedPeerStarted.complete(Unit)
+                    delay(30)
+                    throw IllegalStateException("connection lost during transfer")
+                }
+                else -> {
+                    disconnectedPeerStarted.await()
+                    delay(60)
+                    "remaining recipient completed"
+                }
+            }
+        }
+
+        assertEquals(
+            listOf(
+                UltraShareMultiRecipientCoordinator.Status.FAILED,
+                UltraShareMultiRecipientCoordinator.Status.COMPLETED
+            ),
+            results.map { it.status }
+        )
+        assertEquals("connection lost during transfer", results[0].error)
+        assertEquals("remaining recipient completed", results[1].value)
+    }
+
+    @Test
+    fun cancellationRunsPeerResourceCleanupBeforeReturning() = runBlocking {
+        val enteredTransfer = CompletableDeferred<Unit>()
+        val resourceReleased = java.util.concurrent.atomic.AtomicBoolean(false)
+        val target = targets(1).single()
+
+        val job = launch {
+            UltraShareMultiRecipientCoordinator.execute(listOf(target)) {
+                try {
+                    enteredTransfer.complete(Unit)
+                    awaitCancellation()
+                } finally {
+                    resourceReleased.set(true)
+                }
+            }
+        }
+
+        kotlinx.coroutines.withTimeout(1_000) { enteredTransfer.await() }
+        job.cancelAndJoin()
+
+        assertTrue("Peer socket/resource cleanup must run on cancellation.", resourceReleased.get())
+    }
