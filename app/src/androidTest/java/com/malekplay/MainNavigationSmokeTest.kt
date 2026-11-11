@@ -26,6 +26,8 @@ class MainNavigationSmokeTest {
         val movies = composeRule.onNodeWithTag("bottom_nav_movies")
         val series = composeRule.onNodeWithTag("bottom_nav_series")
         val music = composeRule.onNodeWithTag("bottom_nav_music")
+        val local = composeRule.onNodeWithTag("bottom_nav_local")
+        val ultraShare = composeRule.onNodeWithTag("bottom_nav_ultra_share")
 
         home.assertIsSelected()
         movies.performClick()
@@ -34,13 +36,19 @@ class MainNavigationSmokeTest {
         series.assertIsSelected()
         music.performClick()
         music.assertIsSelected()
+        local.performClick()
+        local.assertIsSelected()
+        ultraShare.performClick()
+        ultraShare.assertIsSelected()
         home.performClick()
         home.assertIsSelected()
 
         // Repeat fast tab changes to catch stale or duplicate back-stack entries.
+        ultraShare.performClick()
         music.performClick()
         home.performClick()
         movies.performClick()
+        local.performClick()
         home.performClick()
         home.assertIsSelected()
     }
