@@ -238,19 +238,33 @@ fun UltraShareExperienceScreen(
     }
 
     LaunchedEffect(initialUris) {
-        val allowed = initialUris.distinct().filter { isUltraShareMedia(context, it) }
-        if (allowed.size != initialUris.distinct().size) {
-            Toast.makeText(context, "تم تجاهل العناصر التي تعذرت قراءة نوعها.", Toast.LENGTH_LONG).show()
-        }
-        val failedGrants = allowed.count { uri ->
+        val requested = initialUris.distinct()
+        val durableUris = ArrayList<Uri>(requested.size)
+        var rejectedCount = 0
+        requested.forEach { uri ->
             val resolver = context.contentResolver
-            val alreadyGranted = resolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission }
-            !alreadyGranted && runCatching {
+            val alreadyGranted = resolver.persistedUriPermissions.any {
+                it.uri == uri && it.isReadPermission
+            }
+            val hasDurableReadAccess = alreadyGranted || runCatching {
                 resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }.isFailure
+                resolver.persistedUriPermissions.any {
+                    it.uri == uri && it.isReadPermission
+                }
+            }.getOrDefault(false)
+            if (hasDurableReadAccess && isUltraShareMedia(context, uri)) {
+                durableUris += uri
+            } else {
+                rejectedCount++
+            }
         }
-        if (failedGrants > 0) {
-            Toast.makeText(context, "تعذر تثبيت إذن الوصول لبعض الملفات المشتركة؛ قد تحتاج إلى إعادة اختيارها.", Toast.LENGTH_LONG).show()
+        selectedUris = (selectedUris.filterNot { it in requested } + durableUris).distinct()
+        if (rejectedCount > 0) {
+            Toast.makeText(
+                context,
+                "لم تتم إضافة $rejectedCount ملفاً مشتركاً؛ تعذر تثبيت إذن قراءة دائم أو قراءة بياناته. أعد اختياره من مدير الملفات.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
