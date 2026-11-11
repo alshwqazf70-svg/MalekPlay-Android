@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MalekPlay Ultra Share desktop companion (protocol v1).
+"""MalekPlayer Ultra Share desktop companion (protocol v1).
 
 Requires Python 3.10+ and: pip install -r requirements.txt
 The pairing secret is used only in memory and is never written to disk.
@@ -103,7 +103,7 @@ def recv_exact(sock: socket.socket, length: int) -> bytes:
 
 
 def derive_key(secret: bytes, challenge: bytes, direction: str) -> bytes:
-    label = f"MalekPlay Ultra Share v1/{direction}".encode("utf-8")
+    label = f"MalekPlayer Ultra Share v1/{direction}".encode("utf-8")
     return hmac.new(secret, challenge + label, hashlib.sha256).digest()
 
 
@@ -272,7 +272,7 @@ def send_once(host: str, port: int, secret: str, source: Path) -> None:
     with socket.create_connection((host, port), timeout=20) as sock:
         sock.settimeout(20)
         if struct.unpack(">I", recv_exact(sock, 4))[0] != MAGIC:
-            raise ValueError("The destination is not a MalekPlay Ultra Share receiver.")
+            raise ValueError("The destination is not a MalekPlayer Ultra Share receiver.")
         challenge = recv_exact(sock, 32)
         pairing_key = derive_pairing_key(secret, challenge)
         proof = hmac.new(pairing_key, challenge, hashlib.sha256).digest()
@@ -379,7 +379,7 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
         server.bind(("0.0.0.0", port))
         server.listen(1)
         server.settimeout(1)
-        print(f"Waiting for a MalekPlay device on TCP port {port}...")
+        print(f"Waiting for a MalekPlayer device on TCP port {port}...")
         while True:
             try:
                 connection, address = server.accept()
@@ -537,7 +537,7 @@ def discover_devices(timeout: float, port: int) -> list[tuple[str, int, str]]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="MalekPlay Ultra Share desktop companion")
+    parser = argparse.ArgumentParser(description="MalekPlayer Ultra Share desktop companion")
     sub = parser.add_subparsers(dest="command", required=True)
 
     receive = sub.add_parser("receive", help="Receive files from Android or another desktop")
@@ -564,7 +564,7 @@ def main() -> int:
     send.add_argument("--file", required=True, type=Path, nargs="+", metavar="FILE")
     send.add_argument("--port", type=int, default=DEFAULT_PORT)
 
-    discover = sub.add_parser("discover", help="Find MalekPlay receivers on the local network")
+    discover = sub.add_parser("discover", help="Find MalekPlayer receivers on the local network")
     discover.add_argument("--timeout", type=float, default=5.0)
     discover.add_argument("--port", type=int, default=DISCOVERY_PORT)
 
