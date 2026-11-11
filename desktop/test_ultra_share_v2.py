@@ -164,8 +164,9 @@ class UltraShareV2ManifestTests(unittest.TestCase):
         worker.join(timeout=2)
         self.assertFalse(worker.is_alive())
         self.assertFalse(failures)
-        self.assertEqual("MalekPlay Desktop", "MalekPlay Desktop")
         self.assertEqual(1, len(received))
+        self.assertEqual("MalekPlay Desktop", received[0][0])
+        self.assertTrue(received[0][1])
 
     def test_android_v2_batch_sender_and_desktop_receiver_interoperate(self):
         import socket
