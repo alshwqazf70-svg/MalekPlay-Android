@@ -578,9 +578,12 @@ def main() -> int:
             while True:
                 try:
                     def approve(peer_name: str, peer_host: str) -> bool:
-                        answer = input(
-                            f"\\n{peer_name} ({peer_host}) requests Ultra Share access. Accept? [y/N]: "
-                        ).strip().lower()
+                        try:
+                            answer = input(
+                                f"\\n{peer_name} ({peer_host}) requests Ultra Share access. Accept? [y/N]: "
+                            ).strip().lower()
+                        except EOFError:
+                            return False
                         return answer in {"y", "yes"}
                     serve_control_once(
                         args.control_port, secret, args.name, approve
