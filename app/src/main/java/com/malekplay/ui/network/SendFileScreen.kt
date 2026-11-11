@@ -59,7 +59,8 @@ fun SendFileScreen(
     onSecretChange: (String) -> Unit,
     onPastePairingDetails: () -> Unit,
     onRequestConnection: () -> Unit,
-    onSendBatch: () -> Unit
+    onSendBatch: () -> Unit,
+    onSendToAllPeers: () -> Unit
 ) {
     // Selecting a discovered peer opens the secure pairing fields immediately.
     var showManualPairing by remember(host) { mutableStateOf(host.isNotBlank() && state.approvedPeerHost != host) }
@@ -135,6 +136,15 @@ fun SendFileScreen(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.sending && host.isNotBlank() && state.approvedPeerHost == host && UltraShareTransport.isValidPairingSecret(secret)
             ) { Text("إرسال ${selectedUris.size} ملف الآن") }
+            if (state.approvedSenderPeerCount > 1) {
+                OutlinedButton(
+                    onClick = onSendToAllPeers,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.sending
+                ) {
+                    Text("إرسال إلى جميع الأجهزة المقترنة (${state.approvedSenderPeerCount})")
+                }
+            }
         }
         state.error?.let { ErrorPanel(it) }
         state.status?.let { InfoPanel("الحالة", it) }
