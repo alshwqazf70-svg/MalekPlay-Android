@@ -16,6 +16,7 @@ import shutil
 import tempfile
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
@@ -81,6 +82,8 @@ def create_handler(output: Path, secret: str, transfer_port: int, v2_port: int,
                    control_port: int, web_port: int, discovery_port: int):
     output.mkdir(parents=True, exist_ok=True)
     output_root = output.resolve()
+    staged_batches: dict[str, dict] = {}
+    staged_lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "MalekPlayUltraShare/1"
@@ -190,8 +193,48 @@ def create_handler(output: Path, secret: str, transfer_port: int, v2_port: int,
                 return
             self._json(404, {"ok": False, "error": "المسار غير موجود."})
 
+        def do_POST(self) -> None:
+            if self.path != "/api/send-v2-batch" or not self._is_same_origin():
+                self._json(403, {"ok": False, "error": "الطلب غير مسموح."})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 1 <= length <= 4096:
+                    raise ValueError("بيانات الدفعة غير صالحة.")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                batch_id = str(uuid.UUID(str(payload.get("batch_id", ""))))
+            except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as failure:
+                self._json(400, {"ok": False, "error": str(failure)[:300] or "معرّف الدفعة غير صالح."})
+                return
+
+            with staged_lock:
+                batch = staged_batches.pop(batch_id, None)
+            if batch is None:
+                self._json(404, {"ok": False, "error": "انتهت جلسة تجهيز الملفات أو لم تعد موجودة. أعد اختيار الملفات."})
+                return
+            try:
+                paths = batch["paths"]
+                if not paths:
+                    raise ValueError("الدفعة لا تحتوي على ملفات.")
+                with connect_control_session(batch["host"], control_port, batch["pin"]) as control:
+                    results = send_batch_v2(batch["host"], v2_port, batch["pin"], paths)
+                    if control.error:
+                        raise ConnectionError(f"فُقدت قناة التحكم: {control.error}")
+                if len(results) != len(paths) or any(item.get("status") != 2 for item in results):
+                    raise OSError("لم يؤكد المستقبل اكتمال جميع ملفات الدفعة والتحقق منها.")
+                self._json(200, {
+                    "ok": True,
+                    "message": f"تم إرسال الدفعة كاملة في جلسة V2 واحدة والتحقق من {len(results)} ملفاً.",
+                    "count": len(results),
+                    "names": [path.name for path in paths],
+                })
+            except Exception as failure:
+                self._json(502, {"ok": False, "error": str(failure)[:500] or "فشل إرسال الدفعة."})
+            finally:
+                shutil.rmtree(batch["directory"], ignore_errors=True)
+
         def do_PUT(self) -> None:
-            if self.path not in {"/api/send", "/api/send-v2"} or not self._is_same_origin():
+            if self.path not in {"/api/send", "/api/send-v2", "/api/stage-v2"} or not self._is_same_origin():
                 self._json(403, {"ok": False, "error": "الطلب غير مسموح."})
                 return
             try:
@@ -222,7 +265,44 @@ def create_handler(output: Path, secret: str, transfer_port: int, v2_port: int,
                         written += len(block)
                     stream.flush()
                     os.fsync(stream.fileno())
-                if self.path == "/api/send-v2":
+                if self.path == "/api/stage-v2":
+                    try:
+                        batch_id = str(uuid.UUID(self.headers.get("X-Ultra-Batch", "")))
+                    except (ValueError, TypeError) as failure:
+                        raise ValueError("معرّف دفعة المتصفح غير صالح.") from failure
+                    now = time.time()
+                    with staged_lock:
+                        expired = [
+                            key for key, item in staged_batches.items()
+                            if now - item["created_at"] > 3600
+                        ]
+                        for key in expired:
+                            old = staged_batches.pop(key, None)
+                            if old:
+                                shutil.rmtree(old["directory"], ignore_errors=True)
+                        batch = staged_batches.get(batch_id)
+                        if batch is None:
+                            directory = Path(tempfile.mkdtemp(prefix=".ultrashare-web-batch-", dir=output_root))
+                            batch = {
+                                "host": host, "pin": pin, "directory": directory,
+                                "paths": [], "created_at": now,
+                            }
+                            staged_batches[batch_id] = batch
+                        elif batch["host"] != host or batch["pin"] != pin:
+                            raise PermissionError("بيانات الهاتف أو رمز الاقتران تغيرت أثناء تجهيز الدفعة.")
+                        if len(batch["paths"]) >= 512:
+                            raise ValueError("الحد الأقصى للدفعة هو 512 ملفاً.")
+                        item_dir = batch["directory"] / f"item-{len(batch['paths']):04d}"
+                        item_dir.mkdir(parents=True, exist_ok=False)
+                        destination = item_dir / filename
+                        os.replace(source, destination)
+                        batch["paths"].append(destination)
+                        batch["created_at"] = now
+                    self._json(200, {
+                        "ok": True, "staged": len(batch["paths"]),
+                        "message": f"تم تجهيز {len(batch['paths'])} ملفاً في الدفعة."
+                    })
+                elif self.path == "/api/send-v2":
                     with connect_control_session(host, control_port, pin) as control:
                         results = send_batch_v2(host, v2_port, pin, [source])
                         if control.error:
@@ -273,7 +353,7 @@ button,.download{border:0;border-radius:12px;padding:12px 16px;background:linear
 <label for="pin">رمز الاقتران الظاهر في MalekPlay</label><input id="pin" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="9 أرقام">
 <button id="discover" type="button">البحث عن الهاتف على الشبكة</button>
 <label for="file">اختر الملفات من الكمبيوتر (باستثناء APK وPDF)</label><input id="file" type="file" multiple>
-<button id="send">إرسال V1</button><button id="sendV2" type="button">إرسال V2 المشفّر (ملفًا ملفًا)</button><div id="sendStatus" class="status" aria-live="polite"></div>
+<button id="send">إرسال V1</button><button id="sendV2" type="button">إرسال V2 المشفّر (دفعة واحدة)</button><div id="sendStatus" class="status" aria-live="polite"></div>
 <p class="note">تأكد أن الكمبيوتر والهاتف على شبكة Wi-Fi نفسها أو أن الكمبيوتر متصل بنقطة اتصال الهاتف. لا تغلق الصفحة أثناء النقل.</p>
 </section>
 <section class="panel"><h2>الملفات المستلمة على الكمبيوتر</h2><div id="files" class="empty">جارٍ تحميل الملفات...</div>
@@ -287,7 +367,9 @@ function showStatus(message,kind){$('sendStatus').textContent=message;$('sendSta
 function bytes(n){if(n<1024)return n+' B';const u=['KB','MB','GB','TB'];let v=n/1024,i=0;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(1)+' '+u[i]}
 async function discoverPhone(){const button=$('discover');button.disabled=true;showStatus('جارٍ البحث عن أجهزة MalekPlay على الشبكة المحلية...');try{const r=await fetch('/api/discover',{cache:'no-store'});const data=await r.json();if(!data.ok)throw new Error(data.error||'تعذر البحث');if(!data.devices.length){showStatus('لم يتم العثور على هاتف. تأكد من تشغيل الاستقبال على MalekPlay.','err');return}const device=data.devices[0];$('host').value=device.host;showStatus('تم العثور على '+device.name+' • '+device.host,'ok')}catch(e){showStatus(e.message||'تعذر البحث عن الهاتف.','err')}finally{button.disabled=false}}
 async function refreshFiles(){try{const r=await fetch('/api/status',{cache:'no-store'});const data=await r.json();const root=$('files');root.replaceChildren();if(!data.files.length){root.className='empty';root.textContent='لا توجد ملفات مستلمة بعد.';return}root.className='';for(const f of data.files){const row=document.createElement('div');row.className='file';const info=document.createElement('div');const name=document.createElement('strong');name.textContent=f.name;const size=document.createElement('small');size.textContent=bytes(f.size);info.append(name,size);const link=document.createElement('a');link.className='download';link.href=f.url;link.textContent='تنزيل';row.append(info,link);root.append(row)}}catch(e){$('files').textContent='تعذر تحميل قائمة الملفات.'}}
-async function sendSelected(endpoint,buttonId){const files=[...$('file').files],host=$('host').value.trim(),pin=$('pin').value.trim();if(!files.length||!host||!pin){showStatus('أدخل عنوان الهاتف ورمز الاقتران واختر ملفاً واحداً على الأقل.','err');return}const button=$(buttonId);button.disabled=true;let sent=0;try{for(let index=0;index<files.length;index++){const file=files[index];showStatus('جارٍ إرسال '+file.name+' ('+(index+1)+'/'+files.length+')...');const response=await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/octet-stream','X-Ultra-Host':host,'X-Ultra-PIN':pin,'X-Ultra-Filename':encodeURIComponent(file.name)},body:file});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'فشل إرسال '+file.name);sent++;showStatus(result.message+' ('+sent+'/'+files.length+')','ok')} }catch(e){showStatus('اكتمل إرسال '+sent+' من '+files.length+' ملفات. '+(e.message||'حدث خطأ أثناء الإرسال.'),'err')}finally{button.disabled=false}}$('send').addEventListener('click',()=>sendSelected('/api/send','send'));$('sendV2').addEventListener('click',()=>sendSelected('/api/send-v2','sendV2'));
+async function sendSelected(endpoint,buttonId){const files=[...$('file').files],host=$('host').value.trim(),pin=$('pin').value.trim();if(!files.length||!host||!pin){showStatus('أدخل عنوان الهاتف ورمز الاقتران واختر ملفاً واحداً على الأقل.','err');return}const button=$(buttonId);button.disabled=true;let sent=0;try{for(let index=0;index<files.length;index++){const file=files[index];showStatus('جارٍ إرسال '+file.name+' ('+(index+1)+'/'+files.length+')...');const response=await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/octet-stream','X-Ultra-Host':host,'X-Ultra-PIN':pin,'X-Ultra-Filename':encodeURIComponent(file.name)},body:file});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'فشل إرسال '+file.name);sent++;showStatus(result.message+' ('+sent+'/'+files.length+')','ok')} }catch(e){showStatus('اكتمل إرسال '+sent+' من '+files.length+' ملفات. '+(e.message||'حدث خطأ أثناء الإرسال.'),'err')}finally{button.disabled=false}}
+async function sendV2Batch(){const files=[...$('file').files],host=$('host').value.trim(),pin=$('pin').value.trim();if(!files.length||!host||!pin){showStatus('أدخل عنوان الهاتف ورمز الاقتران واختر ملفاً واحداً على الأقل.','err');return}if(files.length>512){showStatus('الحد الأقصى للدفعة الواحدة هو 512 ملفاً.','err');return}const button=$('sendV2');button.disabled=true;const batchId=crypto.randomUUID();try{for(let index=0;index<files.length;index++){const file=files[index];showStatus('جارٍ تجهيز '+file.name+' ('+(index+1)+'/'+files.length+') للدفعة المشفرة...');const response=await fetch('/api/stage-v2',{method:'PUT',headers:{'Content-Type':'application/octet-stream','X-Ultra-Host':host,'X-Ultra-PIN':pin,'X-Ultra-Filename':encodeURIComponent(file.name),'X-Ultra-Batch':batchId},body:file});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'تعذر تجهيز '+file.name)}showStatus('اكتمل تجهيز '+files.length+' ملفاً؛ جارٍ إرسالها ضمن جلسة V2 واحدة...');const response=await fetch('/api/send-v2-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({batch_id:batchId})});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'فشل إرسال الدفعة');showStatus(result.message,'ok')}catch(e){showStatus('لم تكتمل الدفعة. '+(e.message||'حدث خطأ أثناء الإرسال.'),'err')}finally{button.disabled=false}}
+$('send').addEventListener('click',()=>sendSelected('/api/send','send'));$('sendV2').addEventListener('click',sendV2Batch);
 $('discover').addEventListener('click',discoverPhone);$('refresh').addEventListener('click',refreshFiles);refreshFiles();setInterval(refreshFiles,5000);
 </script></body></html>"""
 

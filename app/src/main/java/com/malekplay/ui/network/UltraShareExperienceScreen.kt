@@ -309,7 +309,8 @@ fun UltraShareExperienceScreen(
         } else grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
         val bluetoothGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             grants[Manifest.permission.BLUETOOTH_SCAN] == true &&
-                grants[Manifest.permission.BLUETOOTH_CONNECT] == true
+                grants[Manifest.permission.BLUETOOTH_CONNECT] == true &&
+                grants[Manifest.permission.BLUETOOTH_ADVERTISE] == true
         } else grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
         if (wifiGranted) viewModel.scanWifiDirectPeers()
         if (bluetoothGranted) viewModel.scanBluetoothPeers()
@@ -345,24 +346,29 @@ fun UltraShareExperienceScreen(
     }
     fun scanBluetooth() {
         val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_ADVERTISE
+            )
         } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
         val missing = required.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isEmpty()) viewModel.scanBluetoothPeers() else bluetoothPermission.launch(missing.toTypedArray())
     }
 
     fun scanAllNearby() {
-        if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning) {
+        if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning) {
             if (state.scanning) viewModel.scanNearbyDevices()
             if (state.wifiDirectScanning) viewModel.stopWifiDirectDiscovery()
-            if (state.bluetoothScanning) viewModel.stopBluetoothDiscovery()
+            if (state.bluetoothScanning || state.bleScanning) viewModel.stopBluetoothDiscovery()
         } else {
             viewModel.scanNearbyDevices()
             val required = when {
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(
                     Manifest.permission.NEARBY_WIFI_DEVICES,
                     Manifest.permission.BLUETOOTH_SCAN,
-                    Manifest.permission.BLUETOOTH_CONNECT
+                    Manifest.permission.BLUETOOTH_CONNECT,
+                    Manifest.permission.BLUETOOTH_ADVERTISE
                 )
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> arrayOf(
                     Manifest.permission.ACCESS_FINE_LOCATION,
@@ -514,7 +520,7 @@ fun UltraShareExperienceScreen(
                 horizontalArrangement = Arrangement.Center
             ) {
                 Text(
-                    if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning) "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size}",
+                    if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning) "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size}",
                     color = Color(0xFFB7C5E7),
                     style = MaterialTheme.typography.labelMedium
                 )
@@ -701,6 +707,25 @@ fun UltraShareExperienceScreen(
                     if (state.requestingConnection) {
                         StatusPanel("تم إرسال طلب الاتصال", "بانتظار موافقة جهاز الاستقبال", true)
                     }
+                    if (state.blePeers.isNotEmpty()) {
+                        Text("أجهزة BLE القريبة (${state.blePeers.size})", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
+                        state.blePeers.filter { it.name.contains(search, true) || it.address.contains(search, true) }.forEach { peer ->
+                            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(Modifier.size(42.dp).background(MalekPlayColors.PurpleBright.copy(alpha = 0.18f), CircleShape), contentAlignment = Alignment.Center) {
+                                            Text("BLE", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
+                                        }
+                                        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                                            Text(peer.name, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                                            Text(peer.address + " • قريب عبر BLE", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                    Text("اكتشاف BLE يحدد الأجهزة القريبة دون نقل الملفات أو كشف رمز الاقتران؛ أكمل الاتصال عبر Wi-Fi أو QR.", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                                }
+                            }
+                        }
+                    }
                     state.error?.let { ErrorPanel(it) }
                     state.status?.let { InfoPanel("حالة الاقتران", it) }
                 }
@@ -735,7 +760,7 @@ fun UltraShareExperienceScreen(
                     }
                     UltraShareRadar(
                         isScanning = state.scanning || state.wifiDirectScanning || state.bluetoothScanning,
-                        discoveredCount = visiblePeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size,
+                        discoveredCount = visiblePeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size,
                         modifier = Modifier.fillMaxWidth().height(340.dp),
                         peerNames = visiblePeers.take(4).map { it.name },
                         onPeerClick = { index ->
@@ -777,7 +802,7 @@ fun UltraShareExperienceScreen(
                         }
                     }
                     Text("الأجهزة المكتشفة (" + (visiblePeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size) + ")", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
-                    if (visiblePeers.isEmpty() && state.wifiDirectPeers.isEmpty() && state.bluetoothPeers.isEmpty()) InfoPanel("الرادار", if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning) "جارٍ البحث عبر الشبكة المحلية وWi-Fi Direct وBluetooth..." else "لا توجد أجهزة ظاهرة حالياً. تأكد من تشغيل Wi-Fi أو Bluetooth أو استخدم QR أو نقطة الاتصال.")
+                    if (visiblePeers.isEmpty() && state.wifiDirectPeers.isEmpty() && state.bluetoothPeers.isEmpty() && state.blePeers.isEmpty()) InfoPanel("الرادار", if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning) "جارٍ البحث عبر الشبكة المحلية وWi-Fi Direct وBluetooth Classic وBLE..." else "لا توجد أجهزة ظاهرة حالياً. تأكد من تشغيل Wi-Fi أو Bluetooth أو استخدم QR أو نقطة الاتصال.")
                     visiblePeers.drop(4).forEach { peer ->
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
                             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -814,7 +839,7 @@ fun UltraShareExperienceScreen(
                         }
                     }
                     if (state.bluetoothPeers.isNotEmpty()) {
-                        Text("أجهزة Bluetooth القريبة (${state.bluetoothPeers.size})", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
+                        Text("أجهزة Bluetooth Classic القريبة (${state.bluetoothPeers.size})", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
                         state.bluetoothPeers.filter { it.name.contains(search, true) || it.address.contains(search, true) }.forEach { peer ->
                             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp)) {
