@@ -26,6 +26,9 @@ button,input{font:inherit}button{cursor:pointer;color:inherit}.app{max-width:144
 .bottom-nav{display:none}.toast{position:fixed;bottom:24px;left:50%;transform:translate(-50%,20px);opacity:0;background:#261b34;border:1px solid #a855f766;padding:12px 18px;border-radius:14px;font-size:12px;transition:.25s;z-index:20;pointer-events:none}.toast.show{opacity:1;transform:translate(-50%,0)}
 @media(max-width:900px){.app{grid-template-columns:78px 1fr}.sidebar{padding:22px 10px;align-items:center}.brand{padding:0}.brand-copy,.nav-label,.nav button .nav-text,.device-card{display:none}.nav button{width:52px;height:48px;justify-content:center;padding:0}.nav .ico{font-size:20px}.poster-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:640px){.app{display:block}.sidebar{display:none}.main{padding:20px 16px 95px}.topbar{margin-bottom:22px}.hero{min-height:360px;padding:23px;background-position:60% center}.hero-content{max-width:100%}.stats{grid-template-columns:repeat(2,1fr);gap:9px}.stat{padding:13px}.stat strong{font-size:20px}.quick-grid{grid-template-columns:repeat(2,1fr)}.poster-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.share-layout{grid-template-columns:1fr}.bottom-nav{position:fixed;display:flex;bottom:0;left:0;right:0;z-index:10;justify-content:space-around;padding:10px 5px calc(10px + env(safe-area-inset-bottom));background:#100e17ed;backdrop-filter:blur(20px);border-top:1px solid #ffffff15}.bottom-nav button{background:none;border:0;color:#9e94aa;font-size:10px;display:grid;gap:4px;justify-items:center}.bottom-nav button.active{color:#d8b7ff}.bottom-nav span{font-size:19px}.search{min-width:0;flex:1}.player{min-height:420px}.heading{font-size:28px}}
+
+/* UltraShare multi-screen prototype */
+.zapya-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.zapya-tabs .pill{padding:12px 8px}.share-pane{display:none;animation:rise .25s ease}.share-pane.active{display:block}.share-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.share-card-head h3{margin:0 0 5px}.share-card-head small,.peer-choice small,.demo-file small,.demo-transfer small{display:block;color:#a99fb6;font-size:10px;margin-top:4px}.radar-stage{height:290px;max-width:390px;margin:18px auto;position:relative;display:grid;place-items:center;overflow:hidden;border-radius:20px;background:radial-gradient(circle,#35214b 0%,#17111f 68%)}.radar-ring{position:absolute;border:1px solid #a855f755;border-radius:50%;aspect-ratio:1}.ring-one{width:38%}.ring-two{width:65%}.ring-three{width:92%}.radar-sweep{position:absolute;width:90%;height:90%;border-radius:50%;background:conic-gradient(from 0deg,transparent 0 78%,#a855f744 94%,#c084fcaa 100%);animation:radar-spin 3.4s linear infinite}.radar-core{z-index:2;width:70px;height:70px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(145deg,#ffe27a,#a855f7);color:#1b1026;font-size:25px;font-weight:900;box-shadow:0 0 35px #a855f788}.radar-peer{position:absolute;z-index:3;border:1px solid #c084fc66;background:#21172e;color:white;border-radius:14px;padding:8px 10px;display:grid;gap:3px;box-shadow:0 6px 20px #0008}.radar-peer small{font-size:9px;color:#d8c5e8}.peer-a{top:13%;right:15%}.peer-b{bottom:14%;left:12%}.peer-c{bottom:11%;right:15%}@keyframes radar-spin{to{transform:rotate(360deg)}}.connection-methods{display:flex;flex-wrap:wrap;gap:7px}.connection-methods span,.connection-state,.demo-count{font-size:10px;color:#d9baff;border:1px solid #a855f744;background:#a855f71a;padding:7px 10px;border-radius:99px}.peer-list{display:grid;gap:9px;margin-top:14px}.peer-choice{display:flex;align-items:center;gap:11px;width:100%;text-align:right;border:1px solid #ffffff12;background:#ffffff08;padding:11px;border-radius:14px;color:white}.peer-choice>span:nth-child(2){flex:1}.peer-choice strong{color:#d7b4ff;font-size:11px}.peer-avatar{width:42px;height:42px;border-radius:13px;background:#a855f722;display:grid;place-items:center;font-size:20px}.file-type-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:18px 0}.file-type{border:1px solid #ffffff17;background:#ffffff08;color:#bfb2cd;border-radius:13px;padding:12px 5px;display:grid;gap:6px;justify-items:center}.file-type.active{border-color:#a855f7;background:#a855f729;color:#f0dfff}.demo-files{display:grid;gap:8px}.demo-file{display:flex;align-items:center;gap:10px;padding:11px;border:1px solid #ffffff10;border-radius:13px;background:#ffffff06}.demo-file input{accent-color:#a855f7;width:17px;height:17px}.demo-file>span:nth-child(2){font-size:21px}.demo-file>span:nth-child(3){flex:1}.demo-file>small{color:#b9b1c8}.demo-transfer{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid #ffffff12}.demo-transfer>span{font-size:24px}.demo-transfer>div{flex:1}.demo-transfer b{font-size:12px}.demo-transfer>strong{font-size:11px;color:#d8b7ff}.demo-progress{height:5px;background:#ffffff1c;border-radius:99px;margin-top:8px;overflow:hidden}.demo-progress i{height:100%;display:block;background:linear-gradient(90deg,#a855f7,#ffe27a);border-radius:99px}@media(max-width:640px){.zapya-tabs{grid-template-columns:repeat(2,1fr)}.radar-stage{height:260px}.file-type-grid{grid-template-columns:repeat(5,minmax(0,1fr))}.share-card{padding:17px}}
 </style></head>
 <body><div class="app">
 <aside class="sidebar"><div class="brand"><div class="brand-mark">M</div><div class="brand-copy"><div class="brand-name">MalekPlay</div><div class="brand-sub">ULTIMATE MEDIA</div></div></div>
@@ -45,7 +48,88 @@ button,input{font:inherit}button{cursor:pointer;color:inherit}.app{max-width:144
 <section class="page" id="series"><div class="eyebrow">عالم الحلقات والمواسم</div><h1 class="heading">المسلسلات</h1><p class="subheading">تابع تقدمك، وانتقل بين المواسم والحلقات بسهولة.</p><div class="toolbar"><input class="search" placeholder="ابحث عن مسلسل..." oninput="filterPosters(this.value,'seriesGrid')"><button class="pill active">كل المسلسلات</button><button class="pill">متابعة المشاهدة</button></div><div class="poster-grid" id="seriesGrid"></div></section>
 <section class="page" id="music"><div class="eyebrow">مساحتك الصوتية</div><h1 class="heading">الموسيقى</h1><p class="subheading">الأغاني والألبومات والفنانون — كلها في مكان واحد.</p><div class="toolbar"><input class="search" placeholder="ابحث في الموسيقى..." oninput="filterRows(this.value)"><button class="pill active">الأغاني</button><button class="pill">الألبومات</button><button class="pill">الفنانون</button></div><div class="media-list" id="songs"></div></section>
 <section class="page" id="library"><div class="eyebrow">محتواك المحلي</div><h1 class="heading">مكتبتي</h1><p class="subheading">نظرة منظمة على المجلدات والفيديوهات والملفات الصوتية.</p><div class="toolbar"><button class="pill active">المجلدات</button><button class="pill">الفيديوهات</button><button class="pill">الصوتيات</button><button class="pill">التنزيلات</button><input class="search" placeholder="ابحث في المكتبة..."></div><div class="quick-grid"><button class="quick"><span class="qico">📁</span><strong>Camera</strong><small>24 ملفاً</small></button><button class="quick"><span class="qico">🎞️</span><strong>Movies</strong><small>38 ملفاً</small></button><button class="quick"><span class="qico">📺</span><strong>Series</strong><small>66 حلقة</small></button><button class="quick"><span class="qico">🎵</span><strong>Music</strong><small>246 مقطعاً</small></button></div><div class="section-head"><h3>الملفات الأخيرة</h3><button>ترتيب حسب الأحدث</button></div><div class="media-list" id="libraryRows"></div></section>
-<section class="page" id="share"><div class="eyebrow">اتصال سريع وآمن</div><h1 class="heading">Ultra<span class="gradient-text">Share</span></h1><p class="subheading">اربط أجهزتك وشارك ملفاتك عبر تجربة اقتران سهلة.</p><div class="share-actions"><button class="share-action" onclick="shareMode('send')"><span class="action-icon">➤</span><strong>إرسال</strong><small>اختر الوسائط ثم حدد الجهاز</small></button><button class="share-action receive" onclick="shareMode('receive')"><span class="action-icon">⇩</span><strong>استلام</strong><small>افتح غرفة الاستقبال لجهازك</small></button></div><div class="share-room"><div class="share-card"><h3>الاتصال بجهاز قريب</h3><div class="room-status">✦ <span id="shareStatus">اختر إرسال أو استلام لبدء الجلسة</span></div><div class="share-tabs"><button class="pill active" onclick="pairMode('qr',this)">مسح QR</button><button class="pill" onclick="pairMode('code',this)">رمز من 9 أرقام</button></div><div id="qrMode"><div class="qr"></div><p style="text-align:center;color:#aaa1b9;font-size:11px">معاينة شكل رمز QR — الرمز الفعلي يُنشأ داخل تطبيق Android</p></div><div id="codeMode" style="display:none"><div class="code" id="pairCode">482 916 307</div><button class="secondary" style="width:100%" onclick="toast('نسخ الرمز متاح في تطبيق Android الحقيقي')">نسخ الرمز</button><p class="notice">أدخل رمز الاقتران الظاهر على الجهاز الآخر.</p><input class="field" maxlength="9" inputmode="numeric" placeholder="000000000" id="remoteCode"><button class="primary" style="width:100%;margin-top:10px" onclick="pair()">تحقق من الرمز</button></div></div><div class="share-card"><h3>الأجهزة القريبة</h3><div class="peer-empty" id="peerEmpty">⌁<br><strong>لا توجد أجهزة متصلة في المعاينة</strong><br>اكتشاف الأجهزة الحقيقي متاح في تطبيق Android.</div><div class="setting-row"><div><strong>غرفة النقل</strong><small>حالة الاتصال والمهام النشطة</small></div><span style="color:#e8c46b;font-size:12px">جاهزة للمعاينة</span></div><div class="notice">واجهة ويب توضيحية فقط؛ لا تنفذ اقتراناً أو إرسال ملفات فعلياً. النقل الحقيقي يستخدم محرك UltraShare داخل تطبيق Android.</div></div></div></section>
+<section class="page" id="share">
+<div class="eyebrow">مشاركة مباشرة بين الأجهزة</div>
+<h1 class="heading">Ultra<span class="gradient-text">Share</span></h1>
+<p class="subheading">اكتشاف قريب، اقتران آمن، وإرسال واستقبال سريع — تجربة MalekPlay متكاملة.</p>
+<div class="share-actions">
+<button class="share-action" onclick="shareMode('send');shareTab('radar')"><span class="action-icon">➤</span><strong>إرسال</strong><small>ابحث عن جهاز أو اختر مجموعة</small></button>
+<button class="share-action receive" onclick="shareMode('receive');shareTab('receive')"><span class="action-icon">⇩</span><strong>استلام</strong><small>أنشئ غرفة استقبال واعرض QR</small></button>
+</div>
+<div class="share-tabs zapya-tabs">
+<button class="pill active" data-share-tab="radar" onclick="shareTab('radar')">⌁ الرادار</button>
+<button class="pill" data-share-tab="send" onclick="shareTab('send')">➤ إرسال</button>
+<button class="pill" data-share-tab="receive" onclick="shareTab('receive')">⇩ استقبال</button>
+<button class="pill" data-share-tab="history" onclick="shareTab('history')">◷ السجل</button>
+</div>
+<div class="share-pane active" id="sharePaneRadar">
+<div class="share-room">
+<div class="share-card">
+<div class="share-card-head"><div><h3>الأجهزة القريبة</h3><small>LAN · Wi-Fi Direct · Hotspot</small></div><button class="primary" onclick="demoScan()">⟳ بحث</button></div>
+<div class="radar-stage"><div class="radar-sweep"></div><div class="radar-ring ring-one"></div><div class="radar-ring ring-two"></div><div class="radar-ring ring-three"></div><div class="radar-core">M</div><button class="radar-peer peer-a" onclick="demoConnect('Malek Galaxy')">📱<small>Galaxy</small></button><button class="radar-peer peer-b" onclick="demoConnect('Android قريب')">📲<small>Android</small></button><button class="radar-peer peer-c" onclick="demoConnect('Laptop')">💻<small>Laptop</small></button></div>
+<div class="room-status"><span id="shareStatus">جاهز للبحث عن أجهزة MalekPlay القريبة</span></div>
+<div class="connection-methods"><span>◉ Wi-Fi</span><span>⌁ Wi-Fi Direct</span><span>▤ QR</span><span>◈ Hotspot</span></div>
+<div class="notice">المعاينة تحاكي خطوات الواجهة فقط. اكتشاف الأجهزة والاتصال الحقيقي يعملان داخل تطبيق Android.</div>
+</div>
+<div class="share-card">
+<h3>الأجهزة المكتشفة</h3>
+<div class="peer-list" id="demoPeerList">
+<button class="peer-choice" onclick="demoConnect('Malek Galaxy')"><span class="peer-avatar">📱</span><span><b>Malek Galaxy</b><small>Wi-Fi · جاهز للاتصال</small></span><strong>اتصال</strong></button>
+<button class="peer-choice" onclick="demoConnect('Android قريب')"><span class="peer-avatar">📲</span><span><b>Android قريب</b><small>Wi-Fi Direct · متاح</small></span><strong>اتصال</strong></button>
+<button class="peer-choice" onclick="demoConnect('Laptop')"><span class="peer-avatar">💻</span><span><b>Laptop</b><small>الشبكة المحلية · متاح</small></span><strong>اتصال</strong></button>
+</div>
+<button class="secondary" style="width:100%;margin-top:12px" onclick="shareTab('receive')">إنشاء مجموعة استقبال</button>
+</div>
+</div>
+</div>
+<div class="share-pane" id="sharePaneSend">
+<div class="share-card">
+<div class="share-card-head"><div><h3>اختر الملفات للإرسال</h3><small>صور · فيديو · موسيقى · تطبيقات · ملفات</small></div><span class="demo-count" id="demoSelectedCount">0 محدد</span></div>
+<div class="file-type-grid">
+<button class="file-type active" onclick="demoFileType(this,'الكل')">▦<b>الكل</b></button>
+<button class="file-type" onclick="demoFileType(this,'صور')">▧<b>صور</b></button>
+<button class="file-type" onclick="demoFileType(this,'فيديو')">▣<b>فيديو</b></button>
+<button class="file-type" onclick="demoFileType(this,'موسيقى')">♫<b>موسيقى</b></button>
+<button class="file-type" onclick="demoFileType(this,'ملفات')">▤<b>ملفات</b></button>
+</div>
+<div class="demo-files" id="demoFiles">
+<label class="demo-file"><input type="checkbox" onchange="demoCount()"><span>🎬</span><span><b>رحلة.mp4</b><small>فيديو · 248 MB</small></span><small>248 MB</small></label>
+<label class="demo-file"><input type="checkbox" onchange="demoCount()"><span>🖼️</span><span><b>صورة العائلة.jpg</b><small>صورة · 4.8 MB</small></span><small>4.8 MB</small></label>
+<label class="demo-file"><input type="checkbox" onchange="demoCount()"><span>♫</span><span><b>المفضلة.mp3</b><small>موسيقى · 12 MB</small></span><small>12 MB</small></label>
+<label class="demo-file"><input type="checkbox" onchange="demoCount()"><span>📄</span><span><b>مستندات.zip</b><small>ملف مضغوط · 36 MB</small></span><small>36 MB</small></label>
+</div>
+<div class="toolbar"><button class="primary" onclick="demoTransfer()">➤ إرسال إلى الجهاز المتصل</button><button class="secondary" onclick="shareTab('radar')">اختيار جهاز آخر</button></div>
+<p class="notice">الإرسال الفعلي يدعم اختيار الملفات والمجلدات، الإرسال لأكثر من جهاز، واستئناف العناصر غير المكتملة داخل APK.</p>
+</div>
+</div>
+<div class="share-pane" id="sharePaneReceive">
+<div class="share-room">
+<div class="share-card">
+<h3>استقبال الملفات</h3>
+<div class="room-status">● <span id="receiveStatus">غرفة الاستقبال متوقفة</span></div>
+<div class="qr"><span>MP</span></div>
+<div class="code">482 916 307</div>
+<button class="primary" style="width:100%" onclick="demoReceive()">＋ إنشاء غرفة استقبال</button>
+<div class="notice">امسح رمز QR من الجهاز المرسل، أو استخدم رمز الاقتران. لن يبدأ النقل قبل الموافقة.</div>
+</div>
+<div class="share-card">
+<h3>طرق الاتصال</h3>
+<div class="setting-row"><div><strong>شبكة Wi-Fi الحالية</strong><small>الأجهزة على الشبكة نفسها</small></div><span class="connection-state">متاح</span></div>
+<div class="setting-row"><div><strong>Wi-Fi Direct</strong><small>اتصال مباشر بين الهاتفين</small></div><span class="connection-state">مدعوم</span></div>
+<div class="setting-row"><div><strong>نقطة اتصال محلية</strong><small>إنشاء شبكة عند عدم وجود راوتر</small></div><span class="connection-state">مدعوم</span></div>
+<div class="setting-row"><div><strong>مسح رمز QR</strong><small>اقتران سريع دون إدخال العنوان يدوياً</small></div><span class="connection-state">جاهز</span></div>
+</div>
+</div>
+</div>
+<div class="share-pane" id="sharePaneHistory">
+<div class="share-card">
+<div class="share-card-head"><div><h3>سجل عمليات النقل</h3><small>نتيجة مستقلة لكل ملف ولكل جهاز</small></div><span class="connection-state">محفوظ</span></div>
+<div class="demo-transfer"><span>🎬</span><div><b>رحلة.mp4</b><small>Malek Galaxy · تم الاستلام</small><div class="demo-progress"><i style="width:100%"></i></div></div><strong>100%</strong></div>
+<div class="demo-transfer"><span>🖼️</span><div><b>صورة العائلة.jpg</b><small>Android قريب · تم الاستلام</small><div class="demo-progress"><i style="width:100%"></i></div></div><strong>100%</strong></div>
+<div class="demo-transfer"><span>📄</span><div><b>مستندات.zip</b><small>Laptop · متوقف — قابل للاستئناف</small><div class="demo-progress"><i style="width:42%"></i></div></div><strong>42%</strong></div>
+</div>
+</div>
+</section>
 <section class="page" id="network"><div class="eyebrow">مصادر الوسائط</div><h1 class="heading">الشبكة</h1><p class="subheading">إدارة مصادر الشبكة والوصول إلى مكتباتك البعيدة.</p><div class="glass"><h3>إضافة مصدر شبكة</h3><div class="toolbar"><input class="search" style="flex:1" placeholder="smb://192.168.1.10/Media"><button class="primary" onclick="toast('تمت إضافة المصدر إلى قائمة المعاينة')">＋ إضافة مصدر</button></div><div class="setting-row"><div><strong>SMB / Windows Share</strong><small>الاتصال بمجلدات الشبكة المحلية</small></div><span>›</span></div><div class="setting-row"><div><strong>WebDAV</strong><small>الوصول إلى خوادم WebDAV</small></div><span>›</span></div><div class="setting-row"><div><strong>SFTP</strong><small>اتصال آمن بالخوادم البعيدة</small></div><span>›</span></div></div></section>
 <section class="page" id="favourites"><div class="eyebrow">مختاراتك</div><h1 class="heading">المفضلة</h1><p class="subheading">كل ما أضفته إلى قائمتك الخاصة.</p><div class="poster-grid" id="favGrid"></div></section>
 <section class="page" id="playlists"><div class="eyebrow">قوائمك الخاصة</div><h1 class="heading">قوائم التشغيل</h1><p class="subheading">أنشئ مجموعاتك ورتب محتواك كما تحب.</p><div class="quick-grid"><button class="quick" onclick="toast('إنشاء قائمة تشغيل تجريبية')"><span class="qico">＋</span><strong>قائمة جديدة</strong><small>أنشئ مجموعة وسائط</small></button><button class="quick"><span class="qico">🎧</span><strong>رحلة المساء</strong><small>18 مقطعاً</small></button><button class="quick"><span class="qico">🎬</span><strong>ليلة سينما</strong><small>7 أفلام</small></button></div></section>
@@ -71,4 +155,12 @@ function pair(){const v=document.getElementById('remoteCode').value;if(!/^\d{9}$
 function filterPosters(q,id){document.querySelectorAll('#'+id+' .poster').forEach(p=>p.style.display=p.innerText.toLowerCase().includes(q.toLowerCase())?'':'none')}
 function filterRows(q){document.querySelectorAll('#songs .media-row').forEach(p=>p.style.display=p.innerText.toLowerCase().includes(q.toLowerCase())?'':'none')}
 function setTheme(mode,btn){document.querySelectorAll('#settings .toolbar .pill').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.body.style.setProperty('--bg',mode==='light'?'#f4f0f8':mode==='amoled'?'#000':'#0d0d12');document.body.style.setProperty('--panel',mode==='light'?'#fff':'#15131d');if(mode==='light'){document.body.style.color='#21172c';document.body.style.colorScheme='light';toast('تم تطبيق مظهر فاتح تجريبي')}else{document.body.style.color='var(--white)';document.body.style.colorScheme='dark';toast(mode==='amoled'?'تم تطبيق AMOLED':'تم تطبيق المظهر الداكن')}}
+
+function shareTab(name){document.querySelectorAll('.zapya-tabs [data-share-tab]').forEach(b=>b.classList.toggle('active',b.dataset.shareTab===name));document.querySelectorAll('.share-pane').forEach(p=>p.classList.toggle('active',p.id==='sharePane'+name[0].toUpperCase()+name.slice(1)));}
+function demoScan(){document.getElementById('shareStatus').textContent='جارٍ البحث عبر Wi-Fi وWi-Fi Direct…';toast('تم تحديث قائمة الأجهزة التجريبية')}
+function demoConnect(name){document.getElementById('shareStatus').textContent='تم اختيار '+name+' — بانتظار الاقتران الآمن';toast('اختر الملفات بعد اكتمال الاقتران داخل تطبيق Android');shareTab('send')}
+function demoCount(){const n=document.querySelectorAll('#demoFiles input:checked').length;document.getElementById('demoSelectedCount').textContent=n+' محدد';}
+function demoFileType(btn,type){document.querySelectorAll('.file-type').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.querySelectorAll('.demo-file').forEach((row,i)=>{const kinds=['فيديو','صور','موسيقى','ملفات'];row.style.display=type==='الكل'||kinds[i]===type?'flex':'none'});}
+function demoTransfer(){const n=document.querySelectorAll('#demoFiles input:checked').length;if(!n){toast('حدد ملفاً واحداً على الأقل');return}toast('تم تجهيز '+n+' ملفات — النقل الحقيقي يتم داخل APK');shareTab('history')}
+function demoReceive(){document.getElementById('receiveStatus').textContent='غرفة استقبال تجريبية جاهزة — امسح QR داخل APK للاتصال الحقيقي';toast('هذه محاكاة بصرية؛ الاستقبال الحقيقي يعمل في Android')}
 </script></body></html>
