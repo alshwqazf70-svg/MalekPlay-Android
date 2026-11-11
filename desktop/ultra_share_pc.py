@@ -79,19 +79,7 @@ def private_ipv4(host: str) -> str:
 def is_supported_media_mime(value: str) -> bool:
     if not isinstance(value, str) or not 3 <= len(value) <= 160:
         return False
-    if re.fullmatch(r"[A-Za-z0-9!#def private_ipv4(host: str) -> str:
-    if not is_lan_ipv4(host):
-        raise ValueError("Use the receiver's private IPv4 address on the same LAN.")
-    return str(ipaddress.ip_address(host))
-
-
-def recv_exact^_.+-]+/[A-Za-z0-9!#def private_ipv4(host: str) -> str:
-    if not is_lan_ipv4(host):
-        raise ValueError("Use the receiver's private IPv4 address on the same LAN.")
-    return str(ipaddress.ip_address(host))
-
-
-def recv_exact^_.+-]+", value) is None:
+    if re.fullmatch(r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+", value) is None:
         return False
     return value.lower().startswith(("video/", "audio/", "image/"))
 
