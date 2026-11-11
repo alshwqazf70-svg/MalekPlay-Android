@@ -138,6 +138,10 @@ object UltraShareWifiDirect {
                 "هوية دعوة Wi-Fi Direct غير صالحة."
             }
             invitationMatch = onMatch
+            if (!legacyDiscoveryPrerequisite()) {
+                onError("على Android 10–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
+                return
+            }
             try {
                 manager.setDnsSdResponseListeners(
                     channel,
@@ -240,6 +244,10 @@ object UltraShareWifiDirect {
         @SuppressLint("MissingPermission")
         fun discover() {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
+            if (!legacyDiscoveryPrerequisite()) {
+                onError("على Android 10–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
+                return
+            }
             try {
                 manager.discoverPeers(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() = Unit
@@ -427,10 +435,12 @@ object UltraShareWifiDirect {
             try {
                 manager.requestConnectionInfo(channel) { info ->
                     if (closed) return@requestConnectionInfo
-                    if (!info.groupFormed) {
-                        onError("انقطع اتصال Wi-Fi Direct.")
-                        return@requestConnectionInfo
-                    }
+                    // Android may broadcast CONNECTION_CHANGED while negotiation is
+                    // still pending. A non-formed group is not proof of a disconnect.
+                    if (!info.groupFormed) return@requestConnectionInfo
+                    connectionInProgress = false
+                    connectionTimeout?.let(mainHandler::removeCallbacks)
+                    connectionTimeout = null
                     if (info.isGroupOwner) {
                         onConnected(null, true)
                     } else {
@@ -455,6 +465,12 @@ object UltraShareWifiDirect {
             // not tear down an established group, so an in-flight TCP transfer can
             // continue over the existing Wi-Fi Direct connection.
             runCatching { manager.stopPeerDiscovery(channel, null) }
+            if (connectionInProgress) runCatching { manager.cancelConnect(channel, null) }
+            connectionInProgress = false
+            connectionAttemptToken++
+            connectionTimeout?.let(mainHandler::removeCallbacks)
+            connectionTimeout = null
+            mainHandler.removeCallbacksAndMessages(null)
             runCatching { manager.clearServiceRequests(channel, null) }
             runCatching { manager.clearLocalServices(channel, null) }
             invitationMatch = null
