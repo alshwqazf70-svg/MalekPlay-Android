@@ -79,7 +79,7 @@ object UltraShareWifiDirect {
          * A sender learns only which P2P device to connect to; MPC2 still authenticates it.
          */
         @SuppressLint("MissingPermission")
-        fun advertiseInvitation(peerId: String) {
+        fun advertiseInvitation(peerId: String, onAdvertised: () -> Unit = {}) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             require(peerId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
                 "هوية دعوة Wi-Fi Direct غير صالحة."
@@ -99,6 +99,7 @@ object UltraShareWifiDirect {
                                 if (!closed) {
                                     localInvitationService = service
                                     localInvitationId = peerId
+                                    onAdvertised()
                                 }
                             }
                             override fun onFailure(reason: Int) {
