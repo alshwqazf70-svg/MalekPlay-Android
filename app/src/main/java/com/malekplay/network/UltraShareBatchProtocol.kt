@@ -176,6 +176,14 @@ object UltraShareBatchProtocol {
         val length = input.readUnsignedShort()
         require(length in 1..maximumBytes)
         val bytes = ByteArray(length).also(input::readFully)
-        return bytes.toString(Charsets.UTF_8)
+        return try {
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(bytes))
+                .toString()
+        } catch (failure: java.nio.charset.CharacterCodingException) {
+            throw IllegalArgumentException("يحتوي بيان الدفعة على نص UTF-8 غير صالح.", failure)
+        }
     }
 }
