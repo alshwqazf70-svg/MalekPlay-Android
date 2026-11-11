@@ -264,27 +264,144 @@ object UltraShareWifiDirect {
         }
 
         @SuppressLint("MissingPermission")
+        fun createGroup(onCreated: () -> Unit = {}) {
+            check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
+            try {
+                manager.requestGroupInfo(channel) { existingGroup ->
+                    if (closed) return@requestGroupInfo
+                    if (existingGroup != null) {
+                        onCreated()
+                        return@requestGroupInfo
+                    }
+                    manager.createGroup(channel, object : WifiP2pManager.ActionListener {
+                        override fun onSuccess() { if (!closed) onCreated() }
+                        override fun onFailure(reason: Int) { onError(groupFailureMessage(reason)) }
+                    })
+                }
+            } catch (failure: SecurityException) {
+                onError("يلزم إذن الأجهزة القريبة لإنشاء مجموعة Wi-Fi Direct.")
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        fun removeGroup() {
+            if (closed) return
+            runCatching {
+                manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() = Unit
+                    override fun onFailure(reason: Int) = Unit
+                })
+            }
+        }
+
+        @SuppressLint("MissingPermission")
         fun connect(deviceAddress: String, preferThisDeviceAsGroupOwner: Boolean) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
+            if (!deviceAddress.matches(Regex("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}"))) {
+                onError("عنوان جهاز Wi-Fi Direct غير صالح؛ أعد البحث عن الأجهزة.")
+                return
+            }
+            if (connectionInProgress) return
+            connectionInProgress = true
+            val token = ++connectionAttemptToken
+            try {
+                // Refresh the peer list immediately before connecting; old peer entries
+                // can remain visible after an invitation has already failed.
+                manager.requestPeers(channel) { peers ->
+                    if (closed || token != connectionAttemptToken) return@requestPeers
+                    val currentPeer = peers.deviceList.firstOrNull {
+                        it.deviceAddress.equals(deviceAddress, ignoreCase = true)
+                    }
+                    if (currentPeer == null) {
+                        connectionInProgress = false
+                        onError("لم يعد الجهاز متاحاً عبر Wi-Fi Direct. أعد البحث ثم حاول الاتصال.")
+                        return@requestPeers
+                    }
+                    connectAttempt(currentPeer.deviceAddress, preferThisDeviceAsGroupOwner, token, 0)
+                }
+            } catch (failure: SecurityException) {
+                connectionInProgress = false
+                onError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        private fun connectAttempt(
+            deviceAddress: String,
+            preferThisDeviceAsGroupOwner: Boolean,
+            token: Int,
+            attempt: Int
+        ) {
+            if (closed || token != connectionAttemptToken) return
             val config = WifiP2pConfig().apply {
                 this.deviceAddress = deviceAddress
-                // A receiving phone should own the group; a sending phone prefers
-                // the remote receiver so groupOwnerAddress identifies its TCP server.
+                // Receiver owns the group; sender explicitly prefers the remote receiver.
                 groupOwnerIntent = if (preferThisDeviceAsGroupOwner) 15 else 0
                 wps.setup = WpsInfo.PBC
             }
             try {
                 manager.connect(channel, config, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        // Connection details arrive through WIFI_P2P_CONNECTION_CHANGED_ACTION.
+                        if (closed || token != connectionAttemptToken) return
+                        connectionTimeout?.let(mainHandler::removeCallbacks)
+                        val timeout = Runnable {
+                            if (!closed && connectionInProgress && token == connectionAttemptToken) {
+                                connectionInProgress = false
+                                runCatching { manager.cancelConnect(channel, null) }
+                                onError("انتهت مهلة اتصال Wi-Fi Direct بعد 30 ثانية. تأكد من بقاء الجهازين قريبين ثم أعد المحاولة.")
+                            }
+                        }
+                        connectionTimeout = timeout
+                        mainHandler.postDelayed(timeout, 30_000L)
                     }
+
                     override fun onFailure(reason: Int) {
-                        onError("تعذر الاتصال بجهاز Wi-Fi Direct (رمز الخطأ $reason).")
+                        if (closed || token != connectionAttemptToken) return
+                        if ((reason == WifiP2pManager.BUSY || reason == WifiP2pManager.ERROR) && attempt < 2) {
+                            val retry = {
+                                mainHandler.postDelayed({
+                                    if (!closed && connectionInProgress && token == connectionAttemptToken) {
+                                        connectAttempt(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt + 1)
+                                    }
+                                }, 900L * (attempt + 1))
+                            }
+                            runCatching {
+                                manager.cancelConnect(channel, object : WifiP2pManager.ActionListener {
+                                    override fun onSuccess() = retry()
+                                    override fun onFailure(cancelReason: Int) = retry()
+                                })
+                            }.onFailure { retry() }
+                        } else {
+                            connectionInProgress = false
+                            onError(connectFailureMessage(reason))
+                        }
                     }
                 })
             } catch (failure: SecurityException) {
+                connectionInProgress = false
                 onError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
             }
+        }
+
+        private fun connectFailureMessage(reason: Int): String = when (reason) {
+            WifiP2pManager.P2P_UNSUPPORTED -> "هذا الهاتف لا يدعم Wi-Fi Direct."
+            WifiP2pManager.BUSY -> "ميزة Wi-Fi Direct مشغولة باتصال آخر. أوقف الاتصال السابق ثم أعد المحاولة."
+            WifiP2pManager.NO_SERVICE_REQUESTS -> "لم يتم العثور على طلب اكتشاف صالح. أعد البحث عن الجهاز."
+            WifiP2pManager.ERROR -> "رفض نظام Android طلب Wi-Fi Direct بعد محاولات إعادة الاتصال. أوقف Wi-Fi Direct في الجهازين ثم فعّله مجدداً."
+            else -> "تعذر الاتصال عبر Wi-Fi Direct (رمز النظام $reason). تأكد من تشغيل Wi-Fi وميزة Wi-Fi Direct على الجهازين."
+        }
+
+        private fun groupFailureMessage(reason: Int): String = when (reason) {
+            WifiP2pManager.BUSY -> "ميزة Wi-Fi Direct مشغولة. افصل أي مجموعة سابقة ثم أعد إنشاء المجموعة."
+            WifiP2pManager.P2P_UNSUPPORTED -> "هذا الهاتف لا يدعم إنشاء مجموعة Wi-Fi Direct."
+            WifiP2pManager.ERROR -> "تعذر على Android إنشاء مجموعة Wi-Fi Direct (خطأ النظام 0). سيظل الاستقبال عبر Wi-Fi العادية متاحاً."
+            else -> "تعذر إنشاء مجموعة Wi-Fi Direct (رمز النظام $reason). سيظل الاستقبال عبر الشبكة المحلية متاحاً."
+        }
+
+        private fun legacyDiscoveryPrerequisite(): Boolean {
+            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.S) return true
+            val location = appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            return location?.isLocationEnabled == true
         }
 
         @SuppressLint("MissingPermission")
