@@ -523,12 +523,32 @@ def main() -> int:
     send.add_argument("--file", required=True, type=Path, nargs="+", metavar="FILE")
     send.add_argument("--port", type=int, default=DEFAULT_PORT)
 
+    web = sub.add_parser("web", help="Open the browser-based desktop sharing console")
+    web.add_argument("--secret", help="9-digit code used when this computer receives files (prompted if omitted)")
+    web.add_argument("--output", type=Path, default=Path("Received"))
+    web.add_argument("--web-port", type=int, default=8765)
+    web.add_argument("--port", type=int, default=DEFAULT_PORT)
+    web.add_argument("--discovery-port", type=int, default=DISCOVERY_PORT)
+    web.add_argument("--name", default=socket.gethostname())
+
     discover = sub.add_parser("discover", help="Find MalekPlay receivers on the local network")
     discover.add_argument("--timeout", type=float, default=5.0)
     discover.add_argument("--port", type=int, default=DISCOVERY_PORT)
 
     args = parser.parse_args()
     try:
+        if args.command == "web":
+            from web_share import run_web_share
+            secret = get_secret(args.secret)
+            run_web_share(
+                output=args.output,
+                web_port=args.web_port,
+                transfer_port=args.port,
+                discovery_port=args.discovery_port,
+                receive_secret=secret,
+                device_name=args.name,
+            )
+            return 0
         if args.command == "discover":
             for host, port, name in discover_devices(args.timeout, args.port):
                 print(f"{name}: {host}:{port}")
