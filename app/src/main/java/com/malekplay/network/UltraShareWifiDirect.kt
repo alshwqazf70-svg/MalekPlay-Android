@@ -446,7 +446,7 @@ object UltraShareWifiDirect {
         }
 
         private fun legacyDiscoveryPrerequisite(): Boolean {
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.S) return true
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || Build.VERSION.SDK_INT > Build.VERSION_CODES.S) return true
             val location = appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
             return location?.isLocationEnabled == true
         }
