@@ -25,6 +25,12 @@ from ultra_share_v2 import (
     connect_control_session,
     receive_batch_v2,
     send_batch_v2,
+    _control_subkey,
+    _control_request_mac,
+    _control_encrypt,
+    _control_decrypt,
+    CONTROL_MAGIC,
+    CONTROL_VERSION,
 )
 
 
@@ -129,6 +135,34 @@ class UltraShareV2ManifestTests(unittest.TestCase):
         finally:
             left.close()
             right.close()
+
+    def test_mpc2_control_authentication_and_aead_match_wire_contract(self):
+        challenge = bytes(range(32))
+        master = derive_v2_pairing_key("123456789", challenge)
+        request_id = "0123456789abcdef0123456789abcdef"
+        peer_name = "MalekPlay Desktop".encode("utf-8")
+        payload = (
+            _java_write_utf("MPULTRA_CONTROL_REQUEST")
+            + (1).to_bytes(4, "big", signed=True)
+            + challenge
+            + _java_write_utf(request_id)
+            + len(peer_name).to_bytes(2, "big")
+            + peer_name
+        )
+        expected = hashlib.sha256
+        import hmac
+        expected_mac = hmac.new(
+            _control_subkey(master, "request-authentication"), payload, expected
+        ).digest()
+        self.assertEqual(expected_mac, _control_request_mac(master, challenge, request_id, peer_name))
+        nonce = bytes(range(12))
+        encrypted = _control_encrypt(master, nonce, "ACCEPT|" + request_id + "|4d616c656b")
+        self.assertEqual(
+            "ACCEPT|" + request_id + "|4d616c656b",
+            _control_decrypt(master, nonce, encrypted),
+        )
+        self.assertEqual(0x4D504332, CONTROL_MAGIC)
+        self.assertEqual(1, CONTROL_VERSION)
 
     def test_control_channel_mpc2_handshake_and_heartbeat(self):
         import socket
