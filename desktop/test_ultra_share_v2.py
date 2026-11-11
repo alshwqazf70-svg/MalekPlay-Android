@@ -219,6 +219,8 @@ class UltraShareV2ManifestTests(unittest.TestCase):
 
         data_port = free_port()
         control_port = free_port()
+        while control_port == data_port:
+            control_port = free_port()
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as output_dir:
             source_root = Path(source_dir)
             first = source_root / "مقطع.bin"
