@@ -195,10 +195,24 @@ object UltraShareTransport {
         }
     }
 
-    fun isSupportedMediaMimeType(raw: String): Boolean {
+    /**
+     * Accepts any syntactically valid MIME type for document sharing (including APK,
+     * PDF, archives and unknown binary files). Received files are stored as data only;
+     * this check never opens or executes the received content.
+     */
+    fun isSupportedShareMimeType(raw: String): Boolean {
+        val candidate = raw.trim()
+        val token = "[A-Za-z0-9!#    fun isSupportedMediaMimeType(raw: String): Boolean {
         val mime = sanitizeMimeType(raw).lowercase(java.util.Locale.ROOT)
         return mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/")
+    }^_.+-]+"
+        return candidate.length in 3..160 &&
+            Regex("^$token/$token$").matches(candidate)
     }
+
+    /** Kept for source compatibility with older callers; sharing is no longer media-only. */
+    @Deprecated("Use isSupportedShareMimeType for all transferable documents.")
+    fun isSupportedMediaMimeType(raw: String): Boolean = isSupportedShareMimeType(raw)
 
     /**
      * A resume file belongs to the exact content, not just its visible name and size.
@@ -398,7 +412,7 @@ object UltraShareTransport {
                 val size = metadata.readLong()
                 require(size in 0..MAX_FILE_BYTES) { "حجم الملف المرسل غير مسموح." }
                 val mime = sanitizeMimeType(readUtf8(metadata, 192))
-                require(isSupportedMediaMimeType(mime)) { "يسمح MalekPlay باستقبال الفيديوهات والموسيقى والصور فقط." }
+                require(isSupportedShareMimeType(mime)) { "نوع الملف المرسل غير صالح." }
                 val expectedDigest = ByteArray(32).also(metadata::readFully)
                 require(metadata.available() == 0) { "بيانات الملف المرسل غير مكتملة." }
 
