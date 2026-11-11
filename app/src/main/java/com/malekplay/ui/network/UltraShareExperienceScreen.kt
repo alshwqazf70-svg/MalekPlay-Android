@@ -102,6 +102,7 @@ fun UltraShareExperienceScreen(
     var showDevicePicker by remember { mutableStateOf(false) }
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
+    var pendingQrPairing by remember { mutableStateOf<UltraShareQrCode.PairingDetails?>(null) }
     var search by remember { mutableStateOf("") }
     var pendingFolderArchive by remember { mutableStateOf<UltraShareTransport.ReceivedFile?>(null) }
     var selectedUris by remember(initialUris) {
@@ -113,15 +114,7 @@ fun UltraShareExperienceScreen(
             .onSuccess { pairing ->
                 host = pairing.host
                 secret = pairing.pairingSecret
-                if (!pairing.invitationId.isNullOrBlank()) {
-                    viewModel.joinWifiDirectInvitation(
-                        invitationId = pairing.invitationId,
-                        secret = pairing.pairingSecret,
-                        fallbackHosts = pairing.hosts
-                    )
-                } else if (pairing.host.isNotBlank()) {
-                    viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
-                }
+                pendingQrPairing = pairing
                 page = UltraSharePage.SEND
                 Toast.makeText(context, "تمت قراءة الدعوة؛ جارٍ العثور على الجهاز والاتصال به تلقائياً.", Toast.LENGTH_SHORT).show()
             }
@@ -276,15 +269,7 @@ fun UltraShareExperienceScreen(
                 }.onSuccess { pairing ->
                     host = pairing.host
                     secret = pairing.pairingSecret
-                    if (!pairing.invitationId.isNullOrBlank()) {
-                        viewModel.joinWifiDirectInvitation(
-                            invitationId = pairing.invitationId,
-                            secret = pairing.pairingSecret,
-                            fallbackHosts = pairing.hosts
-                        )
-                    } else if (pairing.host.isNotBlank()) {
-                        viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
-                    }
+                    pendingQrPairing = pairing
                     page = UltraSharePage.SEND
                 }.onFailure {
                     Toast.makeText(context, "تعذر قراءة رمز QR من الصورة.", Toast.LENGTH_LONG).show()
@@ -318,9 +303,25 @@ fun UltraShareExperienceScreen(
 
     val wifiPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.all { it }) {
-            if (state.receiving) viewModel.advertiseWifiDirectInvitation(UltraShareDiscovery.localPeerId(context))
-            else viewModel.scanWifiDirectPeers()
-        } else Toast.makeText(context, "يلزم إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
+            val pairing = pendingQrPairing
+            if (pairing != null) {
+                pendingQrPairing = null
+                if (!pairing.invitationId.isNullOrBlank()) {
+                    viewModel.joinWifiDirectInvitation(
+                        pairing.invitationId,
+                        pairing.pairingSecret,
+                        pairing.hosts
+                    )
+                } else if (pairing.host.isNotBlank()) {
+                    viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
+                }
+            } else if (state.receiving) {
+                viewModel.advertiseWifiDirectInvitation(UltraShareDiscovery.localPeerId(context))
+            } else viewModel.scanWifiDirectPeers()
+        } else {
+            pendingQrPairing = null
+            Toast.makeText(context, "يلزم إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
+        }
     }
     val allNearbyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         val wifiGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -467,6 +468,33 @@ fun UltraShareExperienceScreen(
                 "لم تتم إضافة $rejectedCount ملفاً مشتركاً؛ تعذر تثبيت إذن قراءة دائم أو قراءة بياناته. أعد اختياره من مدير الملفات.",
                 Toast.LENGTH_LONG
             ).show()
+        }
+    }
+
+    LaunchedEffect(pendingQrPairing) {
+        val pairing = pendingQrPairing ?: return@LaunchedEffect
+        if (pairing.invitationId.isNullOrBlank()) {
+            pendingQrPairing = null
+            if (pairing.host.isNotBlank()) {
+                viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
+            }
+        } else {
+            val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+            } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+            val missing = required.filter {
+                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                wifiPermission.launch(missing.toTypedArray())
+            } else {
+                pendingQrPairing = null
+                viewModel.joinWifiDirectInvitation(
+                    pairing.invitationId,
+                    pairing.pairingSecret,
+                    pairing.hosts
+                )
+            }
         }
     }
 
