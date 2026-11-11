@@ -32,7 +32,10 @@ from ultra_share_pc import (
     safe_name,
     send_file,
 )
-from ultra_share_v2 import DEFAULT_V2_PORT, receive_batch_v2
+from ultra_share_v2 import (
+    DEFAULT_V2_PORT, receive_batch_v2, serve_control_once,
+    connect_control_session, send_batch_v2,
+)
 
 MAX_HTTP_HEADER_NAME = 240
 UPLOAD_CHUNK_BYTES = 1024 * 1024
@@ -68,7 +71,8 @@ def validate_upload(host: str, pin: str, filename: str, size: int) -> tuple[str,
     return host, pin, clean_name
 
 
-def create_handler(output: Path, secret: str, transfer_port: int, web_port: int, discovery_port: int):
+def create_handler(output: Path, secret: str, transfer_port: int, v2_port: int,
+                   control_port: int, web_port: int, discovery_port: int):
     output.mkdir(parents=True, exist_ok=True)
     output_root = output.resolve()
 
@@ -181,7 +185,7 @@ def create_handler(output: Path, secret: str, transfer_port: int, web_port: int,
             self._json(404, {"ok": False, "error": "المسار غير موجود."})
 
         def do_PUT(self) -> None:
-            if self.path != "/api/send" or not self._is_same_origin():
+            if self.path not in {"/api/send", "/api/send-v2"} or not self._is_same_origin():
                 self._json(403, {"ok": False, "error": "الطلب غير مسموح."})
                 return
             try:
@@ -212,10 +216,20 @@ def create_handler(output: Path, secret: str, transfer_port: int, web_port: int,
                         written += len(block)
                     stream.flush()
                     os.fsync(stream.fileno())
-                send_file(host, transfer_port, pin, source)
+                if self.path == "/api/send-v2":
+                    with connect_control_session(host, control_port, pin) as control:
+                        results = send_batch_v2(host, v2_port, pin, [source])
+                        if control.error:
+                            raise ConnectionError(f"فُقدت قناة التحكم: {control.error}")
+                    if not results or results[0]["status"] != 2:
+                        raise OSError("لم يؤكد المستقبل اكتمال الملف والتحقق منه.")
+                    protocol_message = "تم إرسال الملف عبر V2 والتحقق من بصمته."
+                else:
+                    send_file(host, transfer_port, pin, source)
+                    protocol_message = "تم إرسال الملف عبر V1 والتحقق من استلامه."
                 self._json(200, {
                     "ok": True,
-                    "message": "تم إرسال الملف والتحقق من استلامه.",
+                    "message": protocol_message,
                     "name": filename,
                 })
             except Exception as failure:
@@ -253,7 +267,7 @@ button,.download{border:0;border-radius:12px;padding:12px 16px;background:linear
 <label for="pin">رمز الاقتران الظاهر في MalekPlay</label><input id="pin" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="9 أرقام">
 <button id="discover" type="button">البحث عن الهاتف على الشبكة</button>
 <label for="file">اختر ملفات من الكمبيوتر</label><input id="file" type="file" multiple>
-<button id="send">إرسال إلى الهاتف</button><div id="sendStatus" class="status" aria-live="polite"></div>
+<button id="send">إرسال V1</button><button id="sendV2" type="button">إرسال V2 المشفّر</button><div id="sendStatus" class="status" aria-live="polite"></div>
 <p class="note">تأكد أن الكمبيوتر والهاتف على شبكة Wi-Fi نفسها أو أن الكمبيوتر متصل بنقطة اتصال الهاتف. لا تغلق الصفحة أثناء النقل.</p>
 </section>
 <section class="panel"><h2>الملفات المستلمة على الكمبيوتر</h2><div id="files" class="empty">جارٍ تحميل الملفات...</div>
@@ -267,7 +281,7 @@ function showStatus(message,kind){$('sendStatus').textContent=message;$('sendSta
 function bytes(n){if(n<1024)return n+' B';const u=['KB','MB','GB','TB'];let v=n/1024,i=0;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(1)+' '+u[i]}
 async function discoverPhone(){const button=$('discover');button.disabled=true;showStatus('جارٍ البحث عن أجهزة MalekPlay على الشبكة المحلية...');try{const r=await fetch('/api/discover',{cache:'no-store'});const data=await r.json();if(!data.ok)throw new Error(data.error||'تعذر البحث');if(!data.devices.length){showStatus('لم يتم العثور على هاتف. تأكد من تشغيل الاستقبال على MalekPlay.','err');return}const device=data.devices[0];$('host').value=device.host;showStatus('تم العثور على '+device.name+' • '+device.host,'ok')}catch(e){showStatus(e.message||'تعذر البحث عن الهاتف.','err')}finally{button.disabled=false}}
 async function refreshFiles(){try{const r=await fetch('/api/status',{cache:'no-store'});const data=await r.json();const root=$('files');root.replaceChildren();if(!data.files.length){root.className='empty';root.textContent='لا توجد ملفات مستلمة بعد.';return}root.className='';for(const f of data.files){const row=document.createElement('div');row.className='file';const info=document.createElement('div');const name=document.createElement('strong');name.textContent=f.name;const size=document.createElement('small');size.textContent=bytes(f.size);info.append(name,size);const link=document.createElement('a');link.className='download';link.href=f.url;link.textContent='تنزيل';row.append(info,link);root.append(row)}}catch(e){$('files').textContent='تعذر تحميل قائمة الملفات.'}}
-$('send').addEventListener('click',async()=>{const files=[...$('file').files],host=$('host').value.trim(),pin=$('pin').value.trim();if(!files.length||!host||!pin){showStatus('أدخل عنوان الهاتف ورمز الاقتران واختر ملفاً واحداً على الأقل.','err');return}const button=$('send');button.disabled=true;let sent=0;try{for(let index=0;index<files.length;index++){const file=files[index];showStatus('جارٍ إرسال '+file.name+' ('+(index+1)+'/'+files.length+')...');const response=await fetch('/api/send',{method:'PUT',headers:{'Content-Type':'application/octet-stream','X-Ultra-Host':host,'X-Ultra-PIN':pin,'X-Ultra-Filename':encodeURIComponent(file.name)},body:file});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'فشل إرسال '+file.name);sent++;showStatus(result.message+' ('+sent+'/'+files.length+')','ok')} }catch(e){showStatus('اكتمل إرسال '+sent+' من '+files.length+' ملفات. '+(e.message||'حدث خطأ أثناء الإرسال.'),'err')}finally{button.disabled=false}});
+async function sendSelected(endpoint,buttonId){const files=[...$('file').files],host=$('host').value.trim(),pin=$('pin').value.trim();if(!files.length||!host||!pin){showStatus('أدخل عنوان الهاتف ورمز الاقتران واختر ملفاً واحداً على الأقل.','err');return}const button=$(buttonId);button.disabled=true;let sent=0;try{for(let index=0;index<files.length;index++){const file=files[index];showStatus('جارٍ إرسال '+file.name+' ('+(index+1)+'/'+files.length+')...');const response=await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/octet-stream','X-Ultra-Host':host,'X-Ultra-PIN':pin,'X-Ultra-Filename':encodeURIComponent(file.name)},body:file});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'فشل إرسال '+file.name);sent++;showStatus(result.message+' ('+sent+'/'+files.length+')','ok')} }catch(e){showStatus('اكتمل إرسال '+sent+' من '+files.length+' ملفات. '+(e.message||'حدث خطأ أثناء الإرسال.'),'err')}finally{button.disabled=false}}$('send').addEventListener('click',()=>sendSelected('/api/send','send'));$('sendV2').addEventListener('click',()=>sendSelected('/api/send-v2','sendV2'));
 $('discover').addEventListener('click',discoverPhone);$('refresh').addEventListener('click',refreshFiles);refreshFiles();setInterval(refreshFiles,5000);
 </script></body></html>"""
 
@@ -279,14 +293,18 @@ def main() -> int:
     parser.add_argument("--transfer-port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--v2-port", type=int, default=DEFAULT_V2_PORT,
                         help="TCP port for authenticated V2 batch reception")
+    parser.add_argument("--control-port", type=int, default=38744,
+                        help="TCP port for the authenticated MPC2 control channel")
     parser.add_argument("--discovery-port", type=int, default=DISCOVERY_PORT)
     parser.add_argument("--web-port", type=int, default=8765)
     args = parser.parse_args()
     if not (1 <= args.transfer_port <= 65535 and 1 <= args.v2_port <= 65535
-            and 1 <= args.discovery_port <= 65535):
+            and 1 <= args.control_port <= 65535 and 1 <= args.discovery_port <= 65535):
         parser.error("Transfer, V2 and discovery ports must be between 1 and 65535.")
     if args.v2_port == args.transfer_port:
         parser.error("V1 and V2 TCP ports must be different.")
+    if args.control_port in {args.transfer_port, args.v2_port}:
+        parser.error("The MPC2 control TCP port must be distinct from both data ports.")
     if not 1024 <= args.web_port <= 65535:
         parser.error("The browser UI port must be between 1024 and 65535.")
     secret = get_secret(args.secret)
@@ -315,7 +333,22 @@ def main() -> int:
                     time.sleep(0.4)
 
     threading.Thread(target=receiver_loop, name="ultrashare-receiver-v1", daemon=True).start()
+    def control_approval_loop() -> None:
+        while not stopped.is_set():
+            try:
+                def approve(peer_name: str, peer_host: str) -> bool:
+                    answer = input(
+                        f"\\n{peer_name} ({peer_host}) requests Ultra Share access. Accept? [y/N]: "
+                    ).strip().lower()
+                    return answer in {"y", "yes"}
+                serve_control_once(args.control_port, secret, socket.gethostname(), approve)
+            except (OSError, ValueError, PermissionError, ConnectionError) as failure:
+                if not stopped.is_set():
+                    print(f"Control request rejected or interrupted: {failure}")
+                    time.sleep(0.4)
+
     threading.Thread(target=v2_receiver_loop, name="ultrashare-receiver-v2", daemon=True).start()
+    threading.Thread(target=control_approval_loop, name="ultrashare-control-server", daemon=True).start()
     threading.Thread(
         target=discovery_responder,
         args=(args.discovery_port, args.transfer_port, socket.gethostname()),
@@ -325,11 +358,12 @@ def main() -> int:
 
     server = ThreadingHTTPServer(
         ("127.0.0.1", args.web_port),
-        create_handler(output, secret, args.transfer_port, args.web_port, args.discovery_port),
+        create_handler(output, secret, args.transfer_port, args.v2_port,
+                       args.control_port, args.web_port, args.discovery_port),
     )
     server.daemon_threads = True
     print(f"MalekPlay Ultra Share browser UI: http://127.0.0.1:{args.web_port}")
-    print(f"Receiving V1 files on TCP {args.transfer_port} and V2 batches on TCP {args.v2_port} into: {output}")
+    print(f"Receiving V1/V2 data on TCP {args.transfer_port}/{args.v2_port}; MPC2 control on TCP {args.control_port} into: {output}")
     print("Keep this terminal open. Press Ctrl+C to stop.")
     try:
         server.serve_forever(poll_interval=0.5)
