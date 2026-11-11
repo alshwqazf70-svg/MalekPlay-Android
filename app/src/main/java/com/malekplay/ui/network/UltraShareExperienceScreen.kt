@@ -754,6 +754,27 @@ fun UltraShareExperienceScreen(
                             TextButton(onClick = { viewModel.disconnectPeer(peer.host) }) { Text("قطع الاتصال") }
                         }
                     }
+                    val activeHostSet = state.activePeers.mapTo(mutableSetOf()) { it.host }
+                    val reconnectablePeers = state.reconnectablePeers.filterNot { it.host in activeHostSet }
+                    if (reconnectablePeers.isNotEmpty()) {
+                        Text("أجهزة سابقة • إعادة الاتصال", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
+                        reconnectablePeers.forEach { peer ->
+                            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
+                                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(peer.name, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                                        Text(peer.host + " • محفوظ لهذه الجلسة فقط", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    TextButton(onClick = { viewModel.reconnectPeer(peer.host) }, enabled = !state.requestingConnection && !state.sending) {
+                                        Text("إعادة الاتصال")
+                                    }
+                                    TextButton(onClick = { viewModel.forgetPeer(peer.host) }, enabled = !state.sending) {
+                                        Text("نسيان")
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Text("الأجهزة المكتشفة (" + visiblePeers.size + ")", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
                     if (visiblePeers.isEmpty() && state.wifiDirectPeers.isEmpty() && state.bluetoothPeers.isEmpty()) InfoPanel("الرادار", if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning) "جارٍ البحث عبر الشبكة المحلية وWi-Fi Direct وBluetooth..." else "لا توجد أجهزة ظاهرة حالياً. تأكد من تشغيل Wi-Fi أو Bluetooth أو استخدم QR أو نقطة الاتصال.")
                     visiblePeers.drop(4).forEach { peer ->
