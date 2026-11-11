@@ -1,0 +1,31 @@
+name: UltraShare Desktop Protocol Tests
+
+on:
+  push:
+    branches:
+      - feature/zapya-engineering-analysis
+  pull_request:
+    branches:
+      - feature/zapya-engineering-analysis
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-protocol:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install desktop dependencies
+        run: python -m pip install -r desktop/requirements.txt
+      - name: Compile desktop modules
+        run: |
+          python -m py_compile desktop/ultra_share_v2.py desktop/ultra_share_pc.py desktop/ultra_share_web.py
+      - name: Run V1 and V2 desktop tests
+        working-directory: desktop
+        run: python -m unittest discover -s . -p "test_*.py" -v
