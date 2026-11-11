@@ -27,6 +27,14 @@ class UltraShareFolderArchiveTest {
     }
 
     @Test
+    fun archiveEntryPathValidationRejectsExcessiveNesting() {
+        val deepPath = (1..65).joinToString("/") { "folder" } + "/file.txt"
+        assertTrue(runCatching {
+            UltraShareFolderArchive.validatedArchiveSegments(deepPath, false)
+        }.isFailure)
+    }
+
+    @Test
     fun archiveEntryPathValidationPreservesNestedUnicodePaths() {
         assertEquals(
             listOf("مجلد", "صور", "image.jpg"),
