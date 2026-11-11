@@ -430,7 +430,7 @@ fun UltraShareExperienceScreen(
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) {
-            viewModel.advertiseWifiDirectInvitation(UltraShareDiscovery.localPeerId(context))
+            viewModel.advertiseCurrentWifiDirectInvitation()
         } else wifiPermission.launch(missing.toTypedArray())
     }
     fun stopReceivingGroup() {
