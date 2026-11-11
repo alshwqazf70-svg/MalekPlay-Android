@@ -69,7 +69,11 @@ internal data class UltraShareApprovedSendTarget(
     val host: String,
     val secret: String,
     val candidates: List<UltraShareNegotiation.Candidate> = emptyList()
-)
+) {
+    override fun toString(): String =
+        "UltraShareApprovedSendTarget(sessionId=" + sessionId +
+            ", host=" + host + ", secret=[REDACTED], candidates=" + candidates.size + ")"
+}
 
 data class UltraSharePeerSession(
     val sessionId: String,
