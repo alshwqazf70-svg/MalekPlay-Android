@@ -20,7 +20,8 @@ import java.util.EnumMap
 object UltraShareQrCode {
     private const val SCHEMA = "malekplay"
     private const val AUTHORITY = "ultra-share"
-    private const val VERSION = "1"
+    private const val LEGACY_VERSION = "1"
+    private const val INVITATION_VERSION = "2"
     private const val MULTI_HOST_VERSION = "2"
     private const val INVITATION_VERSION = "3"
     private const val MAX_QR_HOSTS = 8
@@ -48,6 +49,7 @@ object UltraShareQrCode {
             .apply { safeHosts.forEach { appendQueryParameter("host", it) } }
             .appendQueryParameter("port", UltraShareControlChannel.DEFAULT_PORT.toString())
             .appendQueryParameter("secret", pairingSecret)
+            .apply { peerId?.let { appendQueryParameter("peer", it) } }
             .build()
             .toString()
     }
@@ -82,7 +84,7 @@ object UltraShareQrCode {
             .toString()
     }
 
-    fun createPayload(host: String, port: Int, pairingSecret: String): String {
+    fun createPayload(host: String, port: Int, pairingSecret: String, peerId: String? = null): String {
         require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ قناة الاقتران غير متوافق." }
         require(UltraShareTransport.isValidPrivateLanHost(host)) {
             "عنوان QR يجب أن يكون IPv4 خاصاً بالشبكة المحلية."
@@ -93,7 +95,7 @@ object UltraShareQrCode {
         return Uri.Builder()
             .scheme(SCHEMA)
             .authority(AUTHORITY)
-            .appendQueryParameter("v", VERSION)
+            .appendQueryParameter("v", if (peerId == null) LEGACY_VERSION else INVITATION_VERSION)
             .appendQueryParameter("host", host)
             .appendQueryParameter("port", port.toString())
             .appendQueryParameter("secret", pairingSecret)
