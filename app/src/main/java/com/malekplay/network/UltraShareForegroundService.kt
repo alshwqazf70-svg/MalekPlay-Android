@@ -1738,6 +1738,9 @@ class UltraShareForegroundService : Service() {
         internal fun reconnectableSendTarget(host: String): UltraShareApprovedSendTarget? =
             synchronized(approvedSendTargetsByHost) { reconnectableSendTargetsByHost[host] }
 
+        internal fun reconnectableSendTargets(): List<UltraShareApprovedSendTarget> =
+            synchronized(approvedSendTargetsByHost) { reconnectableSendTargetsByHost.values.toList() }
+
         internal fun removeApprovedSendTarget(host: String) {
             synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost.remove(host) }
         }
