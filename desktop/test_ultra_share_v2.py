@@ -1,4 +1,5 @@
 import hashlib
+import socket
 import unittest
 import uuid
 
@@ -31,10 +32,31 @@ from ultra_share_v2 import (
     _control_decrypt,
     CONTROL_MAGIC,
     CONTROL_VERSION,
+    recv_exact,
 )
 
 
 class UltraShareV2ManifestTests(unittest.TestCase):
+    def test_recv_exact_reads_fragmented_stream_data(self):
+        reader, writer = socket.socketpair()
+        try:
+            writer.sendall(b"ab")
+            writer.sendall(b"cdef")
+            self.assertEqual(b"abcdef", recv_exact(reader, 6))
+        finally:
+            reader.close()
+            writer.close()
+
+    def test_recv_exact_rejects_premature_eof(self):
+        reader, writer = socket.socketpair()
+        try:
+            writer.sendall(b"ab")
+            writer.close()
+            with self.assertRaises(EOFError):
+                recv_exact(reader, 3)
+        finally:
+            reader.close()
+
     def test_android_golden_vector_matches_exact_manifest_wire_bytes(self):
         manifest = Manifest(
             "00112233-4455-6677-8899-aabbccddeeff",
