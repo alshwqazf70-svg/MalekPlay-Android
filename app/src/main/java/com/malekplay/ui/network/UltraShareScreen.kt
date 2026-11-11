@@ -475,6 +475,20 @@ fun UltraShareScreen(
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var pendingMediaUris by remember(initialUris) { mutableStateOf(initialUris.distinct()) }
+
+    fun acceptPairing(pairing: UltraShareQrCode.PairingDetails) {
+        host = pairing.host
+        secret = pairing.pairingSecret
+        // Scanning/pasting is the explicit connect action. If files were already
+        // selected, begin their authenticated queue immediately after pairing.
+        val queued = pendingMediaUris
+        if (queued.isNotEmpty()) {
+            if (viewModel.sendBatch(queued, pairing.host, pairing.pairingSecret)) {
+                pendingMediaUris = emptyList()
+            }
+        }
+    }
+
     fun pastePairingDetails() {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         val raw = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
@@ -484,8 +498,7 @@ fun UltraShareScreen(
         } else {
             runCatching { UltraShareQrCode.parsePayload(raw) }
                 .onSuccess { pairing ->
-                    host = pairing.host
-                    secret = pairing.pairingSecret
+                    acceptPairing(pairing)
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
@@ -546,8 +559,7 @@ fun UltraShareScreen(
         if (!raw.isNullOrBlank()) {
             runCatching { UltraShareQrCode.parsePayload(raw) }
                 .onSuccess { pairing ->
-                    host = pairing.host
-                    secret = pairing.pairingSecret
+                    acceptPairing(pairing)
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
@@ -600,8 +612,7 @@ fun UltraShareScreen(
                     }
                 }
                 result.onSuccess { pairing ->
-                    host = pairing.host
-                    secret = pairing.pairingSecret
+                    acceptPairing(pairing)
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }.onFailure {
                     Toast.makeText(
