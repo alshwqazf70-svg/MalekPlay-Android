@@ -90,7 +90,10 @@ object UltraShareWifiDirect {
                 mapOf("peer" to peerId)
             )
             try {
-                if (localInvitationId == peerId && localInvitationService != null) return
+                if (localInvitationId == peerId && localInvitationService != null) {
+                    onAdvertised()
+                    return
+                }
                 manager.clearLocalServices(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         if (closed) return
