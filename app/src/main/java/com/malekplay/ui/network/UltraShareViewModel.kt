@@ -516,7 +516,7 @@ class UltraShareViewModel @Inject constructor(
                     wifiDirectScanning = false,
                     wifiDirectHost = null,
                     invitationId = if (receiving) "" else _state.value.invitationId,
-                    requestingConnection = pending != null && fallbackHosts.isNotEmpty(),
+                    requestingConnection = if (pending != null) fallbackHosts.isNotEmpty() else _state.value.requestingConnection,
                     error = if (pending != null && fallbackHosts.isNotEmpty()) null else message,
                     status = if (pending != null && fallbackHosts.isNotEmpty())
                         "تعذر إكمال Wi-Fi Direct؛ ننتقل الآن إلى مسار الشبكة المحلية الآمن..."
