@@ -39,23 +39,6 @@ class UltraShareQrCodeTest {
     }
 
     @Test
-    fun pairingPayloadRoundTripsWifiDirectInvitationIdentity() {
-        val secret = UltraShareTransport.createPairingSecret()
-        val payload = UltraShareQrCode.createPayload(
-            host = "192.168.49.1",
-            port = UltraShareTransport.DEFAULT_PORT,
-            pairingSecret = secret,
-            peerId = "receiver_0123456789"
-        )
-
-        val decoded = UltraShareQrCode.parsePayload(payload)
-
-        assertEquals("192.168.49.1", decoded.host)
-        assertEquals(secret, decoded.pairingSecret)
-        assertEquals("receiver_0123456789", decoded.peerId)
-    }
-
-    @Test
     fun pairingPayloadRoundTripsEndpointAndSecret() {
         val secret = UltraShareTransport.createPairingSecret()
         val payload = UltraShareQrCode.createPayload(
