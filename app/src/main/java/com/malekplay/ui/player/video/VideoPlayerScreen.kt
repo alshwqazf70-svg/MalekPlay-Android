@@ -1428,7 +1428,7 @@ private suspend fun PointerInputScope.detectPlayerGestures(
 // --------------------------------------------------------------- screenshot
 
 /**
- * Grabs the current frame and stores it in Pictures/MalekPlay.
+ * Grabs the current frame and stores it in Pictures/MalekPlayer.
  *
  * SurfaceView content is not part of the view hierarchy, so PixelCopy is used
  * on API 26+; a plain draw is the fallback and works for TextureView surfaces.
@@ -1470,7 +1470,7 @@ private suspend fun captureAndSave(
     val values = ContentValues().apply {
         put(MediaStore.Images.Media.DISPLAY_NAME, "$safeTitle-${System.currentTimeMillis()}.png")
         put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-        put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/MalekPlay")
+        put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/MalekPlayer")
         put(MediaStore.Images.Media.IS_PENDING, 1)
     }
     val uri = runCatching {
