@@ -42,7 +42,8 @@ object UltraSharePeerDeliveryStore {
     suspend fun prepare(
         context: Context,
         files: List<Pair<Uri, String>>,
-        peers: List<UltraShareMultiRecipientCoordinator.Target>
+        peers: List<UltraShareMultiRecipientCoordinator.Target>,
+        preserveCompleted: Boolean = true
     ) {
         require(peers.map { it.sessionId }.distinct().size == peers.size) { "Duplicate peer session IDs." }
         require(peers.map { it.host }.distinct().size == peers.size) { "Duplicate peer hosts." }
@@ -67,7 +68,7 @@ object UltraSharePeerDeliveryStore {
                 val previous = merged[entryKey]
                 // A successful delivery is immutable across retries: never resend it just
                 // because the user retries the remaining recipients for the same file.
-                merged[entryKey] = if (previous?.status == STATUS_COMPLETED) previous else entry
+                merged[entryKey] = if (preserveCompleted && previous?.status == STATUS_COMPLETED) previous else entry
             }
             preferences[DELIVERIES] = encode(merged.values.toList())
         }
