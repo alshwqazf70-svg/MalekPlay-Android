@@ -32,7 +32,7 @@ object UltraShareQrCode {
     fun createReceiverPayload(hosts: List<String>, pairingSecret: String): String {
         val safeHosts = hosts.asSequence()
             .map(String::trim)
-            .filter(UltraShareTransport::isValidPrivateLanHost)
+            .filter({ UltraShareTransport.isValidPrivateLanHost(it) })
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
@@ -92,7 +92,7 @@ object UltraShareQrCode {
             listOfNotNull(uri.getQueryParameter("host"))
         }).asSequence()
             .map(String::trim)
-            .filter(UltraShareTransport::isValidPrivateLanHost)
+            .filter({ UltraShareTransport.isValidPrivateLanHost(it) })
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
