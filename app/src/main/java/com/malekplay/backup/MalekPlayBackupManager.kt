@@ -182,7 +182,7 @@ class MalekPlayBackupManager @Inject constructor(
         }
 
         val root = JSONObject(String(bytes, StandardCharsets.UTF_8))
-        require(root.optString("format") == FORMAT) { "Not a MalekPlay backup file" }
+        require(root.optString("format") == FORMAT) { "Not a MalekPlayer backup file" }
         require(root.optInt("version", -1) == BACKUP_VERSION) { "Unsupported backup version" }
 
         val validated = validateBackupCollections(root)
