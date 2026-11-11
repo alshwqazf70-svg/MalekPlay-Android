@@ -8,6 +8,19 @@ from ultra_share_v2 import (
     decode_manifest,
     encode_manifest,
     validate_manifest,
+    derive_v2_pairing_key,
+    derive_v2_key,
+    v2_nonce,
+    v2_write_frame,
+    v2_read_frame,
+    _java_write_utf,
+    _java_read_utf,
+    _encode_v2_offsets,
+    _read_v2_offsets,
+    _encode_v2_results,
+    _read_v2_results,
+    STATUS_COMPLETED,
+    STATUS_FAILED,
 )
 
 
@@ -65,6 +78,53 @@ class UltraShareV2ManifestTests(unittest.TestCase):
         unsafe = FileEntry(str(uuid.uuid4()), "../secret.bin", "application/octet-stream", 1, digest)
         with self.assertRaises(ValueError):
             validate_manifest(Manifest(str(uuid.uuid4()), (unsafe,)))
+
+    def test_android_pairing_kdf_matches_pbkdf2_parameters(self):
+        challenge = bytes(range(32))
+        expected = hashlib.pbkdf2_hmac("sha256", b"123456789", challenge[:16], 210_000, dklen=32)
+        self.assertEqual(expected, derive_v2_pairing_key("123456789", challenge))
+        legacy = "ab" * 32
+        self.assertEqual(bytes.fromhex(legacy), derive_v2_pairing_key(legacy, challenge))
+
+    def test_modified_utf_round_trip_matches_java_write_utf_semantics(self):
+        value = "peer-مالك-😀-\\x00"
+        encoded = _java_write_utf(value)
+        decoded, end = _java_read_utf(encoded, 0)
+        self.assertEqual(value, decoded)
+        self.assertEqual(len(encoded), end)
+
+    def test_v2_offsets_are_bound_to_every_manifest_file(self):
+        first = FileEntry(str(uuid.uuid4()), "a.bin", "application/octet-stream", 10, hashlib.sha256(b"a").digest())
+        second = FileEntry(str(uuid.uuid4()), "b.bin", "application/octet-stream", 0, hashlib.sha256(b"").digest())
+        manifest = Manifest(str(uuid.uuid4()), (first, second))
+        encoded = _encode_v2_offsets(manifest, {first.file_id: 7, second.file_id: 0})
+        self.assertEqual({first.file_id: 7, second.file_id: 0}, _read_v2_offsets(encoded, manifest))
+        with self.assertRaises(ValueError):
+            _read_v2_offsets(encoded[:-1], manifest)
+
+    def test_v2_result_codec_preserves_per_file_status_and_arabic_error(self):
+        first = FileEntry(str(uuid.uuid4()), "a.bin", "application/octet-stream", 10, hashlib.sha256(b"a").digest())
+        second = FileEntry(str(uuid.uuid4()), "b.bin", "application/octet-stream", 4, hashlib.sha256(b"b").digest())
+        manifest = Manifest(str(uuid.uuid4()), (first, second))
+        results = [
+            {"file_id": first.file_id, "status": STATUS_COMPLETED, "transferred": 10, "error": None},
+            {"file_id": second.file_id, "status": STATUS_FAILED, "transferred": 2, "error": "انقطع الاتصال"},
+        ]
+        self.assertEqual(results, _read_v2_results(_encode_v2_results(manifest, results), manifest))
+
+    def test_v2_aes_gcm_frame_round_trip_and_directional_nonce(self):
+        import socket
+        left, right = socket.socketpair()
+        try:
+            key = derive_v2_key(bytes(range(32)), bytes(range(32)), "client-to-server")
+            prefix = b"abcd"
+            payload = b"authenticated v2 payload"
+            v2_write_frame(left, key, prefix, 9, payload)
+            self.assertEqual(payload, v2_read_frame(right, key, prefix, 9, 1024))
+            self.assertEqual(b"abcd" + (9).to_bytes(8, "big"), v2_nonce(prefix, 9))
+        finally:
+            left.close()
+            right.close()
 
     def test_rejects_invalid_mime_and_digest_length(self):
         for mime, digest in (("application/pdf;bad", bytes(32)), ("application/pdf", bytes(31))):
