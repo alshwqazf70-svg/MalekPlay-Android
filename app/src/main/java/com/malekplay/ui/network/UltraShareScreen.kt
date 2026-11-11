@@ -137,6 +137,9 @@ class UltraShareViewModel @Inject constructor(
     private var invitationTimeout: Job? = null
     private var pendingInvitation: UltraShareQrCode.PairingDetails? = null
     private var pendingInvitationReady: ((String) -> Unit)? = null
+    private val invitationPreferences by lazy {
+        context.getSharedPreferences("ultra_share_invitation", Context.MODE_PRIVATE)
+    }
 
     init {
         viewModelScope.launch {
@@ -155,6 +158,12 @@ class UltraShareViewModel @Inject constructor(
         viewModelScope.launch {
             UltraShareForegroundService.state.collect { serviceState ->
                 val current = _state.value
+                // The foreground receiver can outlive this navigation ViewModel.
+                // Re-publish its short-lived invitation when the screen is reopened.
+                if (serviceState.receiving && current.invitationId == null) {
+                    invitationPreferences.getString("active_invitation_id", null)
+                        ?.let(::activateReceiverInvitation)
+                }
                 val received = serviceState.receivedFile
                 if (received?.publishedUri != null &&
                     received.file.absolutePath != current.receivedFile?.file?.absolutePath
@@ -242,6 +251,32 @@ class UltraShareViewModel @Inject constructor(
         ).also { wifiDirectSession = it }
     }
 
+    private fun activateReceiverInvitation(invitationId: String) {
+        if (!invitationId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) return
+        _state.value = _state.value.copy(invitationId = invitationId)
+        runCatching {
+            ensureWifiDirectSession().createGroup {
+                runCatching {
+                    ensureWifiDirectSession().advertiseInvitation(invitationId) {
+                        _state.value = _state.value.copy(
+                            status = "الجهاز جاهز. امسح رمز QR للاتصال التلقائي."
+                        )
+                    }
+                }.onFailure { failure ->
+                    _state.value = _state.value.copy(
+                        status = "الاستقبال جاهز عبر Wi-Fi العادية؛ تعذر إعلان Wi-Fi Direct.",
+                        error = failure.localizedMessage
+                    )
+                }
+            }
+        }.onFailure { failure ->
+            _state.value = _state.value.copy(
+                status = "الاستقبال جاهز عبر Wi-Fi العادية؛ تعذر إنشاء مجموعة Wi-Fi Direct.",
+                error = failure.localizedMessage
+            )
+        }
+    }
+
     fun startReceiving() {
         if (_state.value.receiving || _state.value.sending) return
         val secret = UltraShareTransport.createPairingSecret()
@@ -265,29 +300,9 @@ class UltraShareViewModel @Inject constructor(
                 )
                 return
             }
-        // Build the receiver-owned P2P group and publish only the opaque invitation ID.
-        // If the OEM reports ERROR(0), regular WLAN remains available in the QR payload.
-        runCatching {
-            ensureWifiDirectSession().createGroup {
-                runCatching {
-                    ensureWifiDirectSession().advertiseInvitation(invitationId) {
-                        _state.value = _state.value.copy(
-                            status = "الجهاز جاهز. امسح رمز QR للاتصال التلقائي."
-                        )
-                    }
-                }.onFailure { failure ->
-                    _state.value = _state.value.copy(
-                        status = "الاستقبال جاهز عبر Wi-Fi العادية؛ تعذر إعلان Wi-Fi Direct.",
-                        error = failure.localizedMessage
-                    )
-                }
-            }
-        }.onFailure { failure ->
-            _state.value = _state.value.copy(
-                status = "الاستقبال جاهز عبر Wi-Fi العادية؛ تعذر إنشاء مجموعة Wi-Fi Direct.",
-                error = failure.localizedMessage
-            )
-        }
+        invitationPreferences.edit().putString("active_invitation_id", invitationId).apply()
+        // ERROR(0) never disables the regular WLAN receive endpoint.
+        activateReceiverInvitation(invitationId)
     }
 
     fun connectInvitation(pairing: UltraShareQrCode.PairingDetails, onReady: (String) -> Unit) {
@@ -354,6 +369,7 @@ class UltraShareViewModel @Inject constructor(
     fun stopReceiving() {
         wifiDirectSession?.stopInvitationAdvertisement()
         wifiDirectSession?.removeGroup()
+        invitationPreferences.edit().remove("active_invitation_id").apply()
         _state.value = _state.value.copy(invitationId = null)
         UltraShareForegroundService.cancel(context)
         _state.value = _state.value.copy(
@@ -1037,9 +1053,9 @@ fun UltraShareScreen(
                 )
                 OutlinedTextField(
                     value = secret,
-                    onValueChange = { secret = it.filter { char -> char in '0'..'9' }.take(12) },
+                    onValueChange = { secret = it.filter { char -> char in '0'..'9' }.take(9) },
                     modifier = Modifier.widthIn(max = 220.dp),
-                    label = { Text("رمز الاقتران (12 رقماً)") },
+                    label = { Text("رمز الاقتران (9 أرقام)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
