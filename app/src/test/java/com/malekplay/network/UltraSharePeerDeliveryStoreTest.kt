@@ -116,4 +116,33 @@ class UltraSharePeerDeliveryStoreTest {
         }.isSuccess)
         assertTrue(UltraSharePeerDeliveryStore.decode("{bad").isEmpty())
     }
+    @Test
+    fun preparingRetryDoesNotResetFilesAlreadyDeliveredToAnotherPeer() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val uri = Uri.parse("content://files/retry")
+        val firstPeer = UltraShareMultiRecipientCoordinator.Target("peer-a", "192.168.1.2")
+        val secondPeer = UltraShareMultiRecipientCoordinator.Target("peer-b", "192.168.1.3")
+        UltraSharePeerDeliveryStore.clear(context)
+        try {
+            UltraSharePeerDeliveryStore.prepare(context, listOf(uri to "retry.mp4"), listOf(firstPeer))
+            UltraSharePeerDeliveryStore.update(
+                context, uri, firstPeer.sessionId, UltraSharePeerDeliveryStore.STATUS_COMPLETED
+            )
+            UltraSharePeerDeliveryStore.prepare(
+                context, listOf(uri to "retry.mp4"), listOf(firstPeer, secondPeer)
+            )
+            val entries = UltraSharePeerDeliveryStore.observe(context).first()
+            assertEquals(
+                UltraSharePeerDeliveryStore.STATUS_COMPLETED,
+                entries.first { it.peerSessionId == firstPeer.sessionId }.status
+            )
+            assertEquals(
+                UltraSharePeerDeliveryStore.STATUS_PENDING,
+                entries.first { it.peerSessionId == secondPeer.sessionId }.status
+            )
+        } finally {
+            UltraSharePeerDeliveryStore.clear(context)
+        }
+    }
+
 }
