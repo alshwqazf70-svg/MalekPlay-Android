@@ -2,6 +2,7 @@ package com.malekplay.network
 
 import android.content.ContentResolver
 import android.net.Uri
+import android.net.Network
 import android.os.Environment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -265,6 +266,7 @@ object UltraShareTransport {
         mimeType: String = "application/octet-stream",
         sizeBytes: Long,
         chunkBytes: Int = CHUNK_BYTES,
+        network: Network? = null,
         onProgress: (Progress) -> Unit = {}
     ) = withContext(Dispatchers.IO) {
         require(host.isNotBlank()) { "أدخل عنوان الجهاز المستقبل." }
@@ -282,6 +284,10 @@ object UltraShareTransport {
         } ?: error("تعذر فتح الملف المحدد.")
 
         Socket().use { socket ->
+            // Bind to the Android network whose route reaches this exact peer IP.
+            // Without this, dual Wi-Fi/Wi-Fi Direct devices may send the SYN through
+            // the default WLAN and fail with ENETUNREACH/EHOSTUNREACH.
+            network?.bindSocket(socket)
             socket.connect(InetSocketAddress(targetAddress, port), SOCKET_TIMEOUT_MS)
             socket.soTimeout = SOCKET_TIMEOUT_MS
             socket.sendBufferSize = SOCKET_BUFFER_BYTES
