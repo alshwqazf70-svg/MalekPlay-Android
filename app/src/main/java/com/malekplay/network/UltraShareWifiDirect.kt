@@ -191,6 +191,23 @@ object UltraShareWifiDirect {
         }
 
         @SuppressLint("MissingPermission")
+        fun stopInvitationAdvertisement() {
+            if (closed) return
+            runCatching {
+                manager.clearLocalServices(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        localInvitationService = null
+                        localInvitationId = null
+                    }
+                    override fun onFailure(reason: Int) {
+                        localInvitationService = null
+                        localInvitationId = null
+                    }
+                })
+            }
+        }
+
+        @SuppressLint("MissingPermission")
         fun discover() {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             try {
