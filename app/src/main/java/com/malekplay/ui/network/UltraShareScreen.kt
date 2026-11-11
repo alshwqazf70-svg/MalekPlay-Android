@@ -241,6 +241,14 @@ class UltraShareViewModel @Inject constructor(
                 val fallback = pendingInvitation?.hosts?.firstOrNull()
                 if (pendingInvitationReady != null && !fallback.isNullOrBlank()) {
                     completeInvitationConnection(fallback, "تعذر Wi-Fi Direct؛ تم اختيار مسار Wi-Fi العادي تلقائياً.")
+                } else if (_state.value.receiving) {
+                    // Wi-Fi Direct ERROR(0) is non-fatal: the authenticated TCP
+                    // receiver remains available on the advertised WLAN addresses.
+                    _state.value = _state.value.copy(
+                        scanning = false,
+                        error = null,
+                        status = "تعذر Wi-Fi Direct على هذا الهاتف؛ الاستقبال مستمر عبر Wi-Fi العادية. $message"
+                    )
                 } else {
                     _state.value = _state.value.copy(
                         scanning = false,
