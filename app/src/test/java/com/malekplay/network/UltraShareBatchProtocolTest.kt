@@ -109,6 +109,45 @@ class UltraShareBatchProtocolTest {
         assertTrue(UltraShareBatchProtocol.encode(manifest).size < UltraShareBatchProtocol.MAX_MANIFEST_BYTES)
     }
 
+    @Test fun androidManifestMatchesDesktopV2GoldenWireVector() {
+        val manifest = UltraShareBatchProtocol.Manifest(
+            "00112233-4455-6677-8899-aabbccddeeff",
+            listOf(
+                UltraShareBatchProtocol.FileEntry(
+                    "ffeeddcc-bbaa-9988-7766-554433221100",
+                    "مقطع.bin",
+                    "application/octet-stream",
+                    6L,
+                    "dd56de4137951d9c92681b03416ec15f886b4482a27e3a517d32f085244cbe5d"
+                        .chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                )
+            )
+        )
+        val expected = (
+            "4d505532000200112233445566778899aabbccddeeff0001" +
+            "ffeeddccbbaa99887766554433221100000cd985d982d8b7d8b92e62696e" +
+            "00186170706c69636174696f6e2f6f637465742d73747265616d" +
+            "0000000000000006" +
+            "dd56de4137951d9c92681b03416ec15f886b4482a27e3a517d32f085244cbe5d"
+        ).chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+        assertTrue(expected.contentEquals(UltraShareBatchProtocol.encode(manifest)))
+        assertEquals(manifest, UltraShareBatchProtocol.decode(expected))
+    }
+
+    @Test fun manifestRejectsMalformedUtf8InsteadOfSilentlyReplacingBytes() {
+        val manifest = UltraShareBatchProtocol.Manifest(
+            UUID.randomUUID().toString(), listOf(entry("one.bin", "x"))
+        )
+        val malformed = UltraShareBatchProtocol.encode(manifest)
+        // Fixed header (24 bytes), entry UUID (16), name length (2), then UTF-8 name.
+        malformed[42] = 0xC3.toByte()
+        malformed[43] = 0x28
+        assertThrows(IllegalArgumentException::class.java) {
+            UltraShareBatchProtocol.decode(malformed)
+        }
+    }
+
     @Test fun v2UsesSeparateDataPortAndHasBoundedPeerConcurrency() {
         assertEquals(UltraShareTransport.DEFAULT_PORT + 1, UltraShareBatchTransport.DEFAULT_PORT)
         assertEquals(4, UltraShareBatchTransport.DEFAULT_MAX_PEERS)
