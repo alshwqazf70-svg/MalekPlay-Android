@@ -223,11 +223,22 @@ class UltraShareViewModel @Inject constructor(
                 var lastFailure: Exception? = null
                 for (routeHost in routeHosts) {
                     try {
+                        val routeNetwork = UltraShareNetworkRouting.findNetworkForHost(context, routeHost)
+                        // 192.168.49.x is the conventional Android Wi-Fi Direct group subnet.
+                        // Never send that destination over the unrelated default WLAN when
+                        // Android has not exposed a matching P2P Network; doing so produces
+                        // ENETUNREACH and masks valid WLAN fallback addresses in the QR invite.
+                        if (UltraShareNetworkRouting.isWifiDirectGroupHost(routeHost) && routeNetwork == null) {
+                            lastFailure = IllegalStateException(
+                                "عنوان Wi-Fi Direct غير متاح حالياً؛ لم ينضم الهاتف إلى مجموعة P2P. سنجرب عناوين الشبكة المحلية البديلة إن وُجدت."
+                            )
+                            continue
+                        }
                         val decision = UltraShareControlChannel.request(
                             host = routeHost,
                             pairingSecret = secret.trim(),
                             peerName = android.os.Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
-                            network = UltraShareNetworkRouting.findNetworkForHost(context, routeHost),
+                            network = routeNetwork,
                             peerId = UltraShareDiscovery.localPeerId(context),
                             onSessionClosed = { disconnectedHost ->
                                 UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
