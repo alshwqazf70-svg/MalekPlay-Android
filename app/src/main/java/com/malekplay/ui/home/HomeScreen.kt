@@ -381,7 +381,7 @@ private fun HomeHeader(
             // Keep the Latin brand name in LTR order even when the app UI is Arabic/RTL.
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 Text(
-                    text = "MalekPlay",
+                    text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.headlineSmall.copy(
                         fontWeight = FontWeight.ExtraBold,
 
