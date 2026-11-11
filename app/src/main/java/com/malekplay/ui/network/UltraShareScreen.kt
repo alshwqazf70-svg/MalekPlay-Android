@@ -82,6 +82,8 @@ import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraShareWifiDirect
+import com.malekplay.network.UltraShareControlChannel
+import com.malekplay.network.UltraShareNetworkRouting
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -194,20 +196,68 @@ class UltraShareViewModel @Inject constructor(
 
     private fun completeInvitationConnection(host: String, message: String) {
         val callback = pendingInvitationReady ?: return
-        // Every terminal path (success, timeout, permission denial or P2P error)
-        // must release DNS-SD discovery before the app returns to idle/transfer.
+        val pairing = pendingInvitation ?: return
+        // Every terminal path releases DNS-SD discovery before authenticated TCP
+        // negotiation. QR possession alone is not treated as a connected session.
         wifiDirectSession?.stopInvitationDiscovery()
-        pendingInvitationReady = null
-        pendingInvitation = null
         invitationTimeout?.cancel()
         invitationTimeout = null
         _state.value = _state.value.copy(
             wifiDirectHost = host,
             scanning = false,
             error = null,
-            status = message
+            status = "تم العثور على الجهاز؛ جارٍ إنشاء قناة اقتران آمنة..."
         )
-        callback(host)
+        viewModelScope.launch {
+            val candidates = (listOf(host) + pairing.hosts)
+                .filter { UltraShareTransport.isValidPrivateLanHost(it) }
+                .distinct()
+            var connectedHost: String? = null
+            var lastFailure: Exception? = null
+            for (candidate in candidates) {
+                try {
+                    if (!UltraShareControlChannel.isSessionActive(candidate)) {
+                        val decision = withContext(Dispatchers.IO) {
+                            UltraShareControlChannel.request(
+                                host = candidate,
+                                pairingSecret = pairing.pairingSecret,
+                                peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" }
+                                    ?: "MalekPlay Android",
+                                network = UltraShareNetworkRouting.findNetworkForHost(context, candidate),
+                                peerId = UltraShareDiscovery.localPeerId(context)
+                            )
+                        }
+                        check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                            "لم يوافق جهاز الاستقبال على طلب الاقتران."
+                        }
+                    }
+                    connectedHost = candidate
+                    break
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    lastFailure = failure
+                }
+            }
+            pendingInvitationReady = null
+            pendingInvitation = null
+            if (connectedHost != null) {
+                _state.value = _state.value.copy(
+                    wifiDirectHost = connectedHost,
+                    scanning = false,
+                    error = null,
+                    status = "$message تم إنشاء اتصال آمن وجاهز للإرسال والاستقبال."
+                )
+                callback(connectedHost)
+            } else {
+                _state.value = _state.value.copy(
+                    wifiDirectHost = null,
+                    scanning = false,
+                    error = lastFailure?.localizedMessage
+                        ?: "تعذر إنشاء اتصال آمن. تأكد من تشغيل الاستقبال وصحة رمز الاقتران."
+                )
+            }
+        }
     }
 
     private fun ensureWifiDirectSession(): UltraShareWifiDirect.Session {
@@ -319,8 +369,13 @@ class UltraShareViewModel @Inject constructor(
     fun connectInvitation(pairing: UltraShareQrCode.PairingDetails, onReady: (String) -> Unit) {
         val fallbackHost = pairing.hosts.firstOrNull()
         if (pairing.invitationId.isNullOrBlank()) {
-            if (!fallbackHost.isNullOrBlank()) onReady(fallbackHost)
-            else _state.value = _state.value.copy(error = "لا يوجد عنوان اتصال احتياطي في رمز QR.")
+            if (fallbackHost.isNullOrBlank()) {
+                _state.value = _state.value.copy(error = "لا يوجد عنوان اتصال احتياطي في بيانات الاقتران.")
+                return
+            }
+            pendingInvitation = pairing
+            pendingInvitationReady = onReady
+            completeInvitationConnection(fallbackHost, "تم إدخال بيانات الاقتران يدوياً.")
             return
         }
         pendingInvitation = pairing
