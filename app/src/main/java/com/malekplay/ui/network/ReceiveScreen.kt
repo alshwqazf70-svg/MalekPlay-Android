@@ -34,7 +34,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.malekplay.core.ui.theme.MalekPlayColors
 
-private val ShareNavy = Color(0xFF171021)
 private val ShareWhite = Color(0xFF21192D)
 private val ShareCyan = Color(0xFFA855F7)
 
