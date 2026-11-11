@@ -46,25 +46,35 @@ class UltraShareBatchProtocolTest {
         assertEquals(0L, decoded.entries.single().sizeBytes)
     }
 
-    @Test fun rejectsApplicationPackagesAndOtherNonMediaTypes() {
-        val packageEntry = UltraShareBatchProtocol.newEntry(
-            name = "sample.apk",
-            mimeType = "application/vnd.android.package-archive",
-            sizeBytes = 1L,
-            sha256 = MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
-        )
-        assertThrows(IllegalArgumentException::class.java) {
-            UltraShareBatchProtocol.validate(
-                UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(packageEntry))
+    @Test fun acceptsDocumentsPackagesArchivesAndUnknownBinaryFiles() {
+        listOf(
+            "video/mp4",
+            "audio/mpeg",
+            "image/jpeg",
+            "application/pdf",
+            "application/vnd.android.package-archive",
+            "application/zip",
+            "text/plain",
+            "application/octet-stream"
+        ).forEach { mime ->
+            assertTrue("Expected supported MIME type: $mime", UltraShareTransport.isSupportedShareMimeType(mime))
+            val item = UltraShareBatchProtocol.newEntry(
+                name = "shared-file",
+                mimeType = mime,
+                sizeBytes = 1L,
+                sha256 = MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
             )
+            assertEquals(mime, UltraShareBatchProtocol.validate(
+                UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(item))
+            ).entries.single().mimeType)
         }
     }
 
-    @Test fun acceptsVideoAudioAndImageMediaTypes() {
-        listOf("video/mp4", "audio/mpeg", "image/jpeg").forEach { mime ->
-            assertTrue(UltraShareTransport.isSupportedMediaMimeType(mime))
+    @Test fun rejectsMalformedMimeTypes() {
+        listOf("", "application", "/pdf", "application/", "application/pdf;broken").forEach { mime ->
+            assertTrue("Expected malformed MIME type to be rejected: $mime",
+                !UltraShareTransport.isSupportedShareMimeType(mime))
         }
-        assertTrue(!UltraShareTransport.isSupportedMediaMimeType("application/vnd.android.package-archive"))
     }
 
     @Test fun rejectsDuplicateFileIds() {
