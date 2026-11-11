@@ -718,3 +718,208 @@ def send_batch_v2(host: str, port: int, secret: str, paths: list[Path]) -> list[
             manifest,
         )
         return results
+
+
+# ---- Android MPC2 control channel -----------------------------------------
+CONTROL_PORT = 38744
+CONTROL_MAGIC = 0x4D504332  # MPC2
+CONTROL_VERSION = 1
+CONTROL_AAD = b"MPULTRA_CONTROL_DECISION|1"
+
+
+def _control_subkey(master: bytes, label: str) -> bytes:
+    return hmac.new(master, ("MPULTRA_CONTROL|" + label + "|1").encode("utf-8"),
+                    hashlib.sha256).digest()
+
+
+def _control_request_mac(key: bytes, challenge: bytes, request_id: str,
+                         peer_name: bytes) -> bytes:
+    payload = (
+        _java_write_utf("MPULTRA_CONTROL_REQUEST")
+        + struct.pack(">i", CONTROL_VERSION)
+        + challenge
+        + _java_write_utf(request_id)
+        + struct.pack(">H", len(peer_name))
+        + peer_name
+    )
+    return hmac.new(_control_subkey(key, "request-authentication"),
+                    payload, hashlib.sha256).digest()
+
+
+def _control_encrypt(key: bytes, nonce: bytes, plaintext: str) -> bytes:
+    return AESGCM(_control_subkey(key, "decision-encryption")).encrypt(
+        nonce, plaintext.encode("utf-8"), CONTROL_AAD
+    )
+
+
+def _control_decrypt(key: bytes, nonce: bytes, ciphertext: bytes) -> str:
+    return AESGCM(_control_subkey(key, "decision-encryption")).decrypt(
+        nonce, ciphertext, CONTROL_AAD
+    ).decode("utf-8", errors="strict")
+
+
+def _read_java_utf_socket(sock: socket.socket) -> str:
+    length = struct.unpack(">H", recv_exact(sock, 2))[0]
+    encoded = struct.pack(">H", length) + recv_exact(sock, length)
+    value, end = _java_read_utf(encoded, 0)
+    if end != len(encoded):
+        raise ValueError("Malformed Java UTF control field.")
+    return value
+
+
+def _write_java_utf_socket(sock: socket.socket, value: str) -> None:
+    sock.sendall(_java_write_utf(value))
+
+
+def serve_control_once(port: int, secret: str, local_name: str,
+                       approve: callable) -> None:
+    """Serve one Android MPC2 control request and retain approved heartbeat."""
+    name_bytes = local_name.encode("utf-8")[:96]
+    if not name_bytes or any(byte < 32 or 127 <= byte <= 159 for byte in name_bytes):
+        raise ValueError("Invalid local control-channel device name.")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(("0.0.0.0", port))
+        server.listen(8)
+        server.settimeout(1.0)
+        while True:
+            try:
+                connection, address = server.accept()
+                break
+            except socket.timeout:
+                continue
+
+    with connection:
+        if not _is_private_v2_peer(address[0]):
+            raise PermissionError("Rejected control peer outside the private LAN.")
+        connection.settimeout(8.0)
+        challenge = secrets.token_bytes(CHALLENGE_BYTES)
+        connection.sendall(struct.pack(">IB", CONTROL_MAGIC, CONTROL_VERSION) + challenge)
+        request_id = _read_java_utf_socket(connection)
+        if not 16 <= len(request_id) <= 64 or any(
+            not (char.isalnum() or char == "-") for char in request_id
+        ):
+            raise ValueError("Invalid MPC2 request id.")
+        name_length = struct.unpack(">H", recv_exact(connection, 2))[0]
+        if not 1 <= name_length <= 96:
+            raise ValueError("Invalid MPC2 peer name length.")
+        peer_name_bytes = recv_exact(connection, name_length)
+        peer_name = peer_name_bytes.decode("utf-8", errors="strict")
+        if not peer_name.strip() or any(ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in peer_name):
+            raise ValueError("Invalid MPC2 peer name.")
+        supplied_mac = recv_exact(connection, 32)
+        pairing_key = derive_v2_pairing_key(secret, challenge)
+        expected_mac = _control_request_mac(
+            pairing_key, challenge, request_id, peer_name_bytes
+        )
+        if not hmac.compare_digest(supplied_mac, expected_mac):
+            raise PermissionError("MPC2 pairing authentication failed.")
+
+        accepted = bool(approve(peer_name, address[0]))
+        encoded_local_name = name_bytes.hex()
+        response = (
+            f"ACCEPT|{request_id}|{encoded_local_name}"
+            if accepted else f"REJECT|{request_id}"
+        )
+        nonce = secrets.token_bytes(12)
+        frame = nonce + _control_encrypt(pairing_key, nonce, response)
+        if len(frame) > 512:
+            raise ValueError("MPC2 decision frame exceeds its limit.")
+        connection.sendall(struct.pack(">I", len(frame)) + frame)
+        if not accepted:
+            return
+
+        connection.settimeout(18.0)
+        while True:
+            command = _read_java_utf_socket(connection)
+            if command == "PING":
+                _write_java_utf_socket(connection, "PONG")
+            elif command == "CLOSE":
+                return
+            else:
+                raise ValueError("Unknown MPC2 control command.")
+
+
+class ControlSession:
+    """Keeps the separately authenticated Android control socket alive."""
+    def __init__(self, sock: socket.socket):
+        self.socket = sock
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self.error: Exception | None = None
+        self._thread = threading.Thread(
+            target=self._heartbeat_loop, name="ultrashare-control-heartbeat", daemon=True
+        )
+        self._thread.start()
+
+    def _heartbeat_loop(self) -> None:
+        while not self._stop.wait(5.0):
+            try:
+                with self._lock:
+                    _write_java_utf_socket(self.socket, "PING")
+                    if _read_java_utf_socket(self.socket) != "PONG":
+                        raise ConnectionError("Invalid MPC2 heartbeat response.")
+            except Exception as failure:
+                self.error = failure
+                self._stop.set()
+                break
+
+    def close(self) -> None:
+        self._stop.set()
+        try:
+            with self._lock:
+                if self.socket.fileno() >= 0:
+                    self.socket.settimeout(1.0)
+                    _write_java_utf_socket(self.socket, "CLOSE")
+        except OSError:
+            pass
+        try:
+            self.socket.close()
+        finally:
+            if self._thread.is_alive():
+                self._thread.join(timeout=1.5)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _kind, _value, _traceback):
+        self.close()
+
+
+def connect_control_session(host: str, port: int, secret: str,
+                             local_name: str = "MalekPlay Desktop") -> ControlSession:
+    """Connect to Android MPC2, where the phone owner explicitly approves."""
+    if not _is_private_v2_peer(host):
+        raise ValueError("Use the Android device's private LAN IPv4 address.")
+    name_bytes = local_name.encode("utf-8")[:96]
+    if not name_bytes or any(byte < 32 or 127 <= byte <= 159 for byte in name_bytes):
+        raise ValueError("Invalid local MPC2 device name.")
+    sock = socket.create_connection((host, port), timeout=8.0)
+    try:
+        sock.settimeout(8.0)
+        magic, version = struct.unpack(">IB", recv_exact(sock, 5))
+        if magic != CONTROL_MAGIC or version != CONTROL_VERSION:
+            raise ValueError("Android MPC2 control protocol is not available.")
+        challenge = recv_exact(sock, CHALLENGE_BYTES)
+        pairing_key = derive_v2_pairing_key(secret, challenge)
+        request_id = uuid.uuid4().hex
+        sock.sendall(_java_write_utf(request_id))
+        sock.sendall(struct.pack(">H", len(name_bytes)) + name_bytes)
+        sock.sendall(_control_request_mac(
+            pairing_key, challenge, request_id, name_bytes
+        ))
+        frame_size = struct.unpack(">I", recv_exact(sock, 4))[0]
+        if not 28 <= frame_size <= 512:
+            raise ValueError("Invalid MPC2 decision frame size.")
+        frame = recv_exact(sock, frame_size)
+        response = _control_decrypt(pairing_key, frame[:12], frame[12:])
+        parts = response.split("|", 3)
+        if len(parts) < 2 or parts[1] != request_id:
+            raise ValueError("MPC2 decision does not match this request.")
+        if parts[0] != "ACCEPT":
+            raise PermissionError("The Android user rejected the control-channel request.")
+        sock.settimeout(18.0)
+        return ControlSession(sock)
+    except Exception:
+        sock.close()
+        raise
