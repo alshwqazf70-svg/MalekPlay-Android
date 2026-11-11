@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MalekPlay"
+rootProject.name = "MalekPlayer"
 include(":app", ":ass-media-local")
