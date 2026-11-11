@@ -126,3 +126,16 @@ A separate staged integration decision is recorded in [NSTACKX_ANDROID_INTEGRATI
 NSTACKX is not a single interchangeable file-transfer library: `nstackx_ctrl` provides DFinder discovery, `nstackx_core/dfile` provides file transfer, and `fillp` provides streaming. The upstream public DFile API exposes file/session progress and failure callbacks, a resumable-transfer capability bit, multipath structures and a 16-byte session-key contract. However, the upstream GN build inspected does not provide a ready-made Android Gradle/NDK target, and this MalekPlay branch currently has no CMake/NDK integration or packaged NSTACKX ABI libraries.
 
 **Decision:** target NSTACKX DFinder first, then DFile behind an adapter and feature flag after a reproducible Android NDK build. Keep MPC2 authenticated peer approval and the current TCP batch transport as fallback until native build, security, resume, multi-recipient, lifecycle and physical-device acceptance tests pass. No NSTACKX binary has been added and no current transfer path is claimed to use NSTACKX yet.
+
+
+## 10. Automatic QR invitation and Wi-Fi Direct pairing (2026-11-11)
+
+The current branch now contains the first integrated QR-to-Wi-Fi-Direct invitation path:
+
+- QR schema V3 carries the receiver's one-time pairing secret, a per-receive-session random invitation ID, and optional private-LAN fallback addresses. It does not expose the stable long-term peer ID in the discovery record.
+- The receiver advertises the ephemeral invitation ID using Wi-Fi Direct DNS-SD; the sender searches for that exact ID after scanning the QR, connects with the receiver preferred as group owner, then uses the existing MPC2 control handshake and current TCP batch transfer.
+- The pairing secret is not included in DNS-SD TXT records. QR V1 and V2 parsing and the legacy V2 multi-host QR builder remain supported.
+- If Wi-Fi Direct is unavailable or the invitation cannot be discovered, a QR-provided private-LAN host can still be tried through the existing authenticated MPC2 path. Manual hotspot creation remains available as a fallback and is no longer started automatically by the normal receiver-group action.
+- Runtime nearby-device/location permission is requested before starting the P2P advertisement or QR-driven discovery. Invitation advertisement is removed when receiving is stopped.
+
+Tests added for V3 invitation identity, optional LAN hosts and fallback-host round trips. These are source-level changes only: the Android build result and two-physical-device interoperability are not yet verified. Android OEM behavior, P2P DNS-SD discovery reliability, connection confirmation dialogs and screen-off lifecycle still require device testing. Do not claim that QR pairing is fully Zapya-equivalent until those tests pass.
