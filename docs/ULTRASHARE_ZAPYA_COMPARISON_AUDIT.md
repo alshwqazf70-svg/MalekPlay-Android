@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-11  
 **MalekPlay branch:** `feature/zapya-engineering-analysis`  
-**MalekPlay audited commit:** `28d153302c57c15f78d2598624ef0cb09d2df902`  
+**MalekPlay audited source commit:** `de1eaafa87c4770320847c32444d1983e7e4441f`  
 **Zapya analysis repository:** `alshwqazf70-svg/Zapya-Engineering-Analysis`  
 **Zapya analysis commit:** `9aa9e5702b5ecdd5ff09da8ec5c5cb94acc086f3`
 
@@ -54,13 +54,13 @@ At the audited commit the branch contains 256 tracked files, 49 test source file
 | Bluetooth | Classic Bluetooth discovery hints | Additional discovery path; not a proven Zapya bulk-transfer equivalent |
 | Hotspot | Android LocalOnlyHotspot lifecycle in foreground service | Implemented in source; physical lifecycle validation remains |
 | Control plane | Authenticated MPC2 TCP channel, challenge/HMAC, explicit approval, AES-GCM decision, heartbeat | Independent implementation of the separate-control-plane pattern |
-| Endpoint negotiation | Candidate lists exist, but current control/data ports are fixed: V1 TCP 38741, V2 TCP 38742, MPC2 TCP 38744; discovery UDP 38742 | Confirmed gap: not a dynamic per-session endpoint/port negotiation |
+| Endpoint negotiation | MPC2 control listener remains on TCP 38744; V2 batch receiver binds an OS-selected ephemeral TCP port and advertises the actual listening port to discovery; route refresh is matched by stable peer ID and uses the refreshed candidate port | Improved in current source: V2 data port is dynamic; control port is still fixed. Must validate collision, interface binding and endpoint-authentication behavior on devices |
 | V2 file data | One encrypted TCP connection per batch; manifest supports up to 512 files; per-file results | Implemented in Android and Python source; not the same wire protocol as Zapya |
 | Legacy V1 | Authenticated encrypted one-file sessions retained for compatibility | Implemented |
 | File types | MIME validation accepts general document, archive and binary types, excluding APK/PDF; picker supports document selection | Broader scope is implemented in V2 source; verify on real Android providers |
 | Integrity | SHA-256 preflight and receive verification; atomic publication and receipt markers | Strong source-level implementation; runtime evidence still required |
 | Resume | Content-derived identity, partial files, durable offsets/receipts and retry logic | Source-level foundation; process-death and changed-source fault tests remain |
-| Multi-recipient | Sender-side approved target list, bounded coordinator, per-peer delivery state; receiver accepts bounded peers | Implemented in engine; room now shows all peer cards and summarizes multi-peer headline state, but per-peer per-file result depth still needs validation |
+| Multi-recipient | Sender-side approved target list, bounded coordinator, per-peer delivery state; receiver accepts bounded peers | Per-peer cards and per-file status summaries are present in source; real-device fan-out and disconnect isolation still need validation |
 | Folder transfer | ZIP archive creation and guarded extraction | Implemented in source; large/deep/special-file tests and device validation remain |
 | PC companion | V1 and V2 receiver/sender, MPC2 approval, resume state | Desktop CI passes; no Android↔PC physical test yet |
 | Browser companion | Loopback-only UI; selected files are staged and finalized through `stage-v2` and `send-v2-batch` in one V2 manifest/session | Multi-file browser batch path is implemented in source; desktop CI is the current evidence, not Android↔PC physical validation |
@@ -78,13 +78,13 @@ At the audited commit the branch contains 256 tracked files, 49 test source file
 ## 6. Highest-priority remaining work
 
 ### P0 — endpoint and route negotiation
-1. Replace fixed V2 data-port assumptions with a collision-safe negotiated endpoint. Keep the control listener distinct and authenticate the selected endpoint/candidate list.
-2. Ensure the control and data sockets are bound to the same selected Android `Network`, and preserve the peer identity when switching between WLAN/P2P/hotspot routes.
-3. Add port-conflict, multiple-interface, stale-candidate, route-switch and rejected-pairing integration tests.
+1. Complete collision, port-advertisement and endpoint-authentication tests for the OS-selected V2 data port; keep the MPC2 control listener distinct.
+2. Ensure control and data sockets are bound to the intended Android `Network`, and preserve the stable peer identity when switching between WLAN/P2P/hotspot routes.
+3. Add multiple-interface, stale-candidate, route-switch, changed-IP and rejected-pairing integration tests.
 
 ### P1 — multi-peer UI and delivery correctness
-1. Present every active peer in `UltraShareSessionRoom`, not only `activePeers.firstOrNull()`.
-2. Show per-peer progress, speed, per-file results, failure, retry and cancellation without collapsing separate recipients into one headline state.
+1. Validate every active peer card and its per-file summary in `UltraShareSessionRoom`.
+2. Verify per-peer progress, speed, per-file results, failure, retry and cancellation remain independent when a route/IP changes.
 3. Test duplicate names/content, storage-full, revoked URI permission, partial failure and one-recipient disconnect during fan-out.
 
 ### P2 — reliability and lifecycle proof
@@ -117,3 +117,12 @@ At the audited commit the branch contains 256 tracked files, 49 test source file
 - All sockets, receivers, hotspot reservations, wake locks and temporary files are released on cancellation/failure.
 - Android unit tests, Room/instrumentation tests, desktop tests and real-device tests pass.
 - Throughput claims are based on repeated controlled measurements, not assumptions.
+
+
+## 9. NSTACKX migration assessment (2026-11-11)
+
+A separate staged integration decision is recorded in [NSTACKX_ANDROID_INTEGRATION_PLAN.md](NSTACKX_ANDROID_INTEGRATION_PLAN.md). The selected upstream is OpenHarmony `communication_t2stack` (Apache-2.0), pinned for assessment at `fbf280db18092eb00bb065e59ce6676c7b85b8c9`.
+
+NSTACKX is not a single interchangeable file-transfer library: `nstackx_ctrl` provides DFinder discovery, `nstackx_core/dfile` provides file transfer, and `fillp` provides streaming. The upstream public DFile API exposes file/session progress and failure callbacks, a resumable-transfer capability bit, multipath structures and a 16-byte session-key contract. However, the upstream GN build inspected does not provide a ready-made Android Gradle/NDK target, and this MalekPlay branch currently has no CMake/NDK integration or packaged NSTACKX ABI libraries.
+
+**Decision:** target NSTACKX DFinder first, then DFile behind an adapter and feature flag after a reproducible Android NDK build. Keep MPC2 authenticated peer approval and the current TCP batch transport as fallback until native build, security, resume, multi-recipient, lifecycle and physical-device acceptance tests pass. No NSTACKX binary has been added and no current transfer path is claimed to use NSTACKX yet.
