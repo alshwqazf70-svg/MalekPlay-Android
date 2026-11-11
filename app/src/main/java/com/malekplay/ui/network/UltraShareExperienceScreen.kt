@@ -567,7 +567,8 @@ fun UltraShareExperienceScreen(
                         },
                         onSendToAllPeers = {
                             if (viewModel.sendBatchToApprovedPeers(selectedUris)) selectedUris = emptyList()
-                        }
+                        },
+                        onResumeAllPeers = viewModel::resumePendingForAllPeers
                     )
                 }
                 UltraSharePage.RECEIVE -> {
