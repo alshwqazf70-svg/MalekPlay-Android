@@ -1706,6 +1706,25 @@ class UltraShareForegroundService : Service() {
         const val ACTION_RETRY_FILE = "com.malekplay.ultrashare.RETRY_FILE"
 
         private val mutableState = MutableStateFlow(UltraShareServiceState())
+        private val approvedSendTargetsByHost = LinkedHashMap<String, UltraShareApprovedSendTarget>()
+
+        fun registerApprovedSendTarget(target: UltraShareApprovedSendTarget) {
+            require(UltraShareTransport.isValidPrivateLanHost(target.host))
+            require(UltraShareTransport.isValidPairingSecret(target.secret))
+            synchronized(approvedSendTargetsByHost) {
+                approvedSendTargetsByHost[target.host] = target
+            }
+        }
+
+        fun approvedSendTargets(): List<UltraShareApprovedSendTarget> =
+            synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost.values.toList() }
+
+        fun approvedSendTarget(host: String): UltraShareApprovedSendTarget? =
+            synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost[host] }
+
+        fun removeApprovedSendTarget(host: String) {
+            synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost.remove(host) }
+        }
         val state = mutableState.asStateFlow()
 
         fun registerApprovedPeer(
@@ -1732,6 +1751,7 @@ class UltraShareForegroundService : Service() {
         fun disconnectApprovedPeer(host: String) {
             UltraShareControlChannel.closeSession(host)
             UltraShareControlChannel.closeServerSession(host)
+            removeApprovedSendTarget(host)
             mutableState.update { current ->
                 current.copy(activePeers = current.activePeers.filterNot { it.host == host })
             }
@@ -1793,6 +1813,7 @@ class UltraShareForegroundService : Service() {
         ) {
             require(uris.isNotEmpty()) { "اختر ملفاً واحداً على الأقل." }
             require(targets.isNotEmpty()) { "لا توجد أجهزة مقترنة للإرسال." }
+            require(targets.size <= 64) { "يمكن الإرسال إلى 64 جهازاً كحد أقصى في الدفعة الواحدة." }
             require(targets.map { it.sessionId }.distinct().size == targets.size) {
                 "تكررت هوية جلسة جهاز في قائمة الإرسال."
             }
