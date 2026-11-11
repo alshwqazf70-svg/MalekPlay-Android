@@ -309,8 +309,7 @@ fun UltraShareExperienceScreen(
         } else grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
         val bluetoothGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             grants[Manifest.permission.BLUETOOTH_SCAN] == true &&
-                grants[Manifest.permission.BLUETOOTH_CONNECT] == true &&
-                grants[Manifest.permission.BLUETOOTH_ADVERTISE] == true
+                grants[Manifest.permission.BLUETOOTH_CONNECT] == true
         } else grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
         if (wifiGranted) viewModel.scanWifiDirectPeers()
         if (bluetoothGranted) viewModel.scanBluetoothPeers()
@@ -319,8 +318,12 @@ fun UltraShareExperienceScreen(
         }
     }
     val bluetoothPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-        if (grants.values.all { it }) viewModel.scanBluetoothPeers()
-        else Toast.makeText(context, "يلزم منح إذن Bluetooth والأجهزة القريبة لاكتشاف الأجهزة.", Toast.LENGTH_LONG).show()
+        val scanGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            grants[Manifest.permission.BLUETOOTH_SCAN] == true &&
+                grants[Manifest.permission.BLUETOOTH_CONNECT] == true
+        } else grants.values.all { it }
+        if (scanGranted) viewModel.scanBluetoothPeers()
+        else Toast.makeText(context, "يلزم منح إذن Bluetooth Scan وConnect لاكتشاف الأجهزة.", Toast.LENGTH_LONG).show()
     }
     val hotspotPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.all { it }) viewModel.startHotspot()

@@ -10,7 +10,7 @@ Production branch: `main` (do not modify or merge until the user explicitly appr
 Build an original MalekPlay media-sharing experience with the ease and visual flow users associate with Zapya:
 - A simple landing screen with two primary actions: Send media and Receive media.
 - A nearby-device room with discovered devices, authenticated connected peers, clear status, and explicit connect/accept/reject.
-- Select and transfer media only: videos, music/audio, and images/photos.
+- Select and transfer all ordinary file types and folders, including ZIP, text, documents, and unknown binary MIME types; block APK and PDF only.
 - Keep the experience phone-first, Arabic-friendly, and visually consistent with MalekPlay.
 - Secure, reliable local transfer over WLAN / Wi-Fi Direct / receiver hotspot where supported, with a safe fallback.
 - Do not copy Zapya binaries, source code, logos, or proprietary assets. Recreate interaction patterns with original MalekPlay UI.
