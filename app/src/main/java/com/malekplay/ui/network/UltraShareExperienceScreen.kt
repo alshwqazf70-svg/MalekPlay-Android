@@ -324,6 +324,10 @@ fun UltraShareExperienceScreen(
         }
         if (missing.isEmpty()) viewModel.scanWifiDirectPeers() else wifiPermission.launch(missing.toTypedArray())
     }
+    fun scanAllNearby() {
+        viewModel.scanNearbyDevices()
+        if (state.wifiDirectScanning) viewModel.stopWifiDirectDiscovery() else scanWifiDirect()
+    }
     fun startHotspot() {
         val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
@@ -392,7 +396,7 @@ fun UltraShareExperienceScreen(
 
     Column(
         modifier = Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF394363), Color(0xFF35405F), Color(0xFF303B59))))
+            .background(Brush.verticalGradient(listOf(Color(0xFF171021), Color(0xFF100D18), Color(0xFF0D0D12))))
             .padding(contentPadding)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -430,10 +434,10 @@ fun UltraShareExperienceScreen(
                 ActionTile(
                     Modifier.weight(1f).height(184.dp),
                     "انضمام لمجموعة",
-                    "اكتشف الأجهزة أو امسح الرمز",
+                    "اكتشاف Wi-Fi وWi-Fi Direct",
                     { Icon(Icons.Filled.Send, null, tint = Color(0xFF72E5F2), modifier = Modifier.size(52.dp)) }
                 ) {
-                    if (!state.scanning) viewModel.scanNearbyDevices()
+                    scanAllNearby()
                     page = UltraSharePage.NEARBY
                 }
             }
@@ -442,7 +446,7 @@ fun UltraShareExperienceScreen(
                 horizontalArrangement = Arrangement.Center
             ) {
                 Text(
-                    if (state.scanning) "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size}",
+                    if (state.scanning || state.wifiDirectScanning) "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size + state.wifiDirectPeers.size},
                     color = Color(0xFFB7C5E7),
                     style = MaterialTheme.typography.labelMedium
                 )
@@ -481,10 +485,10 @@ fun UltraShareExperienceScreen(
                     state.sending -> "جارٍ إرسال الملفات"
                     state.pendingConnection != null -> "طلب اتصال وارد"
                     state.activePeers.isNotEmpty() -> "جهاز متصل وجاهز"
-                    state.scanning -> "البحث عن الأجهزة القريبة"
+                    state.scanning || state.wifiDirectScanning -> "البحث عن الأجهزة القريبة"
                     else -> "جاهز للمشاركة"
                 },
-                subtitle = "${state.discoveredPeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
+                subtitle = "${state.discoveredPeers.size + state.wifiDirectPeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
                 active = state.sending || state.activePeers.isNotEmpty()
             )
             UltraShareHelpCard()
