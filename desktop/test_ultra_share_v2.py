@@ -126,7 +126,7 @@ class UltraShareV2ManifestTests(unittest.TestCase):
         self.assertEqual(len(encoded), end)
 
     def test_v2_offsets_are_bound_to_every_manifest_file(self):
-        first = FileEntry(str(uuid.uuid4()), "a.bin", "application/octet-stream", 10, hashlib.sha256(b"a").digest())
+        first = FileEntry(str(uuid.uuid4()), "a.mp4", "video/mp4", 10, hashlib.sha256(b"a").digest())
         second = FileEntry(str(uuid.uuid4()), "b.bin", "application/octet-stream", 0, hashlib.sha256(b"").digest())
         manifest = Manifest(str(uuid.uuid4()), (first, second))
         encoded = _encode_v2_offsets(manifest, {first.file_id: 7, second.file_id: 0})
