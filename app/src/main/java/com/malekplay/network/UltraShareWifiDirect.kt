@@ -37,6 +37,7 @@ object UltraShareWifiDirect {
         private val appContext = context.applicationContext
         private var closed = false
         private var localInvitationService: WifiP2pDnsSdServiceInfo? = null
+        private var localInvitationId: String? = null
         private var invitationRequest: WifiP2pDnsSdServiceRequest? = null
         private var invitationMatch: ((Peer) -> Unit)? = null
 
@@ -89,16 +90,24 @@ object UltraShareWifiDirect {
                 mapOf("peer" to peerId)
             )
             try {
+                if (localInvitationId == peerId && localInvitationService != null) return
                 manager.clearLocalServices(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() = Unit
-                    override fun onFailure(reason: Int) = Unit
-                })
-                manager.addLocalService(channel, service, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        if (!closed) localInvitationService = service
+                        if (closed) return
+                        manager.addLocalService(channel, service, object : WifiP2pManager.ActionListener {
+                            override fun onSuccess() {
+                                if (!closed) {
+                                    localInvitationService = service
+                                    localInvitationId = peerId
+                                }
+                            }
+                            override fun onFailure(reason: Int) {
+                                onError("تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
+                            }
+                        })
                     }
                     override fun onFailure(reason: Int) {
-                        onError("تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
+                        onError("تعذر تحديث إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
                     }
                 })
             } catch (failure: SecurityException) {
@@ -287,6 +296,7 @@ object UltraShareWifiDirect {
             invitationMatch = null
             invitationRequest = null
             localInvitationService = null
+            localInvitationId = null
             runCatching { appContext.unregisterReceiver(receiver) }
         }
 
