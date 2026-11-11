@@ -179,6 +179,7 @@ fun UltraShareSessionRoom(
                     peerHosts.forEach { peerHost ->
                         val peer = state.activePeers.firstOrNull { it.host == peerHost }
                         val transfer = state.peerTransfers.firstOrNull { it.host == peerHost }
+                        val peerFiles = state.peerDeliveryEntries.filter { it.peerHost == peerHost }
                         Column(
                             modifier = Modifier.fillMaxWidth()
                                 .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
@@ -217,6 +218,47 @@ fun UltraShareSessionRoom(
                                     fontWeight = FontWeight.Bold,
                                     style = MaterialTheme.typography.labelSmall
                                 )
+                            }
+                            if (peerFiles.isNotEmpty()) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth()
+                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f), RoundedCornerShape(9.dp))
+                                        .padding(horizontal = 9.dp, vertical = 7.dp),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Text(
+                                        "نتائج الملفات لهذا الجهاز (" + peerFiles.size + ")",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                    peerFiles.take(6).forEach { delivery ->
+                                        val deliveryColor = when (delivery.status) {
+                                            com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_COMPLETED -> Color(0xFF65D6A2)
+                                            com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_FAILED -> MaterialTheme.colorScheme.error
+                                            com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_SENDING -> MalekPlayColors.PurpleBright
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                        val deliveryLabel = when (delivery.status) {
+                                            com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_COMPLETED -> "تم الاستلام"
+                                            com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_FAILED -> "فشل"
+                                            com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_SENDING -> "جارٍ الإرسال"
+                                            else -> "بانتظار الإرسال"
+                                        }
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(delivery.displayName, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                Text(deliveryLabel, color = deliveryColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                            }
+                                            delivery.error?.takeIf { it.isNotBlank() }?.let { reason ->
+                                                Text(reason, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            }
+                                        }
+                                    }
+                                    if (peerFiles.size > 6) {
+                                        Text("و " + (peerFiles.size - 6) + " ملفات أخرى", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
                             }
                             if (transfer != null && transfer.totalBytes > 0L) {
                                 LinearProgressIndicator(
