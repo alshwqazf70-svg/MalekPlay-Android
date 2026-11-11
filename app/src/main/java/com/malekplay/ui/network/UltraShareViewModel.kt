@@ -67,6 +67,7 @@ data class UltraShareUiState(
     val approvedPeerHost: String? = null,
     val requestingConnection: Boolean = false,
     val activePeers: List<com.malekplay.network.UltraSharePeerSession> = emptyList(),
+    val reconnectablePeers: List<com.malekplay.network.UltraSharePeerSession> = emptyList(),
     val peerTransfers: List<com.malekplay.network.UltraSharePeerTransfer> = emptyList(),
     val approvedSenderPeerCount: Int = 0,
     val approvedSenderPeerHosts: List<String> = emptyList(),
@@ -141,6 +142,7 @@ class UltraShareViewModel @Inject constructor(
                     hotspotActive = serviceState.hotspotActive,
                     pendingConnection = serviceState.pendingConnection,
                     activePeers = serviceState.activePeers,
+                    reconnectablePeers = serviceState.reconnectablePeers,
                     peerTransfers = serviceState.peerTransfers,
                     approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
                     approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host },
@@ -307,6 +309,30 @@ class UltraShareViewModel @Inject constructor(
     fun disconnectPeer(host: String) {
         UltraShareForegroundService.disconnectApprovedPeer(host)
         forgetApprovedSenderTarget(host)
+    }
+
+    fun reconnectPeer(host: String) {
+        val peer = _state.value.reconnectablePeers.firstOrNull { it.host == host }
+        val retainedTarget = UltraShareForegroundService.reconnectableSendTarget(host)
+        val secret = retainedTarget?.secret ?: _state.value.pairingSecret
+        if (!UltraShareTransport.isValidPairingSecret(secret)) {
+            _state.value = _state.value.copy(error = "انتهت صلاحية رمز الاقتران في الذاكرة. أعد مسح QR أو أدخل رمز الجهاز للاتصال مجدداً.")
+            return
+        }
+        val routes = (retainedTarget?.candidates.orEmpty() + peer?.routeCandidates.orEmpty())
+            .distinctBy { it.host }
+        requestConnection(host, secret, candidates = routes)
+    }
+
+    fun forgetPeer(host: String) {
+        UltraShareForegroundService.forgetApprovedPeer(host)
+        val next = UltraShareForegroundService.approvedSendTargets().lastOrNull()
+        _state.value = _state.value.copy(
+            approvedPeerHost = next?.host,
+            approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
+            approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host },
+            reconnectablePeers = _state.value.reconnectablePeers.filterNot { it.host == host }
+        )
     }
 
     /** Disconnect only the currently selected sender peer; keep other approved peers available. */
