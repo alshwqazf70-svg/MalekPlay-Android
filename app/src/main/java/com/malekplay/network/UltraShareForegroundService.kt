@@ -61,6 +61,7 @@ data class UltraShareServiceState(
     val queueTransferredBytes: Long = 0L,
     val pendingConnection: UltraShareControlChannel.Request? = null,
     val activePeers: List<UltraSharePeerSession> = emptyList(),
+    val reconnectablePeers: List<UltraSharePeerSession> = emptyList(),
     val peerTransfers: List<UltraSharePeerTransfer> = emptyList()
 )
 
@@ -1714,12 +1715,14 @@ class UltraShareForegroundService : Service() {
 
         private val mutableState = MutableStateFlow(UltraShareServiceState())
         private val approvedSendTargetsByHost = LinkedHashMap<String, UltraShareApprovedSendTarget>()
+        private val reconnectableSendTargetsByHost = LinkedHashMap<String, UltraShareApprovedSendTarget>()
 
         internal fun registerApprovedSendTarget(target: UltraShareApprovedSendTarget) {
             require(UltraShareTransport.isValidPrivateLanHost(target.host))
             require(UltraShareTransport.isValidPairingSecret(target.secret))
             synchronized(approvedSendTargetsByHost) {
                 approvedSendTargetsByHost[target.host] = target
+                reconnectableSendTargetsByHost[target.host] = target
             }
         }
 
@@ -1728,6 +1731,9 @@ class UltraShareForegroundService : Service() {
 
         internal fun approvedSendTarget(host: String): UltraShareApprovedSendTarget? =
             synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost[host] }
+
+        internal fun reconnectableSendTarget(host: String): UltraShareApprovedSendTarget? =
+            synchronized(approvedSendTargetsByHost) { reconnectableSendTargetsByHost[host] }
 
         internal fun removeApprovedSendTarget(host: String) {
             synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost.remove(host) }
@@ -1742,16 +1748,17 @@ class UltraShareForegroundService : Service() {
             sessionId: String = java.util.UUID.randomUUID().toString()
         ) {
             mutableState.update { current ->
-                val updated = current.activePeers.filterNot { it.host == host } +
-                    UltraSharePeerSession(
-                        sessionId = sessionId,
-                        name = name.take(96),
-                        host = host,
-                        role = role,
-                        approvedAtMillis = System.currentTimeMillis(),
-                        routeCandidates = routeCandidates.toList()
-                    )
-                current.copy(activePeers = updated)
+                val session = UltraSharePeerSession(
+                    sessionId = sessionId,
+                    name = name.take(96),
+                    host = host,
+                    role = role,
+                    approvedAtMillis = System.currentTimeMillis(),
+                    routeCandidates = routeCandidates.toList()
+                )
+                val updated = current.activePeers.filterNot { it.host == host } + session
+                val reconnectable = current.reconnectablePeers.filterNot { it.host == host } + session
+                current.copy(activePeers = updated, reconnectablePeers = reconnectable)
             }
         }
 
@@ -1759,8 +1766,21 @@ class UltraShareForegroundService : Service() {
             UltraShareControlChannel.closeSession(host)
             UltraShareControlChannel.closeServerSession(host)
             removeApprovedSendTarget(host)
+            // Keep the authenticated pairing material only in process memory so the
+            // user can explicitly reconnect. It is never persisted to DataStore or disk.
             mutableState.update { current ->
                 current.copy(activePeers = current.activePeers.filterNot { it.host == host })
+            }
+        }
+
+        fun forgetApprovedPeer(host: String) {
+            removeApprovedSendTarget(host)
+            synchronized(approvedSendTargetsByHost) { reconnectableSendTargetsByHost.remove(host) }
+            mutableState.update { current ->
+                current.copy(
+                    activePeers = current.activePeers.filterNot { it.host == host },
+                    reconnectablePeers = current.reconnectablePeers.filterNot { it.host == host }
+                )
             }
         }
 
