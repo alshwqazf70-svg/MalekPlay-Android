@@ -80,17 +80,8 @@ def is_supported_media_mime(value: str) -> bool:
     """Compatibility name: accepts valid MIME types except APK/PDF MIME types."""
     if not isinstance(value, str) or not 3 <= len(value) <= 160:
         return False
-    if re.fullmatch(r"[A-Za-z0-9!#def is_supported_media_mime(value: str) -> bool:
-    if not isinstance(value, str) or not 3 <= len(value) <= 160:
-        return False
-    if re.fullmatch(r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+", value) is None:
-        return False
-    return value.lower().startswith(("video/", "audio/", "image/"))^_.+-]+/[A-Za-z0-9!#def is_supported_media_mime(value: str) -> bool:
-    if not isinstance(value, str) or not 3 <= len(value) <= 160:
-        return False
-    if re.fullmatch(r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+", value) is None:
-        return False
-    return value.lower().startswith(("video/", "audio/", "image/"))^_.+-]+", value) is None:
+    token = r"[A-Za-z0-9!#$&^_.+-]+"
+    if re.fullmatch(token + "/" + token, value) is None:
         return False
     return value.lower() not in {
         "application/pdf", "application/x-pdf",
@@ -100,7 +91,6 @@ def is_supported_media_mime(value: str) -> bool:
 
 def is_allowed_share_file(filename: str, mime: str) -> bool:
     return Path(filename).suffix.lower() not in {".apk", ".pdf"} and is_supported_media_mime(mime)
-
 
 def recv_exact(sock: socket.socket, length: int) -> bytes:
     data = bytearray()
