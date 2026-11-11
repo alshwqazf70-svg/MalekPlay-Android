@@ -182,6 +182,21 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+
+def recv_exact(sock: socket.socket, length: int) -> bytes:
+    """Read exactly length bytes from a stream socket or fail on premature EOF."""
+    if not isinstance(length, int) or length < 0:
+        raise ValueError("Socket read length must be a non-negative integer.")
+    chunks = bytearray()
+    while len(chunks) < length:
+        chunk = sock.recv(length - len(chunks))
+        if not chunk:
+            raise EOFError(
+                f"Socket closed after {len(chunks)} of {length} expected bytes."
+            )
+        chunks.extend(chunk)
+    return bytes(chunks)
+
 HANDSHAKE_MAGIC = MAGIC
 DEFAULT_V2_PORT = 38742
 CHALLENGE_BYTES = 32
