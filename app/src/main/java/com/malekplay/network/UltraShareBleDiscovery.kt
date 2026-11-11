@@ -119,7 +119,7 @@ object UltraShareBleDiscovery {
                 advertiser = current.bluetoothLeAdvertiser
                 peers = emptyList()
                 onPeers(emptyList())
-                val filter = ScanFilter.Builder().setServiceUuid(SERVICE_UUID).build()
+                val filter = ScanFilter.Builder().setServiceData(SERVICE_UUID, byteArrayOf()).build()
                 val settings = ScanSettings.Builder()
                     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                     .build()
@@ -135,11 +135,17 @@ object UltraShareBleDiscovery {
                         .setTimeout(0)
                         .build()
                     val data = AdvertiseData.Builder()
-                        .addServiceUuid(SERVICE_UUID)
+                        // A 128-bit service-data AD structure plus the flags fits the
+                        // legacy 31-byte advertisement limit; adding a separate 128-bit
+                        // UUID list would exceed it on many phones.
                         .addServiceData(SERVICE_UUID, serviceData)
                         .setIncludeDeviceName(false)
                         .build()
-                    activeAdvertiser.startAdvertising(advertiseSettings, data, advertiseCallback)
+                    runCatching {
+                        activeAdvertiser.startAdvertising(advertiseSettings, data, advertiseCallback)
+                    }.onFailure {
+                        onError("تعذر بدء إعلان BLE؛ سيستمر مسح الأجهزة القريبة.")
+                    }
                 } ?: onError("هذا الجهاز يدعم مسح BLE لكنه لا يدعم الإعلان عن نفسه.")
             } catch (failure: SecurityException) {
                 stop()

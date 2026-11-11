@@ -68,15 +68,15 @@ fun UltraShareSessionRoom(
     val receiveCompleted = !isSendingRoom && state.receivedFile != null && state.receiveProgress == null &&
         (state.status?.contains("استلام") == true || state.status?.contains("استُلم") == true || state.status?.contains("اكتملت دفعة") == true)
     val status = when {
-        state.sending -> "يتم إرسال الوسائط إلى الجهاز الآخر"
-        state.receiveProgress != null -> "يتم استقبال الوسائط من الجهاز الآخر"
+        state.sending -> "يتم إرسال الملفات إلى الجهاز الآخر"
+        state.receiveProgress != null -> "يتم استقبال الملفات من الجهاز الآخر"
         state.sendProgress != null -> "جارٍ نقل العنصر الحالي"
         state.pendingConnection != null -> "طلب اتصال وارد — بانتظار موافقتك"
         state.requestingConnection -> "جارٍ التحقق من الاقتران — ننتظر رد الجهاز الآخر"
         connected -> "اتصال موثّق — الجهازان جاهزان للنقل"
-        !isSendingRoom && state.receiving -> "هذا الهاتف ظاهر وجاهز لاستقبال الوسائط"
-        !isSendingRoom -> "ابدأ الاستقبال لعرض رمز الربط واستقبال الوسائط"
-        selectedMediaCount > 0 -> "${selectedMediaCount} عنصر وسائط محدد — اختر جهاز الاستقبال"
+        !isSendingRoom && state.receiving -> "هذا الهاتف ظاهر وجاهز لاستقبال الملفات"
+        !isSendingRoom -> "ابدأ الاستقبال لعرض رمز الربط واستقبال الملفات"
+        selectedMediaCount > 0 -> "${selectedMediaCount} ملف محدد — اختر جهاز الاستقبال"
         state.scanning -> "نبحث عن أجهزة MalekPlay القريبة"
         else -> "اختر الوسائط ثم اربط الجهازين"
     }
@@ -239,7 +239,7 @@ fun UltraShareSessionRoom(
                 }
             }
             if (selectedMediaCount > 0 && isSendingRoom && !state.sending) {
-                Text("${selectedMediaCount} عنصر وسائط جاهز للإرسال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                Text("${selectedMediaCount} ملف جاهز للإرسال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
             }
             progress?.let { current ->
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -328,15 +328,15 @@ fun UltraShareSessionRoom(
             }
             if (sendCompleted && isSendingRoom) {
                 UltraShareCompletionPanel(
-                    title = "اكتمل إرسال الوسائط",
+                    title = "اكتمل إرسال الملفات",
                     subtitle = "اكتمل نقل ${state.queueCompleted} من ${state.queueTotal} عنصر بنجاح.",
-                    detail = "يمكنك الآن إرسال دفعة أخرى أو العودة إلى مكتبة الوسائط."
+                    detail = "يمكنك الآن إرسال دفعة أخرى أو العودة إلى قائمة الملفات."
                 )
             }
             if (receiveCompleted) {
                 val received = state.receivedFile!!
                 UltraShareCompletionPanel(
-                    title = "اكتمل استقبال الوسائط",
+                    title = "اكتمل استقبال الملفات",
                     subtitle = received.fileName,
                     detail = formatTransferBytes(received.sizeBytes) + " • " +
                         if (received.publishedUri != null) "حُفظ في التنزيلات / MalekPlay / Received" else "حُفظ داخل مساحة التطبيق"
