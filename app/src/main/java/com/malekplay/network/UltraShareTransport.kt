@@ -202,10 +202,7 @@ object UltraShareTransport {
      */
     fun isSupportedShareMimeType(raw: String): Boolean {
         val candidate = raw.trim()
-        val token = "[A-Za-z0-9!#    fun isSupportedMediaMimeType(raw: String): Boolean {
-        val mime = sanitizeMimeType(raw).lowercase(java.util.Locale.ROOT)
-        return mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/")
-    }^_.+-]+"
+        val token = "[A-Za-z0-9!#$&^_.+-]+"
         return candidate.length in 3..160 &&
             Regex("^$token/$token$").matches(candidate)
     }
