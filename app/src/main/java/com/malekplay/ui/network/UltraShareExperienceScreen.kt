@@ -736,6 +736,24 @@ fun UltraShareExperienceScreen(
                     state.queueEntries.take(30).forEach { entry ->
                         InfoPanel(entry.displayName, queueStatusLabel(entry.status) + (entry.error?.let { "\n" + it } ?: ""))
                     }
+                    Text("حالة التسليم لكل جهاز", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
+                    if (state.peerDeliveryEntries.isEmpty()) {
+                        InfoPanel("لا يوجد سجل تسليم مفصل", "ستظهر هنا نتيجة كل ملف على كل جهاز بعد الإرسال الجماعي.")
+                    }
+                    state.peerDeliveryEntries.asReversed().take(40).forEach { delivery ->
+                        val deliveryLabel = when (delivery.status) {
+                            UltraSharePeerDeliveryStore.STATUS_PENDING -> "بانتظار الإرسال"
+                            UltraSharePeerDeliveryStore.STATUS_SENDING -> "جارٍ الإرسال"
+                            UltraSharePeerDeliveryStore.STATUS_COMPLETED -> "تم الاستلام بنجاح"
+                            UltraSharePeerDeliveryStore.STATUS_FAILED -> "فشل على هذا الجهاز"
+                            else -> delivery.status
+                        }
+                        InfoPanel(
+                            delivery.displayName,
+                            delivery.peerHost + " • " + deliveryLabel +
+                                (delivery.error?.let { "\n" + it } ?: "")
+                        )
+                    }
                     Text("الملفات المستلمة", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
                     if (state.receivedHistory.isEmpty()) InfoPanel("لا يوجد سجل استقبال", "ستظهر الملفات المستلمة هنا.")
                     state.receivedHistory.take(30).forEach { entry ->
