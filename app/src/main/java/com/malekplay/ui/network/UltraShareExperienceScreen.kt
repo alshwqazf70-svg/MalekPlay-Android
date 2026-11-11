@@ -110,7 +110,6 @@ fun UltraShareExperienceScreen(
             .onSuccess { pairing ->
                 host = pairing.host
                 secret = pairing.pairingSecret
-                viewModel.clearApprovedConnection()
                 viewModel.requestConnection(pairing.host, pairing.pairingSecret)
                 page = UltraSharePage.SEND
                 Toast.makeText(context, "تمت قراءة الرمز وإرسال طلب الاقتران.", Toast.LENGTH_SHORT).show()
@@ -266,7 +265,6 @@ fun UltraShareExperienceScreen(
                 }.onSuccess { pairing ->
                     host = pairing.host
                     secret = pairing.pairingSecret
-                    viewModel.clearApprovedConnection()
                     viewModel.requestConnection(pairing.host, pairing.pairingSecret)
                     page = UltraSharePage.SEND
                 }.onFailure {
@@ -539,14 +537,12 @@ fun UltraShareExperienceScreen(
                         host = host,
                         onHostChange = { value ->
                             if (value.trim() != host) {
-                                viewModel.clearApprovedConnection()
                                 secret = ""
                             }
                             host = value.trim()
                         },
                         secret = secret,
                         onSecretChange = { value ->
-                            viewModel.clearApprovedConnection()
                             secret = value.filter { it in '0'..'9' }.take(9)
                         },
                         onPastePairingDetails = {
@@ -559,7 +555,6 @@ fun UltraShareExperienceScreen(
                                     .onSuccess { pairing ->
                                         host = pairing.host
                                         secret = pairing.pairingSecret
-                                        viewModel.clearApprovedConnection()
                                         viewModel.requestConnection(pairing.host, pairing.pairingSecret)
                                     }
                                     .onFailure { Toast.makeText(context, "بيانات الاقتران في الحافظة غير صالحة.", Toast.LENGTH_LONG).show() }
@@ -568,6 +563,9 @@ fun UltraShareExperienceScreen(
                         onRequestConnection = { viewModel.requestConnection(host, secret) },
                         onSendBatch = {
                             if (viewModel.sendBatch(selectedUris, host, secret)) selectedUris = emptyList()
+                        },
+                        onSendToAllPeers = {
+                            if (viewModel.sendBatchToApprovedPeers(selectedUris)) selectedUris = emptyList()
                         }
                     )
                 }
@@ -634,7 +632,6 @@ fun UltraShareExperienceScreen(
                                 page = UltraSharePage.SEND
                                 if (state.approvedPeerHost != peer.host || !UltraShareTransport.isValidPairingSecret(secret)) {
                                     secret = ""
-                                    viewModel.clearApprovedConnection()
                                 }
                             }
                         }
@@ -664,7 +661,6 @@ fun UltraShareExperienceScreen(
                                     page = UltraSharePage.SEND
                                     if (!sessionReady) {
                                         secret = ""
-                                        viewModel.clearApprovedConnection()
                                     }
                                 }, enabled = !state.requestingConnection && !state.sending) { Text("اتصال") }
                             }
@@ -776,7 +772,6 @@ fun UltraShareExperienceScreen(
                 val sessionReady = state.approvedPeerHost == selectedHost && UltraShareTransport.isValidPairingSecret(secret)
                 if (!sessionReady) {
                     secret = ""
-                    viewModel.clearApprovedConnection()
                 }
             }
         )
