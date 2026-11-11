@@ -628,7 +628,7 @@ fun UltraShareScreen(
         } else {
             runCatching { UltraShareQrCode.parsePayload(raw) }
                 .onSuccess { pairing ->
-                    acceptPairing(pairing)
+                    requestWifiDirectAction { acceptPairing(pairing) }
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
@@ -707,16 +707,20 @@ fun UltraShareScreen(
                 }
         }
     }
+    var pendingWifiDirectAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val wifiDirectPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
-        if (grants.values.all { it }) {
-            viewModel.scanWifiDirectPeers()
-        } else {
-            Toast.makeText(context, "يلزم منح إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
+        val action = pendingWifiDirectAction
+        pendingWifiDirectAction = null
+        if (!grants.values.all { it }) {
+            Toast.makeText(context, "لم يُمنح إذن Wi-Fi Direct؛ سيحاول MalekPlay الاتصال عبر شبكة Wi-Fi العادية.", Toast.LENGTH_LONG).show()
         }
+        // Even on denial, execute the requested action: its connection path has a
+        // bounded WLAN fallback and must not strand the user on the permission dialog.
+        action?.invoke()
     }
-    fun requestWifiDirectScan() {
+    fun requestWifiDirectAction(action: () -> Unit) {
         val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
         } else {
@@ -725,8 +729,14 @@ fun UltraShareScreen(
         val missing = required.filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (missing.isEmpty()) viewModel.scanWifiDirectPeers()
-        else wifiDirectPermissionLauncher.launch(missing.toTypedArray())
+        if (missing.isEmpty()) action()
+        else {
+            pendingWifiDirectAction = action
+            wifiDirectPermissionLauncher.launch(missing.toTypedArray())
+        }
+    }
+    fun requestWifiDirectScan() {
+        requestWifiDirectAction { viewModel.scanWifiDirectPeers() }
     }
     LaunchedEffect(state.wifiDirectHost) {
         host = state.wifiDirectHost.orEmpty()
@@ -752,7 +762,7 @@ fun UltraShareScreen(
                     }
                 }
                 result.onSuccess { pairing ->
-                    acceptPairing(pairing)
+                    requestWifiDirectAction { acceptPairing(pairing) }
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }.onFailure {
                     Toast.makeText(
@@ -836,7 +846,7 @@ fun UltraShareScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             OutlinedButton(
-                onClick = { if (!state.receiving) viewModel.startReceiving() },
+                onClick = { if (!state.receiving) requestWifiDirectAction { viewModel.startReceiving() } },
                 modifier = Modifier.weight(1f).height(94.dp),
                 enabled = !state.sending && !state.receiving
             ) {
