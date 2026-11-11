@@ -170,29 +170,65 @@ class UltraShareViewModel @Inject constructor(
         }
         viewModelScope.launch {
             approvedPeerCandidates = emptyList()
-            _state.value = _state.value.copy(approvedPeerHost = null, requestingConnection = true, error = null, status = "تم إرسال طلب الاتصال؛ بانتظار موافقة الجهاز الآخر...")
+            _state.value = _state.value.copy(
+                approvedPeerHost = null,
+                requestingConnection = true,
+                error = null,
+                status = "تم إرسال طلب الاتصال؛ نختبر مسارات الجهاز وننتظر موافقته..."
+            )
             try {
-                val decision = UltraShareControlChannel.request(
-                    host = host.trim(),
-                    pairingSecret = secret.trim(),
-                    peerName = android.os.Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
-                    network = UltraShareNetworkRouting.findNetworkForHost(context, host.trim()),
-                    peerId = UltraShareDiscovery.localPeerId(context),
-                    onSessionClosed = { disconnectedHost ->
-                        UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
+                val orderedRoutes = UltraShareNegotiation.orderedCandidates(discoveredCandidates)
+                // Try the selected address first, then every other verified interface
+                // belonging to the same discovered peer. A rejected approval is final;
+                // only transport failures move to another route.
+                val routeHosts = (listOf(host.trim()) + orderedRoutes.map { it.host })
+                    .distinct()
+                var acceptedHost: String? = null
+                var rejected = false
+                var lastFailure: Exception? = null
+                for (routeHost in routeHosts) {
+                    try {
+                        val decision = UltraShareControlChannel.request(
+                            host = routeHost,
+                            pairingSecret = secret.trim(),
+                            peerName = android.os.Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                            network = UltraShareNetworkRouting.findNetworkForHost(context, routeHost),
+                            peerId = UltraShareDiscovery.localPeerId(context),
+                            onSessionClosed = { disconnectedHost ->
+                                UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
+                            }
+                        )
+                        if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                            check(UltraShareControlChannel.isSessionActive(routeHost)) {
+                                "انقطعت قناة التحكم قبل اكتمال الاقتران."
+                            }
+                            acceptedHost = routeHost
+                            break
+                        }
+                        rejected = true
+                        break
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        lastFailure = failure
                     }
-                )
-                if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                }
+                if (acceptedHost != null) {
+                    val connectedHost = acceptedHost
+                    val peerName = UltraShareControlChannel.sessionPeerName(connectedHost)
+                        ?: "جهاز MalekPlay المستقبل"
                     UltraShareForegroundService.registerApprovedPeer(
-                        name = UltraShareControlChannel.sessionPeerName(host.trim()) ?: "جهاز MalekPlay المستقبل",
-                        host = host.trim(),
+                        name = peerName,
+                        host = connectedHost,
                         role = "أرسل طلب الاتصال"
                     )
-                    approvedPeerCandidates = UltraShareNegotiation.orderedCandidates(discoveredCandidates)
+                    approvedPeerCandidates = orderedRoutes
                     _state.value = _state.value.copy(
-                        approvedPeerHost = host.trim(),
-                        status = if (approvedPeerCandidates.size > 1)
-                            "وافق الجهاز الآخر على الاتصال. تم تجهيز ${approvedPeerCandidates.size} مسارات قابلة للتجربة."
+                        approvedPeerHost = connectedHost,
+                        status = if (connectedHost != host.trim())
+                            "تم الاقتران عبر مسار بديل بنجاح. جُهزت ${orderedRoutes.size} مسارات احتياطية للنقل."
+                        else if (orderedRoutes.size > 1)
+                            "وافق الجهاز الآخر على الاتصال. تم تجهيز ${orderedRoutes.size} مسارات للنقل."
                         else "وافق الجهاز الآخر على الاتصال. يمكنك الآن بدء النقل المشفر.",
                         requestingConnection = false,
                         error = null
@@ -201,11 +237,16 @@ class UltraShareViewModel @Inject constructor(
                     approvedPeerCandidates = emptyList()
                     _state.value = _state.value.copy(
                         approvedPeerHost = null,
-                        status = "رفض الجهاز الآخر طلب الاتصال.",
+                        status = if (rejected) "رفض الجهاز الآخر طلب الاتصال."
+                            else "تعذر الوصول إلى الجهاز عبر المسارات المكتشفة.",
                         requestingConnection = false,
-                        error = null
+                        error = if (rejected) null else lastFailure?.localizedMessage
+                            ?: "تعذر إتمام طلب الاتصال."
                     )
                 }
+            } catch (cancelled: CancellationException) {
+                _state.value = _state.value.copy(requestingConnection = false)
+                throw cancelled
             } catch (failure: Exception) {
                 approvedPeerCandidates = emptyList()
                 _state.value = _state.value.copy(
