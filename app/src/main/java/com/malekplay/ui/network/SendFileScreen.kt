@@ -146,6 +146,7 @@ fun SendFileScreen(
                     Text("إرسال إلى جميع الأجهزة المقترنة (${state.approvedSenderPeerCount})")
                 }
             }
+        }
             if (state.peerDeliveryEntries.any {
                     it.peerHost in state.approvedSenderPeerHosts &&
                         (it.status == com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_PENDING ||
@@ -159,7 +160,6 @@ fun SendFileScreen(
                     Text("استئناف التسليمات غير المكتملة دون تكرار الملفات الناجحة")
                 }
             }
-        }
         state.error?.let { ErrorPanel(it) }
         state.status?.let { InfoPanel("الحالة", it) }
     }
