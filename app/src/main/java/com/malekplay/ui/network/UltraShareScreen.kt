@@ -227,8 +227,9 @@ class UltraShareViewModel @Inject constructor(
                                 peerId = UltraShareDiscovery.localPeerId(context)
                             )
                         }
-                        check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
-                            "لم يوافق جهاز الاستقبال على طلب الاقتران."
+                        if (decision == UltraShareControlChannel.Decision.REJECTED) {
+                            lastFailure = IllegalStateException("رفض جهاز الاستقبال طلب الاقتران.")
+                            break
                         }
                     }
                     connectedHost = candidate
