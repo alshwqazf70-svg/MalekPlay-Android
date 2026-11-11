@@ -32,6 +32,7 @@ from ultra_share_pc import (
     safe_name,
     send_file,
 )
+from ultra_share_v2 import DEFAULT_V2_PORT, receive_batch_v2
 
 MAX_HTTP_HEADER_NAME = 240
 UPLOAD_CHUNK_BYTES = 1024 * 1024
@@ -276,11 +277,16 @@ def main() -> int:
     parser.add_argument("--secret", help="9-digit pairing PIN; prompted if omitted")
     parser.add_argument("--output", type=Path, default=Path("Received"))
     parser.add_argument("--transfer-port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--v2-port", type=int, default=DEFAULT_V2_PORT,
+                        help="TCP port for authenticated V2 batch reception")
     parser.add_argument("--discovery-port", type=int, default=DISCOVERY_PORT)
     parser.add_argument("--web-port", type=int, default=8765)
     args = parser.parse_args()
-    if not (1 <= args.transfer_port <= 65535 and 1 <= args.discovery_port <= 65535):
-        parser.error("Transfer and discovery ports must be between 1 and 65535.")
+    if not (1 <= args.transfer_port <= 65535 and 1 <= args.v2_port <= 65535
+            and 1 <= args.discovery_port <= 65535):
+        parser.error("Transfer, V2 and discovery ports must be between 1 and 65535.")
+    if args.v2_port == args.transfer_port:
+        parser.error("V1 and V2 TCP ports must be different.")
     if not 1024 <= args.web_port <= 65535:
         parser.error("The browser UI port must be between 1024 and 65535.")
     secret = get_secret(args.secret)
@@ -297,7 +303,19 @@ def main() -> int:
                     print(f"Transfer interrupted or rejected: {failure}")
                     time.sleep(0.4)
 
-    threading.Thread(target=receiver_loop, name="ultrashare-receiver", daemon=True).start()
+    def v2_receiver_loop() -> None:
+        while not stopped.is_set():
+            try:
+                outcomes = receive_batch_v2(args.v2_port, secret, output)
+                completed = sum(item["status"] == 2 for item in outcomes)
+                print(f"V2 batch received: {completed}/{len(outcomes)} files verified.")
+            except (OSError, ValueError, PermissionError, ConnectionError) as failure:
+                if not stopped.is_set():
+                    print(f"V2 transfer interrupted or rejected: {failure}")
+                    time.sleep(0.4)
+
+    threading.Thread(target=receiver_loop, name="ultrashare-receiver-v1", daemon=True).start()
+    threading.Thread(target=v2_receiver_loop, name="ultrashare-receiver-v2", daemon=True).start()
     threading.Thread(
         target=discovery_responder,
         args=(args.discovery_port, args.transfer_port, socket.gethostname()),
@@ -311,7 +329,7 @@ def main() -> int:
     )
     server.daemon_threads = True
     print(f"MalekPlay Ultra Share browser UI: http://127.0.0.1:{args.web_port}")
-    print(f"Receiving Android files into: {output}")
+    print(f"Receiving V1 files on TCP {args.transfer_port} and V2 batches on TCP {args.v2_port} into: {output}")
     print("Keep this terminal open. Press Ctrl+C to stop.")
     try:
         server.serve_forever(poll_interval=0.5)
