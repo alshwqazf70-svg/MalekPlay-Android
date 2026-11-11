@@ -743,13 +743,14 @@ fun UltraShareScreen(
         }
     }
 
-    val qrPayload = if (state.receiving && state.invitationId != null) {
+    val invitationId = state.invitationId
+    val qrPayload = if (state.receiving && invitationId.isNotBlank()) {
         // QR v3 can identify a receiver even before Android publishes its P2P
         // interface address. LAN hosts remain optional fallbacks.
         UltraShareQrCode.createReceiverPayload(
             state.localAddresses,
             state.pairingSecret,
-            state.invitationId
+            invitationId
         )
     } else {
         state.localAddresses.takeIf { state.receiving && it.isNotEmpty() }?.let { addresses ->
@@ -1485,18 +1486,6 @@ fun UltraShareScreen(
     }
 }
 
-private fun formatTransferBytes(value: Long): String {
-    if (value < 1024L) return "$value B"
-    val units = listOf("KB", "MB", "GB", "TB")
-    var amount = value.toDouble()
-    var index = -1
-    do {
-        amount /= 1024.0
-        index++
-    } while (amount >= 1024.0 && index < units.lastIndex)
-    return String.format(java.util.Locale.US, "%.1f %s", amount, units[index])
-}
-
 private fun formatTransferEta(seconds: Long): String {
     val hours = seconds / 3600
     val minutes = (seconds % 3600) / 60
@@ -1508,26 +1497,3 @@ private fun formatTransferEta(seconds: Long): String {
     }
 }
 
-
-@Composable
-private fun UltraShareHelpCard() {
-    var expanded by remember { mutableStateOf(false) }
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("طريقة استخدام النقل — مساعدة", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-            TextButton(onClick = { expanded = !expanded }) {
-                Text(if (expanded) "إخفاء الشرح" else "اضغط لعرض خطوات الإرسال والاستقبال")
-            }
-            if (expanded) {
-                Text("استقبال الملفات على هذا الهاتف:", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                Text("1. اضغط «إنشاء مجموعة» أو «بدء الاستقبال» واترك صفحة MalekPlay مفتوحة أثناء تجهيز الربط.\n2. اعرض رمز QR أو رمز الاقتران المكوّن من 9 أرقام وعنوان الشبكة.\n3. على الهاتف المرسل امسح الرمز من «الانضمام»، أو أدخل عنوان الجهاز ورمز الاقتران يدوياً.\n4. بعد اكتمال النقل ستجد الملف في التنزيلات / MalekPlay / Received.")
-                Text("إرسال الملفات من هذا الهاتف:", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                Text("1. اختر «فيديوهات» أو «موسيقى» أو «ملفات».\n2. اضغط «الأجهزة القريبة» واختر الجهاز المكتشف، أو استخدم «Wi-Fi Direct» عند الحاجة.\n3. إذا لم يظهر الجهاز، أدخل عنوانه في خانة المضيف ورمز الاقتران في خانته.\n4. اضغط «إرسال الآن» لمتابعة الطابور والتقدم والسرعة.")
-                Text("إذا تعذر الاتصال: تأكد أن الجهازين على الشبكة المحلية نفسها، وأن الاستقبال يعمل، وأن عنوان المضيف والرمز صحيحان. يمكن استخدام نقطة اتصال الهاتف المستقبل بدلاً من الراوتر. لا تشارك رمز الاقتران مع أشخاص غير موثوقين.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-}
