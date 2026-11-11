@@ -17,6 +17,8 @@ import com.malekplay.network.UltraShareReceivedEntry
 import com.malekplay.network.UltraShareReceivedHistoryStore
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareForegroundService
+import com.malekplay.network.UltraShareApprovedSendTarget
+import com.malekplay.network.UltraSharePeerDeliveryStore
 import com.malekplay.network.UltraShareWifiDirect
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -60,7 +62,8 @@ data class UltraShareUiState(
     val approvedPeerHost: String? = null,
     val requestingConnection: Boolean = false,
     val activePeers: List<com.malekplay.network.UltraSharePeerSession> = emptyList(),
-    val peerTransfers: List<com.malekplay.network.UltraSharePeerTransfer> = emptyList()
+    val peerTransfers: List<com.malekplay.network.UltraSharePeerTransfer> = emptyList(),
+    val approvedSenderPeerCount: Int = 0
 )
 
 @HiltViewModel
@@ -73,6 +76,8 @@ class UltraShareViewModel @Inject constructor(
     private var scanJob: Job? = null
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
     private var approvedPeerCandidates: List<com.malekplay.network.UltraShareNegotiation.Candidate> = emptyList()
+    // Pairing secrets stay in this private in-memory registry, never in observable UI state or logs.
+    private val approvedSenderTargets = LinkedHashMap<String, UltraShareApprovedSendTarget>()
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
     }
@@ -81,6 +86,7 @@ class UltraShareViewModel @Inject constructor(
         viewModelScope.launch {
             if (!UltraShareForegroundService.state.value.sending) {
                 UltraShareQueueStore.recoverInterrupted(context)
+                UltraSharePeerDeliveryStore.recoverInterrupted(context)
             }
             UltraShareQueueStore.observe(context).collect { entries ->
                 _state.value = _state.value.copy(queueEntries = entries)
@@ -126,6 +132,7 @@ class UltraShareViewModel @Inject constructor(
                     pendingConnection = serviceState.pendingConnection,
                     activePeers = serviceState.activePeers,
                     peerTransfers = serviceState.peerTransfers,
+                    approvedSenderPeerCount = approvedSenderTargets.size,
                     approvedPeerHost = current.approvedPeerHost?.takeIf { approved ->
                         serviceState.activePeers.any { it.host == approved }
                     }
@@ -169,9 +176,7 @@ class UltraShareViewModel @Inject constructor(
             }?.candidates.orEmpty()
         }
         viewModelScope.launch {
-            approvedPeerCandidates = emptyList()
             _state.value = _state.value.copy(
-                approvedPeerHost = null,
                 requestingConnection = true,
                 error = null,
                 status = "تم إرسال طلب الاتصال؛ نختبر مسارات الجهاز وننتظر موافقته..."
@@ -217,14 +222,25 @@ class UltraShareViewModel @Inject constructor(
                     val connectedHost = acceptedHost
                     val peerName = UltraShareControlChannel.sessionPeerName(connectedHost)
                         ?: "جهاز MalekPlay المستقبل"
+                    val sessionId = java.util.UUID.randomUUID().toString()
+                    val approvedTarget = UltraShareApprovedSendTarget(
+                        sessionId = sessionId,
+                        host = connectedHost,
+                        secret = secret.trim(),
+                        candidates = orderedRoutes
+                    )
+                    approvedSenderTargets[connectedHost] = approvedTarget
                     UltraShareForegroundService.registerApprovedPeer(
                         name = peerName,
                         host = connectedHost,
-                        role = "أرسل طلب الاتصال"
+                        role = "أرسل طلب الاتصال",
+                        routeCandidates = orderedRoutes,
+                        sessionId = sessionId
                     )
                     approvedPeerCandidates = orderedRoutes
                     _state.value = _state.value.copy(
                         approvedPeerHost = connectedHost,
+                        approvedSenderPeerCount = approvedSenderTargets.size,
                         status = if (connectedHost != host.trim())
                             "تم الاقتران عبر مسار بديل بنجاح. جُهزت ${orderedRoutes.size} مسارات احتياطية للنقل."
                         else if (orderedRoutes.size > 1)
@@ -235,8 +251,11 @@ class UltraShareViewModel @Inject constructor(
                     )
                 } else {
                     approvedPeerCandidates = emptyList()
+                    val previousTarget = approvedSenderTargets.values.lastOrNull()
+                    approvedPeerCandidates = previousTarget?.candidates.orEmpty()
                     _state.value = _state.value.copy(
-                        approvedPeerHost = null,
+                        approvedPeerHost = previousTarget?.host,
+                        approvedSenderPeerCount = approvedSenderTargets.size,
                         status = if (rejected) "رفض الجهاز الآخر طلب الاتصال."
                             else "تعذر الوصول إلى الجهاز عبر المسارات المكتشفة.",
                         requestingConnection = false,
@@ -248,9 +267,11 @@ class UltraShareViewModel @Inject constructor(
                 _state.value = _state.value.copy(requestingConnection = false)
                 throw cancelled
             } catch (failure: Exception) {
-                approvedPeerCandidates = emptyList()
+                val previousTarget = approvedSenderTargets.values.lastOrNull()
+                approvedPeerCandidates = previousTarget?.candidates.orEmpty()
                 _state.value = _state.value.copy(
-                    approvedPeerHost = null,
+                    approvedPeerHost = previousTarget?.host,
+                    approvedSenderPeerCount = approvedSenderTargets.size,
                     requestingConnection = false,
                     error = failure.localizedMessage ?: "تعذر إتمام طلب الاتصال."
                 )
@@ -260,13 +281,28 @@ class UltraShareViewModel @Inject constructor(
 
     fun disconnectPeer(host: String) {
         UltraShareForegroundService.disconnectApprovedPeer(host)
-        if (_state.value.approvedPeerHost == host) clearApprovedConnection()
+        approvedSenderTargets.remove(host)
+        val next = approvedSenderTargets.values.lastOrNull()
+        approvedPeerCandidates = next?.candidates.orEmpty()
+        _state.value = _state.value.copy(
+            approvedPeerHost = next?.host,
+            approvedSenderPeerCount = approvedSenderTargets.size
+        )
     }
 
+    /** Disconnect only the currently selected sender peer; keep other approved peers available. */
     fun clearApprovedConnection() {
-        _state.value.approvedPeerHost?.let { UltraShareForegroundService.disconnectApprovedPeer(it) }
-        approvedPeerCandidates = emptyList()
-        _state.value = _state.value.copy(approvedPeerHost = null)
+        val currentHost = _state.value.approvedPeerHost
+        if (currentHost != null) {
+            UltraShareForegroundService.disconnectApprovedPeer(currentHost)
+            approvedSenderTargets.remove(currentHost)
+        }
+        val next = approvedSenderTargets.values.lastOrNull()
+        approvedPeerCandidates = next?.candidates.orEmpty()
+        _state.value = _state.value.copy(
+            approvedPeerHost = next?.host,
+            approvedSenderPeerCount = approvedSenderTargets.size
+        )
     }
 
     fun acceptConnection() {
@@ -469,6 +505,30 @@ class UltraShareViewModel @Inject constructor(
             _state.value = _state.value.copy(
                 sending = false,
                 error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
+            )
+            false
+        }
+    }
+
+    fun sendBatchToApprovedPeers(uris: List<Uri>): Boolean {
+        val targets = approvedSenderTargets.values.toList()
+        if (uris.isEmpty() || _state.value.sending || targets.isEmpty()) return false
+        return runCatching {
+            UltraShareForegroundService.startSendingBatchToPeers(context, uris, targets)
+            _state.value = _state.value.copy(
+                sending = true,
+                progress = null,
+                queueCompleted = 0,
+                queueTotal = uris.distinctBy { it.toString() }.size,
+                queueCurrentName = null,
+                error = null,
+                status = "بدأ الإرسال إلى " + targets.size + " أجهزة مقترنة"
+            )
+            true
+        }.getOrElse { failure ->
+            _state.value = _state.value.copy(
+                sending = false,
+                error = failure.localizedMessage ?: "تعذر بدء الإرسال الجماعي."
             )
             false
         }
