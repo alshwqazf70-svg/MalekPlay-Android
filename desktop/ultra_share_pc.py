@@ -516,8 +516,17 @@ def main() -> int:
     receive.add_argument("--port", type=int, default=DEFAULT_PORT)
     receive.add_argument("--v2-port", type=int, default=38742,
                          help="TCP port for Ultra Share V2 batch reception")
+    receive.add_argument("--control-port", type=int, default=38744,
+                         help="TCP port for the authenticated MPC2 approval channel")
     receive.add_argument("--discovery-port", type=int, default=DISCOVERY_PORT)
     receive.add_argument("--name", default=socket.gethostname())
+
+    send_v2 = sub.add_parser("send-v2", help="Send a V2 batch after Android control-channel approval")
+    send_v2.add_argument("--secret", help="9-digit pairing code; prompted if omitted")
+    send_v2.add_argument("--host", required=True, help="Receiver's private IPv4 address")
+    send_v2.add_argument("--file", required=True, type=Path, nargs="+", metavar="FILE")
+    send_v2.add_argument("--port", type=int, default=38742, help="V2 data port")
+    send_v2.add_argument("--control-port", type=int, default=38744, help="MPC2 control port")
 
     send = sub.add_parser("send", help="Send a file to an Android or desktop receiver")
     send.add_argument("--secret", help="9-digit pairing code (legacy 64-character hex key also accepted; prompted if omitted)")
@@ -540,14 +549,41 @@ def main() -> int:
         if args.command == "send":
             send_files(args.host, args.port, secret, args.file)
             return 0
+        if args.command == "send-v2":
+            if not (1 <= args.port <= 65535 and 1 <= args.control_port <= 65535):
+                raise ValueError("V2 data and control ports must be between 1 and 65535.")
+            from ultra_share_v2 import connect_control_session, send_batch_v2
+            with connect_control_session(args.host, args.control_port, secret) as control:
+                results = send_batch_v2(args.host, args.port, secret, args.file)
+                if control.error:
+                    raise ConnectionError(f"Control channel was lost: {control.error}")
+            completed = sum(item["status"] == 2 for item in results)
+            print(f"V2 batch result: {completed}/{len(results)} files verified.")
+            return 0 if completed == len(results) else 2
 
         if not (1 <= args.port <= 65535 and 1 <= args.v2_port <= 65535
+                and 1 <= args.control_port <= 65535
                 and 1 <= args.discovery_port <= 65535):
             raise ValueError("Transfer, V2 and discovery ports must be between 1 and 65535.")
         if args.port == args.v2_port:
             raise ValueError("V1 and V2 TCP ports must be different.")
 
-        from ultra_share_v2 import receive_batch_v2
+        from ultra_share_v2 import receive_batch_v2, serve_control_once
+
+        def control_approval_loop() -> None:
+            while True:
+                try:
+                    def approve(peer_name: str, peer_host: str) -> bool:
+                        answer = input(
+                            f"\\n{peer_name} ({peer_host}) requests Ultra Share access. Accept? [y/N]: "
+                        ).strip().lower()
+                        return answer in {"y", "yes"}
+                    serve_control_once(
+                        args.control_port, secret, args.name, approve
+                    )
+                except (ConnectionError, OSError, ValueError, PermissionError) as failure:
+                    print(f"Control request rejected or interrupted: {failure}", file=sys.stderr)
+                    time.sleep(0.4)
 
         def v2_receiver_loop() -> None:
             while True:
@@ -562,6 +598,9 @@ def main() -> int:
         threading.Thread(
             target=v2_receiver_loop, name="ultrashare-v2-receiver", daemon=True
         ).start()
+        threading.Thread(
+            target=control_approval_loop, name="ultrashare-control-server", daemon=True
+        ).start()
 
         responder = threading.Thread(
             target=discovery_responder,
@@ -569,7 +608,7 @@ def main() -> int:
             daemon=True,
         )
         responder.start()
-        print(f"V1 and V2 reception active on TCP {args.port} and {args.v2_port}. Press Ctrl+C to stop.")
+        print(f"V1/V2 data active on TCP {args.port}/{args.v2_port}; MPC2 control on TCP {args.control_port}. Press Ctrl+C to stop.")
         while True:
             try:
                 receive_one(args.port, secret, args.output)
