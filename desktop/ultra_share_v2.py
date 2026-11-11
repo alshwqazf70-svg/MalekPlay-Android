@@ -485,9 +485,19 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
         authenticated = hmac.compare_digest(
             proof, hmac.new(pairing_key, challenge, hashlib.sha256).digest()
         )
-        connection.sendall(b"\x01" if authenticated else b"\x00")
-        if not authenticated:
-            raise PermissionError("V2 pairing authentication failed.")
+        with _CONTROL_PEER_LOCK:
+            active_peer = _CONTROL_PEER_SESSIONS.get(address[0])
+            session_active = (
+                active_peer is not None
+                and active_peer[1].fileno() >= 0
+                and not active_peer[1]._closed
+            )
+        approved = authenticated and session_active
+        connection.sendall(b"\x01" if approved else b"\x00")
+        if not approved:
+            if not authenticated:
+                raise PermissionError("V2 pairing authentication failed.")
+            raise PermissionError("No approved MPC2 control session exists for this peer.")
         nonce_prefix = secrets.token_bytes(NONCE_PREFIX_BYTES)
         connection.sendall(nonce_prefix)
         receive_key = derive_v2_key(pairing_key, challenge, "client-to-server")
@@ -501,10 +511,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
         ))
         receive_sequence += 1
 
-        with _CONTROL_PEER_LOCK:
-            active_peer = _CONTROL_PEER_SESSIONS.get(address[0])
-            authenticated_peer_id = active_peer[0] if active_peer else None
-        identity = peer_identity or authenticated_peer_id or address[0]
+        identity = peer_identity or active_peer[0] or address[0]
         peer_folder = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
         state = directory / ".ultrashare-v2-state" / peer_folder
         state.mkdir(parents=True, exist_ok=True)
@@ -834,10 +841,7 @@ def serve_control_once(port: int, secret: str, local_name: str,
         )
         if accepted:
             with _CONTROL_PEER_LOCK:
-                if peer_id:
-                    _CONTROL_PEER_SESSIONS[address[0]] = (peer_id, connection)
-                else:
-                    _CONTROL_PEER_SESSIONS.pop(address[0], None)
+                _CONTROL_PEER_SESSIONS[address[0]] = (peer_id or address[0], connection)
         try:
             encoded_local_name = name_bytes.hex()
             response = (
