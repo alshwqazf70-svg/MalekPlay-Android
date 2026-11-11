@@ -865,7 +865,7 @@ def serve_control_once(port: int, secret: str, local_name: str,
                 else:
                     raise ValueError("Unknown MPC2 control command.")
         finally:
-            if peer_id:
+            if accepted:
                 with _CONTROL_PEER_LOCK:
                     current = _CONTROL_PEER_SESSIONS.get(address[0])
                     if current is not None and current[1] is connection:
