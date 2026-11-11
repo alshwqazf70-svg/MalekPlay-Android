@@ -87,6 +87,8 @@ class UltraShareViewModel @Inject constructor(
     private val _state = MutableStateFlow(UltraShareUiState())
     val state = _state.asStateFlow()
     private var scanJob: Job? = null
+    private var wifiDirectScanTimeout: Job? = null
+    private var bluetoothScanTimeout: Job? = null
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
     private var bluetoothSession: UltraShareBluetoothDiscovery.Session? = null
     private var bleSession: UltraShareBleDiscovery.Session? = null
@@ -714,14 +716,16 @@ class UltraShareViewModel @Inject constructor(
                 status = "جارٍ البحث عن أجهزة Wi-Fi Direct..."
             )
             session.discover()
-            viewModelScope.launch {
+            wifiDirectScanTimeout?.cancel()
+            wifiDirectScanTimeout = viewModelScope.launch {
                 delay(15_000)
                 if (_state.value.wifiDirectScanning) {
+                    runCatching { session.stopDiscovery() }
                     _state.value = _state.value.copy(
                         wifiDirectScanning = false,
                         status = if (_state.value.wifiDirectPeers.isEmpty())
                             "انتهى البحث عبر Wi-Fi Direct دون العثور على أجهزة."
-                        else _state.value.status
+                        else "انتهى البحث عبر Wi-Fi Direct."
                     )
                 }
             }
@@ -734,6 +738,8 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun stopWifiDirectDiscovery() {
+        wifiDirectScanTimeout?.cancel()
+        wifiDirectScanTimeout = null
         runCatching { wifiDirectSession?.stopDiscovery() }
         _state.value = _state.value.copy(
             wifiDirectScanning = false,
@@ -765,6 +771,16 @@ class UltraShareViewModel @Inject constructor(
         }.onFailure {
             _state.value = _state.value.copy(bluetoothScanning = false, error = it.localizedMessage ?: "تعذر تهيئة Bluetooth Classic.")
         }
+        bluetoothScanTimeout?.cancel()
+        bluetoothScanTimeout = viewModelScope.launch {
+            delay(15_000)
+            if (_state.value.bluetoothScanning || _state.value.bleScanning) {
+                stopBluetoothDiscovery()
+                _state.value = _state.value.copy(
+                    status = "انتهى البحث عن أجهزة Bluetooth وBLE تلقائياً."
+                )
+            }
+        }
         runCatching {
             val session = bleSession ?: UltraShareBleDiscovery.open(
                 context = context,
@@ -779,6 +795,8 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun stopBluetoothDiscovery() {
+        bluetoothScanTimeout?.cancel()
+        bluetoothScanTimeout = null
         runCatching { bluetoothSession?.stop() }
         runCatching { bleSession?.stop() }
         _state.value = _state.value.copy(
@@ -1025,6 +1043,8 @@ class UltraShareViewModel @Inject constructor(
 
     override fun onCleared() {
         scanJob?.cancel()
+        wifiDirectScanTimeout?.cancel()
+        bluetoothScanTimeout?.cancel()
         wifiDirectSession?.close()
         wifiDirectSession = null
         bluetoothSession?.close()
