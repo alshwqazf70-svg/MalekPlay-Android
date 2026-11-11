@@ -199,6 +199,18 @@ STATUS_FAILED = 3
 STATUS_SKIPPED = 4
 
 
+def derive_v2_pairing_key(secret: str, challenge: bytes) -> bytes:
+    if len(challenge) != CHALLENGE_BYTES:
+        raise ValueError("Invalid V2 pairing challenge.")
+    if len(secret) == 9 and secret.isascii() and secret.isdigit():
+        return hashlib.pbkdf2_hmac(
+            "sha256", secret.encode("ascii"), challenge[:16], 210_000, dklen=32
+        )
+    if len(secret) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in secret):
+        return bytes.fromhex(secret)
+    raise ValueError("Invalid Ultra Share pairing code.")
+
+
 def derive_v2_key(pairing_key: bytes, challenge: bytes, direction: str) -> bytes:
     if len(pairing_key) != 32 or len(challenge) != CHALLENGE_BYTES:
         raise ValueError("Invalid V2 key derivation input.")
@@ -240,8 +252,6 @@ def v2_read_frame(sock: socket.socket, key: bytes, prefix: bytes,
 def _java_write_utf(value: str) -> bytes:
     # DataOutputStream.writeUTF uses modified UTF-8 over UTF-16 code units.
     encoded = bytearray()
-    for unit in value.encode("utf-16-be", errors="surrogatepass"):
-        pass
     units = value.encode("utf-16-be", errors="surrogatepass")
     for index in range(0, len(units), 2):
         code = (units[index] << 8) | units[index + 1]
@@ -470,7 +480,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
         challenge = secrets.token_bytes(CHALLENGE_BYTES)
         connection.sendall(struct.pack(">I", HANDSHAKE_MAGIC) + challenge)
         proof = recv_exact(connection, 32)
-        pairing_key = derive_pairing_key(secret, challenge)
+        pairing_key = derive_v2_pairing_key(secret, challenge)
         authenticated = hmac.compare_digest(
             proof, hmac.new(pairing_key, challenge, hashlib.sha256).digest()
         )
