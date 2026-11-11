@@ -488,7 +488,6 @@ fun UltraShareExperienceScreen(
                                 if (state.approvedPeerHost != peer.host || !UltraShareTransport.isValidPairingSecret(secret)) {
                                     secret = ""
                                     viewModel.clearApprovedConnection()
-                                    scanQr()
                                 }
                             }
                         }
@@ -519,7 +518,6 @@ fun UltraShareExperienceScreen(
                                     if (!sessionReady) {
                                         secret = ""
                                         viewModel.clearApprovedConnection()
-                                        scanQr()
                                     }
                                 }, enabled = !state.requestingConnection && !state.sending) { Text("اتصال") }
                             }
@@ -632,7 +630,6 @@ fun UltraShareExperienceScreen(
                 if (!sessionReady) {
                     secret = ""
                     viewModel.clearApprovedConnection()
-                    scanQr()
                 }
             }
         )
