@@ -19,6 +19,7 @@ import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraShareApprovedSendTarget
 import com.malekplay.network.UltraSharePeerDeliveryStore
+import com.malekplay.network.UltraShareMultiRecipientCoordinator
 import com.malekplay.network.UltraShareWifiDirect
 import com.malekplay.network.UltraShareBluetoothDiscovery
 import dagger.hilt.android.lifecycle.HiltViewModel
