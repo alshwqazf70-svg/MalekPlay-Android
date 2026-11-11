@@ -112,7 +112,7 @@ object UltraShareQrCode {
     fun parsePayload(payload: String): PairingDetails {
         val uri = Uri.parse(payload)
         require(uri.scheme == SCHEMA && uri.authority == AUTHORITY) {
-            "رمز QR ليس رمز اقتران MalekPlay Ultra Share."
+            "رمز QR ليس رمز اقتران MalekPlayer Ultra Share."
         }
         val version = uri.getQueryParameter("v")
         require(version == VERSION || version == MULTI_HOST_VERSION || version == INVITATION_VERSION) {
