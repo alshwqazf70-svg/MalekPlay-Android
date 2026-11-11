@@ -279,7 +279,7 @@ class UltraShareViewModel @Inject constructor(
                         found[UltraShareDiscovery.identityKey(peer)] = peer to now
                     }
                     found.entries.removeAll { (_, sighting) ->
-                        now - sighting.second > PEER_SIGHTING_TTL_MS
+                        !UltraShareDiscovery.isSightingFresh(sighting.second, now, PEER_SIGHTING_TTL_MS)
                     }
                     val visible = found.values.map { it.first }
                     _state.value = _state.value.copy(
