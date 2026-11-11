@@ -286,12 +286,33 @@ object UltraShareWifiDirect {
                         return@requestGroupInfo
                     }
                     manager.createGroup(channel, object : WifiP2pManager.ActionListener {
-                        override fun onSuccess() { if (!closed) onCreated() }
+                        override fun onSuccess() {
+                            if (!closed) awaitReceiverGroup(onCreated, 0)
+                        }
                         override fun onFailure(reason: Int) { onError(groupFailureMessage(reason)) }
                     })
                 }
             } catch (failure: SecurityException) {
                 onError("يلزم إذن الأجهزة القريبة لإنشاء مجموعة Wi-Fi Direct.")
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        private fun awaitReceiverGroup(onCreated: () -> Unit, attempt: Int) {
+            if (closed) return
+            try {
+                manager.requestConnectionInfo(channel) { info ->
+                    if (closed) return@requestConnectionInfo
+                    if (info.groupFormed && info.isGroupOwner) {
+                        onCreated()
+                    } else if (attempt < 20) {
+                        mainHandler.postDelayed({ awaitReceiverGroup(onCreated, attempt + 1) }, 500L)
+                    } else {
+                        onError("لم تكتمل تهيئة مجموعة Wi-Fi Direct خلال 10 ثوانٍ. أوقف نقطة الاتصال أو أي اتصال مباشر آخر ثم أعد المحاولة.")
+                    }
+                }
+            } catch (failure: SecurityException) {
+                onError("يلزم إذن الأجهزة القريبة للتحقق من إنشاء مجموعة Wi-Fi Direct.")
             }
         }
 
@@ -324,12 +345,10 @@ object UltraShareWifiDirect {
                     val currentPeer = peers.deviceList.firstOrNull {
                         it.deviceAddress.equals(deviceAddress, ignoreCase = true)
                     }
-                    if (currentPeer == null) {
-                        connectionInProgress = false
-                        onError("لم يعد الجهاز متاحاً عبر Wi-Fi Direct. أعد البحث ثم حاول الاتصال.")
-                        return@requestPeers
-                    }
-                    connectAttempt(currentPeer.deviceAddress, preferThisDeviceAsGroupOwner, token, 0)
+                    // A DNS-SD TXT match is itself a fresh peer sighting. Some OEM
+                    // stacks omit service-discovered peers from requestPeers briefly.
+                    val targetAddress = currentPeer?.deviceAddress ?: deviceAddress
+                    connectAttempt(targetAddress, preferThisDeviceAsGroupOwner, token, 0)
                 }
             } catch (failure: SecurityException) {
                 connectionInProgress = false
@@ -370,20 +389,12 @@ object UltraShareWifiDirect {
                     override fun onFailure(reason: Int) {
                         if (closed || token != connectionAttemptToken) return
                         if ((reason == WifiP2pManager.BUSY || reason == WifiP2pManager.ERROR) && attempt < 2) {
-                            val retry: () -> Unit = {
-                                mainHandler.postDelayed({
-                                    if (!closed && connectionInProgress && token == connectionAttemptToken) {
-                                        connectAttempt(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt + 1)
-                                    }
-                                }, 900L * (attempt + 1))
-                                Unit
-                            }
-                            runCatching {
-                                manager.cancelConnect(channel, object : WifiP2pManager.ActionListener {
-                                    override fun onSuccess() = retry()
-                                    override fun onFailure(cancelReason: Int) = retry()
-                                })
-                            }.onFailure { retry() }
+                            runCatching { manager.cancelConnect(channel, null) }
+                            mainHandler.postDelayed({
+                                if (!closed && connectionInProgress && token == connectionAttemptToken) {
+                                    connectAttempt(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt + 1)
+                                }
+                            }, 900L * (attempt + 1))
                         } else {
                             connectionInProgress = false
                             onError(connectFailureMessage(reason))
