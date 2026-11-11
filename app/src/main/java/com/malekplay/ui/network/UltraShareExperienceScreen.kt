@@ -559,10 +559,10 @@ fun UltraShareExperienceScreen(
                     state.sending -> "جارٍ إرسال الملفات"
                     state.pendingConnection != null -> "طلب اتصال وارد"
                     state.activePeers.isNotEmpty() -> "جهاز متصل وجاهز"
-                    state.scanning || state.wifiDirectScanning || state.bluetoothScanning -> "البحث عن الأجهزة القريبة"
+                    state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning -> "البحث عن الأجهزة القريبة"
                     else -> "جاهز للمشاركة"
                 },
-                subtitle = "${state.discoveredPeers.size + state.wifiDirectPeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
+                subtitle = "${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
                 active = state.sending || state.activePeers.isNotEmpty()
             )
             UltraShareHelpCard()
@@ -738,7 +738,7 @@ fun UltraShareExperienceScreen(
                             enabled = !state.sending
                         ) {
                             Icon(Icons.Filled.Refresh, null)
-                            Text(if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning) "إيقاف البحث" else "بحث شامل")
+                            Text(if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning) "إيقاف البحث" else "بحث شامل")
                         }
                         OutlinedButton(
                             onClick = ::scanQr,
@@ -750,16 +750,16 @@ fun UltraShareExperienceScreen(
                         }
                     }
                     Text(
-                        "البحث يشمل الشبكة المحلية وWi-Fi Direct وBluetooth. اكتشاف Bluetooth يعرض الأجهزة القريبة فقط؛ يتم الاقتران ونقل الملفات عبر Wi-Fi أو QR.",
+                        "البحث يشمل الشبكة المحلية وWi-Fi Direct وBluetooth Classic وBLE. Bluetooth وBLE للاكتشاف فقط؛ يتم الاقتران ونقل الملفات عبر Wi-Fi أو QR.",
                         color = MalekPlayColors.TextSecondary,
                         style = MaterialTheme.typography.bodySmall
                     )
                     OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("البحث عن جهاز") })
                     OutlinedButton(onClick = ::scanBluetooth, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
-                        Text(if (state.bluetoothScanning) "إيقاف بحث Bluetooth" else "بحث Bluetooth فقط")
+                        Text(if (state.bluetoothScanning || state.bleScanning) "إيقاف بحث Bluetooth/BLE" else "بحث Bluetooth وBLE")
                     }
                     UltraShareRadar(
-                        isScanning = state.scanning || state.wifiDirectScanning || state.bluetoothScanning,
+                        isScanning = state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning,
                         discoveredCount = visiblePeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size,
                         modifier = Modifier.fillMaxWidth().height(340.dp),
                         peerNames = visiblePeers.take(4).map { it.name },
@@ -801,7 +801,7 @@ fun UltraShareExperienceScreen(
                             }
                         }
                     }
-                    Text("الأجهزة المكتشفة (" + (visiblePeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size) + ")", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
+                    Text("الأجهزة المكتشفة (" + (visiblePeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size) + ")", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
                     if (visiblePeers.isEmpty() && state.wifiDirectPeers.isEmpty() && state.bluetoothPeers.isEmpty() && state.blePeers.isEmpty()) InfoPanel("الرادار", if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning) "جارٍ البحث عبر الشبكة المحلية وWi-Fi Direct وBluetooth Classic وBLE..." else "لا توجد أجهزة ظاهرة حالياً. تأكد من تشغيل Wi-Fi أو Bluetooth أو استخدم QR أو نقطة الاتصال.")
                     visiblePeers.drop(4).forEach { peer ->
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
