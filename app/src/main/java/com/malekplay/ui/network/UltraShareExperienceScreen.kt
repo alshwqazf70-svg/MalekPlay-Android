@@ -102,6 +102,7 @@ fun UltraShareExperienceScreen(
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var pendingQrPairing by remember { mutableStateOf<UltraShareQrCode.PairingDetails?>(null) }
+    var pendingInvitationAdvertisement by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
     var pendingFolderArchive by remember { mutableStateOf<UltraShareTransport.ReceivedFile?>(null) }
     var selectedUris by remember(initialUris) {
@@ -314,11 +315,13 @@ fun UltraShareExperienceScreen(
                 } else if (pairing.host.isNotBlank()) {
                     viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
                 }
-            } else if (state.receiving) {
+            } else if (pendingInvitationAdvertisement) {
+                pendingInvitationAdvertisement = false
                 viewModel.advertiseCurrentWifiDirectInvitation()
             } else viewModel.scanWifiDirectPeers()
         } else {
             pendingQrPairing = null
+            pendingInvitationAdvertisement = false
             Toast.makeText(context, "يلزم إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
         }
     }
