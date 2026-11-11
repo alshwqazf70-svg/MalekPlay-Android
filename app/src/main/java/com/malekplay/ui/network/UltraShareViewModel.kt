@@ -400,9 +400,11 @@ class UltraShareViewModel @Inject constructor(
 
     fun stopReceiving() {
         UltraShareForegroundService.stopReceiving(context)
+        runCatching { wifiDirectSession?.stopInvitationAdvertisement() }
         _state.value = _state.value.copy(
             receiving = false,
             pairingSecret = "",
+            invitationId = "",
             localAddresses = emptyList(),
             progress = if (_state.value.sending) UltraShareForegroundService.state.value.sendProgress else null,
             status = context.getString(R.string.ultra_share_stopped)
