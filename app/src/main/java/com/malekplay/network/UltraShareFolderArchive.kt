@@ -124,6 +124,11 @@ object UltraShareFolderArchive {
                                             val read = buffered.read(buffer)
                                             if (read < 0) break
                                             if (read == 0) continue
+                                            val remainingSpace = output.usableSpace
+                                            val reserveBytes = 16L * 1024L * 1024L
+                                            if (remainingSpace > 0L && (remainingSpace <= reserveBytes || read.toLong() > remainingSpace - reserveBytes)) {
+                                                throw IOException("مساحة التخزين غير كافية لإكمال أرشيف المجلد بأمان.")
+                                            }
                                             zip.write(buffer, 0, read)
                                             totalBytes = if (Long.MAX_VALUE - totalBytes < read.toLong()) {
                                                 Long.MAX_VALUE
@@ -170,7 +175,7 @@ object UltraShareFolderArchive {
         val base = if (extension.isEmpty()) name else name.removeSuffix(extension)
         var candidate = parent + name
         var suffix = 2
-        while (candidate in used || (directory && "$candidate/" in used)) {
+        while (candidate in used || "$candidate/" in used) {
             candidate = parent + base + " ($suffix)" + extension
             suffix++
         }
