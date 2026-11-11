@@ -1331,14 +1331,10 @@ class UltraShareForegroundService : Service() {
                                 }
                             }
                         }
-                        val completedCount = sources.count { source ->
-                            UltraSharePeerDeliveryStore.observe(this@UltraShareForegroundService).first()
-                                .any {
-                                    it.fileUri == source.uri.toString() &&
-                                        it.peerSessionId == peer.sessionId &&
-                                        it.status == UltraSharePeerDeliveryStore.STATUS_COMPLETED
-                                }
-                        }
+                        val peerReceipts = UltraSharePeerDeliveryStore.observe(this@UltraShareForegroundService).first()
+                            .filter { it.peerSessionId == peer.sessionId }
+                            .mapTo(mutableSetOf()) { it.fileUri }
+                        val completedCount = sources.count { it.uri.toString() in peerReceipts }
                         "اكتمل " + completedCount + " من " + sources.size + " ملفات"
                     } catch (cancelled: CancellationException) {
                         withContext(NonCancellable) {
