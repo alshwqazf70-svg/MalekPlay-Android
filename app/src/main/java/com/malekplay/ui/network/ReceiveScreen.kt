@@ -74,7 +74,7 @@ fun ReceiveScreen(
                     verticalArrangement = Arrangement.spacedBy(11.dp)
                 ) {
                     Text(
-                        "اطلب من صديقك مسح رمز QR أو البحث عن اسم المجموعة",
+                        "اطلب من صديقك مسح رمز QR؛ سيحاول MalekPlay إنشاء الاتصال المباشر تلقائياً",
                         color = Color(0xFF30394C),
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.titleMedium,
@@ -117,7 +117,7 @@ fun ReceiveScreen(
                         }
                     }
                     Text(
-                        "امسح الرمز من الهاتف الآخر للاتصال بالمجموعة",
+                        "شغّل Wi-Fi على الهاتفين فقط ثم امسح الرمز؛ لا يلزم الانضمام يدوياً إلى شبكة Wi-Fi",
                         color = Color(0xFF46536A),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
@@ -140,7 +140,7 @@ fun ReceiveScreen(
             ) {
                 Icon(Icons.Filled.Wifi, contentDescription = null, tint = Color(0xFFC084FC), modifier = Modifier.size(26.dp))
                 Text(
-                    "اتصلوا بشبكة Wi-Fi نفسها، أو استخدموا Wi-Fi Direct أو نقطة الاتصال للربط المباشر.",
+                    "يحاول MalekPlay الاتصال عبر Wi-Fi Direct تلقائياً. إذا لم يدعمه أحد الجهازين، يمكن استخدام شبكة محلية أو نقطة اتصال كمسار بديل.",
                     color = Color(0xFFE4E9F5),
                     modifier = Modifier.padding(start = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
