@@ -50,12 +50,12 @@ object UltraShareDiscovery {
         transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT,
         legacyTransferPort: Int = UltraShareTransport.DEFAULT_PORT,
         context: Context? = null,
-        displayName: String = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlay Android",
+        displayName: String = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlayer Android",
         transferPortProvider: (() -> Int)? = null
     ) = withContext(Dispatchers.IO) {
         require(transferPort in 1..65535)
         val peerId = context?.let(::stablePeerId) ?: UUID.randomUUID().toString()
-        val safeDisplayName = displayName.trim().take(64).ifBlank { "MalekPlay Android" }
+        val safeDisplayName = displayName.trim().take(64).ifBlank { "MalekPlayer Android" }
         DatagramSocket(null).use { socket ->
             socket.reuseAddress = true
             socket.broadcast = true
