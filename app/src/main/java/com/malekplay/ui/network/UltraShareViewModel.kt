@@ -623,10 +623,20 @@ class UltraShareViewModel @Inject constructor(
             }
         } catch (failure: Exception) {
             pendingQrPairing = null
-            _state.value = _state.value.copy(
-                requestingConnection = false,
-                error = failure.localizedMessage ?: "تعذر بدء اكتشاف دعوة الجهاز."
-            )
+            qrP2pConnectStarted = false
+            val fallback = fallbackHosts.firstOrNull()
+            if (!fallback.isNullOrBlank()) {
+                requestConnection(
+                    host = fallback,
+                    secret = secret,
+                    alternateHosts = fallbackHosts.drop(1)
+                )
+            } else {
+                _state.value = _state.value.copy(
+                    requestingConnection = false,
+                    error = failure.localizedMessage ?: "تعذر بدء اكتشاف دعوة الجهاز."
+                )
+            }
         }
     }
 
