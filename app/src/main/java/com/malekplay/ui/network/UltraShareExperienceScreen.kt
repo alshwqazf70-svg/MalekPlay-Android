@@ -119,7 +119,7 @@ fun UltraShareExperienceScreen(
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { picked ->
         val accepted = picked.distinct().filter { isUltraShareMedia(context, it) }
         if (accepted.size != picked.distinct().size) {
-            Toast.makeText(context, "يمكن مشاركة الفيديوهات والموسيقى والصور فقط.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "تم تجاهل الملفات التي تعذرت قراءة بياناتها.", Toast.LENGTH_LONG).show()
         }
         accepted.forEach { uri ->
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -220,7 +220,7 @@ fun UltraShareExperienceScreen(
     LaunchedEffect(initialUris) {
         val allowed = initialUris.distinct().filter { isUltraShareMedia(context, it) }
         if (allowed.size != initialUris.distinct().size) {
-            Toast.makeText(context, "تم تجاهل العناصر التي ليست فيديو أو موسيقى أو صوراً.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "تم تجاهل العناصر التي تعذرت قراءة نوعها.", Toast.LENGTH_LONG).show()
         }
         val failedGrants = allowed.count { uri ->
             val resolver = context.contentResolver
@@ -726,8 +726,8 @@ private fun IncomingRequestPanel(
 }
 
 private fun isUltraShareMedia(context: Context, uri: Uri): Boolean = runCatching {
-    val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
-    mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/")
+    val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
+    UltraShareTransport.isSupportedShareMimeType(mime)
 }.getOrDefault(false)
 
 private fun formatUltraBytes(bytes: Long): String {
