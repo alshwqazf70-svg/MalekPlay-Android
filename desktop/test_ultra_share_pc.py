@@ -156,8 +156,8 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
     def test_batch_sends_files_in_selected_order(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            first = directory / "first.bin"
-            second = directory / "second.bin"
+            first = directory / "first.mp4"
+            second = directory / "second.mp3"
             first.write_bytes(b"first")
             second.write_bytes(b"second")
             with patch("ultra_share_pc.send_file") as send:
