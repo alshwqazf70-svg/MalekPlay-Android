@@ -542,6 +542,14 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun advertiseCurrentWifiDirectInvitation() {
+        if (_state.value.hotspotActive || _state.value.hotspotStarting) {
+            disableWifiDirectInvitation()
+            _state.value = _state.value.copy(
+                error = null,
+                status = "نقطة الاتصال تعمل حالياً؛ لا يمكن تشغيل مجموعة Wi-Fi Direct بالتزامن على هذا الجهاز. سيستخدم QR عناوين نقطة الاتصال والشبكة المحلية."
+            )
+            return
+        }
         if (!_state.value.receiving) {
             _state.value = _state.value.copy(error = "ابدأ الاستقبال أولاً قبل نشر دعوة Wi-Fi Direct.")
             return
