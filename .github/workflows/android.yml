@@ -1,4 +1,4 @@
-name: Build MalekPlay Android APK
+name: Build MalekPlayer Android APK
 
 # Build automatically for every update to the protected development branch.
 on:
@@ -67,7 +67,7 @@ jobs:
       - name: Upload debug APKs
         uses: actions/upload-artifact@v4
         with:
-          name: MalekPlay-debug
+          name: MalekPlayer-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
@@ -78,30 +78,30 @@ jobs:
           ./gradlew --stacktrace --max-workers=2 :app:assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/MalekPlay-2.0-universal.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/MalekPlayer-2.0-universal.apk
           cat > dist/README_AR.txt <<'EOF'
-          MalekPlay 2.0 - نسخة Android للتثبيت
+          MalekPlayer 2.0 - نسخة Android للتثبيت
           
           طريقة التثبيت:
-          1) فك ضغط ملف MalekPlay-2.0-Android.zip.
-          2) افتح MalekPlay-2.0-universal.apk من هاتف Android.
+          1) فك ضغط ملف MalekPlayer-2.0-Android.zip.
+          2) افتح MalekPlayer-2.0-universal.apk من هاتف Android.
           3) إذا طلب الهاتف الإذن، اسمح بالتثبيت من هذا المصدر.
-          4) أكمل التثبيت ثم افتح MalekPlay.
+          4) أكمل التثبيت ثم افتح MalekPlayer.
           
           هذه حزمة APK شاملة لمعالجات Android الشائعة (ARM و x86).
           EOF
           cd dist
-          sha256sum MalekPlay-2.0-universal.apk > SHA256SUMS.txt
-          zip -9 MalekPlay-2.0-Android.zip MalekPlay-2.0-universal.apk README_AR.txt SHA256SUMS.txt
-          unzip -t MalekPlay-2.0-Android.zip
+          sha256sum MalekPlayer-2.0-universal.apk > SHA256SUMS.txt
+          zip -9 MalekPlayer-2.0-Android.zip MalekPlayer-2.0-universal.apk README_AR.txt SHA256SUMS.txt
+          unzip -t MalekPlayer-2.0-Android.zip
           echo "### Universal APK and compressed package sizes" >> "$GITHUB_STEP_SUMMARY"
-          ls -lh MalekPlay-2.0-universal.apk MalekPlay-2.0-Android.zip >> "$GITHUB_STEP_SUMMARY"
+          ls -lh MalekPlayer-2.0-universal.apk MalekPlayer-2.0-Android.zip >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload universal install package
         uses: actions/upload-artifact@v4
         with:
-          name: MalekPlay-universal-install
-          path: dist/MalekPlay-2.0-Android.zip
+          name: MalekPlayer-universal-install
+          path: dist/MalekPlayer-2.0-Android.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -126,7 +126,7 @@ jobs:
       - name: Upload release size-analysis outputs
         uses: actions/upload-artifact@v4
         with:
-          name: MalekPlay-release-size-analysis
+          name: MalekPlayer-release-size-analysis
           path: |
             app/build/outputs/apk/release/*.apk
             app/build/outputs/bundle/release/*.aab
@@ -136,7 +136,7 @@ jobs:
       - name: Publish build summary
         if: always()
         run: |
-          echo "## MalekPlay build outputs" >> "$GITHUB_STEP_SUMMARY"
+          echo "## MalekPlayer build outputs" >> "$GITHUB_STEP_SUMMARY"
           if [ -d app/build/outputs/apk/debug ]; then
             echo "### ABI-specific Debug APKs" >> "$GITHUB_STEP_SUMMARY"
             ls -lh app/build/outputs/apk/debug/*.apk >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
