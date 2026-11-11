@@ -68,7 +68,11 @@ object UltraSharePeerDeliveryStore {
                 val previous = merged[entryKey]
                 // A successful delivery is immutable across retries: never resend it just
                 // because the user retries the remaining recipients for the same file.
-                merged[entryKey] = if (preserveCompleted && previous?.status == STATUS_COMPLETED) previous else entry
+                merged[entryKey] = if (preserveCompleted && previous?.status == STATUS_COMPLETED) {
+                    // Keep the durable receipt, but refresh the route metadata after the
+                    // same authenticated device re-pairs on a different IP address.
+                    previous.copy(peerHost = entry.peerHost, displayName = entry.displayName)
+                } else entry
             }
             preferences[DELIVERIES] = encode(merged.values.toList())
         }
