@@ -203,7 +203,7 @@ def create_handler(output: Path, secret: str, transfer_port: int, v2_port: int,
                     raise ValueError("بيانات الدفعة غير صالحة.")
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
                 batch_id = str(uuid.UUID(str(payload.get("batch_id", ""))))
-            except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as failure:
+            except (ValueError, TypeError, AttributeError, UnicodeDecodeError, json.JSONDecodeError) as failure:
                 self._json(400, {"ok": False, "error": str(failure)[:300] or "معرّف الدفعة غير صالح."})
                 return
 

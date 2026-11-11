@@ -24,7 +24,7 @@ Do not modify or refactor unrelated MalekPlay features. In particular, preserve:
 
 Changes to media permission/startup code are out of scope unless the user explicitly authorizes them or a proven UltraShare integration defect requires a narrowly scoped change. Never clear, rebuild, migrate, or rewrite the library database as part of UltraShare UI work.
 
-UltraShare may read media through existing Android content URIs / MediaRepository integration. It must not add generic APK/app/document sharing. Filter picked and incoming shared content to supported video/audio/image MIME types.
+UltraShare supports general file and folder sharing through Android content URIs / Storage Access Framework, including archives, documents, text, and unknown binary MIME types. APK and PDF files are explicitly blocked by both filename extension and MIME checks at selection and transfer boundaries. Preserve the existing media-library integration for browsing media; do not alter the library scanner or player.
 
 ## Current implementation already present (source inspection)
 
@@ -45,7 +45,7 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - A central room-status panel now shows the active mode, connection/acceptance state, connected peer names, and transfer progress/bytes when a trustworthy progress sample exists.
 - Nearby-device room now has a searchable peer list, larger original MalekPlay avatar cards, clear availability labels, and a primary connect action. Authenticated peers have distinct online cards and an explicit disconnect action.
 - Removed the second duplicate peer picker from the media-send panel; the nearby-device room is the single peer-selection surface. Manual host/secret entry is hidden under advanced pairing options while QR-first remains available.
-- Nearby scan, discovered peers, authenticated peer cards, incoming approval, QR scanning, manual pairing fallback, media-only selection, batch queue, progress and received history remain integrated.
+- Nearby scan, discovered peers, authenticated peer cards, incoming approval, QR scanning, manual pairing fallback, general-file selection (APK/PDF blocked), folder archive, batch queue, progress and received history remain integrated.
 - Selecting a discovered peer opens QR scanning when no pairing secret is present; successful QR scan from camera, QR image, or pasted payload sends the authenticated connection request.
 - A dedicated connection/transfer room now presents sender and receiver identities side by side, identifies which side is this phone, and displays the current pairing/connected/transferring state.
 - The central connection glyph pulses only while a connection request is pending; the infinite animation is disposed when the pending state ends to avoid idle animation work.
@@ -63,7 +63,7 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - Separate pages are provided for: Home, Send media, Receive / Create receiving room, Join group by QR, Nearby devices / radar, Live transfer room, and Transfer history.
 - The pages use the existing `UltraShareViewModel`, foreground transfer service, pairing protocol, discovery, Wi-Fi Direct, hotspot, queue and history stores. No parallel transport engine was introduced.
 - The previous `UltraShareScreen` composable remains in the source tree; it was not deleted. The navigation route now points to the new multi-page composable.
-- Preserved in the new flow: media-only selection, persisted URI grants for externally shared media, camera and image QR scanning, manual pairing fallback, incoming request approval/rejection, peer disconnect, batch send, pause/cancel, retry/skip/resume queue actions, hotspot controls, received-file export/open actions, and sent/received history.
+- Preserved in the new flow: general-file and folder selection (APK/PDF blocked), persisted URI grants, camera and image QR scanning, manual pairing fallback, incoming request approval/rejection, peer disconnect, batch send, pause/cancel, retry/skip/resume queue actions, hotspot controls, received-file export/open actions, and sent/received history.
 - Internal page back navigation is supported through the Android system Back action and the page header.
 - This is the first structural multi-page pass. It still requires exact-head Android CI/build verification and two-device usability testing before it can be called release-ready.
 
@@ -116,12 +116,12 @@ UltraShare may read media through existing Android content URIs / MediaRepositor
 - Still required: verify actual two-phone identity names and orientation, animation lifecycle, completion behavior for success/failure/multi-file batches, and QR readability on physical screens.
 - Preserve Arabic RTL behavior and MalekPlay styling; do not copy Zapya branding/assets.
 
-### 3. Media-only selection and receiving
-- Keep the picker limited to video/audio/image MIME types.
-- Check every inbound/outbound content URI and MIME type at the transfer boundary; reject APKs and generic documents.
-- Support multi-select and clear selected-media summaries (count, total size, thumbnails where safely available).
+### 3. General file selection and receiving
+- Allow all valid file MIME types, including ZIP, TXT, documents, and application/octet-stream; block APK and PDF by extension and MIME at every sender/receiver boundary.
+- Keep folder sharing through a ZIP archive and ensure the archive MIME is accepted.
+- Preserve multi-select, persisted URI grants, safe filename handling, bounded file sizes, SHA-256 verification, and safe extraction.
 - Keep the current library scanner, media database and player untouched.
-- After a successful receive, publish supported media through the existing received-media mechanism and refresh the existing repository only where already integrated.
+- Publish received media through the existing media mechanism where applicable; other files remain available through received-file history/export.
 
 ### 4. Connection negotiation and transport fallback
 - Prefer a reachable authenticated WLAN candidate; use Wi-Fi Direct or receiver hotspot only when the path is actually established and reachable.
@@ -145,6 +145,18 @@ Primary evidence documents:
 - `docs/ULTRASHARE-PROTOCOL-V2-DESIGN.md`
 - `docs/ULTRASHARE-V2-IMPLEMENTATION-CHECKPOINT.md`
 - `docs/ULTRASHARE-ZAPYA-PHASE6-ENGINEERING-NOTES.md`
+
+## Latest implementation update — 2026-11-11
+
+- Added BLE discovery and advertisement alongside the existing Bluetooth Classic scan. The BLE advertisement contains only a short-lived random token and a MalekPlay service UUID; it does not broadcast pairing secrets, file metadata, or transfer endpoints. BLE remains a discovery hint, not a file-transfer transport.
+- Wired BLE peers into the UltraShare ViewModel and nearby-device screen, including permission handling for BLUETOOTH_ADVERTISE, scan state, radar counts, and lifecycle cleanup.
+- The Android Wi-Fi Direct helper and LocalOnlyHotspot receiver path remain integrated with the existing control/data route negotiation. They still require physical-device validation across multiple phone models and Android versions; source code alone does not establish Zapya-equivalent reliability.
+- The Android queue remains durable through DataStore and marks in-flight entries pending after process recovery. Receiver-side V2 partial files and SHA-256 receipts are persisted. If Android kills the app process, the user must reopen MalekPlay, re-establish pairing/approval (secrets are deliberately not persisted), then resume the pending batch; automatic secretless reconnect after process death is not claimed.
+- Desktop browser V2 now stages all selected files and submits them to send_batch_v2 as one manifest and one authenticated data session, instead of opening a separate V2 batch session for each selected file. Staged batches expire after one hour and are removed after finalization.
+- General file selection is supported, including ZIP/TXT/documents/octet-stream; APK and PDF remain blocked. Folder archives use ZIP and are no longer rejected by a media-only MIME allowlist.
+- New BLE merge/deduplication unit tests were added. Desktop workflow 43043385688 passed after the desktop batch implementation. Android workflow 43043386119 was queued/pending at the previous check; workflow 43043227351 was cancelled when a newer commit superseded it. Latest source head at this note: 4c5f26cdf6c71587247e443e3486b7aeaf50db60.
+- Physical Android-to-Android and Android-to-PC tests, BLE discovery tests on real phones, hotspot/Wi-Fi Direct transfer tests, network-loss resume tests, and visual screenshot comparison against the Zapya reference remain outstanding. Do not describe the project as 100% identical or field-verified until those tests are performed.
+- The available Zapya engineering analysis is based on an older APK. Match observable user-facing capabilities and reliability goals, but do not claim identical proprietary internals or wire compatibility without evidence.
 
 ## Instructions for the next ChatGPT conversation
 

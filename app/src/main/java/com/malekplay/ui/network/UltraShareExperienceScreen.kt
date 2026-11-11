@@ -104,7 +104,7 @@ fun UltraShareExperienceScreen(
     var search by remember { mutableStateOf("") }
     var pendingFolderArchive by remember { mutableStateOf<UltraShareTransport.ReceivedFile?>(null) }
     var selectedUris by remember(initialUris) {
-        mutableStateOf(initialUris.distinct().filter { isUltraShareMedia(context, it) })
+        mutableStateOf(initialUris.distinct().filter { isUltraShareAllowedFile(context, it) })
     }
 
     fun handleQr(raw: String) {
@@ -136,7 +136,7 @@ fun UltraShareExperienceScreen(
                     it.uri == uri && it.isReadPermission
                 }
             }.getOrDefault(false)
-            if (hasDurableReadAccess && isUltraShareMedia(context, uri)) {
+            if (hasDurableReadAccess && isUltraShareAllowedFile(context, uri)) {
                 accepted += uri
             } else {
                 rejectedCount++
@@ -181,7 +181,7 @@ fun UltraShareExperienceScreen(
                             context.packageName + ".fileprovider",
                             archive.file
                         )
-                        check(isUltraShareMedia(context, archiveUri)) {
+                        check(isUltraShareAllowedFile(context, archiveUri)) {
                             "تعذر فتح أرشيف المجلد بعد إنشائه."
                         }
                         selectedUris = (selectedUris + archiveUri).distinct()
@@ -424,7 +424,7 @@ fun UltraShareExperienceScreen(
                     it.uri == uri && it.isReadPermission
                 }
             }.getOrDefault(false)
-            if (hasDurableReadAccess && isUltraShareMedia(context, uri)) {
+            if (hasDurableReadAccess && isUltraShareAllowedFile(context, uri)) {
                 durableUris += uri
             } else {
                 rejectedCount++
@@ -550,7 +550,7 @@ fun UltraShareExperienceScreen(
                 ActionTile(
                     Modifier.weight(1f),
                     "إرسال ملفات",
-                    "اختر فيديو أو موسيقى أو صوراً",
+                    "اختر أي نوع ملف أو مجلداً باستثناء APK وPDF",
                     { Icon(Icons.Filled.Send, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
                 ) { page = UltraSharePage.SEND }
             }
@@ -572,7 +572,7 @@ fun UltraShareExperienceScreen(
         } else {
             PageHeader(
                 title = when (page) {
-                    UltraSharePage.SEND -> "إرسال الوسائط"
+                    UltraSharePage.SEND -> "إرسال الملفات"
                     UltraSharePage.RECEIVE -> "استقبال الملفات"
                     UltraSharePage.JOIN -> "الانضمام إلى مجموعة"
                     UltraSharePage.NEARBY -> "الأجهزة القريبة"
@@ -1065,7 +1065,7 @@ private fun IncomingRequestPanel(
     }
 }
 
-private fun isUltraShareMedia(context: Context, uri: Uri): Boolean = runCatching {
+private fun isUltraShareAllowedFile(context: Context, uri: Uri): Boolean = runCatching {
     val resolver = context.contentResolver
     val mime = resolver.getType(uri) ?: "application/octet-stream"
     val displayName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
