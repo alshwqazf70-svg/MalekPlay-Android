@@ -92,6 +92,7 @@ class UltraShareViewModel @Inject constructor(
     private var bleSession: UltraShareBleDiscovery.Session? = null
     private data class PendingQrPairing(val secret: String, val hosts: List<String>)
     private var pendingQrPairing: PendingQrPairing? = null
+    private var qrP2pConnectStarted = false
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
     }
@@ -493,6 +494,7 @@ class UltraShareViewModel @Inject constructor(
                     val pending = pendingQrPairing
                     if (pending != null) {
                         pendingQrPairing = null
+                        qrP2pConnectStarted = false
                         _state.value = _state.value.copy(wifiDirectHost = remoteHost)
                         requestConnection(
                             host = remoteHost,
@@ -553,6 +555,7 @@ class UltraShareViewModel @Inject constructor(
             return
         }
         pendingQrPairing = PendingQrPairing(secret.trim(), fallbackHosts)
+        qrP2pConnectStarted = false
         try {
             val session = ensureWifiDirectSession()
             _state.value = _state.value.copy(
@@ -562,7 +565,8 @@ class UltraShareViewModel @Inject constructor(
                 status = "تمت قراءة الدعوة؛ جارٍ العثور على الجهاز وإنشاء اتصال مباشر آمن..."
             )
             session.discoverInvitation(invitationId) { peer ->
-                if (pendingQrPairing != null) {
+                if (pendingQrPairing != null && !qrP2pConnectStarted) {
+                    qrP2pConnectStarted = true
                     _state.value = _state.value.copy(
                         status = "تم العثور على جهاز الاستقبال؛ جارٍ إنشاء الاتصال المباشر..."
                     )
@@ -576,16 +580,29 @@ class UltraShareViewModel @Inject constructor(
                                     error = failure.localizedMessage ?: "تعذر الاتصال بجهاز الدعوة."
                                 )
                                 pendingQrPairing = null
+                                qrP2pConnectStarted = false
                             }
                         }
                     }
                 }
             }
             viewModelScope.launch {
-                delay(if (fallbackHosts.isNotEmpty()) 12_000 else 20_000)
-                val pending = pendingQrPairing
+                delay(12_000)
+                var pending = pendingQrPairing
                 if (pending != null && pending.secret == secret.trim()) {
-                    if (fallbackHosts.isNotEmpty()) {
+                    if (qrP2pConnectStarted) {
+                        delay(18_000)
+                        pending = pendingQrPairing
+                        if (pending != null && pending.secret == secret.trim()) {
+                            pendingQrPairing = null
+                            qrP2pConnectStarted = false
+                            session.stopInvitationDiscovery()
+                            _state.value = _state.value.copy(
+                                requestingConnection = false,
+                                error = "عُثر على الجهاز لكن تعذر إكمال اتصال Wi-Fi Direct. أعد المحاولة أو استخدم مسار الشبكة المحلية."
+                            )
+                        }
+                    } else if (fallbackHosts.isNotEmpty()) {
                         // Older peers and same-LAN sessions can still use the existing
                         // authenticated MPC2 route if DNS-SD is unavailable on this device.
                         val fallback = fallbackHosts.firstOrNull()
