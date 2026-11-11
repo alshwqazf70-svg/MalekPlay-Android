@@ -535,6 +535,7 @@ class UltraShareViewModel @Inject constructor(
 
     fun disableWifiDirectInvitation() {
         runCatching { wifiDirectSession?.stopInvitationAdvertisement() }
+        runCatching { wifiDirectSession?.removeGroup() }
         _state.value = _state.value.copy(
             invitationId = "",
             status = "تم تعطيل دعوة Wi-Fi Direct؛ يمكنك استخدام رمز QR عبر الشبكة المحلية."
