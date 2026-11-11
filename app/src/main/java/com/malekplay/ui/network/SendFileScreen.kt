@@ -63,7 +63,7 @@ fun SendFileScreen(
     onSendToAllPeers: () -> Unit
 ) {
     // Selecting a discovered peer opens the secure pairing fields immediately.
-    var showManualPairing by remember(host) { mutableStateOf(host.isNotBlank() && state.approvedPeerHost != host) }
+    var showManualPairing by remember(host) { mutableStateOf(host.isNotBlank() && host !in state.approvedSenderPeerHosts) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.VIDEO) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
@@ -111,7 +111,7 @@ fun SendFileScreen(
         OutlinedButton(onClick = onOpenDevicePicker, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) { Text("اختيار جهاز من نافذة الأجهزة القريبة") }
         if (host.isNotBlank()) {
             InfoPanel("الجهاز المحدد", host + " • " + when {
-                state.approvedPeerHost == host -> "متصل وموثّق"
+                host in state.approvedSenderPeerHosts -> "متصل وموثّق"
                 state.requestingConnection -> "بانتظار الموافقة"
                 else -> "بانتظار الاقتران"
             })
@@ -134,7 +134,7 @@ fun SendFileScreen(
             Button(
                 onClick = onSendBatch,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !state.sending && host.isNotBlank() && state.approvedPeerHost == host && UltraShareTransport.isValidPairingSecret(secret)
+                enabled = !state.sending && host.isNotBlank() && host in state.approvedSenderPeerHosts
             ) { Text("إرسال ${selectedUris.size} ملف الآن") }
             if (state.approvedSenderPeerCount > 1) {
                 OutlinedButton(
