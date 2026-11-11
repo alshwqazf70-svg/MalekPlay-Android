@@ -60,7 +60,8 @@ fun SendFileScreen(
     onPastePairingDetails: () -> Unit,
     onRequestConnection: () -> Unit,
     onSendBatch: () -> Unit,
-    onSendToAllPeers: () -> Unit
+    onSendToAllPeers: () -> Unit,
+    onResumeAllPeers: () -> Unit
 ) {
     // Selecting a discovered peer opens the secure pairing fields immediately.
     var showManualPairing by remember(host) { mutableStateOf(host.isNotBlank() && host !in state.approvedSenderPeerHosts) }
@@ -143,6 +144,19 @@ fun SendFileScreen(
                     enabled = !state.sending
                 ) {
                     Text("إرسال إلى جميع الأجهزة المقترنة (${state.approvedSenderPeerCount})")
+                }
+            }
+            if (state.peerDeliveryEntries.any {
+                    it.peerHost in state.approvedSenderPeerHosts &&
+                        (it.status == com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_PENDING ||
+                            it.status == com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_FAILED)
+                }) {
+                OutlinedButton(
+                    onClick = onResumeAllPeers,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.sending && state.approvedSenderPeerCount > 0
+                ) {
+                    Text("استئناف التسليمات غير المكتملة دون تكرار الملفات الناجحة")
                 }
             }
         }
