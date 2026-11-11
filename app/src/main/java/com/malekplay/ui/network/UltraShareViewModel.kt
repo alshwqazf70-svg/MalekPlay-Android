@@ -63,7 +63,8 @@ data class UltraShareUiState(
     val requestingConnection: Boolean = false,
     val activePeers: List<com.malekplay.network.UltraSharePeerSession> = emptyList(),
     val peerTransfers: List<com.malekplay.network.UltraSharePeerTransfer> = emptyList(),
-    val approvedSenderPeerCount: Int = 0
+    val approvedSenderPeerCount: Int = 0,
+    val approvedSenderPeerHosts: List<String> = emptyList()
 )
 
 @HiltViewModel
@@ -133,6 +134,7 @@ class UltraShareViewModel @Inject constructor(
                     activePeers = serviceState.activePeers,
                     peerTransfers = serviceState.peerTransfers,
                     approvedSenderPeerCount = approvedSenderTargets.size,
+                    approvedSenderPeerHosts = approvedSenderTargets.keys.toList(),
                     approvedPeerHost = current.approvedPeerHost?.takeIf { approved ->
                         serviceState.activePeers.any { it.host == approved }
                     }
@@ -242,6 +244,7 @@ class UltraShareViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         approvedPeerHost = connectedHost,
                         approvedSenderPeerCount = approvedSenderTargets.size,
+                        approvedSenderPeerHosts = approvedSenderTargets.keys.toList(),
                         status = if (connectedHost != host.trim())
                             "تم الاقتران عبر مسار بديل بنجاح. جُهزت ${orderedRoutes.size} مسارات احتياطية للنقل."
                         else if (orderedRoutes.size > 1)
@@ -256,6 +259,7 @@ class UltraShareViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         approvedPeerHost = previousTarget?.host,
                         approvedSenderPeerCount = approvedSenderTargets.size,
+                        approvedSenderPeerHosts = approvedSenderTargets.keys.toList(),
                         status = if (rejected) "رفض الجهاز الآخر طلب الاتصال."
                             else "تعذر الوصول إلى الجهاز عبر المسارات المكتشفة.",
                         requestingConnection = false,
@@ -272,6 +276,7 @@ class UltraShareViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     approvedPeerHost = previousTarget?.host,
                     approvedSenderPeerCount = approvedSenderTargets.size,
+                    approvedSenderPeerHosts = approvedSenderTargets.keys.toList(),
                     requestingConnection = false,
                     error = failure.localizedMessage ?: "تعذر إتمام طلب الاتصال."
                 )
@@ -285,7 +290,8 @@ class UltraShareViewModel @Inject constructor(
         approvedPeerCandidates = next?.candidates.orEmpty()
         _state.value = _state.value.copy(
             approvedPeerHost = next?.host,
-            approvedSenderPeerCount = approvedSenderTargets.size
+            approvedSenderPeerCount = approvedSenderTargets.size,
+            approvedSenderPeerHosts = approvedSenderTargets.keys.toList()
         )
     }
 
@@ -485,12 +491,12 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun sendBatch(uris: List<Uri>, host: String, secret: String): Boolean {
-        if (uris.isEmpty() || _state.value.sending ||
-            host.isBlank() || _state.value.approvedPeerHost != host.trim() ||
-            !UltraShareTransport.isValidPairingSecret(secret)
-        ) return false
+        val target = approvedSenderTargets[host.trim()]
+        if (uris.isEmpty() || _state.value.sending || target == null) return false
         return runCatching {
-            UltraShareForegroundService.startSendingBatch(context, uris, host, secret, approvedPeerCandidates)
+            UltraShareForegroundService.startSendingBatch(
+                context, uris, target.host, target.secret, target.candidates
+            )
             _state.value = _state.value.copy(
                 sending = true, progress = null, queueCompleted = 0,
                 queueTotal = uris.size, queueCurrentName = null, error = null,
@@ -531,9 +537,7 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun resumePendingBatch(host: String, secret: String) {
-        if (host.isBlank() || _state.value.approvedPeerHost != host.trim() ||
-            !UltraShareTransport.isValidPairingSecret(secret) || _state.value.sending
-        ) return
+        if (host.isBlank() || approvedSenderTargets[host.trim()] == null || _state.value.sending) return
         viewModelScope.launch {
             val pendingUris = UltraShareQueueStore.pending(context).map { it.parsedUri }
             if (pendingUris.isEmpty()) {
@@ -545,13 +549,12 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun retryFile(entry: UltraShareQueueEntry, host: String, secret: String) {
-        if (_state.value.sending ||
-            host.isBlank() || _state.value.approvedPeerHost != host.trim() ||
-            !UltraShareTransport.isValidPairingSecret(secret) ||
+        val target = approvedSenderTargets[host.trim()]
+        if (_state.value.sending || target == null ||
             entry.status != UltraShareQueueStore.STATUS_FAILED
         ) return
         runCatching {
-            UltraShareForegroundService.retryFile(context, entry.parsedUri, host, secret)
+            UltraShareForegroundService.retryFile(context, entry.parsedUri, target.host, target.secret)
             _state.value = _state.value.copy(
                 sending = true,
                 progress = null,
