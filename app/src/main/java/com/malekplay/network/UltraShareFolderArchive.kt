@@ -51,7 +51,8 @@ object UltraShareFolderArchive {
         val outputDirectory = File(context.filesDir, "ultrashare-outgoing").apply {
             if (!exists() && !mkdirs()) throw IOException("تعذر إنشاء مجلد ملفات المشاركة.")
         }
-        val output = File(outputDirectory, "folder-${System.currentTimeMillis()}-${java.util.UUID.randomUUID()}.zip")
+        val rootName = safeSegment(root.displayName.ifBlank { "folder" })
+        val output = File(outputDirectory, "$rootName-${java.util.UUID.randomUUID()}.zip")
         var fileCount = 0
         var directoryCount = 0
         var entryCount = 0
@@ -60,7 +61,6 @@ object UltraShareFolderArchive {
 
         try {
             ZipOutputStream(BufferedOutputStream(FileOutputStream(output))).use { zip ->
-                val rootName = safeSegment(root.displayName.ifBlank { "folder" })
                 val rootPath = "$rootName/"
                 zip.putNextEntry(ZipEntry(rootPath))
                 zip.closeEntry()
