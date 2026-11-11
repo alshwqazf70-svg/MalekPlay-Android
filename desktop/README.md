@@ -65,6 +65,23 @@ The desktop receiver listens on TCP port **38741** and advertises itself over UD
 
 Use the actual private IP address displayed by the phone; the example address above is illustrative.
 
+## Browser interface on the computer
+
+You can use a local browser page instead of the desktop command line:
+
+1. Install the desktop companion requirements as shown above.
+2. Start the browser companion from this folder:
+
+   ```bash
+   python ultra_share_web.py --output ./Received
+   ```
+
+3. Enter the 9-digit PIN shown by MalekPlay when prompted, then open **http://127.0.0.1:8765** on the same computer.
+4. Use **البحث عن الهاتف على الشبكة** to discover a receiving Android phone, or enter its private IPv4 address manually. Choose a file and send it from the page.
+5. Files sent from Android to the computer appear in the page's received-files list and can be downloaded through the browser.
+
+The web control page binds to loopback only; it is not exposed as a public website or LAN file server. The pairing PIN is held in memory and sent only in a local request header. Android-to-computer transfers continue to use the encrypted Ultra Share protocol and are saved in the selected `Received` folder. Keep the terminal open while using the page.
+
 ## Hotspot use
 
 If there is no Wi-Fi router, enable the phone's personal hotspot, connect the computer to it, then start receiving in MalekPlay. The app advertises addresses on hotspot interfaces when Android exposes them. No internet connection is required.
