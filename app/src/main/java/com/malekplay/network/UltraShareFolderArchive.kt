@@ -27,6 +27,10 @@ import java.util.zip.ZipOutputStream
  * and persist a read grant for [treeUri] before invoking this function.
  */
 object UltraShareFolderArchive {
+    // DocumentsContract.isTreeUri was added in API 24; inspect the SAF URI shape for API 23 support.
+    private fun isTreeUriCompat(uri: Uri): Boolean =
+        uri.scheme == ContentResolver.SCHEME_CONTENT && uri.pathSegments.firstOrNull() == "tree"
+
     private const val MAX_ENTRIES = 25_000
     private const val MAX_DEPTH = 64
     private const val MAX_ARCHIVE_BYTES = 10L * 1024L * 1024L * 1024L
@@ -44,7 +48,7 @@ object UltraShareFolderArchive {
         treeUri: Uri,
         onProgress: (completedEntries: Int, currentName: String) -> Unit = { _, _ -> }
     ): Result {
-        require(DocumentsContract.isTreeUri(treeUri)) { "المعرّف المحدد ليس مجلداً صالحاً." }
+        require(isTreeUriCompat(treeUri)) { "المعرّف المحدد ليس مجلداً صالحاً." }
         val resolver = context.contentResolver
         val rootId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }
             .getOrElse { throw IOException("تعذر قراءة هوية المجلد المحدد.", it) }
@@ -180,7 +184,7 @@ object UltraShareFolderArchive {
         onProgress: (completedEntries: Int, currentName: String) -> Unit = { _, _ -> }
     ): ExtractionResult {
         require(archiveFile.isFile) { "ملف الأرشيف غير موجود." }
-        require(DocumentsContract.isTreeUri(destinationTreeUri)) { "مجلد الوجهة غير صالح." }
+        require(isTreeUriCompat(destinationTreeUri)) { "مجلد الوجهة غير صالح." }
         val resolver = context.contentResolver
         val destinationId = DocumentsContract.getTreeDocumentId(destinationTreeUri)
         val destinationRoot = DocumentsContract.buildDocumentUriUsingTree(destinationTreeUri, destinationId)
