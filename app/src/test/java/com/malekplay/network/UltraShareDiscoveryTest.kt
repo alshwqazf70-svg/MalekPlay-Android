@@ -98,6 +98,14 @@ class UltraShareDiscoveryTest {
     }
 
     @Test
+    fun stalePeerSightingsExpireAfterTheConfiguredWindow() {
+        assertTrue(UltraShareDiscovery.isSightingFresh(10_000L, 21_999L, 12_000L))
+        assertTrue(UltraShareDiscovery.isSightingFresh(10_000L, 22_000L, 12_000L))
+        assertFalse(UltraShareDiscovery.isSightingFresh(10_000L, 22_001L, 12_000L))
+        assertFalse(UltraShareDiscovery.isSightingFresh(10_001L, 10_000L, 12_000L))
+    }
+
+    @Test
     fun legacyPeersFallBackToTheirLanAddress() {
         val peer = UltraShareDiscovery.Peer(
             host = "192.168.1.15",
