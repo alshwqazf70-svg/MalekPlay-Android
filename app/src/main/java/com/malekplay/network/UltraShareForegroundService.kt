@@ -1228,7 +1228,7 @@ class UltraShareForegroundService : Service() {
                     }
                 ) { peer ->
                     val auth = targets.first { it.sessionId == peer.sessionId }
-                    val sources = metadata.map { (uri, details) ->
+                    val allSources = metadata.map { (uri, details) ->
                         UltraShareBatchTransport.Source(
                             uri = uri,
                             name = details.first,
@@ -1237,6 +1237,16 @@ class UltraShareForegroundService : Service() {
                             fileId = java.util.UUID.randomUUID().toString()
                         )
                     }
+                    val previousDeliveries = UltraSharePeerDeliveryStore.observe(this@UltraShareForegroundService).first()
+                    val completedUris = previousDeliveries.asSequence()
+                        .filter {
+                            it.peerSessionId == peer.sessionId &&
+                                it.status == UltraSharePeerDeliveryStore.STATUS_COMPLETED
+                        }
+                        .map { it.fileUri }
+                        .toSet()
+                    val sources = allSources.filterNot { it.uri.toString() in completedUris }
+                    if (sources.isEmpty()) return@execute "كل الملفات مستلمة مسبقاً على هذا الجهاز"
                     sources.forEach { source ->
                         UltraSharePeerDeliveryStore.update(
                             this@UltraShareForegroundService,
@@ -1318,7 +1328,14 @@ class UltraShareForegroundService : Service() {
                         "اكتمل " + completedCount + " من " + sources.size + " ملفات"
                     } catch (cancelled: CancellationException) {
                         withContext(NonCancellable) {
-                            sources.forEach { source ->
+                            val delivered = UltraSharePeerDeliveryStore.observe(this@UltraShareForegroundService).first()
+                                .filter {
+                                    it.peerSessionId == peer.sessionId &&
+                                        it.status == UltraSharePeerDeliveryStore.STATUS_COMPLETED
+                                }
+                                .map { it.fileUri }
+                                .toSet()
+                            sources.filterNot { it.uri.toString() in delivered }.forEach { source ->
                                 UltraSharePeerDeliveryStore.update(
                                     this@UltraShareForegroundService,
                                     source.uri,
@@ -1331,7 +1348,14 @@ class UltraShareForegroundService : Service() {
                         throw cancelled
                     } catch (failure: Exception) {
                         withContext(NonCancellable) {
-                            sources.forEach { source ->
+                            val delivered = UltraSharePeerDeliveryStore.observe(this@UltraShareForegroundService).first()
+                                .filter {
+                                    it.peerSessionId == peer.sessionId &&
+                                        it.status == UltraSharePeerDeliveryStore.STATUS_COMPLETED
+                                }
+                                .map { it.fileUri }
+                                .toSet()
+                            sources.filterNot { it.uri.toString() in delivered }.forEach { source ->
                                 UltraSharePeerDeliveryStore.update(
                                     this@UltraShareForegroundService,
                                     source.uri,
@@ -1347,7 +1371,7 @@ class UltraShareForegroundService : Service() {
 
                 val deliveryEntries = UltraSharePeerDeliveryStore.observe(this@UltraShareForegroundService).first()
                 var fullyDeliveredFiles = 0
-                var failedFiles = 0
+                var failedFiles = queue.size - metadata.size
                 var transferredBytes = 0L
                 metadata.forEach { (uri, details) ->
                     val perPeer = deliveryEntries.filter {
