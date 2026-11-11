@@ -1,6 +1,6 @@
-# MalekPlay Ultra Share — Desktop Companion
+# MalekPlayer Ultra Share — Desktop Companion
 
-A small Windows, Linux, and macOS companion for the Ultra Share v1 protocol. It can send files to an Android receiver and receive files from the MalekPlay Android app over a private local network.
+A small Windows, Linux, and macOS companion for the Ultra Share v1 protocol. It can send files to an Android receiver and receive files from the MalekPlayer Android app over a private local network.
 
 ## Requirements
 
@@ -16,7 +16,7 @@ Install the dependency as above, then start the dedicated browser companion:
 python ultra_share_web.py --output ./Received
 ```
 
-The terminal displays the computer's receive PIN. Open `http://127.0.0.1:8765` in a browser on that same computer. The page can discover a MalekPlay receiver on the local network, send selected files to the phone using its private IPv4 address and 9-digit PIN, and list/download files received from Android. The browser companion uses the existing authenticated AES-GCM transfer protocol and SHA-256 verification; it does not upload files to a cloud service.
+The terminal displays the computer's receive PIN. Open `http://127.0.0.1:8765` in a browser on that same computer. The page can discover a MalekPlayer receiver on the local network, send selected files to the phone using its private IPv4 address and 9-digit PIN, and list/download files received from Android. The browser companion uses the existing authenticated AES-GCM transfer protocol and SHA-256 verification; it does not upload files to a cloud service.
 
 The browser control page is intentionally bound to `127.0.0.1` and validates Host/Origin headers to resist DNS-rebinding and cross-origin requests. It is not intended to be opened from another device on the LAN. Allow the transfer port through the firewall only on private networks and keep the pairing PIN private.
 
@@ -46,14 +46,14 @@ python -m pip install -r requirements.txt
 
 ## Receive files on the computer
 
-1. Open MalekPlay on Android and start **Ultra Share → Receive**.
+1. Open MalekPlayer on Android and start **Ultra Share → Receive**.
 2. Start the desktop receiver:
 
    ```bash
    python ultra_share_pc.py receive --output ./Received
    ```
 
-3. Enter the pairing code shown by MalekPlay when prompted.
+3. Enter the pairing code shown by MalekPlayer when prompted.
 4. On Android, scan for nearby devices and select the computer if discovery is available. Otherwise enter the computer's private IPv4 address manually.
 
 The desktop receiver listens on TCP **38741** (V1), TCP **38742** (V2), and TCP **38744** (MPC2 control), and advertises itself over UDP **38742**. On Windows, allow Python through Windows Defender Firewall for **Private networks only** for TCP 38741/38742/38744 and UDP 38742. Do not expose these ports to public networks.
@@ -88,7 +88,7 @@ You can use a local browser page instead of the desktop command line:
    python ultra_share_web.py --output ./Received
    ```
 
-3. Enter the 9-digit PIN shown by MalekPlay when prompted, then open **http://127.0.0.1:8765** on the same computer.
+3. Enter the 9-digit PIN shown by MalekPlayer when prompted, then open **http://127.0.0.1:8765** on the same computer.
 4. Use **البحث عن الهاتف على الشبكة** to discover a receiving Android phone, or enter its private IPv4 address manually. Choose a file and send it from the page.
 5. Files sent from Android to the computer appear in the page's received-files list and can be downloaded through the browser.
 
@@ -96,7 +96,7 @@ The web control page binds to loopback only; it is not exposed as a public websi
 
 ## Hotspot use
 
-If there is no Wi-Fi router, enable the phone's personal hotspot, connect the computer to it, then start receiving in MalekPlay. The app advertises addresses on hotspot interfaces when Android exposes them. No internet connection is required.
+If there is no Wi-Fi router, enable the phone's personal hotspot, connect the computer to it, then start receiving in MalekPlayer. The app advertises addresses on hotspot interfaces when Android exposes them. No internet connection is required.
 
 ## Security and transfer behavior
 
