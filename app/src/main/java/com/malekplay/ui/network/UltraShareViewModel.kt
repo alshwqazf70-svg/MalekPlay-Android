@@ -526,11 +526,16 @@ class UltraShareViewModel @Inject constructor(
         runCatching {
             val session = ensureWifiDirectSession()
             session.stopDiscovery()
-            session.advertiseInvitation(invitationId)
             _state.value = _state.value.copy(
                 error = null,
-                status = "الجهاز جاهز للاقتران عبر QR أو رمز الدعوة؛ لا حاجة للاتصال اليدوي بشبكة Wi-Fi."
+                status = "جارٍ نشر دعوة الاقتران المباشر..."
             )
+            session.advertiseInvitation(invitationId) {
+                _state.value = _state.value.copy(
+                    error = null,
+                    status = "الجهاز جاهز للاقتران عبر QR؛ لا حاجة للاتصال اليدوي بشبكة Wi-Fi."
+                )
+            }
         }.onFailure { failure ->
             _state.value = _state.value.copy(
                 error = failure.localizedMessage ?: "تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct."
