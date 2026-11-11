@@ -201,6 +201,7 @@ class UltraShareViewModel @Inject constructor(
                             peerId = UltraShareDiscovery.localPeerId(context),
                             onSessionClosed = { disconnectedHost ->
                                 UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
+                                forgetApprovedSenderTarget(disconnectedHost)
                             }
                         )
                         if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
@@ -250,7 +251,6 @@ class UltraShareViewModel @Inject constructor(
                         error = null
                     )
                 } else {
-                    approvedPeerCandidates = emptyList()
                     val previousTarget = approvedSenderTargets.values.lastOrNull()
                     approvedPeerCandidates = previousTarget?.candidates.orEmpty()
                     _state.value = _state.value.copy(
@@ -279,8 +279,7 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
-    fun disconnectPeer(host: String) {
-        UltraShareForegroundService.disconnectApprovedPeer(host)
+    private fun forgetApprovedSenderTarget(host: String) {
         approvedSenderTargets.remove(host)
         val next = approvedSenderTargets.values.lastOrNull()
         approvedPeerCandidates = next?.candidates.orEmpty()
@@ -290,19 +289,16 @@ class UltraShareViewModel @Inject constructor(
         )
     }
 
+    fun disconnectPeer(host: String) {
+        UltraShareForegroundService.disconnectApprovedPeer(host)
+        forgetApprovedSenderTarget(host)
+    }
+
     /** Disconnect only the currently selected sender peer; keep other approved peers available. */
     fun clearApprovedConnection() {
-        val currentHost = _state.value.approvedPeerHost
-        if (currentHost != null) {
-            UltraShareForegroundService.disconnectApprovedPeer(currentHost)
-            approvedSenderTargets.remove(currentHost)
-        }
-        val next = approvedSenderTargets.values.lastOrNull()
-        approvedPeerCandidates = next?.candidates.orEmpty()
-        _state.value = _state.value.copy(
-            approvedPeerHost = next?.host,
-            approvedSenderPeerCount = approvedSenderTargets.size
-        )
+        val currentHost = _state.value.approvedPeerHost ?: return
+        UltraShareForegroundService.disconnectApprovedPeer(currentHost)
+        forgetApprovedSenderTarget(currentHost)
     }
 
     fun acceptConnection() {
