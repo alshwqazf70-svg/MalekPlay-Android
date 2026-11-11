@@ -348,6 +348,13 @@ def send_files(host: str, port: int, secret: str, sources: list[Path]) -> None:
     if missing:
         raise FileNotFoundError("One or more selected files do not exist: " +
                                 ", ".join(str(path) for path in missing))
+    unsupported = [
+        source for source in sources
+        if not is_supported_media(source.name, mimetypes.guess_type(source.name)[0] or "")
+    ]
+    if unsupported:
+        raise ValueError("Ultra Share accepts video, audio, and image files only: " +
+                         ", ".join(source.name for source in unsupported))
     for index, source in enumerate(sources, start=1):
         print(f"\\n[{index}/{len(sources)}] Sending {source.name}")
         send_file(host, port, secret, source)
