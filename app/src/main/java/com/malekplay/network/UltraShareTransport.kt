@@ -72,7 +72,7 @@ object UltraShareTransport {
     private const val MAGIC = 0x4D505531 // MPU1
     private const val VERSION = 1
     private const val SECRET_BYTES = 32
-    private const val PIN_LENGTH = 12
+    private const val PIN_LENGTH = 9
     private const val PIN_KDF_ITERATIONS = 210_000
     private const val PIN_SALT_BYTES = 16
     private const val CHALLENGE_BYTES = 32
@@ -111,15 +111,12 @@ object UltraShareTransport {
         val publishedUri: Uri? = null
     )
 
-    /** Generates a 12-digit one-time numeric pairing PIN, preserving leading zeroes. */
+    /** Generates a compact, human-friendly one-time numeric pairing PIN. */
     fun createPairingSecret(): String {
-        // Generate each digit directly so the code always has exactly twelve digits.
-        // The PIN is never sent over the network; PBKDF2 + challenge-response derive
-        // a per-session key from the fresh receiver challenge.
-        val random = SecureRandom()
-        return buildString(PIN_LENGTH) {
-            repeat(PIN_LENGTH) { append(('0'.code + random.nextInt(10)).toChar()) }
-        }
+        // A nine-digit one-time PIN is easy to read aloud; challenge-response
+        // and the per-session PBKDF2 key keep the PIN off the network.
+        val value = SecureRandom().nextInt(1_000_000_000)
+        return String.format(Locale.US, "%09d", value)
     }
 
     fun isValidPairingSecret(value: String): Boolean =
