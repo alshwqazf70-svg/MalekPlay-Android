@@ -131,15 +131,6 @@ def read_text(data: bytes, offset: int, maximum: int) -> tuple[str, int]:
     return data[offset:offset + length].decode("utf-8"), offset + length
 
 
-def is_supported_media(filename: str, declared_mime: str = "") -> bool:
-    """Accept only video, audio, and image payloads at the desktop transfer boundary."""
-    guessed_mime = mimetypes.guess_type(filename)[0] or ""
-    if guessed_mime:
-        return guessed_mime.startswith(("video/", "audio/", "image/"))
-    normalized = declared_mime.split(";", 1)[0].strip().lower()
-    return normalized.startswith(("video/", "audio/", "image/"))
-
-
 def safe_name(raw: str) -> str:
     name = raw.replace("\\", "/").split("/")[-1]
     name = "".join(
@@ -248,8 +239,6 @@ def send_once(host: str, port: int, secret: str, source: Path) -> None:
         raise ValueError("The file size is outside the supported range.")
     filename = safe_name(source.name)
     mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    if not is_supported_media(filename, mime):
-        raise ValueError("Ultra Share accepts video, audio, and image files only.")
     digest = hashlib.sha256()
     with source.open("rb") as stream:
         while True:
@@ -348,13 +337,6 @@ def send_files(host: str, port: int, secret: str, sources: list[Path]) -> None:
     if missing:
         raise FileNotFoundError("One or more selected files do not exist: " +
                                 ", ".join(str(path) for path in missing))
-    unsupported = [
-        source for source in sources
-        if not is_supported_media(source.name, mimetypes.guess_type(source.name)[0] or "")
-    ]
-    if unsupported:
-        raise ValueError("Ultra Share accepts video, audio, and image files only: " +
-                         ", ".join(source.name for source in unsupported))
     for index, source in enumerate(sources, start=1):
         print(f"\\n[{index}/{len(sources)}] Sending {source.name}")
         send_file(host, port, secret, source)
@@ -396,9 +378,7 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
         send_key = derive_key(pairing_key, challenge, "server-to-client")
 
         metadata = read_frame(connection, receive_key, nonce_prefix, 0, 1024)
-        filename, size, mime, expected_digest = parse_metadata(metadata)
-        if not is_supported_media(filename, mime):
-            raise PermissionError("Only video, audio, and image files are accepted.")
+        filename, size, _mime, expected_digest = parse_metadata(metadata)
         transfer_id = build_transfer_id(filename, size, expected_digest)
         partial = directory / f".ultrashare-{transfer_id}.part"
         marker = directory / f".ultrashare-{transfer_id}.meta"
