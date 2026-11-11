@@ -141,6 +141,18 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
                     send_files("192.168.1.20", DEFAULT_PORT, "004219837", [first, missing])
             send.assert_not_called()
 
+    def test_batch_rejects_unsupported_media_before_starting_any_transfer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            first = directory / "first.mp4"
+            unsupported = directory / "installer.apk"
+            first.write_bytes(b"video")
+            unsupported.write_bytes(b"not really an apk")
+            with patch("ultra_share_pc.send_file") as send:
+                with self.assertRaises(ValueError):
+                    send_files("192.168.1.20", DEFAULT_PORT, "004219837", [first, unsupported])
+            send.assert_not_called()
+
     def test_batch_sends_files_in_selected_order(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
