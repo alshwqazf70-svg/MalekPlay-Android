@@ -360,6 +360,12 @@ def _encode_v2_offsets(manifest: Manifest, offsets: dict[str, int]) -> bytes:
     return bytes(output)
 
 
+def _truncate_utf16_units(value: str, maximum_units: int) -> str:
+    encoded = value.encode("utf-16-be", errors="surrogatepass")
+    bounded = encoded[:maximum_units * 2]
+    return bounded.decode("utf-16-be", errors="surrogatepass")
+
+
 def _encode_v2_results(manifest: Manifest, results: list[dict]) -> bytes:
     if len(results) != len(manifest.entries):
         raise ValueError("V2 result count does not match manifest.")
@@ -381,7 +387,7 @@ def _encode_v2_results(manifest: Manifest, results: list[dict]) -> bytes:
         output.extend(_java_write_utf(file_id))
         output.append(status)
         output.extend(struct.pack(">q", transferred))
-        output.extend(_java_write_utf(error[:240]))
+        output.extend(_java_write_utf(_truncate_utf16_units(error, 240)))
     return bytes(output)
 
 
@@ -409,6 +415,8 @@ def _read_v2_results(payload: bytes, manifest: Manifest) -> list[dict]:
             raise ValueError("Invalid V2 result status or byte count.")
         if status == STATUS_COMPLETED and (transferred != entry.size_bytes or error):
             raise ValueError("Invalid completed V2 result.")
+        if len(error.encode("utf-8")) > 1024:
+            raise ValueError("V2 result error text exceeds Android's limit.")
         results.append({
             "file_id": file_id, "status": status,
             "transferred": transferred, "error": error or None,
