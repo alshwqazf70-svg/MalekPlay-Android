@@ -446,7 +446,7 @@ fun UltraShareExperienceScreen(
                 horizontalArrangement = Arrangement.Center
             ) {
                 Text(
-                    if (state.scanning || state.wifiDirectScanning) "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size + state.wifiDirectPeers.size},
+                    if (state.scanning || state.wifiDirectScanning) "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size + state.wifiDirectPeers.size}",
                     color = Color(0xFFB7C5E7),
                     style = MaterialTheme.typography.labelMedium
                 )
