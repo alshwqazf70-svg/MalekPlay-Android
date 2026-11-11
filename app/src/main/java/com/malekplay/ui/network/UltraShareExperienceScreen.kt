@@ -302,6 +302,20 @@ fun UltraShareExperienceScreen(
         if (grants.values.all { it }) viewModel.scanWifiDirectPeers()
         else Toast.makeText(context, "يلزم إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
     }
+    val allNearbyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        val wifiGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            grants[Manifest.permission.NEARBY_WIFI_DEVICES] == true
+        } else grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val bluetoothGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            grants[Manifest.permission.BLUETOOTH_SCAN] == true &&
+                grants[Manifest.permission.BLUETOOTH_CONNECT] == true
+        } else grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        if (wifiGranted) viewModel.scanWifiDirectPeers()
+        if (bluetoothGranted) viewModel.scanBluetoothPeers()
+        if (!wifiGranted && !bluetoothGranted) {
+            Toast.makeText(context, "لم يتم منح أذونات اكتشاف الأجهزة القريبة.", Toast.LENGTH_LONG).show()
+        }
+    }
     val bluetoothPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.all { it }) viewModel.scanBluetoothPeers()
         else Toast.makeText(context, "يلزم منح إذن Bluetooth والأجهزة القريبة لاكتشاف الأجهزة.", Toast.LENGTH_LONG).show()
@@ -343,8 +357,20 @@ fun UltraShareExperienceScreen(
             if (state.bluetoothScanning) viewModel.stopBluetoothDiscovery()
         } else {
             viewModel.scanNearbyDevices()
-            scanWifiDirect()
-            scanBluetooth()
+            val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                arrayOf(
+                    Manifest.permission.NEARBY_WIFI_DEVICES,
+                    Manifest.permission.BLUETOOTH_SCAN,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                )
+            } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+            val missing = required.filter {
+                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isEmpty()) {
+                viewModel.scanWifiDirectPeers()
+                viewModel.scanBluetoothPeers()
+            } else allNearbyPermission.launch(missing.toTypedArray())
         }
     }
     fun startHotspot() {
@@ -697,6 +723,9 @@ fun UltraShareExperienceScreen(
                         style = MaterialTheme.typography.bodySmall
                     )
                     OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("البحث عن جهاز") })
+                    OutlinedButton(onClick = ::scanBluetooth, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+                        Text(if (state.bluetoothScanning) "إيقاف بحث Bluetooth" else "بحث Bluetooth فقط")
+                    }
                     UltraShareRadar(
                         isScanning = state.scanning || state.wifiDirectScanning || state.bluetoothScanning,
                         discoveredCount = visiblePeers.size,
