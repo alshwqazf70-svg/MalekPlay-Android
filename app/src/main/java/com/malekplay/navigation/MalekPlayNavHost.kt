@@ -96,6 +96,7 @@ private val BOTTOM_DESTINATIONS = listOf(
     TopLevelDestination.SERIES,
     TopLevelDestination.MUSIC,
     TopLevelDestination.LOCAL,
+    TopLevelDestination.FAVOURITES,
     TopLevelDestination.ULTRA_SHARE
 )
 
