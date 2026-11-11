@@ -60,7 +60,8 @@ fun SendFileScreen(
     onRequestConnection: () -> Unit,
     onSendBatch: () -> Unit
 ) {
-    var showManualPairing by remember { mutableStateOf(false) }
+    // Selecting a discovered peer opens the secure pairing fields immediately.
+    var showManualPairing by remember(host) { mutableStateOf(host.isNotBlank() && state.approvedPeerHost != host) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.VIDEO) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
@@ -110,9 +111,10 @@ fun SendFileScreen(
             })
         }
         OutlinedButton(onClick = { showManualPairing = !showManualPairing }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (showManualPairing) "إخفاء الاقتران اليدوي" else "خيارات الاقتران اليدوي")
+            Text(if (showManualPairing) "إخفاء بيانات الاقتران" else "إظهار بيانات الاقتران")
         }
         if (showManualPairing) {
+            InfoPanel("إكمال الاتصال الآمن", "تم اختيار الجهاز. أدخل رمز الاقتران ذي 9 أرقام الظاهر على شاشة الاستقبال، أو امسح رمز QR الخاص به.")
             OutlinedTextField(value = host, onValueChange = onHostChange, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("عنوان الجهاز") })
             OutlinedTextField(value = secret, onValueChange = onSecretChange, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("رمز الاقتران (9 أرقام)") })
             OutlinedButton(onClick = onPastePairingDetails, modifier = Modifier.fillMaxWidth()) { Text("لصق بيانات الاقتران") }
