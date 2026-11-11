@@ -76,7 +76,6 @@ class UltraShareViewModel @Inject constructor(
     val state = _state.asStateFlow()
     private var scanJob: Job? = null
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
-    private var approvedPeerCandidates: List<com.malekplay.network.UltraShareNegotiation.Candidate> = emptyList()
     // Pairing secrets stay in this private in-memory registry, never in observable UI state or logs.
     private val approvedSenderTargets = LinkedHashMap<String, UltraShareApprovedSendTarget>()
     private companion object {
@@ -240,7 +239,6 @@ class UltraShareViewModel @Inject constructor(
                         routeCandidates = orderedRoutes,
                         sessionId = sessionId
                     )
-                    approvedPeerCandidates = orderedRoutes
                     _state.value = _state.value.copy(
                         approvedPeerHost = connectedHost,
                         approvedSenderPeerCount = approvedSenderTargets.size,
@@ -255,7 +253,6 @@ class UltraShareViewModel @Inject constructor(
                     )
                 } else {
                     val previousTarget = approvedSenderTargets.values.lastOrNull()
-                    approvedPeerCandidates = previousTarget?.candidates.orEmpty()
                     _state.value = _state.value.copy(
                         approvedPeerHost = previousTarget?.host,
                         approvedSenderPeerCount = approvedSenderTargets.size,
@@ -272,7 +269,6 @@ class UltraShareViewModel @Inject constructor(
                 throw cancelled
             } catch (failure: Exception) {
                 val previousTarget = approvedSenderTargets.values.lastOrNull()
-                approvedPeerCandidates = previousTarget?.candidates.orEmpty()
                 _state.value = _state.value.copy(
                     approvedPeerHost = previousTarget?.host,
                     approvedSenderPeerCount = approvedSenderTargets.size,
@@ -287,7 +283,6 @@ class UltraShareViewModel @Inject constructor(
     private fun forgetApprovedSenderTarget(host: String) {
         approvedSenderTargets.remove(host)
         val next = approvedSenderTargets.values.lastOrNull()
-        approvedPeerCandidates = next?.candidates.orEmpty()
         _state.value = _state.value.copy(
             approvedPeerHost = next?.host,
             approvedSenderPeerCount = approvedSenderTargets.size,
