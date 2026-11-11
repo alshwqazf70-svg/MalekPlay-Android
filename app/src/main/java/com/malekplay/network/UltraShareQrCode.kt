@@ -44,7 +44,6 @@ object UltraShareQrCode {
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
-        require(safeHosts.isNotEmpty()) { "لا يوجد عنوان شبكة محلي صالح لرمز QR." }
         require(UltraShareTransport.isValidPairingSecret(pairingSecret)) {
             "رمز الاقتران غير صالح."
         }
@@ -106,8 +105,8 @@ object UltraShareQrCode {
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
-        val host = hosts.firstOrNull()
-            ?: throw IllegalArgumentException("لا يحتوي رمز QR على عنوان IPv4 محلي صالح.")
+        val host = hosts.firstOrNull() ?: if (version == INVITATION_VERSION) "" else
+            throw IllegalArgumentException("لا يحتوي رمز QR على عنوان IPv4 محلي صالح.")
         val port = requireNotNull(uri.getQueryParameter("port")) { "منفذ الجهاز غير موجود في رمز QR." }
             .toIntOrNull() ?: throw IllegalArgumentException("منفذ الاقتران غير صالح.")
         val secret = requireNotNull(uri.getQueryParameter("secret")) { "رمز الاقتران غير موجود في رمز QR." }
