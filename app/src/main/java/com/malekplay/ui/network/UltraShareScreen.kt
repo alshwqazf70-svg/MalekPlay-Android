@@ -1179,8 +1179,18 @@ fun UltraShareScreen(
                                 }
                                 Button(
                                     onClick = {
-                                        if (viewModel.sendBatch(pendingMediaUris, host.trim(), secret.trim())) {
-                                            pendingMediaUris = emptyList()
+                                        val manualHost = host.trim()
+                                        val manualSecret = secret.trim()
+                                        val manualPairing = UltraShareQrCode.PairingDetails(
+                                            host = manualHost,
+                                            port = UltraShareControlChannel.DEFAULT_PORT,
+                                            pairingSecret = manualSecret,
+                                            hosts = listOf(manualHost)
+                                        )
+                                        viewModel.connectInvitation(manualPairing) { resolvedHost ->
+                                            if (viewModel.sendBatch(pendingMediaUris, resolvedHost, manualSecret)) {
+                                                pendingMediaUris = emptyList()
+                                            }
                                         }
                                     },
                                     modifier = Modifier.weight(1f),
