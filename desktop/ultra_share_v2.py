@@ -782,9 +782,11 @@ def serve_control_once(port: int, secret: str, local_name: str,
     safe_local_name = str(local_name)[:48]
     while safe_local_name and len(safe_local_name.encode("utf-8")) > 96:
         safe_local_name = safe_local_name[:-1]
-    name_bytes = safe_local_name.encode("utf-8")
-    if not name_bytes or any(byte < 32 or 127 <= byte <= 159 for byte in name_bytes):
+    if not safe_local_name.strip() or any(
+        ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in safe_local_name
+    ):
         raise ValueError("Invalid local control-channel device name.")
+    name_bytes = safe_local_name.encode("utf-8")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind(("0.0.0.0", port))
@@ -917,9 +919,11 @@ def connect_control_session(host: str, port: int, secret: str,
     safe_local_name = str(local_name)[:48]
     while safe_local_name and len(safe_local_name.encode("utf-8")) > 96:
         safe_local_name = safe_local_name[:-1]
-    name_bytes = safe_local_name.encode("utf-8")
-    if not name_bytes or any(byte < 32 or 127 <= byte <= 159 for byte in name_bytes):
+    if not safe_local_name.strip() or any(
+        ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in safe_local_name
+    ):
         raise ValueError("Invalid local MPC2 device name.")
+    name_bytes = safe_local_name.encode("utf-8")
     sock = socket.create_connection((host, port), timeout=8.0)
     try:
         sock.settimeout(8.0)
