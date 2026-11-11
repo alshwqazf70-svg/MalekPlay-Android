@@ -302,6 +302,10 @@ fun UltraShareExperienceScreen(
         if (grants.values.all { it }) viewModel.scanWifiDirectPeers()
         else Toast.makeText(context, "يلزم إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
     }
+    val bluetoothPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        if (grants.values.all { it }) viewModel.scanBluetoothPeers()
+        else Toast.makeText(context, "يلزم منح إذن Bluetooth والأجهزة القريبة لاكتشاف الأجهزة.", Toast.LENGTH_LONG).show()
+    }
     val hotspotPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants.values.all { it }) viewModel.startHotspot()
         else Toast.makeText(context, "يلزم إذن الأجهزة القريبة لإنشاء شبكة محلية.", Toast.LENGTH_LONG).show()
@@ -324,13 +328,23 @@ fun UltraShareExperienceScreen(
         }
         if (missing.isEmpty()) viewModel.scanWifiDirectPeers() else wifiPermission.launch(missing.toTypedArray())
     }
+    fun scanBluetooth() {
+        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        val missing = required.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isEmpty()) viewModel.scanBluetoothPeers() else bluetoothPermission.launch(missing.toTypedArray())
+    }
+
     fun scanAllNearby() {
-        if (state.scanning || state.wifiDirectScanning) {
+        if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning) {
             if (state.scanning) viewModel.scanNearbyDevices()
             if (state.wifiDirectScanning) viewModel.stopWifiDirectDiscovery()
+            if (state.bluetoothScanning) viewModel.stopBluetoothDiscovery()
         } else {
             viewModel.scanNearbyDevices()
             scanWifiDirect()
+            scanBluetooth()
         }
     }
     fun startHotspot() {
@@ -467,7 +481,7 @@ fun UltraShareExperienceScreen(
                 horizontalArrangement = Arrangement.Center
             ) {
                 Text(
-                    if (state.scanning || state.wifiDirectScanning) "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size + state.wifiDirectPeers.size}",
+                    if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning) "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size}",
                     color = Color(0xFFB7C5E7),
                     style = MaterialTheme.typography.labelMedium
                 )
@@ -506,7 +520,7 @@ fun UltraShareExperienceScreen(
                     state.sending -> "جارٍ إرسال الملفات"
                     state.pendingConnection != null -> "طلب اتصال وارد"
                     state.activePeers.isNotEmpty() -> "جهاز متصل وجاهز"
-                    state.scanning || state.wifiDirectScanning -> "البحث عن الأجهزة القريبة"
+                    state.scanning || state.wifiDirectScanning || state.bluetoothScanning -> "البحث عن الأجهزة القريبة"
                     else -> "جاهز للمشاركة"
                 },
                 subtitle = "${state.discoveredPeers.size + state.wifiDirectPeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
@@ -666,7 +680,7 @@ fun UltraShareExperienceScreen(
                             enabled = !state.sending
                         ) {
                             Icon(Icons.Filled.Refresh, null)
-                            Text(if (state.scanning || state.wifiDirectScanning) "إيقاف البحث" else "بحث شامل")
+                            Text(if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning) "إيقاف البحث" else "بحث شامل")
                         }
                         OutlinedButton(
                             onClick = ::scanQr,
@@ -678,13 +692,13 @@ fun UltraShareExperienceScreen(
                         }
                     }
                     Text(
-                        "البحث يشمل الشبكة المحلية وWi-Fi Direct؛ يمكنك أيضاً الاتصال بمسح رمز QR.",
+                        "البحث يشمل الشبكة المحلية وWi-Fi Direct وBluetooth. اكتشاف Bluetooth يعرض الأجهزة القريبة فقط؛ يتم الاقتران ونقل الملفات عبر Wi-Fi أو QR.",
                         color = MalekPlayColors.TextSecondary,
                         style = MaterialTheme.typography.bodySmall
                     )
                     OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("البحث عن جهاز") })
                     UltraShareRadar(
-                        isScanning = state.scanning || state.wifiDirectScanning,
+                        isScanning = state.scanning || state.wifiDirectScanning || state.bluetoothScanning,
                         discoveredCount = visiblePeers.size,
                         modifier = Modifier.fillMaxWidth().height(340.dp),
                         peerNames = visiblePeers.take(4).map { it.name },
@@ -706,7 +720,7 @@ fun UltraShareExperienceScreen(
                         }
                     }
                     Text("الأجهزة المكتشفة (" + visiblePeers.size + ")", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
-                    if (visiblePeers.isEmpty() && state.wifiDirectPeers.isEmpty()) InfoPanel("الرادار", if (state.scanning || state.wifiDirectScanning) "جارٍ البحث عبر الشبكة المحلية وWi-Fi Direct..." else "لا توجد أجهزة ظاهرة حالياً. تأكد من تشغيل Wi-Fi أو استخدم QR أو نقطة الاتصال.")
+                    if (visiblePeers.isEmpty() && state.wifiDirectPeers.isEmpty() && state.bluetoothPeers.isEmpty()) InfoPanel("الرادار", if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning) "جارٍ البحث عبر الشبكة المحلية وWi-Fi Direct وBluetooth..." else "لا توجد أجهزة ظاهرة حالياً. تأكد من تشغيل Wi-Fi أو Bluetooth أو استخدم QR أو نقطة الاتصال.")
                     visiblePeers.drop(4).forEach { peer ->
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
                             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -739,6 +753,25 @@ fun UltraShareExperienceScreen(
                                 enabled = !state.requestingConnection && !state.sending
                             ) {
                                 Text("اتصال مباشر • " + peer.name + " • " + peer.status)
+                            }
+                        }
+                    }
+                    if (state.bluetoothPeers.isNotEmpty()) {
+                        Text("أجهزة Bluetooth القريبة (${state.bluetoothPeers.size})", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
+                        state.bluetoothPeers.filter { it.name.contains(search, true) || it.address.contains(search, true) }.forEach { peer ->
+                            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(Modifier.size(42.dp).background(MalekPlayColors.PurpleBright.copy(alpha = 0.18f), CircleShape), contentAlignment = Alignment.Center) {
+                                            Text("BT", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
+                                        }
+                                        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                                            Text(peer.name, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                                            Text(peer.address + if (peer.bonded) " • مقترن مسبقاً" else " • قريب", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                    Text("اكتشاف Bluetooth لا يوفر عنوان نقل ملفات. استخدم Wi-Fi أو QR لإكمال الاقتران الآمن.", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                                }
                             }
                         }
                     }
