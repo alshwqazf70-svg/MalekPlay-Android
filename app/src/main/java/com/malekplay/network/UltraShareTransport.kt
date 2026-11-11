@@ -198,17 +198,7 @@ object UltraShareTransport {
     /** Accept any syntactically valid file MIME except Android packages and PDF documents. */
     fun isSupportedShareMimeType(raw: String): Boolean {
         val candidate = raw.trim().lowercase(Locale.ROOT)
-        val token = "[A-Za-z0-9!#    /** UltraShare intentionally transfers image, audio and video media only. */
-    fun isSupportedShareMimeType(raw: String): Boolean {
-        val candidate = raw.trim().lowercase(Locale.ROOT)
         val token = "[A-Za-z0-9!#$&^_.+-]+"
-        return candidate.length in 3..160 &&
-            Regex("^$token/$token$").matches(candidate) &&
-            (candidate.startsWith("video/") || candidate.startsWith("audio/") || candidate.startsWith("image/"))
-    }
-
-    @Deprecated("Use isSupportedShareMimeType for image, audio and video.")
-    fun isSupportedMediaMimeType(raw: String): Boolean = isSupportedShareMimeType(raw)^_.+-]+"
         return candidate.length in 3..160 &&
             Regex("^$token/$token$").matches(candidate) &&
             candidate !in BLOCKED_SHARE_MIME_TYPES
