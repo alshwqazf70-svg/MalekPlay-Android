@@ -251,7 +251,7 @@ fun UltraShareExperienceScreen(
 
     Column(
         modifier = Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF21152D), Color(0xFF0D0D12), Color(0xFF11101A))))
+            .background(Brush.verticalGradient(listOf(Color(0xFF394363), Color(0xFF35405F), Color(0xFF303B59))))
             .padding(contentPadding)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -260,27 +260,80 @@ fun UltraShareExperienceScreen(
         if (page == UltraSharePage.HOME) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = MalekPlayColors.TextPrimary)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = Color.White)
                 }
-                Column(Modifier.weight(1f)) {
-                    Text("MALEKPLAY • ULTRA SHARE", color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
-                    Text("مشاركة الملفات", color = MalekPlayColors.TextPrimary, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
-                    Text("اختر طريقة المشاركة", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
-                }
-                Icon(Icons.Filled.Wifi, contentDescription = null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(32.dp))
-            }
-            Box(Modifier.fillMaxWidth().height(226.dp), contentAlignment = Alignment.Center) {
-                UltraShareRadar(
-                    isScanning = state.scanning,
-                    discoveredCount = state.discoveredPeers.size,
-                    modifier = Modifier.size(218.dp)
+                Text(
+                    "المشاركة مع صديق",
+                    modifier = Modifier.weight(1f),
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
                 )
-                Box(
-                    Modifier.size(78.dp).background(Color(0xFF241531), CircleShape),
-                    contentAlignment = Alignment.Center
+                Icon(Icons.Filled.QrCode, contentDescription = "رمز QR", tint = Color.White, modifier = Modifier.size(28.dp))
+            }
+            Spacer(Modifier.height(24.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                ActionTile(
+                    Modifier.weight(1f).height(184.dp),
+                    "إنشاء مجموعة",
+                    "اعرض رمز QR وانتظر الأصدقاء",
+                    { Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF72E5F2), modifier = Modifier.size(52.dp)) }
                 ) {
-                    Icon(Icons.Filled.Wifi, contentDescription = "رادار الأجهزة القريبة", tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(38.dp))
+                    if (!state.receiving) viewModel.startReceiving()
+                    page = UltraSharePage.RECEIVE
                 }
+                ActionTile(
+                    Modifier.weight(1f).height(184.dp),
+                    "انضمام لمجموعة",
+                    "اكتشف الأجهزة أو امسح الرمز",
+                    { Icon(Icons.Filled.Send, null, tint = Color(0xFF72E5F2), modifier = Modifier.size(52.dp)) }
+                ) {
+                    if (!state.scanning) viewModel.scanNearbyDevices()
+                    page = UltraSharePage.NEARBY
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    if (state.scanning) "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size}",
+                    color = Color(0xFFB7C5E7),
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionTile(
+                    Modifier.weight(1f),
+                    "المشاركة عبر QR",
+                    "مسح رمز صديق",
+                    { Icon(Icons.Filled.QrCode, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
+                ) { page = UltraSharePage.JOIN }
+                ActionTile(
+                    Modifier.weight(1f),
+                    "إعدادات Wi-Fi",
+                    "اكتشاف مباشر",
+                    { Icon(Icons.Filled.Wifi, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
+                ) { scanWifiDirect(); page = UltraSharePage.NEARBY }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionTile(
+                    Modifier.weight(1f),
+                    "سجل النقل",
+                    "المرسل والمستلم",
+                    { Icon(Icons.Filled.History, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
+                ) { page = UltraSharePage.HISTORY }
+                ActionTile(
+                    Modifier.weight(1f),
+                    "مركز المساعدة",
+                    "إرشادات المشاركة",
+                    { Icon(Icons.Filled.CheckCircle, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
+                ) { page = UltraSharePage.RECEIVE }
             }
             StatusPanel(
                 title = when {
@@ -290,34 +343,9 @@ fun UltraShareExperienceScreen(
                     state.scanning -> "البحث عن الأجهزة القريبة"
                     else -> "جاهز للمشاركة"
                 },
-                subtitle = state.discoveredPeers.size.toString() + " جهاز قريب • " + selectedUris.size + " ملف محدد",
+                subtitle = "${state.discoveredPeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
                 active = state.sending || state.activePeers.isNotEmpty()
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ActionTile(Modifier.weight(1f), "إرسال", "فيديو • موسيقى • صور", { Icon(Icons.Filled.Send, null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(30.dp)) }) {
-                    page = UltraSharePage.SEND
-                }
-                ActionTile(Modifier.weight(1f), "استقبال", "إنشاء غرفة استقبال", { Icon(Icons.Filled.Download, null, tint = Color(0xFF65D6A2), modifier = Modifier.size(30.dp)) }) {
-                    if (!state.receiving) viewModel.startReceiving()
-                    page = UltraSharePage.RECEIVE
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ActionTile(Modifier.weight(1f), "الأجهزة القريبة", "الرادار والاتصال", { Icon(Icons.Filled.Wifi, null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(28.dp)) }) {
-                    if (!state.scanning) viewModel.scanNearbyDevices()
-                    page = UltraSharePage.NEARBY
-                }
-                ActionTile(Modifier.weight(1f), "سجل النقل", "المرسل والمستلم", { Icon(Icons.Filled.History, null, tint = MalekPlayColors.Amber, modifier = Modifier.size(28.dp)) }) {
-                    page = UltraSharePage.HISTORY
-                }
-            }
-            ActionTile(Modifier.fillMaxWidth(), "الانضمام إلى مجموعة", "امسح رمز QR الذي يعرضه جهاز الاستقبال", { Icon(Icons.Filled.QrCode, null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(28.dp)) }) {
-                page = UltraSharePage.JOIN
-            }
-            ActionTile(Modifier.fillMaxWidth(), "غرفة النقل المباشر", "الأجهزة المتصلة وسرعة وتقدم كل ملف", { Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF65D6A2), modifier = Modifier.size(28.dp)) }) {
-                page = UltraSharePage.TRANSFERS
-            }
-            UltraShareHelpCard()
             state.pendingConnection?.let {
                 IncomingRequestPanel(it, viewModel::acceptConnection, viewModel::rejectConnection)
             }
