@@ -85,6 +85,50 @@ class UltraShareQrCodeTest {
         assertEquals(UltraShareControlChannel.DEFAULT_PORT, decoded.port)
     }
 
+    @Test
+    fun invitationQrRoundTripsPeerIdentityAndOptionalLanAddresses() {
+        val secret = UltraShareTransport.createPairingSecret()
+        val invitationId = "malekplay-peer_123"
+        val payload = UltraShareQrCode.createReceiverPayload(
+            hosts = emptyList(),
+            pairingSecret = secret,
+            invitationId = invitationId
+        )
+
+        val decoded = UltraShareQrCode.parsePayload(payload)
+
+        assertEquals("", decoded.host)
+        assertTrue(decoded.hosts.isEmpty())
+        assertEquals(invitationId, decoded.invitationId)
+        assertEquals(secret, decoded.pairingSecret)
+        assertEquals(UltraShareControlChannel.DEFAULT_PORT, decoded.port)
+    }
+
+    @Test
+    fun invitationQrRetainsLanFallbackHosts() {
+        val secret = UltraShareTransport.createPairingSecret()
+        val payload = UltraShareQrCode.createReceiverPayload(
+            hosts = listOf("192.168.49.1", "192.168.1.25"),
+            pairingSecret = secret,
+            invitationId = "peer-abc"
+        )
+
+        val decoded = UltraShareQrCode.parsePayload(payload)
+
+        assertEquals("192.168.49.1", decoded.host)
+        assertEquals(listOf("192.168.49.1", "192.168.1.25"), decoded.hosts)
+        assertEquals("peer-abc", decoded.invitationId)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun invitationQrRejectsMalformedPeerIdentity() {
+        UltraShareQrCode.createReceiverPayload(
+            hosts = emptyList(),
+            pairingSecret = UltraShareTransport.createPairingSecret(),
+            invitationId = "bad peer identity"
+        )
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun pairingParserRejectsForeignSchemes() {
         UltraShareQrCode.parsePayload("https://example.com/?secret=anything")
