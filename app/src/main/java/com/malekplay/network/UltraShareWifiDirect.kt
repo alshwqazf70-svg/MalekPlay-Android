@@ -172,22 +172,41 @@ object UltraShareWifiDirect {
         }
 
         @SuppressLint("MissingPermission")
-        fun stopInvitationDiscovery() {
-            if (closed) return
-            invitationMatch = null
-            runCatching {
-                manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() = Unit
-                    override fun onFailure(reason: Int) = Unit
-                })
+        fun stopInvitationDiscovery(onStopped: () -> Unit = {}) {
+            if (closed) {
+                onStopped()
+                return
             }
-            invitationRequest?.let { request ->
+            invitationMatch = null
+            fun removeRequestAndComplete() {
+                val request = invitationRequest
+                if (request == null) {
+                    onStopped()
+                    return
+                }
                 runCatching {
                     manager.removeServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
-                        override fun onSuccess() { invitationRequest = null }
-                        override fun onFailure(reason: Int) { invitationRequest = null }
+                        override fun onSuccess() {
+                            invitationRequest = null
+                            onStopped()
+                        }
+                        override fun onFailure(reason: Int) {
+                            invitationRequest = null
+                            onStopped()
+                        }
                     })
+                }.onFailure {
+                    invitationRequest = null
+                    onStopped()
                 }
+            }
+            runCatching {
+                manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() = removeRequestAndComplete()
+                    override fun onFailure(reason: Int) = removeRequestAndComplete()
+                })
+            }.onFailure {
+                removeRequestAndComplete()
             }
         }
 
