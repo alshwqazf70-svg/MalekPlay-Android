@@ -1,6 +1,6 @@
 # Ultra Share Protocol v2 — Engineering Design
 
-Status: control request/approval channel is implemented separately; v1 remains the only implemented file-transfer wire protocol. The v2 batch/file wire protocol below remains design-only.
+Status (updated 2026-11-11): Android Kotlin and desktop Python V2 batch data planes are implemented in source. MPC2 is a separate authenticated approval/heartbeat control channel. V1 remains available for compatibility. Desktop CI passed for commit bba536a98f1f0dddbf430e88065d43d48b2386e1; Android build and physical-device interoperability must be verified separately.
 Target branch: feature/zapya-engineering-analysis
 
 ## Goals
@@ -24,7 +24,7 @@ Therefore v2 MUST NOT add stop-and-wait ACKs or retransmit individual TCP chunks
 
 If a future transport uses UDP, it must be a separate transport profile with its own congestion control, selective ACK, bounded in-flight window, packet-loss recovery, and security review. Do not reuse a TCP design as a UDP reliability layer.
 
-## Control request/approval channel (implemented separately)\n\nThe receiver listens on TCP port 38744 while receiving is active. A sender connects using the pairing PIN already shared out-of-band in the QR payload, receives a fresh 32-byte challenge, and authenticates the request metadata with HMAC-SHA256 using PBKDF2-derived key material. The receiver presents the authenticated device name/address and waits up to 30 seconds for an explicit user decision. The decision is encrypted with AES-GCM using a domain-separated key and fresh nonce. The sender must not enable its transfer action until it receives an authenticated ACCEPTED response. This channel gates the existing encrypted v1 transfer handshake; it does not yet provide a persistent batch session or replace the v1 transfer protocol.\n\n## Compatibility and negotiation
+## Control request/approval channel (implemented separately)\n\nThe receiver listens on TCP port 38744 while receiving is active. A sender connects using the pairing PIN shared out-of-band in the QR payload, receives a fresh 32-byte challenge, and authenticates request metadata with HMAC-SHA256 using PBKDF2-derived key material. The receiver presents the authenticated device name/address and waits for an explicit user decision. The decision is encrypted with AES-GCM using a domain-separated key and fresh nonce. After ACCEPT, the socket remains open for authenticated PING/PONG heartbeat and explicit close. The active control session gates the separate V2 batch data socket (default TCP 38742) as well as the legacy V1 transfer path (TCP 38741).\n\n## Compatibility and negotiation
 
 - Keep the v1 magic and v1 frame layout unchanged.
 - Introduce a distinct v2 protocol version in the authenticated metadata/handshake path; never reinterpret a v1 frame.
