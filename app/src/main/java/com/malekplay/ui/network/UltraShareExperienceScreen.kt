@@ -117,12 +117,32 @@ fun UltraShareExperienceScreen(
     }
 
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { picked ->
-        val accepted = picked.distinct().filter { isUltraShareMedia(context, it) }
-        if (accepted.size != picked.distinct().size) {
-            Toast.makeText(context, "تم تجاهل الملفات التي تعذرت قراءة بياناتها.", Toast.LENGTH_LONG).show()
+        val distinctPicked = picked.distinct()
+        val accepted = ArrayList<Uri>(distinctPicked.size)
+        var rejectedCount = 0
+        distinctPicked.forEach { uri ->
+            val resolver = context.contentResolver
+            val alreadyPersisted = resolver.persistedUriPermissions.any {
+                it.uri == uri && it.isReadPermission
+            }
+            val hasDurableReadAccess = alreadyPersisted || runCatching {
+                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                resolver.persistedUriPermissions.any {
+                    it.uri == uri && it.isReadPermission
+                }
+            }.getOrDefault(false)
+            if (hasDurableReadAccess && isUltraShareMedia(context, uri)) {
+                accepted += uri
+            } else {
+                rejectedCount++
+            }
         }
-        accepted.forEach { uri ->
-            runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        if (rejectedCount > 0) {
+            Toast.makeText(
+                context,
+                "لم تتم إضافة $rejectedCount ملفاً؛ تعذر تثبيت إذن قراءة دائم أو قراءة بيانات الملف. أعد اختياره من مدير الملفات.",
+                Toast.LENGTH_LONG
+            ).show()
         }
         selectedUris = (selectedUris + accepted).distinct()
     }
