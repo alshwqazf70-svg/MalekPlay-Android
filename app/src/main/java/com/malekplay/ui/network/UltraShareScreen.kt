@@ -84,6 +84,7 @@ import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraShareWifiDirect
 import com.malekplay.network.UltraShareControlChannel
 import com.malekplay.network.UltraShareNetworkRouting
+import com.malekplay.network.UltraShareApprovedSendTarget
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -259,6 +260,25 @@ class UltraShareViewModel @Inject constructor(
             pendingInvitationReady = null
             pendingInvitation = null
             if (connectedHost != null) {
+                val remotePeerId = UltraShareControlChannel.sessionPeerId(connectedHost)
+                    ?: java.util.UUID.randomUUID().toString()
+                val remotePeerName = UltraShareControlChannel.sessionPeerName(connectedHost)
+                    ?: "جهاز MalekPlay"
+                // Keep the authenticated route and secret in process memory so the
+                // transfer service can resume against the same peer after IP changes.
+                UltraShareForegroundService.registerApprovedPeer(
+                    name = remotePeerName,
+                    host = connectedHost,
+                    role = "اتصال آمن عبر QR أو الرمز",
+                    sessionId = remotePeerId
+                )
+                UltraShareForegroundService.registerApprovedSendTarget(
+                    UltraShareApprovedSendTarget(
+                        sessionId = remotePeerId,
+                        host = connectedHost,
+                        secret = pairing.pairingSecret
+                    )
+                )
                 _state.value = _state.value.copy(
                     wifiDirectHost = connectedHost,
                     scanning = false,
