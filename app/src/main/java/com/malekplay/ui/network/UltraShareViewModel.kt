@@ -164,19 +164,12 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun startReceiving() {
-        if (_state.value.receiving) {
-            if (_state.value.invitationId.isBlank()) {
-                _state.value = _state.value.copy(
-                    invitationId = java.util.UUID.randomUUID().toString().replace("-", "")
-                )
-            }
-            return
-        }
+        if (_state.value.receiving) return
         val secret = UltraShareTransport.createPairingSecret()
         val invitationId = java.util.UUID.randomUUID().toString().replace("-", "")
         _state.value = _state.value.copy(
             pairingSecret = secret,
-            invitationId = invitationId,
+            invitationId = "",
             receiving = true,
             progress = null,
             error = null,
@@ -511,7 +504,7 @@ class UltraShareViewModel @Inject constructor(
                 }
             },
             onError = { message ->
-                val receiving = UltraShareForegroundService.state.value.receiving
+                val receiving = _state.value.receiving || UltraShareForegroundService.state.value.receiving
                 _state.value = _state.value.copy(
                     wifiDirectScanning = false,
                     wifiDirectHost = null,
@@ -531,10 +524,12 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun advertiseCurrentWifiDirectInvitation() {
-        val invitationId = _state.value.invitationId
-        if (invitationId.isBlank()) {
-            _state.value = _state.value.copy(error = "تعذر إنشاء هوية دعوة لهذه الجلسة. أعد تشغيل الاستقبال.")
+        if (!_state.value.receiving) {
+            _state.value = _state.value.copy(error = "ابدأ الاستقبال أولاً قبل نشر دعوة Wi-Fi Direct.")
             return
+        }
+        val invitationId = _state.value.invitationId.ifBlank {
+            java.util.UUID.randomUUID().toString().replace("-", "")
         }
         runCatching {
             val session = ensureWifiDirectSession()
@@ -549,6 +544,7 @@ class UltraShareViewModel @Inject constructor(
                 session.advertiseInvitation(invitationId) {
                     UltraShareForegroundService.refreshLocalAddresses(context)
                     _state.value = _state.value.copy(
+                        invitationId = invitationId,
                         error = null,
                         status = "مجموعة Wi-Fi Direct جاهزة ودعوة QR منشورة؛ يمكن للهاتف الآخر الانضمام مباشرة."
                     )
