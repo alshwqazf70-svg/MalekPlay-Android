@@ -433,6 +433,15 @@ fun UltraShareExperienceScreen(
             } else allNearbyPermission.launch(missing.toTypedArray())
         }
     }
+    fun beginNearbySearchFromShake() {
+        page = UltraSharePage.NEARBY
+        if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning) {
+            Toast.makeText(context, "البحث عن الأجهزة جارٍ بالفعل.", Toast.LENGTH_SHORT).show()
+        } else {
+            scanAllNearby()
+        }
+    }
+
     DisposableEffect(shakeToConnectArmed, page, sensorManager, accelerometer) {
         val manager = sensorManager
         val sensor = accelerometer
@@ -466,8 +475,7 @@ fun UltraShareExperienceScreen(
     LaunchedEffect(triggerShakeScan) {
         if (triggerShakeScan) {
             triggerShakeScan = false
-            page = UltraSharePage.NEARBY
-            scanAllNearby()
+            beginNearbySearchFromShake()
             Toast.makeText(context, "تم رصد الحركة؛ بدأ البحث عن الأجهزة القريبة.", Toast.LENGTH_SHORT).show()
         }
     }
@@ -691,9 +699,8 @@ fun UltraShareExperienceScreen(
                         icon = { Icon(Icons.Filled.Send, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
                         onClick = {
                             if (sensorManager == null || accelerometer == null) {
-                                page = UltraSharePage.NEARBY
-                                scanAllNearby()
-                                Toast.makeText(context, "مستشعر الحركة غير متاح؛ بدأ البحث القريب مباشرة.", Toast.LENGTH_LONG).show()
+                                beginNearbySearchFromShake()
+                                Toast.makeText(context, "مستشعر الحركة غير متاح؛ تم فتح البحث القريب.", Toast.LENGTH_LONG).show()
                             } else {
                                 shakeToConnectArmed = !shakeToConnectArmed
                                 Toast.makeText(
