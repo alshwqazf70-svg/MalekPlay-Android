@@ -471,6 +471,7 @@ class UltraShareForegroundService : Service() {
                             UltraShareControlChannel.serveOnce(
                                 pairingSecret = secret,
                                 localPeerName = Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                                localPeerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
                                 onSessionClosed = { request ->
                                     disconnectApprovedPeer(request.peerAddress)
                                 }
@@ -498,7 +499,7 @@ class UltraShareForegroundService : Service() {
                                                 name = request.peerName,
                                                 host = request.peerAddress,
                                                 role = "استقبل طلب الاتصال",
-                                                sessionId = request.requestId
+                                                sessionId = request.peerId ?: request.requestId
                                             )
                                         }
                                         result
@@ -1515,6 +1516,7 @@ class UltraShareForegroundService : Service() {
                                 pairingSecret = secret,
                                 peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
                                 network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, activeHost),
+                                peerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
                                 onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
                             )
                             check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
@@ -1526,7 +1528,13 @@ class UltraShareForegroundService : Service() {
                             registerApprovedPeer(
                                 name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlay المستقبل",
                                 host = activeHost,
-                                role = "أعاد الموافقة على الاتصال"
+                                role = "أعاد الموافقة على الاتصال",
+                                sessionId = UltraShareControlChannel.sessionPeerId(activeHost)
+                                    ?: UltraShareMultiRecipientCoordinator.resolveSessionId(
+                                        activeHost,
+                                        reconnectableSendTargets().map { it.host to it.sessionId },
+                                        java.util.UUID.randomUUID().toString()
+                                    )
                             )
                             samePathReady = true
                         } catch (cancelled: CancellationException) {
@@ -1573,7 +1581,13 @@ class UltraShareForegroundService : Service() {
                         registerApprovedPeer(
                             name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlay المستقبل",
                             host = activeHost,
-                            role = "اتصال عبر مسار بديل ${candidate.transport}"
+                            role = "اتصال عبر مسار بديل ${candidate.transport}",
+                            sessionId = UltraShareControlChannel.sessionPeerId(activeHost)
+                                ?: UltraShareMultiRecipientCoordinator.resolveSessionId(
+                                    activeHost,
+                                    reconnectableSendTargets().map { it.host to it.sessionId },
+                                    java.util.UUID.randomUUID().toString()
+                                )
                         )
                         retry = 0
                         switched = true
