@@ -12,6 +12,7 @@ import json
 import mimetypes
 import os
 import socket
+import shutil
 import tempfile
 import threading
 import time
@@ -66,7 +67,7 @@ def validate_upload(host: str, pin: str, filename: str, size: int) -> tuple[str,
     return host, pin, clean_name
 
 
-def create_handler(output: Path, secret: str, transfer_port: int, web_port: int):
+def create_handler(output: Path, secret: str, transfer_port: int, web_port: int, discovery_port: int):
     output.mkdir(parents=True, exist_ok=True)
     output_root = output.resolve()
 
@@ -111,6 +112,16 @@ def create_handler(output: Path, secret: str, transfer_port: int, web_port: int)
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            if self.path == "/api/discover":
+                try:
+                    devices = discover_devices(timeout=2.5, port=discovery_port)
+                    self._json(200, {"ok": True, "devices": [
+                        {"host": host, "port": port, "name": name}
+                        for host, port, name in devices
+                    ]})
+                except OSError as failure:
+                    self._json(503, {"ok": False, "error": str(failure)[:300]})
+                return
             if self.path == "/api/status":
                 files = []
                 for item in output_root.iterdir():
@@ -132,6 +143,8 @@ def create_handler(output: Path, secret: str, transfer_port: int, web_port: int)
                 raw_name = unquote(self.path[len("/files/"):].split("?", 1)[0])
                 try:
                     name = safe_name(raw_name)
+                    if name != raw_name:
+                        raise ValueError("invalid path")
                     candidate = (output_root / name).resolve(strict=True)
                     if candidate.parent != output_root or not candidate.is_file():
                         raise ValueError("invalid path")
@@ -177,12 +190,12 @@ def create_handler(output: Path, secret: str, transfer_port: int, web_port: int)
                 self._json(400, {"ok": False, "error": str(failure)})
                 return
 
-            temp_path: Path | None = None
+            staging_dir: Path | None = None
             try:
-                fd, raw_path = tempfile.mkstemp(prefix=".ultrashare-web-", dir=output_root)
-                temp_path = Path(raw_path)
+                staging_dir = Path(tempfile.mkdtemp(prefix=".ultrashare-web-", dir=output_root))
+                source = staging_dir / filename
                 written = 0
-                with os.fdopen(fd, "wb") as stream:
+                with source.open("xb") as stream:
                     while written < length:
                         block = self.rfile.read(min(UPLOAD_CHUNK_BYTES, length - written))
                         if not block:
@@ -191,23 +204,11 @@ def create_handler(output: Path, secret: str, transfer_port: int, web_port: int)
                         written += len(block)
                     stream.flush()
                     os.fsync(stream.fileno())
-                temp_path.rename(temp_path.with_name(filename))
-                source = output_root / filename
-                # Preserve existing desktop files; use a collision-safe name.
-                if source.exists():
-                    stem, suffix = source.stem, source.suffix
-                    for index in range(1, 10_000):
-                        candidate = output_root / f"{stem} ({index}){suffix}"
-                        if not candidate.exists():
-                            source = candidate
-                            break
-                    else:
-                        raise OSError("تعذر إنشاء اسم ملف فريد.")
                 send_file(host, transfer_port, pin, source)
                 self._json(200, {
                     "ok": True,
                     "message": "تم إرسال الملف والتحقق من استلامه.",
-                    "name": source.name,
+                    "name": filename,
                 })
             except Exception as failure:
                 self._json(502, {
@@ -215,16 +216,8 @@ def create_handler(output: Path, secret: str, transfer_port: int, web_port: int)
                     "error": str(failure)[:500] or "فشل الإرسال إلى الهاتف.",
                 })
             finally:
-                if temp_path is not None:
-                    temp_path.unlink(missing_ok=True)
-                # Uploaded staging files are temporary; only Android-received files
-                # are retained in the visible Received folder.
-                if "source" in locals():
-                    try:
-                        if source.parent == output_root and source.name.startswith(".ultrashare-web-"):
-                            source.unlink(missing_ok=True)
-                    except OSError:
-                        pass
+                if staging_dir is not None:
+                    shutil.rmtree(staging_dir, ignore_errors=True)
 
     return Handler
 
@@ -250,6 +243,7 @@ button,.download{border:0;border-radius:12px;padding:12px 16px;background:linear
 <section class="panel"><h2>إرسال ملف إلى الهاتف</h2>
 <label for="host">عنوان IP للهاتف المستقبل</label><input id="host" inputmode="decimal" placeholder="مثال: 192.168.1.25">
 <label for="pin">رمز الاقتران الظاهر في MalekPlay</label><input id="pin" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="9 أرقام">
+<button id="discover" type="button">البحث عن الهاتف على الشبكة</button>
 <label for="file">اختر ملفاً من الكمبيوتر</label><input id="file" type="file">
 <button id="send">إرسال إلى الهاتف</button><div id="sendStatus" class="status" aria-live="polite"></div>
 <p class="note">تأكد أن الكمبيوتر والهاتف على شبكة Wi-Fi نفسها أو أن الكمبيوتر متصل بنقطة اتصال الهاتف. لا تغلق الصفحة أثناء النقل.</p>
@@ -263,9 +257,10 @@ button,.download{border:0;border-radius:12px;padding:12px 16px;background:linear
 const $=id=>document.getElementById(id);
 function showStatus(message,kind){$('sendStatus').textContent=message;$('sendStatus').className='status '+(kind||'')}
 function bytes(n){if(n<1024)return n+' B';const u=['KB','MB','GB','TB'];let v=n/1024,i=0;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(1)+' '+u[i]}
+async function discoverPhone(){const button=$('discover');button.disabled=true;showStatus('جارٍ البحث عن أجهزة MalekPlay على الشبكة المحلية...');try{const r=await fetch('/api/discover',{cache:'no-store'});const data=await r.json();if(!data.ok)throw new Error(data.error||'تعذر البحث');if(!data.devices.length){showStatus('لم يتم العثور على هاتف. تأكد من تشغيل الاستقبال على MalekPlay.','err');return}const device=data.devices[0];$('host').value=device.host;showStatus('تم العثور على '+device.name+' • '+device.host,'ok')}catch(e){showStatus(e.message||'تعذر البحث عن الهاتف.','err')}finally{button.disabled=false}}
 async function refreshFiles(){try{const r=await fetch('/api/status',{cache:'no-store'});const data=await r.json();const root=$('files');root.replaceChildren();if(!data.files.length){root.className='empty';root.textContent='لا توجد ملفات مستلمة بعد.';return}root.className='';for(const f of data.files){const row=document.createElement('div');row.className='file';const info=document.createElement('div');const name=document.createElement('strong');name.textContent=f.name;const size=document.createElement('small');size.textContent=bytes(f.size);info.append(name,size);const link=document.createElement('a');link.className='download';link.href=f.url;link.textContent='تنزيل';row.append(info,link);root.append(row)}}catch(e){$('files').textContent='تعذر تحميل قائمة الملفات.'}}
 $('send').addEventListener('click',async()=>{const file=$('file').files[0],host=$('host').value.trim(),pin=$('pin').value.trim();if(!file||!host||!pin){showStatus('أدخل عنوان الهاتف ورمز الاقتران واختر ملفاً.','err');return}const button=$('send');button.disabled=true;showStatus('جارٍ رفع الملف إلى أداة المشاركة المحلية ثم إرساله...');try{const response=await fetch('/api/send',{method:'PUT',headers:{'Content-Type':'application/octet-stream','X-Ultra-Host':host,'X-Ultra-PIN':pin,'X-Ultra-Filename':encodeURIComponent(file.name)},body:file});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'فشل الإرسال');showStatus(result.message+' ('+result.name+')','ok')}catch(e){showStatus(e.message||'حدث خطأ أثناء الإرسال.','err')}finally{button.disabled=false}});
-$('refresh').addEventListener('click',refreshFiles);refreshFiles();setInterval(refreshFiles,5000);
+$('discover').addEventListener('click',discoverPhone);$('refresh').addEventListener('click',refreshFiles);refreshFiles();setInterval(refreshFiles,5000);
 </script></body></html>"""
 
 
@@ -305,7 +300,7 @@ def main() -> int:
 
     server = ThreadingHTTPServer(
         ("127.0.0.1", args.web_port),
-        create_handler(output, secret, args.transfer_port, args.web_port),
+        create_handler(output, secret, args.transfer_port, args.web_port, args.discovery_port),
     )
     server.daemon_threads = True
     print(f"MalekPlay Ultra Share browser UI: http://127.0.0.1:{args.web_port}")
