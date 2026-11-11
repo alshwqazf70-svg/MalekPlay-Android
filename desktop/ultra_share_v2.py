@@ -668,7 +668,7 @@ def send_batch_v2(host: str, port: int, secret: str, paths: list[Path]) -> list[
         if magic != HANDSHAKE_MAGIC:
             raise ValueError("The peer does not expose the Ultra Share V2 data port.")
         challenge = recv_exact(connection, CHALLENGE_BYTES)
-        pairing_key = derive_pairing_key(secret, challenge)
+        pairing_key = derive_v2_pairing_key(secret, challenge)
         connection.sendall(hmac.new(pairing_key, challenge, hashlib.sha256).digest())
         if recv_exact(connection, 1) != b"\x01":
             raise PermissionError("The V2 receiver rejected the pairing code or session.")
