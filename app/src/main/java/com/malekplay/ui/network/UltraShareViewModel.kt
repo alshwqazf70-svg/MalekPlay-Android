@@ -166,7 +166,6 @@ class UltraShareViewModel @Inject constructor(
     fun startReceiving() {
         if (_state.value.receiving) return
         val secret = UltraShareTransport.createPairingSecret()
-        val invitationId = java.util.UUID.randomUUID().toString().replace("-", "")
         _state.value = _state.value.copy(
             pairingSecret = secret,
             invitationId = "",
