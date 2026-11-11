@@ -51,7 +51,7 @@ def is_local_host_header(value: str, expected_port: int) -> bool:
         return False
 
 
-def validate_upload(host: str, pin: str, filename: str, size: int) -> tuple[str, str, str]:
+def validate_upload(host: str, pin: str, filename: str, size: int, mime: str = "") -> tuple[str, str, str]:
     host = host.strip()
     if not is_lan_ipv4(host):
         raise ValueError("أدخل عنوان IPv4 خاصاً للجهاز المستقبل.")
@@ -62,6 +62,9 @@ def validate_upload(host: str, pin: str, filename: str, size: int) -> tuple[str,
     if size < 0 or size > MAX_FILE_BYTES:
         raise ValueError("حجم الملف خارج الحد المدعوم.")
     clean_name = safe_name(filename)
+    from ultra_share_pc import is_supported_media
+    if not is_supported_media(clean_name, mime):
+        raise ValueError("يسمح Ultra Share بملفات الفيديو والصوت والصور فقط.")
     if len(clean_name.encode("utf-8")) > MAX_HTTP_HEADER_NAME:
         raise ValueError("اسم الملف طويل جداً.")
     return host, pin, clean_name
@@ -190,6 +193,7 @@ def create_handler(output: Path, secret: str, transfer_port: int, web_port: int,
                     self.headers.get("X-Ultra-PIN", ""),
                     unquote(self.headers.get("X-Ultra-Filename", "")),
                     length,
+                    self.headers.get("X-Ultra-Mime", ""),
                 )
                 if length == 0:
                     raise ValueError("الملف فارغ.")
@@ -251,7 +255,7 @@ button,.download{border:0;border-radius:12px;padding:12px 16px;background:linear
 <label for="host">عنوان IP للهاتف المستقبل</label><input id="host" inputmode="decimal" placeholder="مثال: 192.168.1.25">
 <label for="pin">رمز الاقتران الظاهر في MalekPlay</label><input id="pin" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="9 أرقام">
 <button id="discover" type="button">البحث عن الهاتف على الشبكة</button>
-<label for="file">اختر ملفاً من الكمبيوتر</label><input id="file" type="file" multiple>
+<label for="file">اختر فيديو أو صوتاً أو صورة من الكمبيوتر</label><input id="file" type="file" accept="video/*,audio/*,image/*" multiple>
 <button id="send">إرسال إلى الهاتف</button><div id="sendStatus" class="status" aria-live="polite"></div>
 <p class="note">تأكد أن الكمبيوتر والهاتف على شبكة Wi-Fi نفسها أو أن الكمبيوتر متصل بنقطة اتصال الهاتف. لا تغلق الصفحة أثناء النقل.</p>
 </section>
@@ -266,7 +270,7 @@ function showStatus(message,kind){$('sendStatus').textContent=message;$('sendSta
 function bytes(n){if(n<1024)return n+' B';const u=['KB','MB','GB','TB'];let v=n/1024,i=0;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(1)+' '+u[i]}
 async function discoverPhone(){const button=$('discover');button.disabled=true;showStatus('جارٍ البحث عن أجهزة MalekPlay على الشبكة المحلية...');try{const r=await fetch('/api/discover',{cache:'no-store'});const data=await r.json();if(!data.ok)throw new Error(data.error||'تعذر البحث');if(!data.devices.length){showStatus('لم يتم العثور على هاتف. تأكد من تشغيل الاستقبال على MalekPlay.','err');return}const device=data.devices[0];$('host').value=device.host;showStatus('تم العثور على '+device.name+' • '+device.host,'ok')}catch(e){showStatus(e.message||'تعذر البحث عن الهاتف.','err')}finally{button.disabled=false}}
 async function refreshFiles(){try{const r=await fetch('/api/status',{cache:'no-store'});const data=await r.json();const root=$('files');root.replaceChildren();if(!data.files.length){root.className='empty';root.textContent='لا توجد ملفات مستلمة بعد.';return}root.className='';for(const f of data.files){const row=document.createElement('div');row.className='file';const info=document.createElement('div');const name=document.createElement('strong');name.textContent=f.name;const size=document.createElement('small');size.textContent=bytes(f.size);info.append(name,size);const link=document.createElement('a');link.className='download';link.href=f.url;link.textContent='تنزيل';row.append(info,link);root.append(row)}}catch(e){$('files').textContent='تعذر تحميل قائمة الملفات.'}}
-$('send').addEventListener('click',async()=>{const files=[...$('file').files],host=$('host').value.trim(),pin=$('pin').value.trim();if(!files.length||!host||!pin){showStatus('أدخل عنوان الهاتف ورمز الاقتران واختر ملفاً واحداً على الأقل.','err');return}const button=$('send');button.disabled=true;let sent=0;try{for(let index=0;index<files.length;index++){const file=files[index];showStatus('جارٍ إرسال '+file.name+' ('+(index+1)+'/'+files.length+')...');const response=await fetch('/api/send',{method:'PUT',headers:{'Content-Type':'application/octet-stream','X-Ultra-Host':host,'X-Ultra-PIN':pin,'X-Ultra-Filename':encodeURIComponent(file.name)},body:file});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'فشل إرسال '+file.name);sent++;showStatus(result.message+' ('+sent+'/'+files.length+')','ok')} }catch(e){showStatus('اكتمل إرسال '+sent+' من '+files.length+' ملفات. '+(e.message||'حدث خطأ أثناء الإرسال.'),'err')}finally{button.disabled=false}});
+$('send').addEventListener('click',async()=>{const files=[...$('file').files],host=$('host').value.trim(),pin=$('pin').value.trim();if(!files.length||!host||!pin){showStatus('أدخل عنوان الهاتف ورمز الاقتران واختر ملفاً واحداً على الأقل.','err');return}const button=$('send');button.disabled=true;let sent=0;try{for(let index=0;index<files.length;index++){const file=files[index];showStatus('جارٍ إرسال '+file.name+' ('+(index+1)+'/'+files.length+')...');const response=await fetch('/api/send',{method:'PUT',headers:{'Content-Type':'application/octet-stream','X-Ultra-Host':host,'X-Ultra-PIN':pin,'X-Ultra-Filename':encodeURIComponent(file.name),'X-Ultra-Mime':file.type||''},body:file});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'فشل إرسال '+file.name);sent++;showStatus(result.message+' ('+sent+'/'+files.length+')','ok')} }catch(e){showStatus('اكتمل إرسال '+sent+' من '+files.length+' ملفات. '+(e.message||'حدث خطأ أثناء الإرسال.'),'err')}finally{button.disabled=false}});
 $('discover').addEventListener('click',discoverPhone);$('refresh').addEventListener('click',refreshFiles);refreshFiles();setInterval(refreshFiles,5000);
 </script></body></html>"""
 
