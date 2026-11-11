@@ -491,28 +491,30 @@ fun UltraShareExperienceScreen(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
-                Icon(Icons.Filled.QrCode, contentDescription = "رمز QR", tint = Color.White, modifier = Modifier.size(28.dp))
+                IconButton(onClick = { page = UltraSharePage.JOIN }) {
+                    Icon(Icons.Filled.QrCode, contentDescription = "مسح رمز QR", tint = Color(0xFF75E8F4))
+                }
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(14.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                ActionTile(
-                    Modifier.weight(1f).height(184.dp),
-                    "إنشاء مجموعة",
-                    "اعرض رمز QR وانتظر الأصدقاء",
-                    { Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF72E5F2), modifier = Modifier.size(52.dp)) }
+                ZapyaPrimaryAction(
+                    modifier = Modifier.weight(1f),
+                    title = "إنشاء مجموعة",
+                    subtitle = "اعرض رمز QR وانتظر الأصدقاء",
+                    icon = { Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(58.dp)) }
                 ) {
                     startReceivingGroup()
                     page = UltraSharePage.RECEIVE
                 }
-                ActionTile(
-                    Modifier.weight(1f).height(184.dp),
-                    "انضمام لمجموعة",
-                    "اكتشاف Wi-Fi وWi-Fi Direct",
-                    { Icon(Icons.Filled.Send, null, tint = Color(0xFF72E5F2), modifier = Modifier.size(52.dp)) }
+                ZapyaPrimaryAction(
+                    modifier = Modifier.weight(1f),
+                    title = "انضمام لمجموعة",
+                    subtitle = "اكتشف الأجهزة أو امسح QR",
+                    icon = { Icon(Icons.Filled.Send, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(58.dp)) }
                 ) {
                     scanAllNearby()
                     page = UltraSharePage.NEARBY
@@ -523,39 +525,69 @@ fun UltraShareExperienceScreen(
                 horizontalArrangement = Arrangement.Center
             ) {
                 Text(
-                    if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning) "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size}",
+                    if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning)
+                        "جارٍ البحث عن الأصدقاء…" else "الأجهزة القريبة: ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size}",
                     color = Color(0xFFB7C5E7),
                     style = MaterialTheme.typography.labelMedium
                 )
             }
-            Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ActionTile(
-                    Modifier.weight(1f),
-                    "المشاركة عبر QR",
-                    "مسح رمز صديق",
-                    { Icon(Icons.Filled.QrCode, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
-                ) { page = UltraSharePage.JOIN }
-                ActionTile(
-                    Modifier.weight(1f),
-                    "إعدادات Wi-Fi",
-                    "اكتشاف مباشر",
-                    { Icon(Icons.Filled.Wifi, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
-                ) { scanWifiDirect(); page = UltraSharePage.NEARBY }
+            Spacer(Modifier.height(10.dp))
+            androidx.compose.foundation.Canvas(
+                modifier = Modifier.fillMaxWidth().height(1.dp)
+            ) {
+                drawLine(
+                    color = Color(0xFF75E8F4).copy(alpha = 0.35f),
+                    start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                    end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                    strokeWidth = 1.dp.toPx()
+                )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ActionTile(
-                    Modifier.weight(1f),
-                    "سجل النقل",
-                    "المرسل والمستلم",
-                    { Icon(Icons.Filled.History, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
-                ) { page = UltraSharePage.HISTORY }
-                ActionTile(
-                    Modifier.weight(1f),
-                    "إرسال ملفات",
-                    "اختر أي نوع ملف أو مجلداً باستثناء APK وPDF",
-                    { Icon(Icons.Filled.Send, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
-                ) { page = UltraSharePage.SEND }
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ZapyaShortcut(
+                        modifier = Modifier.weight(1f),
+                        title = "تحريك الهاتف",
+                        icon = { Icon(Icons.Filled.Send, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
+                        onClick = { Toast.makeText(context, "اكتشاف الأجهزة بالحركة غير متاح بعد؛ استخدم البحث القريب أو QR.", Toast.LENGTH_LONG).show() }
+                    )
+                    ZapyaShortcut(
+                        modifier = Modifier.weight(1f),
+                        title = "المشاركة عبر QR",
+                        icon = { Icon(Icons.Filled.QrCode, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
+                        onClick = { page = UltraSharePage.JOIN }
+                    )
+                    ZapyaShortcut(
+                        modifier = Modifier.weight(1f),
+                        title = "نسخ إلى هاتف آخر",
+                        icon = { Icon(Icons.Filled.CheckCircle, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
+                        onClick = { page = UltraSharePage.SEND }
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ZapyaShortcut(
+                        modifier = Modifier.weight(1f),
+                        title = "ادعُ الأصدقاء",
+                        icon = { Icon(Icons.Filled.Send, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
+                        onClick = {
+                            val share = Intent(Intent.ACTION_SEND).setType("text/plain")
+                                .putExtra(Intent.EXTRA_TEXT, "انضم إليّ عبر MalekPlay لمشاركة الملفات محلياً.")
+                            runCatching { context.startActivity(Intent.createChooser(share, "دعوة الأصدقاء")) }
+                                .onFailure { Toast.makeText(context, "تعذر فتح قائمة المشاركة.", Toast.LENGTH_SHORT).show() }
+                        }
+                    )
+                    ZapyaShortcut(
+                        modifier = Modifier.weight(1f),
+                        title = "إعدادات Wi-Fi",
+                        icon = { Icon(Icons.Filled.Wifi, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
+                        onClick = { scanWifiDirect(); page = UltraSharePage.NEARBY }
+                    )
+                    ZapyaShortcut(
+                        modifier = Modifier.weight(1f),
+                        title = "مساعدة",
+                        icon = { Icon(Icons.Filled.History, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
+                        onClick = { page = UltraSharePage.HISTORY }
+                    )
+                }
             }
             StatusPanel(
                 title = when {
@@ -572,7 +604,7 @@ fun UltraShareExperienceScreen(
             state.pendingConnection?.let {
                 IncomingRequestPanel(it, viewModel::acceptConnection, viewModel::rejectConnection)
             }
-        } else {
+        }else {
             PageHeader(
                 title = when (page) {
                     UltraSharePage.SEND -> "إرسال الملفات"
@@ -994,6 +1026,66 @@ private fun PageHeader(title: String, subtitle: String, onBack: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(title, color = MalekPlayColors.TextPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
             Text(subtitle, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+
+@Composable
+private fun ZapyaPrimaryAction(
+    modifier: Modifier = Modifier,
+    title: String,
+    subtitle: String,
+    icon: @Composable () -> Unit,
+    onClick: () -> Unit
+) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Card(
+            modifier = Modifier.size(148.dp),
+            onClick = onClick,
+            shape = CircleShape,
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF172A43))
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(5.dp)
+                    .background(
+                        Brush.radialGradient(listOf(Color(0xFF203D5A), Color(0xFF111D35))),
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier.size(116.dp)
+                        .background(Color(0xFF152B45), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) { icon() }
+            }
+        }
+        Text(title, color = Color(0xFF78E8F2), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Text(subtitle, color = Color(0xFFB7C5E7), style = MaterialTheme.typography.labelSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center, minLines = 2)
+    }
+}
+
+@Composable
+private fun ZapyaShortcut(
+    modifier: Modifier = Modifier,
+    title: String,
+    icon: @Composable () -> Unit,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier.height(94.dp),
+        onClick = onClick,
+        shape = RoundedCornerShape(15.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1B2940).copy(alpha = 0.78f))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 9.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            icon()
+            Text(title, color = Color(0xFFDCE7F7), style = MaterialTheme.typography.labelSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 2)
         }
     }
 }
