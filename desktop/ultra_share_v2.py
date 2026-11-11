@@ -774,7 +774,10 @@ def _write_java_utf_socket(sock: socket.socket, value: str) -> None:
 def serve_control_once(port: int, secret: str, local_name: str,
                        approve: callable) -> None:
     """Serve one Android MPC2 control request and retain approved heartbeat."""
-    name_bytes = local_name.encode("utf-8")[:96]
+    safe_local_name = str(local_name)[:48]
+    while safe_local_name and len(safe_local_name.encode("utf-8")) > 96:
+        safe_local_name = safe_local_name[:-1]
+    name_bytes = safe_local_name.encode("utf-8")
     if not name_bytes or any(byte < 32 or 127 <= byte <= 159 for byte in name_bytes):
         raise ValueError("Invalid local control-channel device name.")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
@@ -891,7 +894,10 @@ def connect_control_session(host: str, port: int, secret: str,
     """Connect to Android MPC2, where the phone owner explicitly approves."""
     if not _is_private_v2_peer(host):
         raise ValueError("Use the Android device's private LAN IPv4 address.")
-    name_bytes = local_name.encode("utf-8")[:96]
+    safe_local_name = str(local_name)[:48]
+    while safe_local_name and len(safe_local_name.encode("utf-8")) > 96:
+        safe_local_name = safe_local_name[:-1]
+    name_bytes = safe_local_name.encode("utf-8")
     if not name_bytes or any(byte < 32 or 127 <= byte <= 159 for byte in name_bytes):
         raise ValueError("Invalid local MPC2 device name.")
     sock = socket.create_connection((host, port), timeout=8.0)
