@@ -83,14 +83,19 @@ object UltraSharePeerDeliveryStore {
     ) {
         require(status in STATUSES) { "Unknown peer delivery status." }
         context.applicationContext.ultraShareDeliveryDataStore.edit { preferences ->
+            var matched = false
             val entries = decodeForMutation(preferences[DELIVERIES].orEmpty()).map { entry ->
                 if (entry.fileUri == fileUri.toString() && entry.peerSessionId == peerSessionId) {
+                    matched = true
                     entry.copy(
                         status = status,
                         error = error?.take(240),
                         updatedAtMillis = System.currentTimeMillis()
                     )
                 } else entry
+            }
+            check(matched) {
+                "سجل التسليم غير موجود لهذا الملف والجهاز؛ أوقفنا تحديث الحالة لتجنب تأكيد وهمي."
             }
             preferences[DELIVERIES] = encode(entries)
         }
