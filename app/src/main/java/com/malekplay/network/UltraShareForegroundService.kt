@@ -1708,7 +1708,7 @@ class UltraShareForegroundService : Service() {
         private val mutableState = MutableStateFlow(UltraShareServiceState())
         private val approvedSendTargetsByHost = LinkedHashMap<String, UltraShareApprovedSendTarget>()
 
-        fun registerApprovedSendTarget(target: UltraShareApprovedSendTarget) {
+        internal fun registerApprovedSendTarget(target: UltraShareApprovedSendTarget) {
             require(UltraShareTransport.isValidPrivateLanHost(target.host))
             require(UltraShareTransport.isValidPairingSecret(target.secret))
             synchronized(approvedSendTargetsByHost) {
@@ -1716,13 +1716,13 @@ class UltraShareForegroundService : Service() {
             }
         }
 
-        fun approvedSendTargets(): List<UltraShareApprovedSendTarget> =
+        internal fun approvedSendTargets(): List<UltraShareApprovedSendTarget> =
             synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost.values.toList() }
 
-        fun approvedSendTarget(host: String): UltraShareApprovedSendTarget? =
+        internal fun approvedSendTarget(host: String): UltraShareApprovedSendTarget? =
             synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost[host] }
 
-        fun removeApprovedSendTarget(host: String) {
+        internal fun removeApprovedSendTarget(host: String) {
             synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost.remove(host) }
         }
         val state = mutableState.asStateFlow()
@@ -1806,7 +1806,7 @@ class UltraShareForegroundService : Service() {
             start(context, intent)
         }
 
-        fun startSendingBatchToPeers(
+        internal fun startSendingBatchToPeers(
             context: Context,
             uris: List<Uri>,
             targets: List<UltraShareApprovedSendTarget>
