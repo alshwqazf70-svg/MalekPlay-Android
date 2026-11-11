@@ -194,6 +194,9 @@ class UltraShareViewModel @Inject constructor(
 
     private fun completeInvitationConnection(host: String, message: String) {
         val callback = pendingInvitationReady ?: return
+        // Every terminal path (success, timeout, permission denial or P2P error)
+        // must release DNS-SD discovery before the app returns to idle/transfer.
+        wifiDirectSession?.stopInvitationDiscovery()
         pendingInvitationReady = null
         pendingInvitation = null
         invitationTimeout?.cancel()
