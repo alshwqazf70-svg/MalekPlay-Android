@@ -8,9 +8,10 @@ import java.net.Inet4Address
 import java.net.InetAddress
 
 /**
- * Resolves the Android Network whose local IPv4 link contains a remote LAN peer.
- * Binding sockets to that Network prevents a candidate discovered on Wi-Fi Direct
- * from accidentally being tested or used through the device's default WLAN route.
+ * Resolves the Android Network whose local link or explicit route reaches a peer.
+ * Wi-Fi Direct commonly exposes the group-owner address (192.168.49.1) through
+ * a p2p interface that is not the device's default WLAN. Matching only local
+ * interface addresses can miss that route and silently send sockets over WLAN.
  */
 internal object UltraShareNetworkRouting {
     fun findNetworkForHost(context: Context, host: String): Network? = runCatching {
@@ -20,22 +21,56 @@ internal object UltraShareNetworkRouting {
 
         manager.allNetworks.mapNotNull { network ->
             val properties = manager.getLinkProperties(network) ?: return@mapNotNull null
-            val matchingLink = properties.linkAddresses.firstOrNull { link ->
-                val local = link.address as? Inet4Address ?: return@firstOrNull false
-                isInPrefix(remote, local, link.prefixLength)
-            } ?: return@mapNotNull null
+            val interfaceName = properties.interfaceName.orEmpty()
+            val p2pInterface = isWifiDirectInterfaceName(interfaceName)
+            val matchingLinkPrefix = properties.linkAddresses.mapNotNull { link ->
+                val local = link.address as? Inet4Address ?: return@mapNotNull null
+                link.prefixLength.takeIf { isInPrefix(remote, local, it) }
+            }.maxOrNull()
+            val matchingRoutePrefix = properties.routes.mapNotNull { route ->
+                val destination = route.destination
+                val routeAddress = destination.address as? Inet4Address ?: return@mapNotNull null
+                val prefix = destination.prefixLength
+                // Ignore the default route: it says nothing about which local
+                // interface owns a peer-specific path.
+                prefix.takeIf { it in 1..32 && isInPrefix(remote, routeAddress, it) }
+            }.maxOrNull()
+
+            val p2pGroupOwnerRoute = p2pInterface &&
+                isAndroidWifiDirectGroupAddress(remote)
+            if (matchingLinkPrefix == null && matchingRoutePrefix == null && !p2pGroupOwnerRoute) {
+                return@mapNotNull null
+            }
+
             val capabilities = manager.getNetworkCapabilities(network)
-            val rank = when {
+            val transportRank = when {
+                p2pInterface -> 5
                 capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> 4
                 capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true -> 3
                 capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> 2
                 else -> 1
             }
-            Triple(network, rank, matchingLink.prefixLength)
+            val prefixRank = maxOf(matchingLinkPrefix ?: 0, matchingRoutePrefix ?: 0)
+            val matchRank = when {
+                p2pGroupOwnerRoute -> 3
+                matchingRoutePrefix != null -> 2
+                else -> 1
+            }
+            Triple(network, matchRank * 100 + transportRank * 10 + prefixRank, prefixRank)
         }.maxWithOrNull(
-            compareBy<Triple<Network, Int, Int>> { it.third }.thenBy { it.second }
+            compareBy<Triple<Network, Int, Int>> { it.second }.thenBy { it.third }
         )?.first
     }.getOrNull()
+
+    internal fun isWifiDirectInterfaceName(name: String): Boolean =
+        name.trim().lowercase().let { it.startsWith("p2p") }
+
+    internal fun isAndroidWifiDirectGroupAddress(address: Inet4Address): Boolean =
+        isInPrefix(
+            address,
+            InetAddress.getByName("192.168.49.0") as Inet4Address,
+            24
+        )
 
     internal fun isInPrefix(
         address: Inet4Address,
