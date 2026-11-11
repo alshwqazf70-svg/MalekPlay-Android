@@ -946,7 +946,8 @@ fun UltraShareExperienceScreen(
                 UltraSharePage.NEARBY -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                                                        onClick = ::scanAllNearby,
+                            colors = ultraShareButtonColors(),
+                            onClick = ::scanAllNearby,
                             modifier = Modifier.weight(1f),
                             enabled = !state.sending
                         ) {
