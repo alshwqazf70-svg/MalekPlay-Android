@@ -215,30 +215,46 @@ class UltraShareViewModel @Inject constructor(
             var connectedHost: String? = null
             var lastFailure: Exception? = null
             for (candidate in candidates) {
-                try {
-                    if (!UltraShareControlChannel.isSessionActive(candidate)) {
-                        val decision = withContext(Dispatchers.IO) {
-                            UltraShareControlChannel.request(
-                                host = candidate,
-                                pairingSecret = pairing.pairingSecret,
-                                peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" }
-                                    ?: "MalekPlay Android",
-                                network = UltraShareNetworkRouting.findNetworkForHost(context, candidate),
-                                peerId = UltraShareDiscovery.localPeerId(context)
-                            )
-                        }
-                        if (decision == UltraShareControlChannel.Decision.REJECTED) {
-                            lastFailure = IllegalStateException("رفض جهاز الاستقبال طلب الاقتران.")
+                var candidateAccepted = UltraShareControlChannel.isSessionActive(candidate)
+                var candidateFailure: Exception? = null
+                if (!candidateAccepted) {
+                    for (attempt in 0..2) {
+                        try {
+                            val decision = withContext(Dispatchers.IO) {
+                                UltraShareControlChannel.request(
+                                    host = candidate,
+                                    pairingSecret = pairing.pairingSecret,
+                                    peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" }
+                                        ?: "MalekPlay Android",
+                                    network = UltraShareNetworkRouting.findNetworkForHost(context, candidate),
+                                    peerId = UltraShareDiscovery.localPeerId(context)
+                                )
+                            }
+                            if (decision == UltraShareControlChannel.Decision.REJECTED) {
+                                candidateFailure = IllegalStateException("رفض جهاز الاستقبال طلب الاقتران.")
+                                break
+                            }
+                            candidateAccepted = true
                             break
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            candidateFailure = failure
+                            // The receiver service may still be opening its control
+                            // listener immediately after its QR becomes visible.
+                            if (failure !is java.net.ConnectException || attempt == 2) break
+                            delay(500L * (attempt + 1))
                         }
                     }
+                }
+                if (candidateAccepted) {
                     connectedHost = candidate
                     break
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: Exception) {
-                    lastFailure = failure
                 }
+                lastFailure = candidateFailure
+                if (candidateFailure is IllegalStateException &&
+                    candidateFailure.message?.contains("رفض جهاز الاستقبال") == true
+                ) break
             }
             pendingInvitationReady = null
             pendingInvitation = null
