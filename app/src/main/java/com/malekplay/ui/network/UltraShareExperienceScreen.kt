@@ -609,13 +609,31 @@ fun UltraShareExperienceScreen(
                     )
                 }
                 UltraSharePage.JOIN -> {
-                    InfoPanel("الانضمام الآمن", "افتح شاشة الاستقبال على الهاتف الآخر، ثم وجّه كاميرا هاتفك إلى رمز QR الظاهر هناك. لن يبدأ نقل الملفات قبل موافقة الطرفين.")
+                    InfoPanel(
+                        "الانضمام الآمن",
+                        "اكتشف هاتفاً قريباً عبر الشبكة المحلية أو Wi-Fi Direct، أو امسح رمز QR الخاص به. لن يبدأ النقل قبل موافقة الطرفين."
+                    )
                     Button(onClick = ::scanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
                         Icon(Icons.Filled.QrCode, null)
-                        Text("فتح ماسح رمز QR بالكاميرا")
+                        Text("مسح رمز QR بالكاميرا")
                     }
-                    OutlinedButton(onClick = { qrImagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+                    OutlinedButton(
+                        onClick = { qrImagePicker.launch(arrayOf("image/*")) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !state.sending
+                    ) {
                         Text("قراءة QR من صورة محفوظة")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            scanAllNearby()
+                            page = UltraSharePage.NEARBY
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !state.sending
+                    ) {
+                        Icon(Icons.Filled.Wifi, null)
+                        Text("البحث عن الأجهزة القريبة")
                     }
                     if (state.requestingConnection) {
                         StatusPanel("تم إرسال طلب الاتصال", "بانتظار موافقة جهاز الاستقبال", true)
