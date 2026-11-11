@@ -552,6 +552,8 @@ def main() -> int:
         if args.command == "send-v2":
             if not (1 <= args.port <= 65535 and 1 <= args.control_port <= 65535):
                 raise ValueError("V2 data and control ports must be between 1 and 65535.")
+            if args.port == args.control_port:
+                raise ValueError("V2 data and control ports must be different.")
             from ultra_share_v2 import connect_control_session, send_batch_v2
             with connect_control_session(args.host, args.control_port, secret) as control:
                 results = send_batch_v2(args.host, args.port, secret, args.file)
@@ -567,6 +569,8 @@ def main() -> int:
             raise ValueError("Transfer, V2 and discovery ports must be between 1 and 65535.")
         if args.port == args.v2_port:
             raise ValueError("V1 and V2 TCP ports must be different.")
+        if args.control_port in {args.port, args.v2_port}:
+            raise ValueError("MPC2 control port must be distinct from both data ports.")
 
         from ultra_share_v2 import receive_batch_v2, serve_control_once
 
