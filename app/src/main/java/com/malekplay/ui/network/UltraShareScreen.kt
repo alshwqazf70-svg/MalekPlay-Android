@@ -324,6 +324,10 @@ class UltraShareViewModel @Inject constructor(
             val session = ensureWifiDirectSession()
             session.discoverInvitation(pairing.invitationId) { peer ->
                 if (pendingInvitationReady == null) return@discoverInvitation
+                // The discovery deadline ends once the exact receiver is found.
+                // Connection negotiation has its own 30-second timeout in the P2P layer.
+                invitationTimeout?.cancel()
+                invitationTimeout = null
                 session.stopInvitationDiscovery {
                     runCatching {
                         session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
