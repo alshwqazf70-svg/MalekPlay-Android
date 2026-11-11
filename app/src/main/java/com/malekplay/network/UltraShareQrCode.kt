@@ -42,6 +42,9 @@ object UltraShareQrCode {
         require(UltraShareTransport.isValidPairingSecret(pairingSecret)) {
             "رمز الاقتران غير صالح."
         }
+        require(peerId == null || peerId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
+            "هوية دعوة Wi-Fi Direct غير صالحة."
+        }
         return Uri.Builder()
             .scheme(SCHEMA)
             .authority(AUTHORITY)
