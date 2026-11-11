@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.QrCode
@@ -35,9 +34,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.malekplay.core.ui.theme.MalekPlayColors
 
-private val ShareNavy = Color(0xFF394363)
-private val ShareWhite = Color(0xFFFDFDFE)
-private val ShareCyan = Color(0xFF72DFF0)
+private val ShareNavy = Color(0xFF171021)
+private val ShareWhite = Color(0xFF21192D)
+private val ShareCyan = Color(0xFFA855F7)
 
 @Composable
 fun ReceiveScreen(
@@ -76,20 +75,20 @@ fun ReceiveScreen(
                 ) {
                     Text(
                         "اطلب من صديقك مسح كود QR أو البحث عن اسم المجموعة",
-                        color = Color(0xFF42495A),
+                        color = Color(0xFFF2EAFB),
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
                         "اسم المجموعة: ${android.os.Build.MODEL.orEmpty().ifBlank { "MalekPlay" }}",
-                        color = Color(0xFF394363),
+                        color = Color(0xFFF8F5FF),
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Text(
                         "كلمة المرور: ${state.pairingSecret}",
-                        color = Color(0xFF3976C8),
+                        color = Color(0xFFC084FC),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -104,7 +103,7 @@ fun ReceiveScreen(
                     }
                     Text(
                         "امسح الرمز من الهاتف الآخر للاتصال",
-                        color = Color(0xFF42495A),
+                        color = Color(0xFFB9B1C8),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
                     )
@@ -115,9 +114,9 @@ fun ReceiveScreen(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Filled.Bluetooth, contentDescription = null, tint = Color.White, modifier = Modifier.size(26.dp))
+                Icon(Icons.Filled.Wifi, contentDescription = null, tint = Color(0xFFC084FC), modifier = Modifier.size(26.dp))
                 Text(
-                    "فعّل Bluetooth لتسريع اكتشاف الأجهزة والاتصال",
+                    "اتصلوا بشبكة Wi-Fi نفسها، أو استخدموا Wi-Fi Direct أو نقطة الاتصال للربط المباشر.",
                     color = Color(0xFFE4E9F5),
                     modifier = Modifier.padding(start = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
