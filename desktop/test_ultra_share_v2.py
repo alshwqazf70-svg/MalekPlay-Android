@@ -210,10 +210,15 @@ class UltraShareV2ManifestTests(unittest.TestCase):
         from pathlib import Path
         from unittest.mock import patch
 
-        probe = socket.socket()
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-        probe.close()
+        def free_port():
+            probe = socket.socket()
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+            probe.close()
+            return port
+
+        data_port = free_port()
+        control_port = free_port()
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as output_dir:
             source_root = Path(source_dir)
             first = source_root / "مقطع.bin"
@@ -223,10 +228,24 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             received = []
             failures = []
 
+            def control_server():
+                try:
+                    with patch("ultra_share_v2._is_private_v2_peer", return_value=True):
+                        serve_control_once(
+                            control_port, "123456789", "Desktop Test",
+                            lambda _name, _host: True,
+                        )
+                except Exception as exc:
+                    failures.append(exc)
+
+            control_worker = threading.Thread(target=control_server, daemon=True)
+            control_worker.start()
+            time.sleep(0.15)
+
             def receiver():
                 try:
                     with patch("ultra_share_v2._is_private_v2_peer", return_value=True):
-                        received.extend(receive_batch_v2(port, "123456789", Path(output_dir)))
+                        received.extend(receive_batch_v2(data_port, "123456789", Path(output_dir)))
                 except Exception as exc:
                     failures.append(exc)
 
@@ -234,11 +253,18 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             worker.start()
             time.sleep(0.15)
             with patch("ultra_share_v2._is_private_v2_peer", return_value=True):
-                results = send_batch_v2(
-                    "127.0.0.1", port, "123456789", [first, second]
-                )
+                control = connect_control_session("127.0.0.1", control_port, "123456789")
+                try:
+                    results = send_batch_v2(
+                        "127.0.0.1", data_port, "123456789", [first, second]
+                    )
+                    self.assertIsNone(control.error)
+                finally:
+                    control.close()
             worker.join(timeout=5)
+            control_worker.join(timeout=2)
             self.assertFalse(worker.is_alive())
+            self.assertFalse(control_worker.is_alive())
             self.assertFalse(failures)
             self.assertEqual(2, len(results))
             self.assertTrue(all(item["status"] == STATUS_COMPLETED for item in results))
