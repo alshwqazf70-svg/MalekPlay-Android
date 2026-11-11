@@ -333,14 +333,6 @@ fun UltraShareExperienceScreen(
             scanWifiDirect()
         }
     }
-    fun startReceivingGroup() {
-        if (!state.receiving) viewModel.startReceiving()
-        if (!state.hotspotActive && !state.hotspotStarting) startHotspot()
-    }
-    fun stopReceivingGroup() {
-        if (state.receiving) viewModel.stopReceiving()
-        if (state.hotspotActive || state.hotspotStarting) viewModel.stopHotspot()
-    }
     fun startHotspot() {
         val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
@@ -349,6 +341,15 @@ fun UltraShareExperienceScreen(
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) viewModel.startHotspot() else hotspotPermission.launch(missing.toTypedArray())
+    }
+
+    fun startReceivingGroup() {
+        if (!state.receiving) viewModel.startReceiving()
+        if (!state.hotspotActive && !state.hotspotStarting) startHotspot()
+    }
+    fun stopReceivingGroup() {
+        if (state.receiving) viewModel.stopReceiving()
+        if (state.hotspotActive || state.hotspotStarting) viewModel.stopHotspot()
     }
 
     BackHandler(enabled = page != UltraSharePage.HOME) {
