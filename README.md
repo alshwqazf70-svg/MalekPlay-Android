@@ -1,4 +1,4 @@
-# MalekPlay
+# MalekPlayer
 
 مشغل وسائط Android بواجهة عربية RTL، مبني باستخدام Kotlin وJetpack Compose وAndroidX Media3.
 
@@ -44,8 +44,8 @@
 
 ## البناء والاختبار
 - افتح تبويب Actions في المستودع.
-- اختر workflow المسمى Build MalekPlay Android APK ثم Run workflow على الفرع `backup/before-updated-2.0`.
-- نزّل artifact المسمى `MalekPlay-universal-install` للتثبيت المباشر على أجهزة Android المتوافقة.
+- اختر workflow المسمى Build MalekPlayer Android APK ثم Run workflow على الفرع `backup/before-updated-2.0`.
+- نزّل artifact المسمى `MalekPlayer-universal-install` للتثبيت المباشر على أجهزة Android المتوافقة.
 - يبدأ GitHub Actions البناء وفحوصات الجودة تلقائياً عند كل push إلى فرع `backup/before-updated-2.0`. ويمكن تشغيل workflow يدوياً عند الحاجة؛ اختبار المحاكي اختياري.
 - ملف Release الذي لا يُزوّد بمفتاح توقيع خاص يبقى غير موقّع وجاهزاً للتحليل فقط، ولا يُعد إصداراً صالحاً للنشر أو التحديث فوق نسخة منشورة.
 - يحتوي المستودع على Gradle Wrapper الرسمي للإصدار 8.11.1 (`gradlew` و`gradlew.bat` وملفات `gradle/wrapper`). استخدم `./gradlew` على Linux/macOS أو `gradlew.bat` على Windows.
