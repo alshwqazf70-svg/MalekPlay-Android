@@ -8,12 +8,18 @@ import org.junit.Test
 class UltraShareTransportTest {
 
     @Test
-    fun shareMimePolicyAllowsOnlyImagesAudioAndVideo() {
-        listOf("video/mp4", "video/x-matroska", "audio/mpeg", "image/jpeg")
-            .forEach { assertTrue(UltraShareTransport.isSupportedShareMimeType(it)) }
-        listOf("application/pdf", "application/vnd.android.package-archive",
-            "application/zip", "text/plain", "application/octet-stream", "video", "audio/")
+    fun shareMimePolicyAllowsGeneralFilesButBlocksApkAndPdf() {
+        listOf(
+            "video/mp4", "video/x-matroska", "audio/mpeg", "image/jpeg",
+            "application/zip", "text/plain", "application/octet-stream",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ).forEach { assertTrue(UltraShareTransport.isSupportedShareMimeType(it)) }
+        listOf("application/pdf", "application/vnd.android.package-archive", "video", "audio/")
             .forEach { assertFalse(UltraShareTransport.isSupportedShareMimeType(it)) }
+        assertFalse(UltraShareTransport.isAllowedShareFile("renamed.apk", "application/octet-stream"))
+        assertFalse(UltraShareTransport.isAllowedShareFile("renamed.pdf", "application/octet-stream"))
+        assertTrue(UltraShareTransport.isAllowedShareFile("archive.zip", "application/zip"))
+        assertTrue(UltraShareTransport.isAllowedShareFile("unknown.bin", "application/octet-stream"))
     }
 
     @Test
