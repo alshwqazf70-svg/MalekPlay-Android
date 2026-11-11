@@ -713,31 +713,50 @@ fun UltraShareExperienceScreen(
                     )
                 }
                 UltraSharePage.JOIN -> {
-                    InfoPanel(
-                        "الانضمام الآمن",
-                        "اكتشف هاتفاً قريباً عبر الشبكة المحلية أو Wi-Fi Direct، أو امسح رمز QR الخاص به. لن يبدأ النقل قبل موافقة الطرفين."
-                    )
-                    Button(onClick = ::scanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
-                        Icon(Icons.Filled.QrCode, null)
-                        Text("مسح رمز QR بالكاميرا")
-                    }
-                    OutlinedButton(
-                        onClick = { qrImagePicker.launch(arrayOf("image/*")) },
+                    Card(
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !state.sending
+                        shape = RoundedCornerShape(22.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1B2940))
                     ) {
-                        Text("قراءة QR من صورة محفوظة")
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            scanAllNearby()
-                            page = UltraSharePage.NEARBY
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !state.sending
-                    ) {
-                        Icon(Icons.Filled.Wifi, null)
-                        Text("البحث عن الأجهزة القريبة")
+                        Column(
+                            Modifier.fillMaxWidth().padding(18.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                Modifier.size(92.dp).background(Color(0xFF263E5C), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Filled.QrCode, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(48.dp))
+                            }
+                            Text("انضم إلى مجموعة صديقك", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(
+                                "امسح رمز QR الظاهر على هاتف المضيف، أو ابحث عن الأجهزة القريبة. سيطلب MalekPlay موافقة المضيف قبل بدء الاتصال والنقل.",
+                                color = Color(0xFFB7C5E7),
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Button(onClick = ::scanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+                                Icon(Icons.Filled.QrCode, null)
+                                Text("مسح رمز QR بالكاميرا", modifier = Modifier.padding(start = 8.dp))
+                            }
+                            OutlinedButton(
+                                onClick = { qrImagePicker.launch(arrayOf("image/*")) },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !state.sending
+                            ) { Text("قراءة QR من صورة محفوظة") }
+                            OutlinedButton(
+                                onClick = {
+                                    scanAllNearby()
+                                    page = UltraSharePage.NEARBY
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !state.sending
+                            ) {
+                                Icon(Icons.Filled.Wifi, null)
+                                Text("البحث عن الأجهزة القريبة", modifier = Modifier.padding(start = 8.dp))
+                            }
+                        }
                     }
                     if (state.requestingConnection) {
                         StatusPanel("تم إرسال طلب الاتصال", "بانتظار موافقة جهاز الاستقبال", true)
@@ -795,7 +814,7 @@ fun UltraShareExperienceScreen(
                     }
                     UltraShareRadar(
                         isScanning = state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning,
-                        discoveredCount = visiblePeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size,
+                        discoveredCount = visiblePeers.size,
                         modifier = Modifier.fillMaxWidth().height(340.dp),
                         peerNames = visiblePeers.take(4).map { it.name },
                         onPeerClick = { index ->
