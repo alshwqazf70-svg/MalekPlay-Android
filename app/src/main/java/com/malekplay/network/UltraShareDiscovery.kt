@@ -50,7 +50,7 @@ object UltraShareDiscovery {
         transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT,
         legacyTransferPort: Int = UltraShareTransport.DEFAULT_PORT,
         context: Context? = null,
-        displayName: String = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+        displayName: String = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlay Android",
         transferPortProvider: (() -> Int)? = null
     ) = withContext(Dispatchers.IO) {
         require(transferPort in 1..65535)
@@ -71,7 +71,7 @@ object UltraShareDiscovery {
                         .toString(Charsets.UTF_8)
                     when (request) {
                         PROBE_V1 -> {
-                            val response = "$OFFER_PREFIX_V1$legacyTransferPort|MalekPlay".toByteArray(Charsets.UTF_8)
+                            val response = "$OFFER_PREFIX_V1$legacyTransferPort|MalekPlayer".toByteArray(Charsets.UTF_8)
                             socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
                         }
                         PROBE_V2 -> {
@@ -157,7 +157,7 @@ object UltraShareDiscovery {
                     if (!message.startsWith(OFFER_PREFIX_V1)) continue
                     val parts = message.removePrefix(OFFER_PREFIX_V1).split('|', limit = 2)
                     val port = parts.getOrNull(0)?.toIntOrNull() ?: continue
-                    val name = parts.getOrNull(1)?.take(64)?.takeIf { it.isNotBlank() } ?: "MalekPlay"
+                    val name = parts.getOrNull(1)?.take(64)?.takeIf { it.isNotBlank() } ?: "MalekPlayer"
                     if (port !in 1..65535) continue
                     // Do not downgrade a v2 peer when its v1 response arrives later.
                     if (host !in v2SourceHosts && peers["host:$host"] == null) {
