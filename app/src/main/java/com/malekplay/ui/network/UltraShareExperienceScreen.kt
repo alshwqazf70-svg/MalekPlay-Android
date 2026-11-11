@@ -388,6 +388,13 @@ fun UltraShareExperienceScreen(
     LaunchedEffect(state.approvedPeerHost) {
         state.approvedPeerHost?.let { host = it }
     }
+    LaunchedEffect(state.wifiDirectHost) {
+        state.wifiDirectHost?.let { connectedHost ->
+            host = connectedHost
+            secret = ""
+            page = UltraSharePage.SEND
+        }
+    }
 
     val qrPayload = state.localAddresses.firstOrNull()
         ?.takeIf { state.receiving && state.pairingSecret.isNotBlank() }
