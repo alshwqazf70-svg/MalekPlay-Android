@@ -45,6 +45,7 @@ object UltraShareWifiDirect {
         private var invitationMatch: ((Peer) -> Unit)? = null
         private val mainHandler = Handler(Looper.getMainLooper())
         private var connectionInProgress = false
+        private var wasConnected = false
         private var connectionAttemptToken = 0
         private var connectionTimeout: Runnable? = null
 
@@ -304,6 +305,7 @@ object UltraShareWifiDirect {
                 manager.requestConnectionInfo(channel) { info ->
                     if (closed) return@requestConnectionInfo
                     if (info.groupFormed && info.isGroupOwner) {
+                        wasConnected = true
                         onCreated()
                     } else if (attempt < 20) {
                         mainHandler.postDelayed({ awaitReceiverGroup(onCreated, attempt + 1) }, 500L)
@@ -453,7 +455,14 @@ object UltraShareWifiDirect {
                     if (closed) return@requestConnectionInfo
                     // Android may broadcast CONNECTION_CHANGED while negotiation is
                     // still pending. A non-formed group is not proof of a disconnect.
-                    if (!info.groupFormed) return@requestConnectionInfo
+                    if (!info.groupFormed) {
+                        if (wasConnected) {
+                            wasConnected = false
+                            onError("انقطع اتصال Wi-Fi Direct. أعد الاتصال أو استخدم مسار الشبكة المحلية الاحتياطي.")
+                        }
+                        return@requestConnectionInfo
+                    }
+                    wasConnected = true
                     connectionInProgress = false
                     connectionTimeout?.let(mainHandler::removeCallbacks)
                     connectionTimeout = null
