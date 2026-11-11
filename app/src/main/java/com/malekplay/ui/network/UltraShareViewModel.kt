@@ -293,6 +293,7 @@ class UltraShareViewModel @Inject constructor(
                 throw cancelled
             } catch (failure: Exception) {
                 _state.value = _state.value.copy(
+                    discoveredPeers = emptyList(),
                     error = failure.localizedMessage ?: context.getString(R.string.ultra_share_discovery_unavailable)
                 )
             } finally {
