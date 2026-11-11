@@ -532,7 +532,7 @@ class UltraShareForegroundService : Service() {
                     updateState { current -> current.copy(error = "لا توجد أجهزة مقترنة صالحة للإرسال الجماعي.") }
                     finishService()
                 } else {
-                    startSendingQueueToPeers(uris, targets)
+                    startSendingQueueToPeers(uris, targets, intent.getBooleanExtra(EXTRA_PRESERVE_DELIVERIES, false))
                 }
             }
             ACTION_SEND_BATCH -> {
@@ -1143,7 +1143,8 @@ class UltraShareForegroundService : Service() {
     }
     private fun startSendingQueueToPeers(
         uris: List<Uri>,
-        targets: List<UltraShareApprovedSendTarget>
+        targets: List<UltraShareApprovedSendTarget>,
+        preserveCompleted: Boolean
     ) {
         if (uris.isEmpty() || targets.isEmpty() || sendJob != null) return
         if (targets.any {
@@ -1207,7 +1208,8 @@ class UltraShareForegroundService : Service() {
                 UltraSharePeerDeliveryStore.prepare(
                     this@UltraShareForegroundService,
                     metadata.map { (uri, details) -> uri to details.first },
-                    peerTargets
+                    peerTargets,
+                    preserveCompleted = preserveCompleted
                 )
 
                 beginTransfer(isReceiving = false)
@@ -1693,6 +1695,7 @@ class UltraShareForegroundService : Service() {
         private const val EXTRA_URIS = "uris"
         private const val EXTRA_ROUTE_OFFER = "route_offer"
         private const val EXTRA_PEER_TARGETS = "peer_targets"
+        private const val EXTRA_PRESERVE_DELIVERIES = "preserve_deliveries"
         const val ACTION_STOP = "com.malekplay.ultrashare.STOP"
         const val ACTION_CANCEL = "com.malekplay.ultrashare.CANCEL"
         const val ACTION_CANCEL_SEND = "com.malekplay.ultrashare.CANCEL_SEND"
@@ -1813,7 +1816,8 @@ class UltraShareForegroundService : Service() {
         internal fun startSendingBatchToPeers(
             context: Context,
             uris: List<Uri>,
-            targets: List<UltraShareApprovedSendTarget>
+            targets: List<UltraShareApprovedSendTarget>,
+            preserveCompleted: Boolean = false
         ) {
             require(uris.isNotEmpty()) { "اختر ملفاً واحداً على الأقل." }
             require(targets.isNotEmpty()) { "لا توجد أجهزة مقترنة للإرسال." }
@@ -1850,6 +1854,7 @@ class UltraShareForegroundService : Service() {
                 .setAction(ACTION_SEND_MULTI_BATCH)
                 .putParcelableArrayListExtra(EXTRA_URIS, ArrayList(uris.distinctBy { it.toString() }))
                 .putExtra(EXTRA_PEER_TARGETS, encodedTargets)
+                .putExtra(EXTRA_PRESERVE_DELIVERIES, preserveCompleted)
             start(context, intent)
         }
 
