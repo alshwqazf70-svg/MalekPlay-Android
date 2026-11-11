@@ -486,7 +486,7 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
-    fun sendBatch(uris: List<Uri>, host: String, secret: String): Boolean {
+    fun sendBatch(uris: List<Uri>, host: String): Boolean {
         val target = approvedSenderTargets[host.trim()]
         if (uris.isEmpty() || _state.value.sending || target == null) return false
         return runCatching {
@@ -530,7 +530,7 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
-    fun resumePendingBatch(host: String, secret: String) {
+    fun resumePendingBatch(host: String) {
         val target = approvedSenderTargets[host.trim()] ?: return
         if (_state.value.sending) return
         viewModelScope.launch {
@@ -563,7 +563,7 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
-    fun retryFile(entry: UltraShareQueueEntry, host: String, secret: String) {
+    fun retryFile(entry: UltraShareQueueEntry, host: String) {
         val target = approvedSenderTargets[host.trim()]
         if (_state.value.sending || target == null ||
             entry.status != UltraShareQueueStore.STATUS_FAILED
