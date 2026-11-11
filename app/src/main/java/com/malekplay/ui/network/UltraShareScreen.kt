@@ -104,7 +104,7 @@ import java.net.NetworkInterface
 import java.util.UUID
 import javax.inject.Inject
 
-data class UltraShareUiState(
+data class LegacyUltraShareUiState(
     val pairingSecret: String = "",
     val localAddresses: List<String> = emptyList(),
     val receiving: Boolean = false,
@@ -128,11 +128,11 @@ data class UltraShareUiState(
 )
 
 @HiltViewModel
-class UltraShareViewModel @Inject constructor(
+class LegacyUltraShareViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val mediaRepository: MediaRepository
 ) : ViewModel() {
-    private val _state = MutableStateFlow(UltraShareUiState())
+    private val _state = MutableStateFlow(LegacyUltraShareUiState())
     val state = _state.asStateFlow()
     private var scanJob: Job? = null
     private var wifiDirectScanTimeout: Job? = null
@@ -720,7 +720,7 @@ fun UltraShareScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val viewModel: UltraShareViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    val viewModel: LegacyUltraShareViewModel = androidx.hilt.navigation.compose.hiltViewModel()
     val state by viewModel.state.collectAsState()
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
