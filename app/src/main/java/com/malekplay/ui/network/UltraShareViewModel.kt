@@ -196,7 +196,7 @@ class UltraShareViewModel @Inject constructor(
                 // only transport failures move to another route.
                 val routeHosts = (
                     listOf(host.trim()) +
-                        alternateHosts.filter(UltraShareTransport::isValidPrivateLanHost) +
+                        alternateHosts.filter { UltraShareTransport.isValidPrivateLanHost(it) } +
                         orderedRoutes.map { it.host }
                     ).distinct()
                 var acceptedHost: String? = null
