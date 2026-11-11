@@ -90,7 +90,7 @@ object UltraShareBatchProtocol {
             require(UltraShareTransport.sanitizeFileName(entry.name) == entry.name)
             require(entry.name.toByteArray(Charsets.UTF_8).size in 1..MAX_NAME_BYTES)
             require(UltraShareTransport.sanitizeMimeType(entry.mimeType) == entry.mimeType)
-            require(UltraShareTransport.isSupportedShareMimeType(entry.mimeType)) {
+            require(UltraShareTransport.isAllowedShareFile(entry.name, entry.mimeType)) {
                 "نوع الملف غير صالح للمشاركة."
             }
             require(entry.mimeType.toByteArray(Charsets.UTF_8).size <= MAX_MIME_BYTES)

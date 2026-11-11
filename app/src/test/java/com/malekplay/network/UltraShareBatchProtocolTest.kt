@@ -47,19 +47,22 @@ class UltraShareBatchProtocolTest {
         assertEquals(0L, decoded.entries.single().sizeBytes)
     }
 
-    @Test fun acceptsMediaAndRejectsDocumentsPackagesArchivesAndUnknownFiles() {
-        listOf("video/mp4", "audio/mpeg", "image/jpeg", "video/x-matroska").forEach { mime ->
+    @Test fun acceptsGenericFilesAndArchivesButRejectsApkAndPdf() {
+        listOf(
+            "video/mp4", "audio/mpeg", "image/jpeg", "video/x-matroska",
+            "application/zip", "text/plain", "application/octet-stream",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ).forEach { mime ->
             assertTrue("Expected supported MIME type: $mime", UltraShareTransport.isSupportedShareMimeType(mime))
-            val item = UltraShareBatchProtocol.newEntry("shared-media", mime, 1L,
+            val item = UltraShareBatchProtocol.newEntry("shared-file.bin", mime, 1L,
                 MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1)))
             assertEquals(mime, UltraShareBatchProtocol.validate(
                 UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(item))
             ).entries.single().mimeType)
         }
-        listOf("application/pdf", "application/vnd.android.package-archive",
-            "application/zip", "text/plain", "application/octet-stream").forEach { mime ->
+        listOf("application/pdf", "application/vnd.android.package-archive").forEach { mime ->
             assertFalse(UltraShareTransport.isSupportedShareMimeType(mime))
-            val item = UltraShareBatchProtocol.newEntry("blocked-file", mime, 1L,
+            val item = UltraShareBatchProtocol.newEntry("blocked-file.bin", mime, 1L,
                 MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1)))
             assertThrows(IllegalArgumentException::class.java) {
                 UltraShareBatchProtocol.validate(
@@ -67,6 +70,10 @@ class UltraShareBatchProtocolTest {
                 )
             }
         }
+        listOf("package.apk" to "application/octet-stream", "document.pdf" to "application/octet-stream")
+            .forEach { (name, mime) ->
+                assertFalse(UltraShareTransport.isAllowedShareFile(name, mime))
+            }
     }
 
     @Test fun rejectsMalformedMimeTypes() {

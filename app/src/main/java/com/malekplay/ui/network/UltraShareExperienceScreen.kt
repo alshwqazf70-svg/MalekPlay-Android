@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -1042,7 +1043,14 @@ private fun IncomingRequestPanel(
 private fun isUltraShareMedia(context: Context, uri: Uri): Boolean = runCatching {
     val resolver = context.contentResolver
     val mime = resolver.getType(uri) ?: "application/octet-stream"
-    if (!UltraShareTransport.isSupportedShareMimeType(mime)) {
+    val displayName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (column >= 0) cursor.getString(column) else null
+            } else null
+        } ?: uri.lastPathSegment.orEmpty()
+    if (!UltraShareTransport.isAllowedShareFile(displayName, mime)) {
         return@runCatching false
     }
 

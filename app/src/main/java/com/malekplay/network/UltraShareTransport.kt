@@ -195,7 +195,10 @@ object UltraShareTransport {
         }
     }
 
-    /** UltraShare intentionally transfers image, audio and video media only. */
+    /** Accept any syntactically valid file MIME except Android packages and PDF documents. */
+    fun isSupportedShareMimeType(raw: String): Boolean {
+        val candidate = raw.trim().lowercase(Locale.ROOT)
+        val token = "[A-Za-z0-9!#    /** UltraShare intentionally transfers image, audio and video media only. */
     fun isSupportedShareMimeType(raw: String): Boolean {
         val candidate = raw.trim().lowercase(Locale.ROOT)
         val token = "[A-Za-z0-9!#$&^_.+-]+"
@@ -205,7 +208,27 @@ object UltraShareTransport {
     }
 
     @Deprecated("Use isSupportedShareMimeType for image, audio and video.")
+    fun isSupportedMediaMimeType(raw: String): Boolean = isSupportedShareMimeType(raw)^_.+-]+"
+        return candidate.length in 3..160 &&
+            Regex("^$token/$token$").matches(candidate) &&
+            candidate !in BLOCKED_SHARE_MIME_TYPES
+    }
+
+    /** Filename checks prevent a generic or spoofed MIME type bypassing the APK/PDF rule. */
+    fun isAllowedShareFile(fileName: String, mimeType: String): Boolean {
+        val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        return extension !in BLOCKED_SHARE_EXTENSIONS && isSupportedShareMimeType(mimeType)
+    }
+
+    @Deprecated("Use isSupportedShareMimeType; filename-aware checks use isAllowedShareFile.")
     fun isSupportedMediaMimeType(raw: String): Boolean = isSupportedShareMimeType(raw)
+
+    private val BLOCKED_SHARE_MIME_TYPES = setOf(
+        "application/pdf",
+        "application/x-pdf",
+        "application/vnd.android.package-archive"
+    )
+    private val BLOCKED_SHARE_EXTENSIONS = setOf("apk", "pdf")
 
     /**
      * A resume file belongs to the exact content, not just its visible name and size.
@@ -261,7 +284,7 @@ object UltraShareTransport {
         val effectiveChunkBytes = validateChunkBytes(chunkBytes)
         val safeName = sanitizeFileName(fileName)
         val safeMime = sanitizeMimeType(mimeType)
-        require(isSupportedShareMimeType(safeMime)) { "يسمح UltraShare بمشاركة الصور والصوت والفيديو فقط." }
+        require(isAllowedShareFile(safeName, safeMime)) { "لا يمكن مشاركة ملفات APK أو PDF." }
         val digest = resolver.openInputStream(uri)?.use { rawStream ->
             // A larger read-ahead buffer smooths slow ContentProvider/storage reads
             // before encryption, while the on-wire v1 frame remains capped at 256 KiB.
@@ -407,7 +430,7 @@ object UltraShareTransport {
                 val size = metadata.readLong()
                 require(size in 0..MAX_FILE_BYTES) { "حجم الملف المرسل غير مسموح." }
                 val mime = sanitizeMimeType(readUtf8(metadata, 192))
-                require(isSupportedShareMimeType(mime)) { "نوع الملف المرسل غير صالح." }
+                require(isAllowedShareFile(fileName, mime)) { "لا يمكن استقبال ملفات APK أو PDF." }
                 val expectedDigest = ByteArray(32).also(metadata::readFully)
                 require(metadata.available() == 0) { "بيانات الملف المرسل غير مكتملة." }
 
