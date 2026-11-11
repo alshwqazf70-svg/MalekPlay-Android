@@ -333,6 +333,14 @@ fun UltraShareExperienceScreen(
             scanWifiDirect()
         }
     }
+    fun startReceivingGroup() {
+        if (!state.receiving) viewModel.startReceiving()
+        if (!state.hotspotActive && !state.hotspotStarting) startHotspot()
+    }
+    fun stopReceivingGroup() {
+        if (state.receiving) viewModel.stopReceiving()
+        if (state.hotspotActive || state.hotspotStarting) viewModel.stopHotspot()
+    }
     fun startHotspot() {
         val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
@@ -440,7 +448,7 @@ fun UltraShareExperienceScreen(
                     "اعرض رمز QR وانتظر الأصدقاء",
                     { Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF72E5F2), modifier = Modifier.size(52.dp)) }
                 ) {
-                    if (!state.receiving) viewModel.startReceiving()
+                    startReceivingGroup()
                     page = UltraSharePage.RECEIVE
                 }
                 ActionTile(
@@ -599,7 +607,7 @@ fun UltraShareExperienceScreen(
                         },
                         onStartHotspot = ::startHotspot,
                         onStopHotspot = viewModel::stopHotspot,
-                        onToggleReceiving = { if (state.receiving) viewModel.stopReceiving() else viewModel.startReceiving() },
+                        onToggleReceiving = { if (state.receiving) stopReceivingGroup() else startReceivingGroup() },
                         onAcceptConnection = viewModel::acceptConnection,
                         onRejectConnection = viewModel::rejectConnection,
                         onOpenReceived = { uri, mimeType ->
