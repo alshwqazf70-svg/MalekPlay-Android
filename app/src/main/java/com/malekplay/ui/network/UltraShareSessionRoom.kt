@@ -179,7 +179,12 @@ fun UltraShareSessionRoom(
                     peerHosts.forEach { peerHost ->
                         val peer = state.activePeers.firstOrNull { it.host == peerHost }
                         val transfer = state.peerTransfers.firstOrNull { it.host == peerHost }
-                        val peerFiles = state.peerDeliveryEntries.filter { it.peerHost == peerHost }
+                        // Keep delivery history attached to the authenticated device
+                        // when its IP changes; host is only a display/routing attribute.
+                        val peerFiles = state.peerDeliveryEntries.filter {
+                            if (peer != null) it.peerSessionId == peer.sessionId
+                            else it.peerHost == peerHost
+                        }
                         Column(
                             modifier = Modifier.fillMaxWidth()
                                 .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
