@@ -16,7 +16,7 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import java.util.EnumMap
 
-/** QR payloads are versioned and contain only the local endpoint and one-session secret. */
+/** Versioned QR payloads carry a one-session secret, optional LAN fallbacks and an ephemeral peer invitation ID. */
 object UltraShareQrCode {
     private const val SCHEMA = "malekplay"
     private const val AUTHORITY = "ultra-share"
