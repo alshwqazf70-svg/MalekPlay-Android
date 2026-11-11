@@ -514,6 +514,8 @@ def main() -> int:
     receive.add_argument("--secret", help="9-digit pairing code (legacy 64-character hex key also accepted; prompted if omitted)")
     receive.add_argument("--output", type=Path, default=Path("Received"))
     receive.add_argument("--port", type=int, default=DEFAULT_PORT)
+    receive.add_argument("--v2-port", type=int, default=38742,
+                         help="TCP port for Ultra Share V2 batch reception")
     receive.add_argument("--discovery-port", type=int, default=DISCOVERY_PORT)
     receive.add_argument("--name", default=socket.gethostname())
 
@@ -539,13 +541,35 @@ def main() -> int:
             send_files(args.host, args.port, secret, args.file)
             return 0
 
+        if not (1 <= args.port <= 65535 and 1 <= args.v2_port <= 65535
+                and 1 <= args.discovery_port <= 65535):
+            raise ValueError("Transfer, V2 and discovery ports must be between 1 and 65535.")
+        if args.port == args.v2_port:
+            raise ValueError("V1 and V2 TCP ports must be different.")
+
+        from ultra_share_v2 import receive_batch_v2
+
+        def v2_receiver_loop() -> None:
+            while True:
+                try:
+                    outcomes = receive_batch_v2(args.v2_port, secret, args.output)
+                    completed = sum(item["status"] == 2 for item in outcomes)
+                    print(f"\\nV2 batch received: {completed}/{len(outcomes)} files verified.")
+                except (ConnectionError, OSError, ValueError, PermissionError) as failure:
+                    print(f"V2 transfer rejected or interrupted: {failure}", file=sys.stderr)
+                    time.sleep(0.4)
+
+        threading.Thread(
+            target=v2_receiver_loop, name="ultrashare-v2-receiver", daemon=True
+        ).start()
+
         responder = threading.Thread(
             target=discovery_responder,
             args=(args.discovery_port, args.port, args.name),
             daemon=True,
         )
         responder.start()
-        print("Discovery is active. Press Ctrl+C to stop receiving.")
+        print(f"V1 and V2 reception active on TCP {args.port} and {args.v2_port}. Press Ctrl+C to stop.")
         while True:
             try:
                 receive_one(args.port, secret, args.output)
