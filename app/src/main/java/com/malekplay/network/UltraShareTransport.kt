@@ -585,7 +585,7 @@ object UltraShareTransport {
     fun defaultReceiveDirectory(context: android.content.Context): File {
         val base = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?: File(context.filesDir, "downloads")
-        return File(base, "MalekPlay/Received")
+        return File(base, "MalekPlayer/Received")
     }
 
     private fun resolvePrivateLanAddress(host: String): InetAddress {
