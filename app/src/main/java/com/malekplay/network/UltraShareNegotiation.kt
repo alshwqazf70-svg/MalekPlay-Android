@@ -79,6 +79,11 @@ object UltraShareNegotiation {
     fun selectCandidate(candidates: List<Candidate>): Candidate? =
         orderedCandidates(candidates).firstOrNull()
 
+    fun dataPortForHost(host: String, candidates: List<Candidate>, fallbackPort: Int): Int {
+        require(fallbackPort in 1..65535)
+        return orderedCandidates(candidates).firstOrNull { it.host == host }?.port ?: fallbackPort
+    }
+
     fun encode(offer: Offer): String {
         require(offer.protocolVersion == VERSION)
         require(offer.peerId.isNotBlank() && offer.peerId.length <= 96)

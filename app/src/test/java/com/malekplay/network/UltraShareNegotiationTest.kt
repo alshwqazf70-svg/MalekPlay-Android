@@ -30,6 +30,21 @@ class UltraShareNegotiationTest {
         assertNull(UltraShareNegotiation.decode("not-an-offer"))
     }
 
+    @Test fun dataPortFollowsTheSelectedPeerCandidateAndKeepsLegacyFallback() {
+        val candidates = listOf(
+            UltraShareNegotiation.Candidate(
+                UltraShareNegotiation.Transport.WLAN, "192.168.1.20", 52341,
+                reachable = true
+            ),
+            UltraShareNegotiation.Candidate(
+                UltraShareNegotiation.Transport.HOTSPOT, "192.168.43.1", 52342,
+                reachable = true
+            )
+        )
+        assertEquals(52341, UltraShareNegotiation.dataPortForHost("192.168.1.20", candidates, 38742))
+        assertEquals(38742, UltraShareNegotiation.dataPortForHost("192.168.1.99", candidates, 38742))
+    }
+
     @Test fun selectsOnlyReachableCandidatesInPreferredOrder() {
         val candidates = listOf(
             UltraShareNegotiation.Candidate(

@@ -328,9 +328,30 @@ class UltraShareViewModel @Inject constructor(
             _state.value = _state.value.copy(error = "انتهت صلاحية رمز الاقتران في الذاكرة. أعد مسح QR أو أدخل رمز الجهاز للاتصال مجدداً.")
             return
         }
-        val routes = (retainedTarget?.candidates.orEmpty() + peer?.routeCandidates.orEmpty())
-            .distinctBy { it.host }
-        requestConnection(host, secret, candidates = routes)
+        viewModelScope.launch {
+            // V2 data ports are allocated per receiver-service lifetime. Refresh the
+            // authenticated peer's candidates before reusing a previously saved route.
+            val discovered = runCatching {
+                UltraShareDiscovery.discoverPeers(context = context)
+            }.getOrDefault(emptyList())
+            val expectedPeerId = peer?.sessionId ?: retainedTarget?.sessionId
+            val freshPeer = discovered.firstOrNull { candidate ->
+                expectedPeerId != null && candidate.peerId == expectedPeerId
+            } ?: discovered.firstOrNull { candidate ->
+                candidate.host == host || candidate.candidates.any { it.host == host }
+            }
+            if (freshPeer != null) {
+                requestConnection(
+                    freshPeer.host,
+                    secret,
+                    candidates = freshPeer.candidates,
+                    alternateHosts = freshPeer.candidates.map { it.host }
+                )
+            } else {
+                // Keep the legacy fixed-port path available when discovery is offline.
+                requestConnection(host, secret)
+            }
+        }
     }
 
     fun forgetPeer(host: String) {

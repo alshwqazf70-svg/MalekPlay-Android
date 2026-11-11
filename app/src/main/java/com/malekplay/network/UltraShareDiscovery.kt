@@ -50,7 +50,8 @@ object UltraShareDiscovery {
         transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT,
         legacyTransferPort: Int = UltraShareTransport.DEFAULT_PORT,
         context: Context? = null,
-        displayName: String = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android"
+        displayName: String = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+        transferPortProvider: (() -> Int)? = null
     ) = withContext(Dispatchers.IO) {
         require(transferPort in 1..65535)
         val peerId = context?.let(::stablePeerId) ?: UUID.randomUUID().toString()
@@ -74,13 +75,16 @@ object UltraShareDiscovery {
                             socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
                         }
                         PROBE_V2 -> {
-                            val offer = UltraShareNegotiation.Offer(
-                                peerId = peerId,
-                                displayName = safeDisplayName,
-                                candidates = localCandidates(transferPort)
-                            )
-                            val response = UltraShareNegotiation.encode(offer).toByteArray(Charsets.UTF_8)
-                            socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
+                            val advertisedPort = transferPortProvider?.invoke() ?: transferPort
+                            if (advertisedPort in 1..65535) {
+                                val offer = UltraShareNegotiation.Offer(
+                                    peerId = peerId,
+                                    displayName = safeDisplayName,
+                                    candidates = localCandidates(advertisedPort)
+                                )
+                                val response = UltraShareNegotiation.encode(offer).toByteArray(Charsets.UTF_8)
+                                socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
+                            }
                         }
                     }
                 } catch (_: SocketTimeoutException) {
@@ -125,7 +129,6 @@ object UltraShareDiscovery {
                     val host = source.hostAddress ?: continue
                     val v2 = UltraShareNegotiation.decode(message)
                     if (v2 != null) {
-                        v2SourceHosts += host
                         // Verify both the authenticated control listener and the actual V2
                         // data listener on every advertised interface. A reachable control
                         // socket alone is not enough to prove that file transfer can use a path.
@@ -139,6 +142,8 @@ object UltraShareDiscovery {
                         )
                         val endpoint = UltraShareNegotiation.selectCandidate(testedCandidates)
                             ?: continue
+                        // Suppress a legacy offer only after at least one V2 route is verified.
+                        v2SourceHosts += host
                         peers.remove("host:$host") // Upgrade an earlier V1 sighting to its stable V2 identity.
                         peers["id:${v2.peerId}"] = Peer(
                             host = endpoint.host,

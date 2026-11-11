@@ -97,9 +97,10 @@ object UltraShareBatchTransport {
         onPeerFinished: (String) -> Unit = {},
         onProgress: (String, FileProgress) -> Unit = { _, _ -> },
         onBatchFinished: suspend (String, BatchOutcome) -> Unit = { _, _ -> },
-        onPeerError: (String, Throwable) -> Unit = { _, _ -> }
+        onPeerError: (String, Throwable) -> Unit = { _, _ -> },
+        onListening: (Int) -> Unit = {}
     ) = withContext(Dispatchers.IO) {
-        require(port in 1..65535)
+        require(port in 0..65535)
         require(maxPeers in 1..8) { "عدد الأجهزة المتزامنة يجب أن يكون بين 1 و8." }
         check(destinationDirectory.exists() || destinationDirectory.mkdirs())
         check(destinationDirectory.isDirectory)
@@ -107,6 +108,7 @@ object UltraShareBatchTransport {
         ServerSocket().use { server ->
             server.reuseAddress = true
             server.bind(InetSocketAddress(port), maxPeers * 2)
+            onListening(server.localPort)
             server.soTimeout = 1_000
             coroutineScope {
                 while (true) {

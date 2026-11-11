@@ -127,6 +127,7 @@ class UltraShareForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var receiveJob: Job? = null
     @Volatile private var batchReceiveJob: Job? = null
+    @Volatile private var activeBatchTransferPort: Int = 0
     @Volatile private var sendJob: Job? = null
     @Volatile private var pauseRequested = false
     private var advertisementJob: Job? = null
@@ -228,6 +229,7 @@ class UltraShareForegroundService : Service() {
                     return START_NOT_STICKY
                 }
                 if (receiveJob != null) return START_NOT_STICKY
+                activeBatchTransferPort = 0
                 startForegroundCompat()
                 val addresses = findLocalIpv4Addresses()
                 updateState { current -> current.copy(
@@ -241,7 +243,10 @@ class UltraShareForegroundService : Service() {
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     advertisementJob = launch {
                         try {
-                            UltraShareDiscovery.advertiseWhileReceiving(context = this@UltraShareForegroundService)
+                            UltraShareDiscovery.advertiseWhileReceiving(
+                                context = this@UltraShareForegroundService,
+                                transferPortProvider = { activeBatchTransferPort }
+                            )
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
@@ -331,7 +336,7 @@ class UltraShareForegroundService : Service() {
                     batchReceiveJob = serviceScope.launch {
                         try {
                             UltraShareBatchTransport.serveMany(
-                                port = UltraShareBatchTransport.DEFAULT_PORT,
+                                port = 0,
                                 pairingSecret = secret,
                                 destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
                                 maxPeers = UltraShareBatchTransport.DEFAULT_MAX_PEERS,
@@ -451,13 +456,15 @@ class UltraShareForegroundService : Service() {
                                             error = "جلسة V2 من $peer: ${failure.localizedMessage ?: "فشل النقل"}"
                                         )
                                     }
-                                }
+                                },
+                                onListening = { actualPort -> activeBatchTransferPort = actualPort }
                             )
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
                             updateState { current -> current.copy(error = "تعذر تشغيل مستقبل V2: ${failure.localizedMessage}") }
                         } finally {
+                            activeBatchTransferPort = 0
                             batchReceiveJob = null
                             finishService()
                         }
@@ -594,6 +601,7 @@ class UltraShareForegroundService : Service() {
         pendingConnectionDecision?.cancel()
         currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
         releaseTransferLocks()
+        activeBatchTransferPort = 0
         runCatching { hotspotReservation?.close() }
         hotspotReservation = null
         hotspotCallback = null
@@ -1494,6 +1502,9 @@ class UltraShareForegroundService : Service() {
                     resolver = contentResolver,
                     sources = sources,
                     host = activeHost,
+                    port = UltraShareNegotiation.dataPortForHost(
+                        activeHost, candidates, UltraShareBatchTransport.DEFAULT_PORT
+                    ),
                     pairingSecret = secret,
                     network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, activeHost),
                     onProgress = onProgress
