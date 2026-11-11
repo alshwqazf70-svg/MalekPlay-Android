@@ -239,6 +239,12 @@ fun UltraShareExperienceScreen(
         if (!state.scanning) viewModel.scanNearbyDevices()
     }
 
+    // If secure pairing succeeds through an alternate interface, keep the UI and
+    // subsequent file-transfer target aligned with the address that actually paired.
+    LaunchedEffect(state.approvedPeerHost) {
+        state.approvedPeerHost?.let { host = it }
+    }
+
     val qrPayload = state.localAddresses.firstOrNull()
         ?.takeIf { state.receiving && state.pairingSecret.isNotBlank() }
         ?.let { UltraShareQrCode.createReceiverPayload(it, state.pairingSecret) }
