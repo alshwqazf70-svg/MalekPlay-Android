@@ -35,7 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
-private val RadarNavy = Color(0xFF394667)
+private val RadarNavy = Color(0xFF354365)
 private val RadarBlue = Color(0xFF3568C6)
 private val RadarCyan = Color(0xFF65D8F3)
 private val RadarRed = Color(0xFFFF686F)
@@ -71,6 +71,7 @@ fun UltraShareRadar(
                 radius = radius,
                 center = center
             )
+            drawCircle(color = RadarCyan.copy(alpha = 0.30f), radius = radius * 0.91f, center = center, style = Stroke(width = 1.2.dp.toPx()))
             drawCircle(color = RadarBlue.copy(alpha = 0.98f), radius = radius * 0.56f, center = center)
             drawCircle(
                 color = RadarCyan.copy(alpha = 0.10f),
@@ -110,7 +111,7 @@ fun UltraShareRadar(
         Card(
             modifier = Modifier.align(Alignment.Center).size(112.dp),
             shape = CircleShape,
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFF2F7FA))
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF7FBFD))
         ) {
             Column(
                 Modifier.fillMaxSize().padding(8.dp),
@@ -119,6 +120,7 @@ fun UltraShareRadar(
             ) {
                 Icon(Icons.Filled.Devices, contentDescription = null, tint = Color(0xFF52616B), modifier = Modifier.size(42.dp))
                 Text(deviceName.take(16), color = Color(0xFF394363), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 1)
+                Text("هذا جهازك", color = Color(0xFF64758C), textAlign = TextAlign.Center, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
             }
         }
         peerNames.take(4).forEachIndexed { index, name ->
@@ -135,6 +137,7 @@ fun UltraShareRadar(
                 ) {
                     Icon(Icons.Filled.Devices, contentDescription = null, tint = Color(0xFF52616B), modifier = Modifier.size(30.dp))
                     Text(name.take(14), color = Color(0xFF394363), fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, maxLines = 1)
+                    Text("اضغط للاتصال", color = Color(0xFF64758C), textAlign = TextAlign.Center, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                 }
             }
         }
