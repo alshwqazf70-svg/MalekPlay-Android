@@ -60,8 +60,16 @@ object UltraSharePeerDeliveryStore {
                     )
                 }
             }
-            val keys = incoming.mapTo(mutableSetOf()) { key(it.fileUri, it.peerSessionId) }
-            preferences[DELIVERIES] = encode(existing.filterNot { key(it.fileUri, it.peerSessionId) in keys } + incoming)
+            val merged = LinkedHashMap<String, UltraSharePeerDeliveryEntry>()
+            existing.forEach { entry -> merged[key(entry.fileUri, entry.peerSessionId)] = entry }
+            incoming.forEach { entry ->
+                val entryKey = key(entry.fileUri, entry.peerSessionId)
+                val previous = merged[entryKey]
+                // A successful delivery is immutable across retries: never resend it just
+                // because the user retries the remaining recipients for the same file.
+                merged[entryKey] = if (previous?.status == STATUS_COMPLETED) previous else entry
+            }
+            preferences[DELIVERIES] = encode(merged.values.toList())
         }
     }
 
