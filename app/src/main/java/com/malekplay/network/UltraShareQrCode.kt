@@ -31,8 +31,8 @@ object UltraShareQrCode {
     /** Multi-interface QR lets a peer select the reachable Wi-Fi, hotspot or Wi-Fi Direct address. */
     fun createReceiverPayload(hosts: List<String>, pairingSecret: String): String {
         val safeHosts = hosts.asSequence()
-            .map(String::trim)
-            .filter({ UltraShareTransport.isValidPrivateLanHost(it) })
+            .map { it.trim() }
+            .filter { UltraShareTransport.isValidPrivateLanHost(it) }
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
@@ -91,8 +91,8 @@ object UltraShareQrCode {
         } else {
             listOfNotNull(uri.getQueryParameter("host"))
         }).asSequence()
-            .map(String::trim)
-            .filter({ UltraShareTransport.isValidPrivateLanHost(it) })
+            .map { it.trim() }
+            .filter { UltraShareTransport.isValidPrivateLanHost(it) }
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
