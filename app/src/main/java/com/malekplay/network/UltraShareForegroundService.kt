@@ -1274,6 +1274,7 @@ class UltraShareForegroundService : Service() {
                     }
                     try {
                         var useLegacyV1 = false
+                        var activePeerHost = auth.host
                         sources.chunked(UltraShareBatchProtocol.MAX_FILES).forEach { chunk ->
                             val outcome = if (useLegacyV1) null else {
                                 try {
@@ -1282,11 +1283,22 @@ class UltraShareForegroundService : Service() {
                                         host = auth.host,
                                         secret = auth.secret,
                                         candidates = auth.candidates,
-                                        expectedPeerId = auth.sessionId
+                                        expectedPeerId = auth.sessionId,
+                                        onHostChanged = { newHost ->
+                                            val previousHost = activePeerHost
+                                            activePeerHost = newHost
+                                            updateState { current ->
+                                                current.copy(
+                                                    peerTransfers = current.peerTransfers.filterNot {
+                                                        it.host == previousHost || it.host == newHost
+                                                    }
+                                                )
+                                            }
+                                        }
                                     ) { progress ->
                                         updateState { current ->
                                             val transfer = UltraSharePeerTransfer(
-                                                host = auth.host,
+                                                host = activePeerHost,
                                                 fileName = progress.fileName,
                                                 transferredBytes = progress.transferredBytes,
                                                 totalBytes = progress.totalBytes,
@@ -1294,9 +1306,9 @@ class UltraShareForegroundService : Service() {
                                                 status = "يرسل الآن"
                                             )
                                             current.copy(
-                                                peerTransfers = current.peerTransfers.filterNot { it.host == auth.host } + transfer,
+                                                peerTransfers = current.peerTransfers.filterNot { it.host == activePeerHost } + transfer,
                                                 queueCurrentName = progress.fileName,
-                                                status = "إرسال " + progress.fileName + " إلى " + auth.host
+                                                status = "إرسال " + progress.fileName + " إلى " + activePeerHost
                                             )
                                         }
                                     }
