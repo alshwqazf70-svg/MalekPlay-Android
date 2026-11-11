@@ -64,6 +64,7 @@ object UltraShareControlChannel {
         val input: DataInputStream,
         val output: DataOutputStream,
         val peerName: String,
+        val peerId: String?,
         val lock: Any = Any(),
         var heartbeat: Job? = null
     )
@@ -90,6 +91,7 @@ object UltraShareControlChannel {
         pairingSecret: String,
         port: Int = DEFAULT_PORT,
         localPeerName: String = "MalekPlay Android",
+        localPeerId: String? = null,
         onSessionClosed: suspend (Request) -> Unit = {},
         onRequest: suspend (Request) -> Decision
     ) = withContext(Dispatchers.IO) {
@@ -196,7 +198,7 @@ object UltraShareControlChannel {
             val nonce = encrypted.copyOfRange(0, NONCE_BYTES)
             val ciphertext = encrypted.copyOfRange(NONCE_BYTES, encrypted.size)
             val response = decrypt(key, nonce, ciphertext)
-            val responseParts = response.split('|', limit = 3)
+            val responseParts = response.split('|', limit = 4)
             require(responseParts.size >= 2 && responseParts[1] == requestId &&
                 (responseParts[0] == "ACCEPT" || responseParts[0] == "REJECT")
             ) { "استجابة قبول الاتصال غير صالحة." }
@@ -204,8 +206,9 @@ object UltraShareControlChannel {
                 val remoteName = responseParts.getOrNull(2)?.let {
                     runCatching { String(decodeHex(it), Charsets.UTF_8) }.getOrNull()
                 }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
+                val remotePeerId = responseParts.getOrNull(3)?.takeIf(::isStablePeerId)
                 socket.soTimeout = SESSION_TIMEOUT_MS
-                val session = ClientSession(socket, input, output, remoteName)
+                val session = ClientSession(socket, input, output, remoteName, remotePeerId)
                 synchronized(clientSessionGuard) { clientSessions[host] = session }
                 session.heartbeat = CoroutineScope(Dispatchers.IO).launch {
                     while (isActive && !socket.isClosed) {
@@ -257,6 +260,9 @@ object UltraShareControlChannel {
     }
 
     fun sessionPeerName(host: String): String? = clientSessions[host]?.peerName
+
+    /** Authenticated stable identity announced by the remote device during approval. */
+    fun sessionPeerId(host: String): String? = clientSessions[host]?.peerId
 
     fun isSessionActive(host: String): Boolean {
         val session = clientSessions[host] ?: return false
@@ -324,7 +330,12 @@ object UltraShareControlChannel {
         )
         val decision = withTimeoutOrNull(120_000L) { onRequest(request) } ?: Decision.REJECTED
         val encodedLocalName = encodeHex(localPeerName.take(48).toByteArray(Charsets.UTF_8))
-        val payload = if (decision == Decision.ACCEPTED) "ACCEPT|$requestId|$encodedLocalName" else "REJECT|$requestId"
+        val stableLocalPeerId = localPeerId?.replace("-", "")?.lowercase()
+            ?.takeIf(::isStablePeerId)
+        val payload = if (decision == Decision.ACCEPTED) {
+            if (stableLocalPeerId != null) "ACCEPT|$requestId|$encodedLocalName|$stableLocalPeerId"
+            else "ACCEPT|$requestId|$encodedLocalName"
+        } else "REJECT|$requestId"
         val nonce = ByteArray(NONCE_BYTES).also(SecureRandom()::nextBytes)
         val ciphertext = encrypt(key, nonce, payload)
         val frame = nonce + ciphertext
@@ -371,6 +382,9 @@ object UltraShareControlChannel {
             }
         }
     }
+
+    private fun isStablePeerId(value: String): Boolean =
+        value.length == 32 && value.all { it.digitToIntOrNull(16) != null }
 
     private fun requestAuthentication(
         key: ByteArray,
