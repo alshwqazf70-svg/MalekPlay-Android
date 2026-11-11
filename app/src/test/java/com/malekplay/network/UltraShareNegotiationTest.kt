@@ -73,6 +73,38 @@ class UltraShareNegotiationTest {
         assertEquals(high, UltraShareNegotiation.selectCandidate(listOf(low, public, high)))
     }
 
+    @Test fun refreshedRoutesMatchStablePeerIdNotOldIpOrDisplayName() {
+        val expected = UltraShareDiscovery.Peer(
+            host = "192.168.49.1",
+            port = UltraShareBatchTransport.DEFAULT_PORT,
+            name = "Same display name",
+            peerId = "stable-device-42",
+            candidates = listOf(
+                UltraShareNegotiation.Candidate(
+                    UltraShareNegotiation.Transport.WIFI_DIRECT,
+                    "192.168.49.1",
+                    52344,
+                    reachable = true
+                )
+            )
+        )
+        val impostor = expected.copy(
+            host = "192.168.1.77",
+            peerId = "different-device",
+            candidates = listOf(expected.candidates.single().copy(host = "192.168.1.77"))
+        )
+
+        val routes = UltraShareNegotiation.candidatesForPeer(
+            "stable-device-42",
+            listOf(impostor, expected)
+        )
+
+        assertEquals(1, routes.size)
+        assertEquals("192.168.49.1", routes.single().host)
+        assertTrue(UltraShareNegotiation.candidatesForPeer(null, listOf(expected)).isEmpty())
+        assertTrue(UltraShareNegotiation.candidatesForPeer("unknown", listOf(expected)).isEmpty())
+    }
+
     @Test fun invitationCanOnlyBeDecidedOnceAndExpires() {
         val pending = UltraShareNegotiation.Invitation("i1", "peer1", 1_000)
         assertEquals(
