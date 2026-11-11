@@ -74,6 +74,7 @@ import com.malekplay.network.UltraShareFolderArchive
 import com.malekplay.network.UltraSharePeerDeliveryStore
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareQrCode
+import com.malekplay.network.UltraShareDiscovery
 import com.malekplay.network.UltraShareTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -112,9 +113,17 @@ fun UltraShareExperienceScreen(
             .onSuccess { pairing ->
                 host = pairing.host
                 secret = pairing.pairingSecret
-                viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
+                if (!pairing.invitationId.isNullOrBlank()) {
+                    viewModel.joinWifiDirectInvitation(
+                        invitationId = pairing.invitationId,
+                        secret = pairing.pairingSecret,
+                        fallbackHosts = pairing.hosts
+                    )
+                } else if (pairing.host.isNotBlank()) {
+                    viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
+                }
                 page = UltraSharePage.SEND
-                Toast.makeText(context, "تمت قراءة الرمز وإرسال طلب الاقتران.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "تمت قراءة الدعوة؛ جارٍ العثور على الجهاز والاتصال به تلقائياً.", Toast.LENGTH_SHORT).show()
             }
             .onFailure {
                 Toast.makeText(context, "رمز QR غير صالح أو لا يخص MalekPlay.", Toast.LENGTH_LONG).show()
@@ -267,7 +276,15 @@ fun UltraShareExperienceScreen(
                 }.onSuccess { pairing ->
                     host = pairing.host
                     secret = pairing.pairingSecret
-                    viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
+                    if (!pairing.invitationId.isNullOrBlank()) {
+                        viewModel.joinWifiDirectInvitation(
+                            invitationId = pairing.invitationId,
+                            secret = pairing.pairingSecret,
+                            fallbackHosts = pairing.hosts
+                        )
+                    } else if (pairing.host.isNotBlank()) {
+                        viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
+                    }
                     page = UltraSharePage.SEND
                 }.onFailure {
                     Toast.makeText(context, "تعذر قراءة رمز QR من الصورة.", Toast.LENGTH_LONG).show()
@@ -300,8 +317,10 @@ fun UltraShareExperienceScreen(
     }
 
     val wifiPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-        if (grants.values.all { it }) viewModel.scanWifiDirectPeers()
-        else Toast.makeText(context, "يلزم إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
+        if (grants.values.all { it }) {
+            if (state.receiving) viewModel.advertiseWifiDirectInvitation(UltraShareDiscovery.localPeerId(context))
+            else viewModel.scanWifiDirectPeers()
+        } else Toast.makeText(context, "يلزم إذن الأجهزة القريبة لاستخدام Wi-Fi Direct.", Toast.LENGTH_LONG).show()
     }
     val allNearbyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         val wifiGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -401,7 +420,15 @@ fun UltraShareExperienceScreen(
 
     fun startReceivingGroup() {
         if (!state.receiving) viewModel.startReceiving()
-        if (!state.hotspotActive && !state.hotspotStarting) startHotspot()
+        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+        } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        val missing = required.filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) {
+            viewModel.advertiseWifiDirectInvitation(UltraShareDiscovery.localPeerId(context))
+        } else wifiPermission.launch(missing.toTypedArray())
     }
     fun stopReceivingGroup() {
         if (state.receiving) viewModel.stopReceiving()
@@ -462,8 +489,14 @@ fun UltraShareExperienceScreen(
     }
 
     val qrPayload = state.localAddresses
-        .takeIf { state.receiving && state.pairingSecret.isNotBlank() && it.isNotEmpty() }
-        ?.let { UltraShareQrCode.createReceiverPayload(it, state.pairingSecret) }
+        .takeIf { state.receiving && state.pairingSecret.isNotBlank() }
+        ?.let {
+            UltraShareQrCode.createReceiverPayload(
+                hosts = it,
+                pairingSecret = state.pairingSecret,
+                invitationId = UltraShareDiscovery.localPeerId(context)
+            )
+        }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { runCatching { UltraShareQrCode.createBitmap(it) }.getOrNull() }
     }
