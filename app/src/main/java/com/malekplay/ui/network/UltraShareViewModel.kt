@@ -597,10 +597,31 @@ class UltraShareViewModel @Inject constructor(
                             pendingQrPairing = null
                             qrP2pConnectStarted = false
                             session.stopInvitationDiscovery()
-                            _state.value = _state.value.copy(
-                                requestingConnection = false,
-                                error = "عُثر على الجهاز لكن تعذر إكمال اتصال Wi-Fi Direct. أعد المحاولة أو استخدم مسار الشبكة المحلية."
-                            )
+                            // A peer can be discovered over DNS-SD while the P2P group
+                            // negotiation still fails on some Android/OEM combinations.
+                            // Do not strand the user after that attempt: try the QR's
+                            // already-advertised LAN addresses through the authenticated
+                            // MPC2 channel before reporting a terminal connection error.
+                            val fallback = pending.hosts.firstOrNull {
+                                UltraShareTransport.isValidPrivateLanHost(it)
+                            }
+                            if (fallback != null) {
+                                _state.value = _state.value.copy(
+                                    requestingConnection = true,
+                                    error = null,
+                                    status = "تعذر إكمال Wi-Fi Direct؛ نجرب تلقائياً مسار الشبكة المحلية الآمن..."
+                                )
+                                requestConnection(
+                                    host = fallback,
+                                    secret = pending.secret,
+                                    alternateHosts = pending.hosts.drop(1)
+                                )
+                            } else {
+                                _state.value = _state.value.copy(
+                                    requestingConnection = false,
+                                    error = "عُثر على الجهاز لكن تعذر إكمال اتصال Wi-Fi Direct، ولا يوجد عنوان شبكة محلية بديل صالح. تأكد من اتصال الهاتفين بالشبكة نفسها ثم أعد المحاولة."
+                                )
+                            }
                         }
                     } else if (fallbackHosts.isNotEmpty()) {
                         // Older peers and same-LAN sessions can still use the existing
