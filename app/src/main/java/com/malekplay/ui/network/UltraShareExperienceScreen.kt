@@ -562,7 +562,7 @@ fun UltraShareExperienceScreen(
                         },
                         onRequestConnection = { viewModel.requestConnection(host, secret) },
                         onSendBatch = {
-                            if (viewModel.sendBatch(selectedUris, host, secret)) selectedUris = emptyList()
+                            if (viewModel.sendBatch(selectedUris, host)) selectedUris = emptyList()
                         },
                         onSendToAllPeers = {
                             if (viewModel.sendBatchToApprovedPeers(selectedUris)) selectedUris = emptyList()
@@ -711,7 +711,7 @@ fun UltraShareExperienceScreen(
                                     }
                                     if (entry.status == UltraShareQueueStore.STATUS_FAILED) {
                                         TextButton(
-                                            onClick = { viewModel.retryFile(entry, host, secret) },
+                                            onClick = { viewModel.retryFile(entry, host) },
                                             enabled = !state.sending && host.isNotBlank() && host in state.approvedSenderPeerHosts
                                         ) { Text("إعادة المحاولة") }
                                     }
@@ -723,7 +723,7 @@ fun UltraShareExperienceScreen(
                             it.status == UltraShareQueueStore.STATUS_PENDING || it.status == UltraShareQueueStore.STATUS_FAILED
                         }) {
                         OutlinedButton(
-                            onClick = { viewModel.resumePendingBatch(host, secret) },
+                            onClick = { viewModel.resumePendingBatch(host) },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = host.isNotBlank() && host in state.approvedSenderPeerHosts
                         ) { Text("استئناف الملفات المتبقية") }
