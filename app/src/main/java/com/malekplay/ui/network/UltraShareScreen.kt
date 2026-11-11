@@ -697,19 +697,6 @@ fun UltraShareScreen(
     ) { uri -> if (uri != null) viewModel.exportReceived(uri) }
 
     // Independent on-device QR scanner: does not require Google Play Services scanner modules.
-    val scanQrLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        val raw = result.contents
-        if (!raw.isNullOrBlank()) {
-            runCatching { UltraShareQrCode.parsePayload(raw) }
-                .onSuccess { pairing ->
-                    requestWifiDirectAction { acceptPairing(pairing) }
-                    Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
-                }
-                .onFailure {
-                    Toast.makeText(context, R.string.ultra_share_scan_failed, Toast.LENGTH_LONG).show()
-                }
-        }
-    }
     var pendingWifiDirectAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val wifiDirectPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -740,6 +727,19 @@ fun UltraShareScreen(
     }
     fun requestWifiDirectScan() {
         requestWifiDirectAction { viewModel.scanWifiDirectPeers() }
+    }
+    val scanQrLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val raw = result.contents
+        if (!raw.isNullOrBlank()) {
+            runCatching { UltraShareQrCode.parsePayload(raw) }
+                .onSuccess { pairing ->
+                    requestWifiDirectAction { acceptPairing(pairing) }
+                    Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
+                }
+                .onFailure {
+                    Toast.makeText(context, R.string.ultra_share_scan_failed, Toast.LENGTH_LONG).show()
+                }
+        }
     }
     fun pastePairingDetails() {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
