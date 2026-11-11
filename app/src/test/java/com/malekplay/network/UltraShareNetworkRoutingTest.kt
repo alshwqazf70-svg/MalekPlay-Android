@@ -41,6 +41,33 @@ class UltraShareNetworkRoutingTest {
     }
 
     @Test
+    fun identifiesAndroidWifiDirectInterfaceNames() {
+        assertTrue(UltraShareNetworkRouting.isWifiDirectInterfaceName("p2p-wlan0-0"))
+        assertTrue(UltraShareNetworkRouting.isWifiDirectInterfaceName("P2P0"))
+        assertFalse(UltraShareNetworkRouting.isWifiDirectInterfaceName("wlan0"))
+        assertFalse(UltraShareNetworkRouting.isWifiDirectInterfaceName("rmnet_data0"))
+    }
+
+    @Test
+    fun recognizesAndroidWifiDirectGroupSubnet() {
+        assertTrue(
+            UltraShareNetworkRouting.isAndroidWifiDirectGroupAddress(
+                InetAddress.getByName("192.168.49.1") as Inet4Address
+            )
+        )
+        assertTrue(
+            UltraShareNetworkRouting.isAndroidWifiDirectGroupAddress(
+                InetAddress.getByName("192.168.49.23") as Inet4Address
+            )
+        )
+        assertFalse(
+            UltraShareNetworkRouting.isAndroidWifiDirectGroupAddress(
+                InetAddress.getByName("192.168.50.1") as Inet4Address
+            )
+        )
+    }
+
+    @Test
     fun supportsZeroLengthPrefix() {
         val first = InetAddress.getByName("10.0.0.1") as Inet4Address
         val second = InetAddress.getByName("192.168.1.1") as Inet4Address
