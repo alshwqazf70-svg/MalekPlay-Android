@@ -682,7 +682,7 @@ fun UltraShareScreen(
         if (!raw.isNullOrBlank()) {
             runCatching { UltraShareQrCode.parsePayload(raw) }
                 .onSuccess { pairing ->
-                    acceptPairing(pairing)
+                    requestWifiDirectAction { acceptPairing(pairing) }
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
