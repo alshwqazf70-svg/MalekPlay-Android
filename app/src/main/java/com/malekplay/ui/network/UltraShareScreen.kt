@@ -158,12 +158,6 @@ class UltraShareViewModel @Inject constructor(
         viewModelScope.launch {
             UltraShareForegroundService.state.collect { serviceState ->
                 val current = _state.value
-                // The foreground receiver can outlive this navigation ViewModel.
-                // Re-publish its short-lived invitation when the screen is reopened.
-                if (serviceState.receiving && current.invitationId == null) {
-                    invitationPreferences.getString("active_invitation_id", null)
-                        ?.let(::activateReceiverInvitation)
-                }
                 val received = serviceState.receivedFile
                 if (received?.publishedUri != null &&
                     received.file.absolutePath != current.receivedFile?.file?.absolutePath
@@ -188,6 +182,12 @@ class UltraShareViewModel @Inject constructor(
                     queueTotalBytes = serviceState.queueTotalBytes,
                     queueTransferredBytes = serviceState.queueTransferredBytes
                 )
+                // Restore only after applying the service snapshot, otherwise the
+                // snapshot copy would overwrite the invitation ID we just recovered.
+                if (serviceState.receiving && _state.value.invitationId == null) {
+                    invitationPreferences.getString("active_invitation_id", null)
+                        ?.let(::activateReceiverInvitation)
+                }
             }
         }
     }
