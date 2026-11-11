@@ -10,15 +10,15 @@ A small Windows, Linux, and macOS companion for the Ultra Share v1 protocol. It 
 
 ## Browser-based desktop console
 
-Start the browser console and the computer receiver together:
+Install the dependency as above, then start the dedicated browser companion:
 
 ```bash
-python ultra_share_pc.py web --output ./Received
+python ultra_share_web.py --output ./Received
 ```
 
-The terminal displays the computer's receive PIN. Open `http://127.0.0.1:8765` in a browser on that same computer. From the page you can select multiple files and send them to the phone using the phone's private IPv4 address and its 9-digit MalekPlay PIN; the actual phone transfer continues to use the authenticated AES-GCM Ultra Share protocol. Files sent from Android appear in the received-files list and can be downloaded from the browser.
+The terminal displays the computer's receive PIN. Open `http://127.0.0.1:8765` in a browser on that same computer. The page can discover a MalekPlay receiver on the local network, send selected files to the phone using its private IPv4 address and 9-digit PIN, and list/download files received from Android. The browser companion uses the existing authenticated AES-GCM transfer protocol and SHA-256 verification; it does not upload files to a cloud service.
 
-The browser page is deliberately bound to `127.0.0.1` only, so it is not exposed to other devices on the LAN. The data transfer port remains the existing private-LAN receiver port. Keep the PIN private and allow the transfer port through the firewall only on private networks.
+The browser control page is intentionally bound to `127.0.0.1` and validates Host/Origin headers to resist DNS-rebinding and cross-origin requests. It is not intended to be opened from another device on the LAN. Allow the transfer port through the firewall only on private networks and keep the pairing PIN private.
 
 ## Install on Windows
 
