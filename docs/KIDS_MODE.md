@@ -23,8 +23,8 @@ The child screen consumes the normal Back action. A parent must use the in-app P
 
 ## Scope and limitations
 - This is an in-app media restriction, not Android system-wide parental control or kiosk mode.
-- It does not prevent a child from leaving MalekPlay through Android system navigation or opening another app.
-- It controls items indexed in the MalekPlay local media library; it does not approve arbitrary URLs, network streams, or files opened by other apps.
+- It does not prevent a child from leaving MalekPlayer through Android system navigation or opening another app.
+- It controls items indexed in the MalekPlayer local media library; it does not approve arbitrary URLs, network streams, or files opened by other apps.
 - The allowlist is stored locally and is not included in the app's backup export at this stage.
 - A parent should verify the selected files and supervise initial use. Media metadata and filenames are not a content-rating system.
 
