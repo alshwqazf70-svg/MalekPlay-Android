@@ -145,4 +145,28 @@ class UltraSharePeerDeliveryStoreTest {
         }
     }
 
+    @Test
+    fun intentionalNewSendCanResetPreviouslyCompletedReceipt() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val uri = Uri.parse("content://files/new-send")
+        val peer = UltraShareMultiRecipientCoordinator.Target("peer-a", "192.168.1.2")
+        UltraSharePeerDeliveryStore.clear(context)
+        try {
+            UltraSharePeerDeliveryStore.prepare(context, listOf(uri to "again.mp4"), listOf(peer))
+            UltraSharePeerDeliveryStore.update(
+                context, uri, peer.sessionId, UltraSharePeerDeliveryStore.STATUS_COMPLETED
+            )
+            UltraSharePeerDeliveryStore.prepare(
+                context,
+                listOf(uri to "again.mp4"),
+                listOf(peer),
+                preserveCompleted = false
+            )
+            val entry = UltraSharePeerDeliveryStore.observe(context).first().single()
+            assertEquals(UltraSharePeerDeliveryStore.STATUS_PENDING, entry.status)
+        } finally {
+            UltraSharePeerDeliveryStore.clear(context)
+        }
+    }
+
 }
