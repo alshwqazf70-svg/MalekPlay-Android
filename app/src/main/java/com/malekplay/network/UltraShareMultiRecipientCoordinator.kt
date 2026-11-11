@@ -18,6 +18,22 @@ object UltraShareMultiRecipientCoordinator {
         }
     }
 
+    /**
+     * Retain a known peer session identity when the same endpoint reconnects.
+     * The delivery ledger is keyed by this ID, so rotating it on reconnect would
+     * make already-delivered files appear new and cause duplicate transfers.
+     */
+    fun resolveSessionId(
+        host: String,
+        retainedPeers: List<Pair<String, String>>,
+        newSessionId: String
+    ): String {
+        require(host.isNotBlank() && newSessionId.isNotBlank())
+        return retainedPeers.firstOrNull { (knownHost, sessionId) ->
+            knownHost == host && sessionId.isNotBlank()
+        }?.second ?: newSessionId
+    }
+
     enum class Status { PENDING, SENDING, COMPLETED, FAILED }
 
     data class Delivery<T>(
