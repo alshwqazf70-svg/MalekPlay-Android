@@ -351,7 +351,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         const val PUBLIC_BASE = "https://subtitles.website/strapi"
         const val PUBLIC_API = "$PUBLIC_BASE/api"
         const val PUBLIC_PROVIDER = "subtitleSearchEngine"
-        const val AGENT = "MalekPlay v2.0.0"
+        const val AGENT = "MalekPlayer v2.0.0"
         const val KEY_SLOT = "opensubtitles_api_key"
         const val USER_SLOT = "opensubtitles_account"
         const val MAX_BYTES = 8 * 1024 * 1024
