@@ -201,7 +201,7 @@ fun ReceiveScreen(
                     Text(request.peerName + " • " + request.peerAddress, color = Color.White)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onAcceptConnection, modifier = Modifier.weight(1f), colors = ultraShareButtonColors()) { Text("قبول") }
-                        OutlinedButton(onClick = onRejectConnection, modifier = Modifier.weight(1f), colors = ultraShareButtonColors()) { Text("رفض") }
+                        OutlinedButton(onClick = onRejectConnection, modifier = Modifier.weight(1f)) { Text("رفض") }
                     }
                 }
             }
