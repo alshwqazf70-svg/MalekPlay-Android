@@ -111,7 +111,7 @@ fun UltraShareExperienceScreen(
             .onSuccess { pairing ->
                 host = pairing.host
                 secret = pairing.pairingSecret
-                viewModel.requestConnection(pairing.host, pairing.pairingSecret)
+                viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
                 page = UltraSharePage.SEND
                 Toast.makeText(context, "تمت قراءة الرمز وإرسال طلب الاقتران.", Toast.LENGTH_SHORT).show()
             }
@@ -266,7 +266,7 @@ fun UltraShareExperienceScreen(
                 }.onSuccess { pairing ->
                     host = pairing.host
                     secret = pairing.pairingSecret
-                    viewModel.requestConnection(pairing.host, pairing.pairingSecret)
+                    viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
                     page = UltraSharePage.SEND
                 }.onFailure {
                     Toast.makeText(context, "تعذر قراءة رمز QR من الصورة.", Toast.LENGTH_LONG).show()
@@ -405,8 +405,8 @@ fun UltraShareExperienceScreen(
         }
     }
 
-    val qrPayload = state.localAddresses.firstOrNull()
-        ?.takeIf { state.receiving && state.pairingSecret.isNotBlank() }
+    val qrPayload = state.localAddresses
+        .takeIf { state.receiving && state.pairingSecret.isNotBlank() && it.isNotEmpty() }
         ?.let { UltraShareQrCode.createReceiverPayload(it, state.pairingSecret) }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { runCatching { UltraShareQrCode.createBitmap(it) }.getOrNull() }
@@ -581,7 +581,7 @@ fun UltraShareExperienceScreen(
                                     .onSuccess { pairing ->
                                         host = pairing.host
                                         secret = pairing.pairingSecret
-                                        viewModel.requestConnection(pairing.host, pairing.pairingSecret)
+                                        viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
                                     }
                                     .onFailure { Toast.makeText(context, "بيانات الاقتران في الحافظة غير صالحة.", Toast.LENGTH_LONG).show() }
                             }
