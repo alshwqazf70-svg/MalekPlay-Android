@@ -1,5 +1,8 @@
 # Ultra Share v2 implementation checkpoint
 
+> **Superseding status — 2026-11-11:** This document began as a historical 2026-11-09 checkpoint. Since then, the Android V2 batch data plane has been implemented in `UltraShareBatchProtocol.kt` and `UltraShareBatchTransport.kt`; it carries one manifest and multiple files over one encrypted TCP data session, with per-file SHA-256 verification, resumable partial state and per-file results. MPC2 remains a separate authenticated approval/heartbeat channel. Desktop Python V2 parity is implemented in `desktop/ultra_share_v2.py`, with CLI and loopback browser integration. The desktop CI suite passed on commit `bba536a98f1f0dddbf430e88065d43d48b2386e1`. Android build status and physical Android↔Android/PC interoperability are separate gates and must not be inferred from that desktop result. Fixed default ports are V1 TCP 38741, V2 TCP 38742, MPC2 TCP 38744, and discovery UDP 38742; dynamic per-session data-port negotiation remains open.
+
+
 Date: 2026-11-09
 Branch: `feature/zapya-engineering-analysis`
 
