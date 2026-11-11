@@ -272,6 +272,7 @@ class UltraShareViewModel @Inject constructor(
             onError = { message ->
                 _state.value = _state.value.copy(
                     scanning = false,
+                    wifiDirectPeerId = if (UltraShareForegroundService.state.value.receiving) null else _state.value.wifiDirectPeerId,
                     error = message
                 )
             }
@@ -286,13 +287,14 @@ class UltraShareViewModel @Inject constructor(
         }
         val peerId = UUID.randomUUID().toString().replace("-", "").take(24)
         _state.value = _state.value.copy(
-            wifiDirectPeerId = peerId,
+            wifiDirectPeerId = null,
             status = "جارٍ إنشاء مجموعة Wi-Fi Direct الآمنة..."
         )
         session.createGroup {
             session.advertiseInvitation(peerId) {
                 UltraShareForegroundService.refreshLocalAddresses(context)
                 _state.value = _state.value.copy(
+                    wifiDirectPeerId = peerId,
                     status = "مجموعة Wi-Fi Direct جاهزة. امسح رمز QR من الهاتف الآخر للانضمام تلقائياً."
                 )
             }
