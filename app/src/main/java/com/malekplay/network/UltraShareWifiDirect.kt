@@ -279,6 +279,7 @@ object UltraShareWifiDirect {
                 manager.requestGroupInfo(channel) { existingGroup ->
                     if (closed) return@requestGroupInfo
                     if (existingGroup?.isGroupOwner == true) {
+                        wasConnected = true
                         onCreated()
                         return@requestGroupInfo
                     }
