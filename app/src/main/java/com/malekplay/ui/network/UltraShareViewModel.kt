@@ -38,6 +38,7 @@ import javax.inject.Inject
 
 data class UltraShareUiState(
     val pairingSecret: String = "",
+    val invitationId: String = "",
     val localAddresses: List<String> = emptyList(),
     val receiving: Boolean = false,
     val sending: Boolean = false,
@@ -164,8 +165,10 @@ class UltraShareViewModel @Inject constructor(
     fun startReceiving() {
         if (_state.value.receiving) return
         val secret = UltraShareTransport.createPairingSecret()
+        val invitationId = java.util.UUID.randomUUID().toString().replace("-", "")
         _state.value = _state.value.copy(
             pairingSecret = secret,
+            invitationId = invitationId,
             receiving = true,
             progress = null,
             error = null,
@@ -176,6 +179,7 @@ class UltraShareViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     receiving = false,
                     pairingSecret = "",
+                    invitationId = "",
                     error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
                 )
             }
@@ -504,7 +508,12 @@ class UltraShareViewModel @Inject constructor(
         ).also { wifiDirectSession = it }
     }
 
-    fun advertiseWifiDirectInvitation(invitationId: String) {
+    fun advertiseCurrentWifiDirectInvitation() {
+        val invitationId = _state.value.invitationId
+        if (invitationId.isBlank()) {
+            _state.value = _state.value.copy(error = "تعذر إنشاء هوية دعوة لهذه الجلسة. أعد تشغيل الاستقبال.")
+            return
+        }
         runCatching {
             val session = ensureWifiDirectSession()
             session.stopDiscovery()
