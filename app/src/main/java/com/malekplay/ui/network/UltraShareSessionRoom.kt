@@ -527,11 +527,10 @@ private fun formatSessionTransferBytes(value: Long): String {
     if (value < 1024L) return "$value B"
     val units = listOf("KB", "MB", "GB", "TB")
     var amount = value.toDouble()
-    for (unit in units) {
+    var unitIndex = -1
+    while (amount >= 1024.0 && unitIndex < units.lastIndex) {
         amount /= 1024.0
-        if (amount < 1024.0 || unit == units.last()) {
-            return String.format(java.util.Locale.US, "%.1f %s", amount, unit)
-        }
+        unitIndex++
     }
-    return "$value B"
+    return String.format(java.util.Locale.US, "%.1f %s", amount, units[unitIndex])
 }
