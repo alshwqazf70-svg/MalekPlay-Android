@@ -18,6 +18,27 @@ class UltraShareFolderArchiveTest {
     }
 
     @Test
+    fun archiveEntryPathValidationRejectsTraversalAndAbsolutePaths() {
+        listOf("../escape.txt", "/absolute.txt", "folder/../escape.txt", "folder//empty.txt", "folder\\\\escape.txt").forEach { unsafe ->
+            assertTrue(runCatching {
+                UltraShareFolderArchive.validatedArchiveSegments(unsafe, false)
+            }.isFailure)
+        }
+    }
+
+    @Test
+    fun archiveEntryPathValidationPreservesNestedUnicodePaths() {
+        assertEquals(
+            listOf("مجلد", "صور", "image.jpg"),
+            UltraShareFolderArchive.validatedArchiveSegments("مجلد/صور/image.jpg", false)
+        )
+        assertEquals(
+            listOf("مجلد", "صور"),
+            UltraShareFolderArchive.validatedArchiveSegments("مجلد/صور/", true)
+        )
+    }
+
+    @Test
     fun safeSegmentReplacesEmptyAndDotOnlyNames() {
         assertEquals("item", UltraShareFolderArchive.safeSegment(""))
         assertEquals("item", UltraShareFolderArchive.safeSegment("..."))
