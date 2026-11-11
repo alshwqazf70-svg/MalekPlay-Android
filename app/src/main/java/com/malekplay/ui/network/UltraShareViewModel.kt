@@ -240,7 +240,14 @@ class UltraShareViewModel @Inject constructor(
                     val connectedHost = acceptedHost
                     val peerName = UltraShareControlChannel.sessionPeerName(connectedHost)
                         ?: "جهاز MalekPlay المستقبل"
-                    val sessionId = java.util.UUID.randomUUID().toString()
+                    val retainedPeerSessions =
+                        UltraShareForegroundService.reconnectableSendTargets().map { it.host to it.sessionId } +
+                            _state.value.reconnectablePeers.map { it.host to it.sessionId }
+                    val sessionId = UltraShareMultiRecipientCoordinator.resolveSessionId(
+                        connectedHost,
+                        retainedPeerSessions.distinctBy { it.first },
+                        java.util.UUID.randomUUID().toString()
+                    )
                     val approvedTarget = UltraShareApprovedSendTarget(
                         sessionId = sessionId,
                         host = connectedHost,
