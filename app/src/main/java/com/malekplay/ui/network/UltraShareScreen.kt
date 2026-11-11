@@ -744,7 +744,7 @@ fun UltraShareScreen(
     }
 
     val invitationId = state.invitationId
-    val qrPayload = if (state.receiving && invitationId.isNotBlank()) {
+    val qrPayload = if (state.receiving && !invitationId.isNullOrBlank()) {
         // QR v3 can identify a receiver even before Android publishes its P2P
         // interface address. LAN hosts remain optional fallbacks.
         UltraShareQrCode.createReceiverPayload(
