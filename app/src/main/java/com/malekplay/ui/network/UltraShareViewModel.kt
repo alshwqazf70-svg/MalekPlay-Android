@@ -89,6 +89,8 @@ class UltraShareViewModel @Inject constructor(
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
     private var bluetoothSession: UltraShareBluetoothDiscovery.Session? = null
     private var bleSession: UltraShareBleDiscovery.Session? = null
+    private data class PendingQrPairing(val secret: String, val hosts: List<String>)
+    private var pendingQrPairing: PendingQrPairing? = null
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
     }
@@ -451,50 +453,138 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
+    private fun ensureWifiDirectSession(): UltraShareWifiDirect.Session {
+        return wifiDirectSession ?: UltraShareWifiDirect.open(
+            context = context,
+            onPeers = { peers ->
+                _state.value = _state.value.copy(
+                    wifiDirectPeers = peers,
+                    wifiDirectScanning = false,
+                    status = if (peers.isEmpty()) "لم يتم العثور على أجهزة Wi-Fi Direct."
+                    else "تم العثور على " + peers.size + " أجهزة عبر Wi-Fi Direct."
+                )
+            },
+            onConnected = { remoteHost, isGroupOwner ->
+                if (isGroupOwner) {
+                    if (UltraShareForegroundService.state.value.receiving) {
+                        UltraShareForegroundService.refreshLocalAddresses(context)
+                        _state.value = _state.value.copy(
+                            status = "اتصل Wi-Fi Direct بنجاح؛ هذا الهاتف جاهز للاستقبال."
+                        )
+                    } else {
+                        _state.value = _state.value.copy(
+                            status = "تم إنشاء اتصال Wi-Fi Direct؛ جارٍ تجهيز قناة الاقتران."
+                        )
+                    }
+                } else if (!remoteHost.isNullOrBlank()) {
+                    val pending = pendingQrPairing
+                    if (pending != null) {
+                        pendingQrPairing = null
+                        _state.value = _state.value.copy(wifiDirectHost = remoteHost)
+                        requestConnection(
+                            host = remoteHost,
+                            secret = pending.secret,
+                            alternateHosts = pending.hosts.filter { it != remoteHost }
+                        )
+                    } else {
+                        _state.value = _state.value.copy(
+                            wifiDirectHost = remoteHost,
+                            status = "تم اتصال Wi-Fi Direct. أدخل رمز الاقتران الظاهر على جهاز الاستقبال."
+                        )
+                    }
+                }
+            },
+            onError = { message ->
+                _state.value = _state.value.copy(
+                    wifiDirectScanning = false,
+                    wifiDirectHost = null,
+                    error = message
+                )
+            }
+        ).also { wifiDirectSession = it }
+    }
+
+    fun advertiseWifiDirectInvitation(invitationId: String) {
+        runCatching {
+            val session = ensureWifiDirectSession()
+            session.stopDiscovery()
+            session.advertiseInvitation(invitationId)
+            _state.value = _state.value.copy(
+                error = null,
+                status = "الجهاز جاهز للاقتران عبر QR أو رمز الدعوة؛ لا حاجة للاتصال اليدوي بشبكة Wi-Fi."
+            )
+        }.onFailure { failure ->
+            _state.value = _state.value.copy(
+                error = failure.localizedMessage ?: "تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct."
+            )
+        }
+    }
+
+    fun joinWifiDirectInvitation(
+        invitationId: String,
+        secret: String,
+        fallbackHosts: List<String> = emptyList()
+    ) {
+        if (!UltraShareTransport.isValidPairingSecret(secret)) {
+            _state.value = _state.value.copy(error = "رمز الاقتران داخل QR غير صالح.")
+            return
+        }
+        pendingQrPairing = PendingQrPairing(secret.trim(), fallbackHosts)
+        try {
+            val session = ensureWifiDirectSession()
+            _state.value = _state.value.copy(
+                requestingConnection = true,
+                wifiDirectHost = null,
+                error = null,
+                status = "تمت قراءة الدعوة؛ جارٍ العثور على الجهاز وإنشاء اتصال مباشر آمن..."
+            )
+            session.discoverInvitation(invitationId) { peer ->
+                if (pendingQrPairing != null) {
+                    _state.value = _state.value.copy(
+                        status = "تم العثور على جهاز الاستقبال؛ جارٍ إنشاء الاتصال المباشر..."
+                    )
+                    runCatching {
+                        session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
+                    }.onFailure { failure ->
+                        _state.value = _state.value.copy(
+                            requestingConnection = false,
+                            error = failure.localizedMessage ?: "تعذر الاتصال بجهاز الدعوة."
+                        )
+                        pendingQrPairing = null
+                    }
+                }
+            }
+            if (fallbackHosts.isNotEmpty()) {
+                viewModelScope.launch {
+                    delay(12_000)
+                    val pending = pendingQrPairing
+                    if (pending != null && pending.secret == secret.trim()) {
+                        // Older peers and same-LAN sessions can still use the existing
+                        // authenticated MPC2 route if DNS-SD is unavailable on this device.
+                        val fallback = fallbackHosts.firstOrNull()
+                        if (!fallback.isNullOrBlank()) {
+                            pendingQrPairing = null
+                            requestConnection(fallback, pending.secret, alternateHosts = pending.hosts.drop(1))
+                        }
+                    }
+                }
+            }
+        } catch (failure: Exception) {
+            pendingQrPairing = null
+            _state.value = _state.value.copy(
+                requestingConnection = false,
+                error = failure.localizedMessage ?: "تعذر بدء اكتشاف دعوة الجهاز."
+            )
+        }
+    }
+
     fun scanWifiDirectPeers() {
         if (_state.value.wifiDirectScanning) {
             stopWifiDirectDiscovery()
             return
         }
         try {
-            val session = wifiDirectSession ?: UltraShareWifiDirect.open(
-                context = context,
-                onPeers = { peers ->
-                    _state.value = _state.value.copy(
-                        wifiDirectPeers = peers,
-                        wifiDirectScanning = false,
-                        status = if (peers.isEmpty()) "لم يتم العثور على أجهزة Wi-Fi Direct."
-                        else "تم العثور على " + peers.size + " أجهزة عبر Wi-Fi Direct."
-                    )
-                },
-                onConnected = { remoteHost, isGroupOwner ->
-                    if (isGroupOwner) {
-                        val receiving = UltraShareForegroundService.state.value.receiving
-                        if (receiving) {
-                            UltraShareForegroundService.refreshLocalAddresses(context)
-                            _state.value = _state.value.copy(
-                                status = "اتصل Wi-Fi Direct بنجاح؛ هذا الهاتف جاهز للاستقبال."
-                            )
-                        } else {
-                            _state.value = _state.value.copy(
-                                status = "أصبح هذا الهاتف مالك مجموعة Wi-Fi Direct. أعد الاتصال مع جعل جهاز الاستقبال هو مالك المجموعة."
-                            )
-                        }
-                    } else if (!remoteHost.isNullOrBlank()) {
-                        _state.value = _state.value.copy(
-                            wifiDirectHost = remoteHost,
-                            status = "تم اتصال Wi-Fi Direct. أدخل رمز الاقتران الظاهر على جهاز الاستقبال."
-                        )
-                    }
-                },
-                onError = { message ->
-                    _state.value = _state.value.copy(
-                        wifiDirectScanning = false,
-                        wifiDirectHost = null,
-                        error = message
-                    )
-                }
-            ).also { wifiDirectSession = it }
+            val session = ensureWifiDirectSession()
             _state.value = _state.value.copy(
                 wifiDirectScanning = true,
                 wifiDirectHost = null,
