@@ -325,8 +325,13 @@ fun UltraShareExperienceScreen(
         if (missing.isEmpty()) viewModel.scanWifiDirectPeers() else wifiPermission.launch(missing.toTypedArray())
     }
     fun scanAllNearby() {
-        viewModel.scanNearbyDevices()
-        if (state.wifiDirectScanning) viewModel.stopWifiDirectDiscovery() else scanWifiDirect()
+        if (state.scanning || state.wifiDirectScanning) {
+            if (state.scanning) viewModel.scanNearbyDevices()
+            if (state.wifiDirectScanning) viewModel.stopWifiDirectDiscovery()
+        } else {
+            viewModel.scanNearbyDevices()
+            scanWifiDirect()
+        }
     }
     fun startHotspot() {
         val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
