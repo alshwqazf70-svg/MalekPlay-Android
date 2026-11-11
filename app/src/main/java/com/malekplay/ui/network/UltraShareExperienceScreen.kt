@@ -6,8 +6,13 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -51,6 +56,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -79,6 +85,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.sqrt
 
 private enum class UltraSharePage { HOME, SEND, RECEIVE, JOIN, NEARBY, TRANSFERS, HISTORY }
 
@@ -89,6 +96,8 @@ fun UltraShareExperienceScreen(
     initialUris: List<Uri> = emptyList()
 ) {
     val context = LocalContext.current
+    val sensorManager = remember(context) { context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager }
+    val accelerometer = remember(sensorManager) { sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }
     val viewModel: UltraShareViewModel = hiltViewModel()
     val mediaPickerViewModel: MediaPickerViewModel = hiltViewModel()
     val libraryFiles by mediaPickerViewModel.mediaFiles.collectAsState()
@@ -98,6 +107,8 @@ fun UltraShareExperienceScreen(
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf(UltraSharePage.HOME) }
+    var shakeToConnectArmed by remember { mutableStateOf(false) }
+    var triggerShakeScan by remember { mutableStateOf(false) }
     var showDevicePicker by remember { mutableStateOf(false) }
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
@@ -422,6 +433,48 @@ fun UltraShareExperienceScreen(
             } else allNearbyPermission.launch(missing.toTypedArray())
         }
     }
+    DisposableEffect(shakeToConnectArmed, page, sensorManager, accelerometer) {
+        val manager = sensorManager
+        val sensor = accelerometer
+        if (!shakeToConnectArmed || page != UltraSharePage.HOME || manager == null || sensor == null) {
+            onDispose { }
+        } else {
+            val listener = object : SensorEventListener {
+                private var lastShakeAt = 0L
+
+                override fun onSensorChanged(event: SensorEvent?) {
+                    val values = event?.values ?: return
+                    if (values.size < 3) return
+                    val x = values[0] / SensorManager.GRAVITY_EARTH
+                    val y = values[1] / SensorManager.GRAVITY_EARTH
+                    val z = values[2] / SensorManager.GRAVITY_EARTH
+                    val acceleration = sqrt(x * x + y * y + z * z)
+                    val now = SystemClock.elapsedRealtime()
+                    if (acceleration >= 2.6f && now - lastShakeAt >= 1_200L) {
+                        lastShakeAt = now
+                        shakeToConnectArmed = false
+                        triggerShakeScan = true
+                    }
+                }
+
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+            }
+            manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
+            onDispose { manager.unregisterListener(listener) }
+        }
+    }
+    LaunchedEffect(triggerShakeScan) {
+        if (triggerShakeScan) {
+            triggerShakeScan = false
+            page = UltraSharePage.NEARBY
+            scanAllNearby()
+            Toast.makeText(context, "تم رصد الحركة؛ بدأ البحث عن الأجهزة القريبة.", Toast.LENGTH_SHORT).show()
+        }
+    }
+    LaunchedEffect(page) {
+        if (page != UltraSharePage.HOME) shakeToConnectArmed = false
+    }
+
     fun startHotspot() {
         val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
@@ -634,9 +687,22 @@ fun UltraShareExperienceScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ZapyaShortcut(
                         modifier = Modifier.weight(1f),
-                        title = "تحريك الهاتف",
+                        title = if (shakeToConnectArmed) "حرّك الآن..." else "تحريك الهاتف",
                         icon = { Icon(Icons.Filled.Send, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
-                        onClick = { Toast.makeText(context, "اكتشاف الأجهزة بالحركة غير متاح بعد؛ استخدم البحث القريب أو QR.", Toast.LENGTH_LONG).show() }
+                        onClick = {
+                            if (sensorManager == null || accelerometer == null) {
+                                page = UltraSharePage.NEARBY
+                                scanAllNearby()
+                                Toast.makeText(context, "مستشعر الحركة غير متاح؛ بدأ البحث القريب مباشرة.", Toast.LENGTH_LONG).show()
+                            } else {
+                                shakeToConnectArmed = !shakeToConnectArmed
+                                Toast.makeText(
+                                    context,
+                                    if (shakeToConnectArmed) "حرّك الهاتف مرة واحدة لبدء اكتشاف الأجهزة." else "تم إلغاء انتظار الحركة.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
                     )
                     ZapyaShortcut(
                         modifier = Modifier.weight(1f),
