@@ -504,12 +504,31 @@ class UltraShareViewModel @Inject constructor(
             },
             onError = { message ->
                 val receiving = _state.value.receiving || UltraShareForegroundService.state.value.receiving
+                val pending = pendingQrPairing
+                val fallbackHosts = pending?.hosts.orEmpty().filter {
+                    UltraShareTransport.isValidPrivateLanHost(it)
+                }
+                if (pending != null) {
+                    pendingQrPairing = null
+                    qrP2pConnectStarted = false
+                }
                 _state.value = _state.value.copy(
                     wifiDirectScanning = false,
                     wifiDirectHost = null,
                     invitationId = if (receiving) "" else _state.value.invitationId,
-                    error = message
+                    requestingConnection = pending != null && fallbackHosts.isNotEmpty(),
+                    error = if (pending != null && fallbackHosts.isNotEmpty()) null else message,
+                    status = if (pending != null && fallbackHosts.isNotEmpty())
+                        "تعذر إكمال Wi-Fi Direct؛ ننتقل الآن إلى مسار الشبكة المحلية الآمن..."
+                    else _state.value.status
                 )
+                if (pending != null && fallbackHosts.isNotEmpty()) {
+                    requestConnection(
+                        host = fallbackHosts.first(),
+                        secret = pending.secret,
+                        alternateHosts = fallbackHosts.drop(1)
+                    )
+                }
             }
         ).also { wifiDirectSession = it }
     }
