@@ -83,6 +83,17 @@ object UltraShareWifiDirect {
         }
 
         @SuppressLint("MissingPermission")
+        fun stopDiscovery() {
+            if (closed) return
+            runCatching {
+                manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() = Unit
+                    override fun onFailure(reason: Int) = Unit
+                })
+            }
+        }
+
+        @SuppressLint("MissingPermission")
         fun connect(deviceAddress: String, preferThisDeviceAsGroupOwner: Boolean) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             val config = WifiP2pConfig().apply {
