@@ -92,6 +92,10 @@ object UltraShareWifiDirect {
             require(peerId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
                 "هوية دعوة Wi-Fi Direct غير صالحة."
             }
+            if (!legacyDiscoveryPrerequisite()) {
+                onError("على Android 10–12 يجب تشغيل خدمة الموقع لنشر واكتشاف دعوة Wi-Fi Direct.")
+                return
+            }
             val service = WifiP2pDnsSdServiceInfo.newInstance(
                 "malekplay",
                 "_malekplay._tcp",
