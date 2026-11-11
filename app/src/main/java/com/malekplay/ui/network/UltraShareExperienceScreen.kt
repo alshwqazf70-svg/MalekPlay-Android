@@ -760,8 +760,17 @@ private fun IncomingRequestPanel(
 }
 
 private fun isUltraShareMedia(context: Context, uri: Uri): Boolean = runCatching {
-    val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
-    UltraShareTransport.isSupportedShareMimeType(mime)
+    val resolver = context.contentResolver
+    val mime = resolver.getType(uri) ?: "application/octet-stream"
+    if (!UltraShareTransport.isSupportedShareMimeType(mime)) {
+        return@runCatching false
+    }
+
+    // A syntactically valid MIME type does not prove that a provider still grants
+    // access to the content. Open the descriptor before accepting the URI.
+    resolver.openFileDescriptor(uri, "r")?.use { descriptor ->
+        descriptor.statSize >= -1L
+    } ?: false
 }.getOrDefault(false)
 
 private fun formatUltraBytes(bytes: Long): String {
