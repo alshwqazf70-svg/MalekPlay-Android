@@ -65,7 +65,8 @@ data class UltraShareUiState(
     val activePeers: List<com.malekplay.network.UltraSharePeerSession> = emptyList(),
     val peerTransfers: List<com.malekplay.network.UltraSharePeerTransfer> = emptyList(),
     val approvedSenderPeerCount: Int = 0,
-    val approvedSenderPeerHosts: List<String> = emptyList()
+    val approvedSenderPeerHosts: List<String> = emptyList(),
+    val peerDeliveryEntries: List<com.malekplay.network.UltraSharePeerDeliveryEntry> = emptyList()
 )
 
 @HiltViewModel
@@ -94,6 +95,11 @@ class UltraShareViewModel @Inject constructor(
         viewModelScope.launch {
             UltraShareReceivedHistoryStore.observe(context).collect { entries ->
                 _state.value = _state.value.copy(receivedHistory = entries)
+            }
+        }
+        viewModelScope.launch {
+            UltraSharePeerDeliveryStore.observe(context).collect { entries ->
+                _state.value = _state.value.copy(peerDeliveryEntries = entries)
             }
         }
         viewModelScope.launch {
