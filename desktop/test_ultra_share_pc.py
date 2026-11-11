@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from ultra_share_web import is_local_host_header, validate_upload
+
 from ultra_share_pc import (
     DEFAULT_PORT,
     VERSION,
@@ -203,6 +205,26 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         finally:
             left.close()
             right.close()
+
+    def test_browser_ui_rejects_non_loopback_host_headers(self):
+        self.assertTrue(is_local_host_header("127.0.0.1:8765", 8765))
+        self.assertTrue(is_local_host_header("localhost:8765", 8765))
+        self.assertFalse(is_local_host_header("192.168.1.10:8765", 8765))
+        self.assertFalse(is_local_host_header("127.0.0.1.evil.test:8765", 8765))
+        self.assertFalse(is_local_host_header("127.0.0.1:9000", 8765))
+        self.assertFalse(is_local_host_header("user@127.0.0.1:8765", 8765))
+
+    def test_browser_upload_validates_private_host_pin_and_filename(self):
+        self.assertEqual(
+            ("192.168.1.20", "004219837", "مقطع.mp4"),
+            validate_upload("192.168.1.20", "004219837", "مقطع.mp4", 128),
+        )
+        with self.assertRaises(ValueError):
+            validate_upload("8.8.8.8", "004219837", "clip.mp4", 128)
+        with self.assertRaises(ValueError):
+            validate_upload("192.168.1.20", "bad-pin", "clip.mp4", 128)
+        with self.assertRaises(ValueError):
+            validate_upload("192.168.1.20", "004219837", "clip.mp4", -1)
 
 
 if __name__ == "__main__":
