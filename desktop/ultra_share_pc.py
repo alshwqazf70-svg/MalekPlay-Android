@@ -77,11 +77,29 @@ def private_ipv4(host: str) -> str:
 
 
 def is_supported_media_mime(value: str) -> bool:
+    """Compatibility name: accepts valid MIME types except APK/PDF MIME types."""
+    if not isinstance(value, str) or not 3 <= len(value) <= 160:
+        return False
+    if re.fullmatch(r"[A-Za-z0-9!#def is_supported_media_mime(value: str) -> bool:
     if not isinstance(value, str) or not 3 <= len(value) <= 160:
         return False
     if re.fullmatch(r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+", value) is None:
         return False
-    return value.lower().startswith(("video/", "audio/", "image/"))
+    return value.lower().startswith(("video/", "audio/", "image/"))^_.+-]+/[A-Za-z0-9!#def is_supported_media_mime(value: str) -> bool:
+    if not isinstance(value, str) or not 3 <= len(value) <= 160:
+        return False
+    if re.fullmatch(r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+", value) is None:
+        return False
+    return value.lower().startswith(("video/", "audio/", "image/"))^_.+-]+", value) is None:
+        return False
+    return value.lower() not in {
+        "application/pdf", "application/x-pdf",
+        "application/vnd.android.package-archive",
+    }
+
+
+def is_allowed_share_file(filename: str, mime: str) -> bool:
+    return Path(filename).suffix.lower() not in {".apk", ".pdf"} and is_supported_media_mime(mime)
 
 
 def recv_exact(sock: socket.socket, length: int) -> bytes:
@@ -164,8 +182,8 @@ def parse_metadata(data: bytes) -> tuple[str, int, str, bytes]:
     size = struct.unpack_from(">q", data, offset)[0]
     offset += 8
     mime, offset = read_text(data, offset, 192)
-    if not is_supported_media_mime(mime):
-        raise ValueError("Ultra Share accepts image, audio and video files only.")
+    if not is_allowed_share_file(name, mime):
+        raise ValueError("APK and PDF files cannot be shared.")
     if offset + 32 != len(data):
         raise ValueError("Invalid file digest metadata.")
     digest = data[offset:offset + 32]
@@ -250,8 +268,8 @@ def send_once(host: str, port: int, secret: str, source: Path) -> None:
         raise ValueError("The file size is outside the supported range.")
     filename = safe_name(source.name)
     mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    if not is_supported_media_mime(mime):
-        raise ValueError("Ultra Share accepts image, audio and video files only.")
+    if not is_allowed_share_file(filename, mime):
+        raise ValueError("APK and PDF files cannot be shared.")
     digest = hashlib.sha256()
     with source.open("rb") as stream:
         while True:
@@ -352,10 +370,12 @@ def send_files(host: str, port: int, secret: str, sources: list[Path]) -> None:
                                 ", ".join(str(path) for path in missing))
     unsupported = [
         source for source in sources
-        if not is_supported_media_mime(mimetypes.guess_type(source.name)[0] or "application/octet-stream")
+        if not is_allowed_share_file(
+            source.name, mimetypes.guess_type(source.name)[0] or "application/octet-stream"
+        )
     ]
     if unsupported:
-        raise ValueError("Ultra Share accepts image, audio and video files only: " +
+        raise ValueError("APK and PDF files cannot be shared: " +
                          ", ".join(source.name for source in unsupported))
     for index, source in enumerate(sources, start=1):
         print(f"\\n[{index}/{len(sources)}] Sending {source.name}")

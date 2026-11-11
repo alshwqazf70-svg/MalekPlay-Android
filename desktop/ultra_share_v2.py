@@ -70,10 +70,23 @@ def _safe_name(value: str) -> str:
 def _valid_mime(value: str) -> bool:
     if not isinstance(value, str) or not 3 <= len(value) <= 160:
         return False
+    token = r"[A-Za-z0-9!#def _valid_mime(value: str) -> bool:
+    if not isinstance(value, str) or not 3 <= len(value) <= 160:
+        return False
     token = r"[A-Za-z0-9!#$&^_.+-]+"
     import re
     return (re.fullmatch(token + "/" + token, value) is not None
-            and value.lower().startswith(("video/", "audio/", "image/")))
+            and value.lower().startswith(("video/", "audio/", "image/")))^_.+-]+"
+    import re
+    return (re.fullmatch(token + "/" + token, value) is not None
+            and value.lower() not in {
+                "application/pdf", "application/x-pdf",
+                "application/vnd.android.package-archive",
+            })
+
+
+def _allowed_share_file(filename: str, mime: str) -> bool:
+    return not _safe_name(filename).lower().endswith((".apk", ".pdf")) and _valid_mime(mime)
 
 
 def validate_manifest(manifest: Manifest) -> Manifest:
@@ -90,8 +103,8 @@ def validate_manifest(manifest: Manifest) -> Manifest:
             raise ValueError("Filename is not sanitized.")
         if not 1 <= len(entry.name.encode("utf-8")) <= MAX_NAME_BYTES:
             raise ValueError("Filename exceeds V2 limit.")
-        if not _valid_mime(entry.mime_type):
-            raise ValueError("Ultra Share accepts image, audio and video MIME types only.")
+        if not _allowed_share_file(entry.name, entry.mime_type):
+            raise ValueError("APK and PDF files cannot be shared.")
         if len(entry.mime_type.encode("utf-8")) > MAX_MIME_BYTES:
             raise ValueError("MIME type exceeds V2 limit.")
         if not isinstance(entry.size_bytes, int) or not 0 <= entry.size_bytes <= MAX_FILE_BYTES:

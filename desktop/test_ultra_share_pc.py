@@ -52,12 +52,17 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         self.assertEqual("clip.mp4", safe_name("clip\u200b.mp4"))
         self.assertEqual("song.mp3", safe_name("song\u0085.mp3"))
 
-    def test_v1_media_policy_rejects_documents_packages_and_unknown_files(self):
-        for mime in ("video/mp4", "audio/mpeg", "image/jpeg"):
+    def test_v1_policy_accepts_generic_files_but_blocks_apk_and_pdf(self):
+        for mime in ("video/mp4", "audio/mpeg", "image/jpeg", "application/zip",
+                     "text/plain", "application/octet-stream"):
             self.assertTrue(is_supported_media_mime(mime))
-        for mime in ("application/pdf", "application/vnd.android.package-archive",
-                     "application/zip", "text/plain", "application/octet-stream"):
+        for mime in ("application/pdf", "application/vnd.android.package-archive"):
             self.assertFalse(is_supported_media_mime(mime))
+        from ultra_share_pc import is_allowed_share_file
+        self.assertTrue(is_allowed_share_file("archive.zip", "application/zip"))
+        self.assertTrue(is_allowed_share_file("unknown.bin", "application/octet-stream"))
+        self.assertFalse(is_allowed_share_file("payload.apk", "application/octet-stream"))
+        self.assertFalse(is_allowed_share_file("document.pdf", "application/octet-stream"))
 
     def test_metadata_round_trip_matches_android_wire_layout(self):
         digest = hashlib.sha256(b"hello").digest()
@@ -73,11 +78,15 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             parse_metadata(encoded),
         )
 
-    def test_v1_metadata_rejects_non_media_mime_types(self):
+    def test_v1_metadata_allows_zip_and_octet_stream_but_blocks_apk_pdf(self):
         digest = hashlib.sha256(b"payload").digest()
-        for mime in ("application/pdf", "application/vnd.android.package-archive",
-                     "application/zip", "application/octet-stream"):
+        for mime in ("application/zip", "application/octet-stream", "text/plain"):
             encoded = (struct.pack(">H", VERSION) + encode_text("payload.bin", 768)
+                       + struct.pack(">q", 7) + encode_text(mime, 192) + digest)
+            self.assertEqual(mime, parse_metadata(encoded)[2])
+        for name, mime in (("payload.apk", "application/octet-stream"),
+                           ("document.pdf", "application/octet-stream")):
+            encoded = (struct.pack(">H", VERSION) + encode_text(name, 768)
                        + struct.pack(">q", 7) + encode_text(mime, 192) + digest)
             with self.assertRaises(ValueError):
                 parse_metadata(encoded)

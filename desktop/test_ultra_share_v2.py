@@ -297,10 +297,16 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             self.assertEqual(first.read_bytes(), restored["مقطع.mp4"])
             self.assertEqual(b"", restored["empty.mp3"])
 
-    def test_rejects_non_media_mime_and_invalid_digest_length(self):
-        for mime in ("application/pdf", "application/vnd.android.package-archive",
-                     "application/zip", "text/plain", "application/octet-stream"):
+    def test_accepts_generic_files_but_rejects_apk_pdf_and_invalid_digest(self):
+        for mime in ("application/zip", "text/plain", "application/octet-stream",
+                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
             entry = FileEntry(str(uuid.uuid4()), "x.bin", mime, 1, bytes(32))
+            validate_manifest(Manifest(str(uuid.uuid4()), (entry,)))
+        for name, mime in (("x.apk", "application/octet-stream"),
+                           ("x.pdf", "application/octet-stream"),
+                           ("x.bin", "application/pdf"),
+                           ("x.bin", "application/vnd.android.package-archive")):
+            entry = FileEntry(str(uuid.uuid4()), name, mime, 1, bytes(32))
             with self.assertRaises(ValueError):
                 validate_manifest(Manifest(str(uuid.uuid4()), (entry,)))
         malformed = FileEntry(str(uuid.uuid4()), "x.mp4", "video/mp4", 1, bytes(31))
