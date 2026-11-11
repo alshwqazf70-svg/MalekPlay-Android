@@ -931,7 +931,11 @@ fun UltraShareScreen(
                 if (state.receiving) {
                     Text(stringResource(R.string.ultra_share_receiver_address), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                     if (state.localAddresses.isEmpty()) {
-                        Text(stringResource(R.string.ultra_share_no_address), color = MaterialTheme.colorScheme.error)
+                        Text(
+                            if (state.invitationId != null) "عنوان Wi-Fi Direct قيد التهيئة؛ يمكن مسح QR للاتصال التلقائي."
+                            else stringResource(R.string.ultra_share_no_address),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     } else {
                         state.localAddresses.forEach { address ->
                             Text(address, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
@@ -978,7 +982,10 @@ fun UltraShareScreen(
                     }
                 }
                 Button(
-                    onClick = { if (state.receiving) viewModel.stopReceiving() else viewModel.startReceiving() },
+                    onClick = {
+                        if (state.receiving) viewModel.stopReceiving()
+                        else requestWifiDirectAction { viewModel.startReceiving() }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.sending
                 ) {
