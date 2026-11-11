@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -489,9 +490,7 @@ class UltraShareViewModel @Inject constructor(
         val target = approvedSenderTargets[host.trim()]
         if (uris.isEmpty() || _state.value.sending || target == null) return false
         return runCatching {
-            UltraShareForegroundService.startSendingBatch(
-                context, uris, target.host, target.secret, target.candidates
-            )
+            UltraShareForegroundService.startSendingBatchToPeers(context, uris, listOf(target))
             _state.value = _state.value.copy(
                 sending = true, progress = null, queueCompleted = 0,
                 queueTotal = uris.size, queueCurrentName = null, error = null,
@@ -532,13 +531,34 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun resumePendingBatch(host: String, secret: String) {
-        if (host.isBlank() || approvedSenderTargets[host.trim()] == null || _state.value.sending) return
+        val target = approvedSenderTargets[host.trim()] ?: return
+        if (_state.value.sending) return
         viewModelScope.launch {
-            val pendingUris = UltraShareQueueStore.pending(context).map { it.parsedUri }
-            if (pendingUris.isEmpty()) {
-                _state.value = _state.value.copy(status = "لا توجد ملفات متبقية للاستئناف.")
+            val peerEntries = UltraSharePeerDeliveryStore.observe(context).first()
+                .filter { it.peerSessionId == target.sessionId }
+            val pendingUris = if (peerEntries.isNotEmpty()) {
+                peerEntries.filter {
+                    it.status == UltraSharePeerDeliveryStore.STATUS_PENDING ||
+                        it.status == UltraSharePeerDeliveryStore.STATUS_FAILED
+                }.map { it.parsedUri }
             } else {
-                sendBatch(pendingUris, host, secret)
+                UltraShareQueueStore.pending(context).map { it.parsedUri }
+            }
+            if (pendingUris.isEmpty()) {
+                _state.value = _state.value.copy(status = "لا توجد ملفات متبقية لهذا الجهاز؛ تم الحفاظ على الملفات التي استلمها سابقاً.")
+            } else {
+                runCatching {
+                    UltraShareForegroundService.startSendingBatchToPeers(context, pendingUris, listOf(target))
+                    _state.value = _state.value.copy(
+                        sending = true,
+                        queueCompleted = 0,
+                        queueTotal = pendingUris.size,
+                        error = null,
+                        status = "استئناف الملفات المتبقية لهذا الجهاز فقط"
+                    )
+                }.onFailure { failure ->
+                    _state.value = _state.value.copy(error = failure.localizedMessage ?: "تعذر استئناف النقل.")
+                }
             }
         }
     }
@@ -549,12 +569,14 @@ class UltraShareViewModel @Inject constructor(
             entry.status != UltraShareQueueStore.STATUS_FAILED
         ) return
         runCatching {
-            UltraShareForegroundService.retryFile(context, entry.parsedUri, target.host, target.secret)
+            UltraShareForegroundService.startSendingBatchToPeers(
+                context, listOf(entry.parsedUri), listOf(target)
+            )
             _state.value = _state.value.copy(
                 sending = true,
                 progress = null,
                 error = null,
-                status = "إعادة محاولة إرسال " + entry.displayName
+                status = "إعادة محاولة إرسال " + entry.displayName + " إلى هذا الجهاز فقط"
             )
         }.onFailure {
             _state.value = _state.value.copy(
