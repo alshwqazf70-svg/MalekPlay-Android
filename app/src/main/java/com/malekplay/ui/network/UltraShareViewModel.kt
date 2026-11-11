@@ -54,6 +54,7 @@ data class UltraShareUiState(
     val queueEntries: List<UltraShareQueueEntry> = emptyList(),
     val receivedHistory: List<UltraShareReceivedEntry> = emptyList(),
     val wifiDirectPeers: List<UltraShareWifiDirect.Peer> = emptyList(),
+    val wifiDirectScanning: Boolean = false,
     val wifiDirectHost: String? = null,
     val hotspotSsid: String? = null,
     val hotspotPassword: String? = null,
@@ -383,13 +384,17 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun scanWifiDirectPeers() {
+        if (_state.value.wifiDirectScanning) {
+            stopWifiDirectDiscovery()
+            return
+        }
         try {
             val session = wifiDirectSession ?: UltraShareWifiDirect.open(
                 context = context,
                 onPeers = { peers ->
                     _state.value = _state.value.copy(
                         wifiDirectPeers = peers,
-                        scanning = false,
+                        wifiDirectScanning = false,
                         status = if (peers.isEmpty()) "لم يتم العثور على أجهزة Wi-Fi Direct."
                         else "تم العثور على " + peers.size + " أجهزة عبر Wi-Fi Direct."
                     )
@@ -416,14 +421,14 @@ class UltraShareViewModel @Inject constructor(
                 },
                 onError = { message ->
                     _state.value = _state.value.copy(
-                        scanning = false,
+                        wifiDirectScanning = false,
                         wifiDirectHost = null,
                         error = message
                     )
                 }
             ).also { wifiDirectSession = it }
             _state.value = _state.value.copy(
-                scanning = true,
+                wifiDirectScanning = true,
                 wifiDirectHost = null,
                 error = null,
                 status = "جارٍ البحث عن أجهزة Wi-Fi Direct..."
@@ -431,9 +436,9 @@ class UltraShareViewModel @Inject constructor(
             session.discover()
             viewModelScope.launch {
                 delay(15_000)
-                if (_state.value.scanning) {
+                if (_state.value.wifiDirectScanning) {
                     _state.value = _state.value.copy(
-                        scanning = false,
+                        wifiDirectScanning = false,
                         status = if (_state.value.wifiDirectPeers.isEmpty())
                             "انتهى البحث عبر Wi-Fi Direct دون العثور على أجهزة."
                         else _state.value.status
@@ -442,10 +447,18 @@ class UltraShareViewModel @Inject constructor(
             }
         } catch (failure: Exception) {
             _state.value = _state.value.copy(
-                scanning = false,
+                wifiDirectScanning = false,
                 error = failure.localizedMessage ?: "تعذر بدء Wi-Fi Direct على هذا الجهاز."
             )
         }
+    }
+
+    fun stopWifiDirectDiscovery() {
+        runCatching { wifiDirectSession?.stopDiscovery() }
+        _state.value = _state.value.copy(
+            wifiDirectScanning = false,
+            status = "تم إيقاف البحث عبر Wi-Fi Direct."
+        )
     }
 
     fun connectWifiDirectPeer(peer: UltraShareWifiDirect.Peer) {
