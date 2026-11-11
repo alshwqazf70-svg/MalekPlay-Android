@@ -543,6 +543,7 @@ class UltraShareViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         status = "تم العثور على جهاز الاستقبال؛ جارٍ إنشاء الاتصال المباشر..."
                     )
+                    session.stopInvitationDiscovery()
                     runCatching {
                         session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
                     }.onFailure { failure ->
@@ -554,18 +555,26 @@ class UltraShareViewModel @Inject constructor(
                     }
                 }
             }
-            if (fallbackHosts.isNotEmpty()) {
-                viewModelScope.launch {
-                    delay(12_000)
-                    val pending = pendingQrPairing
-                    if (pending != null && pending.secret == secret.trim()) {
+            viewModelScope.launch {
+                delay(if (fallbackHosts.isNotEmpty()) 12_000 else 20_000)
+                val pending = pendingQrPairing
+                if (pending != null && pending.secret == secret.trim()) {
+                    if (fallbackHosts.isNotEmpty()) {
                         // Older peers and same-LAN sessions can still use the existing
                         // authenticated MPC2 route if DNS-SD is unavailable on this device.
                         val fallback = fallbackHosts.firstOrNull()
                         if (!fallback.isNullOrBlank()) {
                             pendingQrPairing = null
+                            session.stopInvitationDiscovery()
                             requestConnection(fallback, pending.secret, alternateHosts = pending.hosts.drop(1))
                         }
+                    } else {
+                        pendingQrPairing = null
+                        session.stopInvitationDiscovery()
+                        _state.value = _state.value.copy(
+                            requestingConnection = false,
+                            error = "لم يتم العثور على جهاز الدعوة. تأكد من تشغيل Wi-Fi ومنح إذن الأجهزة القريبة على الهاتفين، ثم أعد مسح QR."
+                        )
                     }
                 }
             }
