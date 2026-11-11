@@ -537,7 +537,7 @@ fun UltraShareExperienceScreen(
     }
 
     val qrPayload = state.localAddresses
-        .takeIf { state.receiving && state.pairingSecret.isNotBlank() }
+        .takeIf { state.receiving && state.pairingSecret.isNotBlank() && it.isNotEmpty() }
         ?.let {
             if (state.invitationId.isBlank()) {
                 UltraShareQrCode.createReceiverPayload(
