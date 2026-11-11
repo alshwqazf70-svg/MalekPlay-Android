@@ -104,3 +104,67 @@ Keep the current Kotlin domain and UI contracts. Introduce a native engine behin
 ## Current status
 
 This is an engineering integration decision and source assessment, not a claim that NSTACKX is already integrated. The current MalekPlay Kotlin transport remains the active production path until the native Android build and staged acceptance gates pass.
+
+## Stage A — source-level Android port inspection (2026-11-11)
+
+The current development branch was re-read before implementation. Its HEAD at inspection time was
+`b8e61872caf7bb8295f3eeee694feaa7832b7fe0`; the app still has no native build target or
+packaged NSTACKX libraries. The Android module declares `minSdk = 23`. Its existing ABI split
+configuration ships `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`, so a native dependency
+cannot silently support only the primary phone ABI.
+
+The pinned upstream source was inspected beyond its README:
+
+- `nstackx_util/BUILD.gn` selects a Unix/Linux platform implementation, but its standard
+  OpenHarmony target also imports OpenHarmony build targets and dependencies such as
+  `bounds_checking_function`, `hilog`, `c_utils` and OpenSSL. This is not an Android NDK
+  target.
+- `nstackx_ctrl/BUILD.gn` requires the CoAP implementation and cJSON for the full discovery
+  path. Its standard build also declares OpenHarmony bounds-checking dependencies.
+- `nstackx_core/dfile/BUILD.gn` uses Unix platform source files, but the GN target still relies
+  on the upstream utility and congestion targets plus bounds-checking and crypto libraries.
+  The LiteOS/Linux GN branch selects mbedTLS; the standard OpenHarmony branch selects OpenSSL.
+  Neither branch is a ready-to-use Android package definition.
+- The inspected Unix utility header directly includes Linux-oriented headers including
+  `<sys/timerfd.h>`, `<sys/prctl.h>`, `<syscall.h>` and `<linux/limits.h>`. The Unix socket
+  implementation also contains Linux UDP segmentation/GSO code. These are concrete Bionic/API
+  compatibility checks for an Android port, not evidence that the source already builds on
+  Android.
+- The upstream project documents separate DFinder, DFile and Fillp capabilities; Fillp remains
+  a streaming component and is not selected as the file-transfer engine.
+
+### Stage A implementation decision
+
+Do not add `externalNativeBuild`, a JNI facade, placeholder shared libraries, or a Gradle
+dependency until the native source and its real dependency graph can compile reproducibly.
+That would create the appearance of integration without a usable engine.
+
+The first native proof must be a pinned-source Android NDK build with explicit Android-specific
+platform/configuration code and audited third-party dependencies. It must build the app's
+supported ABIs, run a native initialization/teardown smoke test, and retain Apache-2.0 notices
+and all transitive dependency notices. The proof should bring up DFinder first; DFile follows
+only after its crypto and file-system adapter compile and pass native tests. If an ABI or
+dependency cannot be supported, change the shipped ABI policy deliberately rather than
+silently omitting a library.
+
+### Existing application boundary verified
+
+The app currently exposes its Kotlin UltraShare discovery and transport through
+`UltraShareDiscovery` and `UltraShareTransport` / batch transport code. The current TCP batch
+transport remains the active transfer implementation. The Android workflow currently installs
+Android platform/build-tools packages but does not install an NDK or CMake, and therefore does
+not yet exercise a native build. No runtime Kotlin, UI, manifest, or transport files were changed
+during this source-level port inspection.
+
+### Evidence still required before calling Stage A complete
+
+1. A committed Android-specific native source/build target that compiles upstream code rather
+   than a mock JNI library.
+2. A successful CI build for every ABI MalekPlay ships.
+3. A native test proving DFinder initialization, callback delivery and deterministic shutdown.
+4. A separate DFile native test proving authenticated key injection, file transfer, callback
+   ordering and close/cancel cleanup.
+5. A verified APK inspection showing the expected `lib/<abi>/` shared objects are packaged.
+
+Until all of these are present, NSTACKX remains the selected migration target, not the active
+runtime engine.
