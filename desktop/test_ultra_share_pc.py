@@ -141,18 +141,6 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
                     send_files("192.168.1.20", DEFAULT_PORT, "004219837", [first, missing])
             send.assert_not_called()
 
-    def test_batch_rejects_unsupported_media_before_starting_any_transfer(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            first = directory / "first.mp4"
-            unsupported = directory / "installer.apk"
-            first.write_bytes(b"video")
-            unsupported.write_bytes(b"not really an apk")
-            with patch("ultra_share_pc.send_file") as send:
-                with self.assertRaises(ValueError):
-                    send_files("192.168.1.20", DEFAULT_PORT, "004219837", [first, unsupported])
-            send.assert_not_called()
-
     def test_batch_sends_files_in_selected_order(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -226,19 +214,11 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         self.assertFalse(is_local_host_header("127.0.0.1:9000", 8765))
         self.assertFalse(is_local_host_header("user@127.0.0.1:8765", 8765))
 
-    def test_browser_upload_validates_private_host_pin_filename_and_media_type(self):
+    def test_browser_upload_validates_private_host_pin_and_filename(self):
         self.assertEqual(
             ("192.168.1.20", "004219837", "مقطع.mp4"),
-            validate_upload("192.168.1.20", "004219837", "مقطع.mp4", 128, "video/mp4"),
+            validate_upload("192.168.1.20", "004219837", "مقطع.mp4", 128),
         )
-        self.assertEqual(
-            ("192.168.1.20", "004219837", "cover.png"),
-            validate_upload("192.168.1.20", "004219837", "cover.png", 128, "image/png"),
-        )
-        with self.assertRaises(ValueError):
-            validate_upload("192.168.1.20", "004219837", "installer.apk", 128, "application/vnd.android.package-archive")
-        with self.assertRaises(ValueError):
-            validate_upload("192.168.1.20", "004219837", "notes.pdf", 128, "application/pdf")
         with self.assertRaises(ValueError):
             validate_upload("8.8.8.8", "004219837", "clip.mp4", 128)
         with self.assertRaises(ValueError):
