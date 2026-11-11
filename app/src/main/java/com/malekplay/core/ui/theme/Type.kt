@@ -32,18 +32,16 @@ val MalekPlayTypography = Typography(
  * The Aurora metallic brush remains the default only when no solid palette is selected.
  */
 fun malekPlayTypography(isDark: Boolean, textColor: Color? = null): Typography {
-    val brush = MalekPlayGradients.textBrush(isDark)
-    // Capture the nullable value in a stable local so Kotlin can smart-cast it
-    // inside the typography transformation lambda.
-    val selectedTextColor = textColor
+    // This project's pinned Compose UI version exposes solid TextStyle colors,
+    // but not the newer brush-based TextStyle.copy overload. Keep typography
+    // compatible with the pinned API and use the theme's accessible accent.
+    val selectedTextColor = textColor ?: if (isDark) {
+        MalekPlayColors.PurpleBright
+    } else {
+        MalekPlayColors.PurpleDeep
+    }
     val applyTextPalette: (TextStyle) -> TextStyle = { style ->
-        if (selectedTextColor == null) {
-            style.copy(brush = brush)
-        } else {
-            // Remove the gradient brush when a solid palette is selected;
-            // otherwise brush rendering takes precedence over the solid color.
-            style.copy(brush = null, color = selectedTextColor)
-        }
+        style.copy(color = selectedTextColor)
     }
     return MalekPlayTypography.copy(
         displayLarge = applyTextPalette(MalekPlayTypography.displayLarge),
