@@ -621,14 +621,31 @@ fun UltraShareExperienceScreen(
 
                 UltraSharePage.NEARBY -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { viewModel.scanNearbyDevices() }, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Filled.Refresh, null); Text(if (state.scanning) "إيقاف البحث" else "بحث")
+                        Button(
+                            onClick = ::scanAllNearby,
+                            modifier = Modifier.weight(1f),
+                            enabled = !state.sending
+                        ) {
+                            Icon(Icons.Filled.Refresh, null)
+                            Text(if (state.scanning || state.wifiDirectScanning) "إيقاف البحث" else "بحث شامل")
                         }
-                        OutlinedButton(onClick = ::scanWifiDirect, modifier = Modifier.weight(1f)) { Text("Wi-Fi Direct") }
+                        OutlinedButton(
+                            onClick = ::scanQr,
+                            modifier = Modifier.weight(1f),
+                            enabled = !state.sending
+                        ) {
+                            Icon(Icons.Filled.QrCode, null)
+                            Text("مسح QR")
+                        }
                     }
+                    Text(
+                        "البحث يشمل الشبكة المحلية وWi-Fi Direct؛ يمكنك أيضاً الاتصال بمسح رمز QR.",
+                        color = MalekPlayColors.TextSecondary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
                     OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("البحث عن جهاز") })
                     UltraShareRadar(
-                        isScanning = state.scanning,
+                        isScanning = state.scanning || state.wifiDirectScanning,
                         discoveredCount = visiblePeers.size,
                         modifier = Modifier.fillMaxWidth().height(340.dp),
                         peerNames = visiblePeers.take(4).map { it.name },
@@ -650,7 +667,7 @@ fun UltraShareExperienceScreen(
                         }
                     }
                     Text("الأجهزة المكتشفة (" + visiblePeers.size + ")", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
-                    if (visiblePeers.isEmpty()) InfoPanel("الرادار", if (state.scanning) "جارٍ البحث عن الأجهزة القريبة..." else "لا توجد أجهزة ظاهرة حالياً. تأكد من اتصال الهاتفين بالشبكة نفسها.")
+                    if (visiblePeers.isEmpty() && state.wifiDirectPeers.isEmpty()) InfoPanel("الرادار", if (state.scanning || state.wifiDirectScanning) "جارٍ البحث عبر الشبكة المحلية وWi-Fi Direct..." else "لا توجد أجهزة ظاهرة حالياً. تأكد من تشغيل Wi-Fi أو استخدم QR أو نقطة الاتصال.")
                     visiblePeers.drop(4).forEach { peer ->
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
                             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -672,9 +689,18 @@ fun UltraShareExperienceScreen(
                             }
                         }
                     }
-                    state.wifiDirectPeers.forEach { peer ->
-                        OutlinedButton(onClick = { viewModel.connectWifiDirectPeer(peer) }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Wi-Fi Direct • " + peer.name + " • " + peer.status)
+                    if (state.wifiDirectPeers.isNotEmpty()) {
+                        Text("أجهزة Wi-Fi Direct (${state.wifiDirectPeers.size})", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
+                        state.wifiDirectPeers.filter {
+                            it.name.contains(search, true) || it.deviceAddress.contains(search, true)
+                        }.forEach { peer ->
+                            OutlinedButton(
+                                onClick = { viewModel.connectWifiDirectPeer(peer) },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !state.requestingConnection && !state.sending
+                            ) {
+                                Text("اتصال مباشر • " + peer.name + " • " + peer.status)
+                            }
                         }
                     }
                     state.error?.let { ErrorPanel(it) }
