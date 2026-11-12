@@ -14,6 +14,7 @@
 #include "nstackx_error.h"
 #include "nstackx_log.h"
 #include "securec.h"
+#include "sys_network.h"
 
 #define TAG "NSTACKXAndroidDev"
 
@@ -79,6 +80,15 @@ int32_t GetIfBroadcastIp(const char *ifName, char *ipString, size_t ipStringLen)
  * Attempt it only for a verified interface; callers retain their existing route
  * selection/fallback when the kernel rejects the option.
  */
+static int BindCurrentAndroidNetwork(SocketDesc fd)
+{
+    if (NstackxBindSocketToCurrentNetwork(fd) == 0) return NSTACKX_EOK;
+    /* No explicit Android Network was supplied: retain legacy OS routing. */
+    if (errno == ENONET) return NSTACKX_EOK;
+    LOGW(TAG, "android_setsocknetwork failed: %d", errno);
+    return NSTACKX_EFAILED;
+}
+
 static int BindVerifiedInterface(SocketDesc fd, const char *name)
 {
     if (fd < 0 || name == NULL || if_nametoindex(name) == 0) return NSTACKX_EFAILED;
@@ -86,7 +96,10 @@ static int BindVerifiedInterface(SocketDesc fd, const char *name)
     if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, name, (socklen_t)(strlen(name) + 1)) == 0)
         return NSTACKX_EOK;
 #endif
-    LOGW(TAG, "SO_BINDTODEVICE unavailable for %s: %d; keep OS-selected route", name, errno);
+    /* Android apps may lack SO_BINDTODEVICE privileges. Use the selected
+     * ConnectivityManager Network on this socket instead of process routing. */
+    if (BindCurrentAndroidNetwork(fd) == NSTACKX_EOK) return NSTACKX_EOK;
+    LOGW(TAG, "interface binding unavailable for %s; errno=%d", name, errno);
     return NSTACKX_EFAILED;
 }
 
@@ -97,8 +110,8 @@ int32_t BindToDevice(SocketDesc sockfd, const struct sockaddr_in *localAddr)
         GetInterfaceNameByIP(localAddr->sin_addr.s_addr, name, sizeof(name)) != NSTACKX_EOK)
         return NSTACKX_EFAILED;
     if (localAddr == NULL) {
-        /* No implicit interface preference: Android ConnectivityManager owns routing. */
-        return NSTACKX_EOK;
+        /* Use the exact Android Network selected by the Kotlin layer, if present. */
+        return BindCurrentAndroidNetwork(sockfd);
     }
     return BindVerifiedInterface(sockfd, name);
 }
@@ -129,6 +142,9 @@ void BindToDevInTheSameLan(SocketDesc sockfd, const struct sockaddr_in *sockAddr
         }
     }
     freeifaddrs(all);
+    /* A peer may be reachable through an Android Network route that is not
+     * represented by a matching address prefix (notably Wi-Fi Direct). */
+    (void)BindCurrentAndroidNetwork(sockfd);
 }
 
 /* Determine the transport class from the interface carrying the source IP. */
