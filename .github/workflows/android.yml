@@ -10,11 +10,11 @@ on:
       - feature/zapya-engineering-analysis
   workflow_dispatch:
 
-# Give each run its own concurrency group so a stale GitHub run
-# cannot block all future builds on this branch.
+# Keep only the newest build for each branch. Rapid development commits should
+# not create a long queue of obsolete 20-30 minute Android builds.
 concurrency:
-  group: malekplay-android-v2-${{ github.ref }}-${{ github.run_id }}
-  cancel-in-progress: false
+  group: malekplay-android-v2-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
