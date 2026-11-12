@@ -65,6 +65,7 @@ object UltraShareControlChannel {
         val output: DataOutputStream,
         val peerName: String,
         val peerId: String?,
+        val dfileKey: ByteArray,
         val lock: Any = Any(),
         var heartbeat: Job? = null
     )
@@ -75,6 +76,7 @@ object UltraShareControlChannel {
     private val clientSessionGuard = Any()
     private val serverSessions = ConcurrentHashMap<String, Socket>()
     private val serverSessionPeerIds = ConcurrentHashMap<String, String>()
+    private val serverSessionDFileKeys = ConcurrentHashMap<String, ByteArray>()
     private val pairingAttemptLimiter = UltraSharePairingAttemptLimiter()
 
     internal fun isPairingAttemptAllowed(peerAddress: String, nowMillis: Long = System.currentTimeMillis()): Boolean =
@@ -208,7 +210,7 @@ object UltraShareControlChannel {
                 }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
                 val remotePeerId = responseParts.getOrNull(3)?.takeIf(::isStablePeerId)
                 socket.soTimeout = SESSION_TIMEOUT_MS
-                val session = ClientSession(socket, input, output, remoteName, remotePeerId)
+                val session = ClientSession(socket, input, output, remoteName, remotePeerId, deriveDFileKey(key))
                 synchronized(clientSessionGuard) { clientSessions[host] = session }
                 session.heartbeat = CoroutineScope(Dispatchers.IO).launch {
                     while (isActive && !socket.isClosed) {
@@ -229,6 +231,7 @@ object UltraShareControlChannel {
                                 val wasCurrentSession = clientSessions.remove(host, session)
                                 if (wasCurrentSession) {
                                     runCatching { session.socket.close() }
+                                    session.dfileKey.fill(0)
                                     onSessionClosed(host)
                                 }
                             }
@@ -251,18 +254,28 @@ object UltraShareControlChannel {
             val session = clientSessions.remove(host) ?: return
             session.heartbeat?.cancel()
             runCatching { session.socket.close() }
+            session.dfileKey.fill(0)
         }
     }
 
     fun closeServerSession(host: String) {
         serverSessions.remove(host)?.let { socket -> runCatching { socket.close() } }
         serverSessionPeerIds.remove(host)
+        serverSessionDFileKeys.remove(host)?.fill(0)
     }
 
     fun sessionPeerName(host: String): String? = clientSessions[host]?.peerName
 
     /** Authenticated stable identity announced by the remote device during approval. */
     fun sessionPeerId(host: String): String? = clientSessions[host]?.peerId
+
+    /** Returns a copy of the session-bound DFile key for an approved outgoing peer. */
+    fun clientDFileKey(host: String): ByteArray? =
+        clientSessions[host]?.dfileKey?.copyOf()
+
+    /** Returns a copy of the session-bound DFile key for an approved incoming peer. */
+    fun serverDFileKey(host: String): ByteArray? =
+        serverSessionDFileKeys[host]?.copyOf()
 
     fun isSessionActive(host: String): Boolean {
         val session = clientSessions[host] ?: return false
@@ -357,9 +370,11 @@ object UltraShareControlChannel {
             // Closing the old socket prevents an orphaned heartbeat from surviving the new approval.
             serverSessions.put(request.peerAddress, socket)?.takeIf { it !== socket }?.let { previous ->
                 runCatching { previous.close() }
+                serverSessionDFileKeys.remove(request.peerAddress)?.fill(0)
             }
             serverSessionPeerIds.remove(request.peerAddress)
             request.peerId?.let { serverSessionPeerIds[request.peerAddress] = it }
+            serverSessionDFileKeys[request.peerAddress] = deriveDFileKey(key)
             output.writeInt(frame.size)
             output.write(frame)
             output.flush()
@@ -379,9 +394,20 @@ object UltraShareControlChannel {
             val wasCurrentSession = serverSessions.remove(request.peerAddress, socket)
             if (wasCurrentSession) {
                 serverSessionPeerIds.remove(request.peerAddress)
+                serverSessionDFileKeys.remove(request.peerAddress)?.fill(0)
                 onSessionClosed(request)
             }
         }
+    }
+
+
+    /** Derive a dedicated 128-bit DFile key from the authenticated MPC2 control key. */
+    private fun deriveDFileKey(controlKey: ByteArray): ByteArray {
+        require(controlKey.size == 32)
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(controlKey, "HmacSHA256"))
+        return mac.doFinal("MalekPlayer/NSTACKX/DFile/v1".toByteArray(Charsets.UTF_8))
+            .copyOf(16)
     }
 
     private fun isStablePeerId(value: String): Boolean =
