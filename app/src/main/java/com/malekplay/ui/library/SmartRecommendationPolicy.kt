@@ -19,7 +19,8 @@ internal data class SmartMediaRecommendation(
 internal data class SmartMediaCollection(
     val title: String,
     val query: String,
-    val itemCount: Int
+    val itemCount: Int,
+    val kind: String
 )
 
 internal object SmartRecommendationPolicy {
@@ -88,30 +89,44 @@ internal object SmartRecommendationPolicy {
             .toList()
     }
 
-    /** Discover useful genre collections without writing generated playlists to storage. */
+    /** Discover local smart groups by genre, artist and album metadata. */
     fun collections(
         items: List<LibraryItem>,
         limit: Int = COLLECTION_LIMIT,
         minimumItems: Int = COLLECTION_MINIMUM_ITEMS
     ): List<SmartMediaCollection> {
         if (limit <= 0 || minimumItems < 2) return emptyList()
-        return items.asSequence()
-            .mapNotNull { item ->
-                val genre = item.media.genre?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-                genre.normalized()?.let { it to genre }
+        val buckets = LinkedHashMap<String, Pair<String, MutableList<String>>>()
+        items.forEach { item ->
+            val media = item.media
+            val metadata = listOfNotNull(
+                media.genre?.trim()?.takeIf { it.isNotEmpty() }?.let { "النوع" to it },
+                media.artist?.trim()?.takeIf { it.isNotEmpty() }?.let { "الفنان" to it },
+                media.album?.trim()?.takeIf { it.isNotEmpty() }?.let { "الألبوم" to it }
+            )
+            metadata.forEach { (kind, value) ->
+                val normalized = value.normalized()
+                if (normalized != null) {
+                    val key = "$kind:$normalized"
+                    val bucket = buckets.getOrPut(key) { value to mutableListOf() }
+                    bucket.second += media.id
+                }
             }
-            .groupBy({ it.first }, { it.second })
-            .mapNotNull { (normalized, names) ->
-                val count = names.size
-                if (count < minimumItems) null
-                else SmartMediaCollection(
-                    title = names.first(),
-                    query = normalized,
-                    itemCount = count
-                )
-            }
-            .sortedWith(compareByDescending<SmartMediaCollection> { it.itemCount }.thenBy { it.title.lowercase(Locale.ROOT) })
-            .take(limit)
+        }
+        return buckets.mapNotNull { (key, bucket) ->
+            val (title, mediaIds) = bucket
+            if (mediaIds.size < minimumItems) null
+            else SmartMediaCollection(
+                title = title,
+                query = title,
+                itemCount = mediaIds.size,
+                kind = key.substringBefore(':')
+            )
+        }.sortedWith(
+            compareByDescending<SmartMediaCollection> { it.itemCount }
+                .thenBy { it.kind }
+                .thenBy { it.title.lowercase(Locale.ROOT) }
+        ).take(limit)
     }
 
     /** Rank local metadata matches, including Arabic and Latin queries. */

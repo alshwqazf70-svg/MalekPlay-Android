@@ -356,7 +356,7 @@ private fun SmartCollectionTile(collection: SmartMediaCollection, onClick: () ->
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            "${collection.itemCount} عناصر • مجموعة ذكية",
+            "${collection.itemCount} عناصر • ${collection.kind} ذكي",
             color = colors.secondary,
             style = MaterialTheme.typography.labelSmall
         )

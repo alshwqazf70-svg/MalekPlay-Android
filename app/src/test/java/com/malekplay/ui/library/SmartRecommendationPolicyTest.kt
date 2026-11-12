@@ -154,6 +154,24 @@ class SmartRecommendationPolicyTest {
         )
     }
 
+
+    @Test
+    fun smartCollectionsDiscoverArtistsAndAlbumsAsWellAsGenres() {
+        val first = item("one", genre = "Drama", artist = "Studio A").copy(
+            media = item("one", genre = "Drama", artist = "Studio A").media.copy(album = "Collection X")
+        )
+        val second = item("two", genre = "Comedy", artist = "studio a").copy(
+            media = item("two", genre = "Comedy", artist = "studio a").media.copy(album = "collection x")
+        )
+
+        val groups = SmartRecommendationPolicy.collections(listOf(first, second))
+
+        assertEquals(setOf("الفنان", "الألبوم"), groups.map { it.kind }.toSet())
+        assertTrue(groups.all { it.itemCount == 2 })
+        assertTrue(groups.any { it.title == "Studio A" })
+        assertTrue(groups.any { it.title == "Collection X" })
+    }
+
     private fun item(
         id: String,
         genre: String? = null,
