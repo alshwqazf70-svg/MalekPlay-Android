@@ -130,3 +130,29 @@ void BindToDevInTheSameLan(SocketDesc sockfd, const struct sockaddr_in *sockAddr
     }
     freeifaddrs(all);
 }
+
+/* Determine the transport class from the interface carrying the source IP. */
+int32_t GetConnectionTypeByDev(const uint32_t sourceIp, uint16_t *connectType)
+{
+    char name[IFNAMSIZ] = {0};
+    if (connectType == NULL) return NSTACKX_EINVAL;
+    if (GetInterfaceNameByIP(sourceIp, name, sizeof(name)) != NSTACKX_EOK)
+        return NSTACKX_EFAILED;
+    if (strncmp(name, P2P_DEV_NAME_PRE, strlen(P2P_DEV_NAME_PRE)) == 0) {
+        *connectType = CONNECT_TYPE_P2P;
+        return NSTACKX_EOK;
+    }
+    if (strncmp(name, WLAN_DEV_NAME_PRE, strlen(WLAN_DEV_NAME_PRE)) == 0) {
+        *connectType = CONNECT_TYPE_WLAN;
+        return NSTACKX_EOK;
+    }
+    return NSTACKX_EFAILED;
+}
+
+/* The public API in nstackx_dev.h is implemented by nstackx_util/core/nstackx_dev.c.
+ * DFile's platform-specific pointer-width query remains here on Android.
+ */
+uint8_t DFileGetDeviceBits(void)
+{
+    return (sizeof(void *) == 4) ? DEVICE_32_BITS : DEVICE_64_BITS;
+}
