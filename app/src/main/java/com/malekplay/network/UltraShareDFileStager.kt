@@ -119,10 +119,15 @@ internal object UltraShareDFileStager {
         require(olderThanMillis >= 0L)
         val root = File(cacheDirectory, STAGING_DIRECTORY)
         val cutoff = System.currentTimeMillis() - olderThanMillis
+        val canonicalRoot = runCatching { root.canonicalFile }.getOrNull() ?: return
         root.listFiles()?.forEach { entry ->
-            if (entry.canonicalFile.parentFile == root.canonicalFile &&
-                entry.lastModified() < cutoff
-            ) {
+            val isOwnedChild = runCatching {
+                entry.canonicalFile.parentFile == canonicalRoot
+            }.getOrDefault(false)
+            if (isOwnedChild && entry.lastModified() < cutoff) {
+                // Only remove children of our dedicated staging root. A malformed
+                // symlink/canonical-path failure is ignored rather than aborting
+                // cleanup for every other stale session directory.
                 runCatching { entry.deleteRecursively() }
             }
         }
