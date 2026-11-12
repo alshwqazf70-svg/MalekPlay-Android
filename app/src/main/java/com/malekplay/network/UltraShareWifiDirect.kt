@@ -324,7 +324,25 @@ object UltraShareWifiDirect {
                         return@requestGroupInfo
                     }
                     if (existingGroup != null) {
-                        onError("هذا الهاتف متصل حالياً بمجموعة Wi-Fi Direct أخرى. افصل المجموعة الحالية ثم أنشئ مجموعة الاستقبال.")
+                        // A stale client-side P2P group can survive a previous failed
+                        // pairing attempt. Remove only this non-owner group, then retry
+                        // creation after Android reports completion. Keep an existing
+                        // receiver-owned group intact because it may already serve peers.
+                        if (attempt >= 2) {
+                            onError("تعذر تحرير مجموعة Wi-Fi Direct السابقة بعد عدة محاولات. أوقف الاتصال المباشر القديم ثم أعد المحاولة.")
+                            return@requestGroupInfo
+                        }
+                        manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                            override fun onSuccess() {
+                                mainHandler.postDelayed({
+                                    if (!closed) createGroupAttempt(onCreated, attempt + 1)
+                                }, 500L)
+                            }
+
+                            override fun onFailure(reason: Int) {
+                                onError("تعذر إغلاق مجموعة Wi-Fi Direct السابقة (رمز النظام $reason). أوقف الاتصال القديم ثم أعد المحاولة.")
+                            }
+                        })
                         return@requestGroupInfo
                     }
                     manager.createGroup(channel, object : WifiP2pManager.ActionListener {
