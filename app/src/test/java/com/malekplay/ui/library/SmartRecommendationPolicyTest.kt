@@ -104,6 +104,28 @@ class SmartRecommendationPolicyTest {
     }
 
     @Test
+    fun smartSearchUnderstandsNaturalLanguagePrefixesAndGenericMediaWords() {
+        val sciFi = item("sci-fi", genre = "خيال علمي")
+        val drama = item("drama", genre = "دراما")
+        val results = SmartRecommendationPolicy.search(
+            listOf(drama, sciFi),
+            "ابحث عن أفلام الخيال العلمي"
+        )
+        assertEquals(listOf("sci-fi"), results.map { it.media.id })
+    }
+
+    @Test
+    fun smartSearchUnderstandsEnglishSearchCommands() {
+        val target = item("target", artist = "Studio North")
+        val other = item("other", artist = "Studio South")
+        assertEquals(
+            listOf("target"),
+            SmartRecommendationPolicy.search(listOf(other, target), "search for videos Studio North")
+                .map { it.media.id }
+        )
+    }
+
+    @Test
     fun smartSearchRequiresMatchingTokensAndHonoursLimit() {
         val first = item("first", artist = "Studio North")
         val second = item("second", artist = "Studio South")

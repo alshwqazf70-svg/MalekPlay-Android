@@ -163,7 +163,7 @@ class LibraryViewModel @Inject constructor(
     /** Search indexed library metadata locally and rank the strongest matches. */
     fun search(query: String): Flow<List<LibraryItem>> = allMedia.map { items ->
         SmartRecommendationPolicy.search(items, query)
-    }
+    }.flowOn(Dispatchers.Default)
 
     fun folderContents(path: String) = mediaRepository.observeFolder(path)
 

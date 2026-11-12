@@ -137,7 +137,15 @@ internal object SmartRecommendationPolicy {
     ): List<LibraryItem> {
         if (limit <= 0) return emptyList()
         val normalizedQuery = query.normalized() ?: return emptyList()
-        val tokens = normalizedQuery.split(Regex("\\s+")).filter { it.isNotBlank() }
+        // Accept short natural-language commands and remove generic media words.
+        val searchableQuery = normalizedQuery
+            .replace(Regex("^(ابحث عن|بحث عن|اعثر على|أوجد|شغل|شغّل|افتح|find|search for|play|open)\\s+"), "")
+            .split(Regex("\\s+"))
+            .filterNot { it in SEARCH_STOP_WORDS }
+            .joinToString(" ")
+            .trim()
+            .ifEmpty { normalizedQuery }
+        val tokens = searchableQuery.split(Regex("\\s+")).filter { it.isNotBlank() }
         if (tokens.isEmpty()) return emptyList()
 
         return items.asSequence()
@@ -155,9 +163,9 @@ internal object SmartRecommendationPolicy {
                 if (matchedTokens == 0) return@mapNotNull null
                 val score = fields.sumOf { (value, weight) ->
                     when {
-                        value == normalizedQuery -> weight * EXACT_MATCH_MULTIPLIER
-                        value.startsWith(normalizedQuery) -> weight * PREFIX_MATCH_MULTIPLIER
-                        value.contains(normalizedQuery) -> weight
+                        value == searchableQuery -> weight * EXACT_MATCH_MULTIPLIER
+                        value.startsWith(searchableQuery) -> weight * PREFIX_MATCH_MULTIPLIER
+                        value.contains(searchableQuery) -> weight
                         else -> tokens.count { token -> value.contains(token) } * weight
                     }
                 } + matchedTokens * TOKEN_COVERAGE_BONUS
@@ -217,4 +225,9 @@ internal object SmartRecommendationPolicy {
     private const val EXACT_MATCH_MULTIPLIER = 4
     private const val PREFIX_MATCH_MULTIPLIER = 2
     private const val TOKEN_COVERAGE_BONUS = 3
+    private val SEARCH_STOP_WORDS = setOf(
+        "فيلم", "أفلام", "الفيلم", "الأفلام", "فيديو", "فيديوهات",
+        "مقطع", "مقاطع", "عن", "من", "في", "الذي", "التي",
+        "movie", "movies", "video", "videos", "the", "a", "an"
+    )
 }
