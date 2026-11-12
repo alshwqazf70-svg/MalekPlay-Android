@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.Build
 import java.net.Inet4Address
 
@@ -34,6 +35,7 @@ object NstackxAndroidDiscoverySession {
 
     private var started: Started? = null
     private var peerListener: NstackxNativeBridge.Listener? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     @Synchronized
     fun start(
@@ -100,10 +102,21 @@ object NstackxAndroidDiscoverySession {
         peerListener = listener
         NstackxNativeBridge.addListener(listener)
 
+        // Android filters Wi-Fi multicast/broadcast receive traffic unless the app
+        // holds this lock. Keep it only for the lifetime of native discovery.
+        val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val lock = wifiManager?.createMulticastLock("MalekPlayer:NSTACKX")?.apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+        multicastLock = lock
+
         val discoveryResult = NstackxNativeBridge.startDiscovery()
         if (discoveryResult != 0) {
             NstackxNativeBridge.removeListener(listener)
             peerListener = null
+            runCatching { multicastLock?.takeIf { it.isHeld }?.release() }
+            multicastLock = null
             NstackxNativeBridge.release()
             error("فشل بدء اكتشاف NSTACKX (رمز $discoveryResult).")
         }
@@ -121,6 +134,8 @@ object NstackxAndroidDiscoverySession {
             NstackxNativeBridge.release()
             started = null
         }
+        runCatching { multicastLock?.takeIf { it.isHeld }?.release() }
+        multicastLock = null
     }
 
     @Synchronized
