@@ -59,3 +59,21 @@ See [NSTACKX Android dependency audit](NSTACKX_ANDROID_DEPENDENCY_AUDIT.md) for 
 The audit confirms that upstream Linux platform code cannot be copied wholesale into the Android build. In particular, interface enumeration and `SO_BINDTODEVICE`, CPU-affinity syscalls, UDP GSO, and OpenHarmony logging require Android-specific adaptation or capability-gated fallbacks.
 
 The dependency repository heads inspected in the audit are candidate snapshots only, not approved immutable pins. A reproducible lock and compatibility test are still required before native CMake is added. No Android native target or NSTACKX binary has been built yet.
+
+
+## Phase 1 — immutable source preparation — 2026-11-12
+
+- Added `native/nstackx/dependencies.lock` with immutable commit IDs for the selected NSTACKX source, libcoap, cJSON, bounds-checking-function (securec), and the Mbed TLS candidate.
+- Verified each recorded commit exists in its declared upstream GitHub repository through the commit API.
+- Added `scripts/prepare_nstackx_sources.sh` to fetch each exact commit into `third_party/nstackx/`, detach the checkout, and verify the resulting HEAD against the lock. The script refuses to overwrite a non-Git directory or silently change an existing remote.
+- Validated the script's Bash syntax with `bash -n`.
+- The source-fetch script has **not** been executed against a local checkout in this environment, and no Android compilation has been run. Mbed TLS remains a candidate backend pending DFile crypto API adaptation and tests.
+- Phase 1 is therefore complete as a reproducible source-lock/preparation implementation, not as proof that the upstream code compiles on Android.
+
+## Remaining implementation phases
+
+1. Phase 2: import/prepare pinned sources and create the Android NDK/CMake build graph, with explicit target/source lists.
+2. Phase 3: implement Android platform adapters and build/test DFinder on every app ABI.
+3. Phase 4: port DFile and congestion control, including Android crypto and filesystem adapters.
+4. Phase 5: implement JNI lifecycle/callback safety and integrate with the existing Kotlin authenticated session and transfer fallback.
+5. Phase 6: compile, fix native/Gradle issues, run automated tests and two-device discovery/send/receive acceptance.
