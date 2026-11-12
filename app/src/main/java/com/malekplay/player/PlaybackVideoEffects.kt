@@ -8,10 +8,13 @@ object PlaybackVideoEffects {
     const val ACTION_UPSCALING = "com.malekplay.action.SET_VIDEO_UPSCALING"
     const val ACTION_NOISE_REDUCTION = "com.malekplay.action.SET_NOISE_REDUCTION"
     const val ACTION_MOTION_SMOOTHING = "com.malekplay.action.SET_MOTION_SMOOTHING"
+    const val ACTION_QUALITY_PROFILE = "com.malekplay.action.SET_VIDEO_QUALITY_PROFILE"
     const val KEY_ENABLED = "enabled"
+    const val KEY_PROFILE = "profile"
 
     val COMMANDS: List<SessionCommand>
         get() = listOf(ACTION_UPSCALING, ACTION_NOISE_REDUCTION, ACTION_MOTION_SMOOTHING)
+            .plus(ACTION_QUALITY_PROFILE)
             .map { SessionCommand(it, Bundle.EMPTY) }
 
     val COMMAND: SessionCommand
