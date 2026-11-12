@@ -23,7 +23,7 @@
 - Port upstream GN build targets and platform abstractions to Android NDK/CMake (or provide a reproducible GN cross-toolchain); upstream is not an Android Gradle AAR and must not be treated as one.
 - Inventory and pin all transitive dependencies, licenses, compiler flags, and required platform services before enabling the native target.
 - Implement Android/Bionic adapters for threading, sockets, interface enumeration, timers, logging, and lifecycle. Avoid copying OpenHarmony-only platform code into the Android build.
-- Build and inspect ABI outputs for `arm64-v8a` and `armeabi-v7a`; add `x86_64` only if the app's emulator/test matrix requires it.
+- Build and inspect ABI outputs for all four ABIs currently declared by the app: `arm64-v8a`, `armeabi-v7a`, `x86`, and `x86_64`. Any deliberate reduction of the app ABI policy must be reviewed and documented.
 - Add native init/deinit smoke tests and verify repeated start/stop does not leak threads, descriptors, or callbacks.
 
 ### B. DFinder / discovery
@@ -50,3 +50,12 @@ Do not switch the default transport until:
 - two physical Android devices discover, pair, send, and receive files;
 - disconnect/reconnect, cancel, and resource cleanup tests pass;
 - the existing TCP fallback remains covered and usable.
+
+
+## Dependency and Bionic audit update — 2026-11-12
+
+See [NSTACKX Android dependency audit](NSTACKX_ANDROID_DEPENDENCY_AUDIT.md) for the exact DFinder source selection, inspected dependency versions and repository snapshots, license findings, and Android/Bionic compatibility gaps.
+
+The audit confirms that upstream Linux platform code cannot be copied wholesale into the Android build. In particular, interface enumeration and `SO_BINDTODEVICE`, CPU-affinity syscalls, UDP GSO, and OpenHarmony logging require Android-specific adaptation or capability-gated fallbacks.
+
+The dependency repository heads inspected in the audit are candidate snapshots only, not approved immutable pins. A reproducible lock and compatibility test are still required before native CMake is added. No Android native target or NSTACKX binary has been built yet.
