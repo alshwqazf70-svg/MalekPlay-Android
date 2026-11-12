@@ -115,6 +115,57 @@ class UltraShareDiscoveryTest {
     }
 
     @Test
+    fun nativeNstackxNameEnrichesOnlyTheMatchingStableLanIdentity() {
+        val lanPeer = UltraShareDiscovery.Peer(
+            host = "192.168.1.25",
+            port = UltraShareBatchTransport.DEFAULT_PORT,
+            name = "Old broadcast name",
+            peerId = "123e4567-e89b-12d3-a456-426614174000"
+        )
+
+        val enriched = UltraShareDiscovery.mergeNativePeerName(
+            lanPeer,
+            "123E4567-E89B-12D3-A456-426614174000",
+            "MalekPlayer Receiver"
+        )
+
+        assertEquals("MalekPlayer Receiver", enriched.name)
+        assertEquals(lanPeer.host, enriched.host)
+        assertEquals(lanPeer.port, enriched.port)
+        assertEquals(lanPeer.peerId, enriched.peerId)
+    }
+
+    @Test
+    fun nativeNstackxNameCannotRenameAnUnmatchedOrUnroutablePeer() {
+        val lanPeer = UltraShareDiscovery.Peer(
+            host = "192.168.1.25",
+            port = UltraShareBatchTransport.DEFAULT_PORT,
+            name = "Verified LAN name",
+            peerId = "peer-a"
+        )
+
+        assertEquals(
+            lanPeer,
+            UltraShareDiscovery.mergeNativePeerName(lanPeer, "peer-b", "Spoofed name")
+        )
+        assertEquals(
+            lanPeer,
+            UltraShareDiscovery.mergeNativePeerName(lanPeer, "peer-a", "")
+        )
+
+        val nameOnlyNativePeer = UltraShareDiscovery.Peer(
+            host = "",
+            port = 0,
+            name = "NSTACKX only",
+            peerId = "peer-a"
+        )
+        assertEquals(
+            nameOnlyNativePeer,
+            UltraShareDiscovery.mergeNativePeerName(nameOnlyNativePeer, "peer-b", "Other")
+        )
+    }
+
+    @Test
     fun legacyPeersFallBackToTheirLanAddress() {
         val peer = UltraShareDiscovery.Peer(
             host = "192.168.1.15",
