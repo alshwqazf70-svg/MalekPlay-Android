@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -1608,6 +1609,9 @@ class UltraShareForegroundService : Service() {
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (failure: DFilePayloadStartedException) {
+                // Do not retry this batch over TCP: some DFile payload may already exist remotely.
+                throw failure
             } catch (failure: IOException) {
                 lastFailure = failure
                 val isImmediateConnectFailure = failure is java.net.ConnectException
