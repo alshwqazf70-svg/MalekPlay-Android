@@ -98,7 +98,7 @@ class VideoKindClassifierTest {
         assertEquals(10, classified.getValue("ep10").episode?.episode)
     }
 
-    @Test fun doesNotPutUnknownVideosIntoMovies() {
+    @Test fun keepsAmbiguousVideoClassificationConservative() {
         val files = listOf(
             VideoFileDescriptor("unknown", "Nature Documentary 4K.mp4", "Downloads", "/storage/emulated/0/Download"),
             VideoFileDescriptor("movie", "فيلم الرحلة.mp4", "Movies", "/storage/emulated/0/Movies")
