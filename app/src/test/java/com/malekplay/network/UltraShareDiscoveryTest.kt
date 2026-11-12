@@ -166,6 +166,37 @@ class UltraShareDiscoveryTest {
     }
 
     @Test
+    fun nstackxPeerNameCacheExpiresOldHints() {
+        val cache = NstackxPeerNameCache(maxEntries = 4, ttlMillis = 100L)
+        cache.put("PEER-A", "Receiver A", nowMillis = 1_000L)
+
+        assertEquals("Receiver A", cache.get("peer-a", nowMillis = 1_100L))
+        assertEquals(null, cache.get("peer-a", nowMillis = 1_101L))
+    }
+
+    @Test
+    fun nstackxPeerNameCacheIsBoundedAndUsesCaseInsensitiveIds() {
+        val cache = NstackxPeerNameCache(maxEntries = 2, ttlMillis = 1_000L)
+        cache.put("Peer-A", "Receiver A", nowMillis = 10L)
+        cache.put("Peer-B", "Receiver B", nowMillis = 11L)
+        cache.put("Peer-C", "Receiver C", nowMillis = 12L)
+
+        assertEquals(null, cache.get("peer-a", nowMillis = 13L))
+        assertEquals("Receiver B", cache.get("PEER-B", nowMillis = 13L))
+        assertEquals("Receiver C", cache.get("peer-c", nowMillis = 13L))
+    }
+
+    @Test
+    fun nstackxPeerNameCacheRejectsBlankAndBoundsUntrustedDisplayNames() {
+        val cache = NstackxPeerNameCache()
+        cache.put(" ", "Invalid", nowMillis = 1L)
+        cache.put("peer-a", "R".repeat(100), nowMillis = 1L)
+
+        assertEquals(null, cache.get(" ", nowMillis = 2L))
+        assertEquals(64, cache.get("peer-a", nowMillis = 2L)?.length)
+    }
+
+    @Test
     fun legacyPeersFallBackToTheirLanAddress() {
         val peer = UltraShareDiscovery.Peer(
             host = "192.168.1.15",
