@@ -113,8 +113,7 @@ object NstackxAndroidDiscoverySession {
 
         val discoveryResult = NstackxNativeBridge.startDiscovery()
         if (discoveryResult != 0) {
-            NstackxNativeBridge.removeListener(listener)
-            peerListener = null
+            detachPeerListener()
             runCatching { multicastLock?.takeIf { it.isHeld }?.release() }
             multicastLock = null
             NstackxNativeBridge.release()
