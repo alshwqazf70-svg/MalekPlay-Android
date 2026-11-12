@@ -168,3 +168,79 @@ during this source-level port inspection.
 
 Until all of these are present, NSTACKX remains the selected migration target, not the active
 runtime engine.
+
+
+## Stage A continuation — API and dependency graph audit (2026-11-12)
+
+This continuation was performed against MalekPlay branch
+`feature/zapya-engineering-analysis` at HEAD
+`ff81373db7570b74176116cbe54f4021c2ee9034`, and upstream
+`communication_t2stack@fbf280db18092eb00bb065e59ce6676c7b85b8c9`.
+No runtime source, Gradle configuration, manifest, or workflow was changed during this
+audit.
+
+### Android packaging constraints confirmed
+
+- `app/build.gradle.kts` currently sets `minSdk = 23`.
+- The existing ABI split allowlist is exactly `arm64-v8a`, `armeabi-v7a`, `x86`,
+  and `x86_64`. A native implementation must either build all four or change the
+  app's published ABI policy explicitly and document the compatibility impact.
+- The Android workflow installs SDK platform 35 and build-tools 35.0.0, but does not
+  install/configure the NDK or CMake and has no native build, native test, or APK
+  `.so` verification step.
+- No `externalNativeBuild`, CMake target, NDK pin, or packaged NSTACKX library is
+  currently declared by the app module.
+
+### DFinder public API and real source graph
+
+The public API is `nstackx_ctrl/interface/nstackx.h` (not under the private
+`include/` directory). It exposes initialization/deinitialization, local-device
+registration, discovery start/stop, event callback registration and device-list
+retrieval. The standard CoAP DFinder target compiles the common device/JSON sources
+plus the CoAP discovery sources and depends on:
+
+- `nstackx_util:nstackx_util.open`
+- `bounds_checking_function:libsec_shared`
+- `cJSON:cjson`
+- `libcoap:libcoap`
+
+The utility target itself selects the Unix platform sources on Linux and references
+`securec.h` in platform socket code. The OpenHarmony standard-system variant also
+declares HiLog, c_utils and OpenSSL-related dependencies; its Linux LiteOS branch
+uses mbedTLS. These target definitions are evidence of upstream dependency choices,
+not a resolved Android dependency set.
+
+### DFile API and real source graph
+
+The public API is `nstackx_core/dfile/interface/nstackx_dfile.h`. Its session
+parameters include a caller-supplied key whose documented length is 16 bytes, a
+message callback, peer socket address, and local interface name. The API also
+exposes storage-path configuration and transfer/session event types. DFile's source
+target compiles its core session, control, frame, retransmission, send, transfer and
+file-manager sources plus three Unix platform files. It depends on:
+
+- `nstackx_congestion:nstackx_congestion.open`
+- `nstackx_util:nstackx_util.open`
+- `bounds_checking_function:libsec_shared`
+- A crypto backend selected by platform: OpenSSL in the standard OpenHarmony target,
+  or mbedTLS in the inspected LiteOS/Linux branch.
+
+The Unix DFile adapter uses `pipe`, `fcntl`, `select`-related descriptor limits
+and filesystem canonicalization/access checks. It therefore needs Android-specific
+validation and storage-policy review; passing compilation alone will not establish
+safe Android scoped-storage behavior.
+
+### Stage A decision after this audit
+
+Do not write a guessed CMake source glob or fetch unpinned dependency heads. The
+remaining blocking work before the first native compile is to select and pin
+compatible versions/revisions of CoAP, cJSON, securec/bounds-checking and the crypto
+backend; audit their licenses/notices; and implement/test the Android platform
+adaptation for Bionic, interface selection and Android network binding.
+
+The next implementation gate remains **DFinder only**: build the real pinned DFinder
+source and dependencies for the app's declared ABIs, then run init/register/discovery
+callback/stop/deinit tests. DFile and JNI integration remain disabled until that
+gate and the DFile-specific crypto/platform review pass.
+
+Status: source/API/dependency audit extended; native build proof is still pending.
