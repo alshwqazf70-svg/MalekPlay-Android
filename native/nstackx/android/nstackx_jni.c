@@ -407,7 +407,7 @@ static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileM
             msgType == DFILE_ON_FILE_SEND_FAIL ||
             msgType == DFILE_ON_TRANS_IN_PROGRESS) {
             fileCount = msg->fileList.fileNum;
-            if (fileCount > NSTACKX_MAX_FILE_LIST_NUM) fileCount = NSTACKX_MAX_FILE_LIST_NUM;
+            if (fileCount > NSTACKX_DFILE_MAX_FILE_NUM) fileCount = NSTACKX_DFILE_MAX_FILE_NUM;
         }
     }
     stringClass = (*env)->FindClass(env, "java/lang/String");
@@ -568,7 +568,7 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeDFileSendFiles(
     if (sessionId <= 0 || filePaths == NULL) return -1221;
     if (!HasDFileSession(sessionId)) return -1227;
     count = (*env)->GetArrayLength(env, filePaths);
-    if (count <= 0 || count > NSTACKX_MAX_FILE_LIST_NUM) return -1222;
+    if (count <= 0 || count > NSTACKX_DFILE_MAX_FILE_NUM) return -1222;
     paths = (char **)calloc((size_t)count, sizeof(char *));
     if (paths == NULL) return -1223;
 
