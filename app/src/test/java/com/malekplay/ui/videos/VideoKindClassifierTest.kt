@@ -81,4 +81,43 @@ class VideoKindClassifierTest {
         assertEquals(4, episode?.episode)
     }
 
+    @Test fun groupsNumberedSiblingFilesAsEpisodesAndSortsByNumber() {
+        val files = listOf(
+            VideoFileDescriptor("ep10", "My Show 10.mp4", "Downloads", "/storage/emulated/0/Download/MyShow"),
+            VideoFileDescriptor("ep2", "My Show 2.mp4", "Downloads", "/storage/emulated/0/Download/MyShow"),
+            VideoFileDescriptor("ep1", "My Show 1.mp4", "Downloads", "/storage/emulated/0/Download/MyShow")
+        )
+        val classified = VideoKindClassifier.classifyAll(files)
+
+        assertEquals(VideoKind.SERIES, classified.getValue("ep1").kind)
+        assertEquals(VideoKind.SERIES, classified.getValue("ep2").kind)
+        assertEquals(VideoKind.SERIES, classified.getValue("ep10").kind)
+        assertEquals("my show", classified.getValue("ep1").episode?.seriesKey)
+        assertEquals(1, classified.getValue("ep1").episode?.episode)
+        assertEquals(2, classified.getValue("ep2").episode?.episode)
+        assertEquals(10, classified.getValue("ep10").episode?.episode)
+    }
+
+    @Test fun doesNotPutUnknownVideosIntoMovies() {
+        val files = listOf(
+            VideoFileDescriptor("unknown", "Nature Documentary 4K.mp4", "Downloads", "/storage/emulated/0/Download"),
+            VideoFileDescriptor("movie", "فيلم الرحلة.mp4", "Movies", "/storage/emulated/0/Movies")
+        )
+        val classified = VideoKindClassifier.classifyAll(files)
+        assertEquals(VideoKind.UNCLASSIFIED, classified.getValue("unknown").kind)
+        assertEquals(VideoKind.MOVIE, classified.getValue("movie").kind)
+    }
+
+    @Test fun recognizesArabicEpisodeNumbersInSiblingFiles() {
+        val files = listOf(
+            VideoFileDescriptor("a", "رحلة ١.mp4", "التنزيلات", "/storage/emulated/0/Download/رحلة"),
+            VideoFileDescriptor("b", "رحلة ٢.mp4", "التنزيلات", "/storage/emulated/0/Download/رحلة")
+        )
+        val classified = VideoKindClassifier.classifyAll(files)
+        assertEquals(VideoKind.SERIES, classified.getValue("a").kind)
+        assertEquals(VideoKind.SERIES, classified.getValue("b").kind)
+        assertEquals(1, classified.getValue("a").episode?.episode)
+        assertEquals(2, classified.getValue("b").episode?.episode)
+    }
+
 }
