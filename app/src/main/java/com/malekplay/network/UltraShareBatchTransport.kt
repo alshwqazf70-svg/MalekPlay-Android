@@ -217,12 +217,16 @@ object UltraShareBatchTransport {
             check(input.readInt() == HANDSHAKE_MAGIC) { "الجهاز الآخر لا يدعم جلسة بيانات V2." }
             val challenge = ByteArray(CHALLENGE_BYTES).also(input::readFully)
             val secret = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
+            var noncePrefixToWipe: ByteArray? = null
+            var sendKeyToWipe: ByteArray? = null
+            var receiveKeyToWipe: ByteArray? = null
+            try {
             output.write(hmac(secret, challenge))
             output.flush()
             check(input.readBoolean()) { "رفض الجهاز المستقبل رمز الاقتران." }
-            val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(input::readFully)
-            val sendKey = deriveKey(secret, challenge, "client-to-server")
-            val receiveKey = deriveKey(secret, challenge, "server-to-client")
+            val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(input::readFully).also { noncePrefixToWipe = it }
+            val sendKey = deriveKey(secret, challenge, "client-to-server").also { sendKeyToWipe = it }
+            val receiveKey = deriveKey(secret, challenge, "server-to-client").also { receiveKeyToWipe = it }
             var sendSequence = 0L
             var receiveSequence = 0L
 
@@ -279,6 +283,13 @@ object UltraShareBatchTransport {
                 val result = byId.getValue(entry.id)
                 FileOutcome(entry.id, entry.name, null, result.status, result.transferredBytes, result.error)
             })
+            } finally {
+                noncePrefixToWipe?.fill(0)
+                sendKeyToWipe?.fill(0)
+                receiveKeyToWipe?.fill(0)
+                secret.fill(0)
+                challenge.fill(0)
+            }
         }
     }
 
@@ -302,6 +313,10 @@ object UltraShareBatchTransport {
         // Detect the explicit reachability probe before running the expensive PIN KDF.
         if (isDiscoveryProbeProof(proof)) throw DiscoveryProbeConnection()
         val secret = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
+        var noncePrefixToWipe: ByteArray? = null
+        var receiveKeyToWipe: ByteArray? = null
+        var sendKeyToWipe: ByteArray? = null
+        try {
         val authenticated = MessageDigest.isEqual(proof, hmac(secret, challenge))
         val peerHost = socket.inetAddress.hostAddress.orEmpty()
         // Do not reveal whether the short pairing secret was correct until the
@@ -318,11 +333,12 @@ object UltraShareBatchTransport {
         }
         onAuthenticated()
         val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(SecureRandom()::nextBytes)
+            .also { noncePrefixToWipe = it }
         output.write(noncePrefix)
         output.flush()
         socket.soTimeout = SESSION_TIMEOUT_MS
-        val receiveKey = deriveKey(secret, challenge, "client-to-server")
-        val sendKey = deriveKey(secret, challenge, "server-to-client")
+        val receiveKey = deriveKey(secret, challenge, "client-to-server").also { receiveKeyToWipe = it }
+        val sendKey = deriveKey(secret, challenge, "server-to-client").also { sendKeyToWipe = it }
         var receiveSequence = 0L
         var sendSequence = 0L
 
@@ -463,6 +479,14 @@ object UltraShareBatchTransport {
         val resultPayload = encodeResults(manifest, outcomes)
         writeFrame(output, sendKey, noncePrefix, sendSequence, resultPayload)
         return BatchOutcome(manifest.batchId, outcomes)
+        } finally {
+            noncePrefixToWipe?.fill(0)
+            receiveKeyToWipe?.fill(0)
+            sendKeyToWipe?.fill(0)
+            secret.fill(0)
+            challenge.fill(0)
+            proof.fill(0)
+        }
     }
 
     private fun decodeOffsets(payload: ByteArray, manifest: UltraShareBatchProtocol.Manifest): Map<String, Long> {
