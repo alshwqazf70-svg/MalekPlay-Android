@@ -211,13 +211,27 @@ object UltraShareDiscovery {
 
     internal fun localPeerId(context: Context): String = stablePeerId(context)
 
+    internal fun isValidStablePeerId(value: String): Boolean =
+        value.length == 36 && runCatching {
+            UUID.fromString(value).toString().equals(value, ignoreCase = true)
+        }.getOrDefault(false)
+
     private fun stablePeerId(context: Context): String {
-        val preferences = context.getSharedPreferences("ultra_share_identity", Context.MODE_PRIVATE)
+        val preferences = context.applicationContext.getSharedPreferences(
+            "ultra_share_identity",
+            Context.MODE_PRIVATE
+        )
         val existing = preferences.getString("peer_id", null)
-        if (!existing.isNullOrBlank()) return existing
+            ?.takeIf(::isValidStablePeerId)
+        if (existing != null) return existing.lowercase()
+
         val generated = UUID.randomUUID().toString()
-        preferences.edit().putString("peer_id", generated).commit()
-        return preferences.getString("peer_id", generated) ?: generated
+        // Never advertise a transient identity: trusted-device authorization and
+        // deduplication depend on this ID surviving process restarts.
+        check(preferences.edit().putString("peer_id", generated).commit()) {
+            "تعذر حفظ معرّف الجهاز؛ أعد المحاولة بعد التحقق من مساحة التخزين."
+        }
+        return generated
     }
 
     /**
