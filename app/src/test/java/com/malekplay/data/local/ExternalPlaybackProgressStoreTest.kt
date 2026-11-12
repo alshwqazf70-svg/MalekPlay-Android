@@ -80,6 +80,25 @@ class ExternalPlaybackProgressStoreTest {
     }
 
     @Test
+    fun trimmingOldEntriesDoesNotSilentlyDeleteCorruptedProgress() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val mediaId = "content://provider/document/preserved-corrupt"
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(mediaId.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+        val key = "progress_$digest"
+        val preferences = context.getSharedPreferences("malekplay_external_progress", Context.MODE_PRIVATE)
+        preferences.edit().putString(key, "{broken-json").commit()
+
+        repeat(205) { index ->
+            store.save("content://provider/document/item-$index", 1_000L, 10_000L, 1f, markPlayed = false)
+        }
+
+        assertEquals("{broken-json", preferences.getString(key, null))
+        assertThrows(IllegalStateException::class.java) { store.get(mediaId) }
+    }
+
+    @Test
     fun nonFinitePlaybackSpeedFallsBackToNormalSpeed() {
         val mediaId = "content://provider/document/nan-speed"
         store.save(mediaId, 2_000L, 10_000L, Float.NaN, markPlayed = false)
