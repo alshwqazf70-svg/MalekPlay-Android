@@ -4,12 +4,12 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 
+private const val MAX_ZERO_READS = 3
+
 /**
  * Copies an imported SFTP known_hosts file without ever writing more than 1 MB.
  * The caller owns and closes both streams.
  */
-private const val MAX_ZERO_READS = 3
-
 internal fun copyKnownHostsBounded(
     input: InputStream,
     output: OutputStream,
