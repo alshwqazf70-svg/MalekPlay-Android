@@ -1,5 +1,6 @@
 package com.malekplay.network
 
+import java.io.IOException
 import java.net.ServerSocket
 import java.net.Socket
 import kotlinx.coroutines.CompletableDeferred
@@ -117,6 +118,49 @@ class UltraShareControlChannelTest {
         UltraShareControlChannel.closeSession("127.0.0.1")
         assertFalse(UltraShareControlChannel.isSessionActive("127.0.0.1"))
         UltraShareControlChannel.closeServerSession("127.0.0.1")
+        server.cancelAndJoin()
+    }
+
+    @Test
+    fun fallsBackToControlSessionAndWipesDFileKeyWhenReceiverStartupFails() = runBlocking {
+        val port = ServerSocket(0).use { it.localPort }
+        val secret = "135792468"
+        val sessionClosed = CompletableDeferred<Unit>()
+        var callbackKey: ByteArray? = null
+        val server = async {
+            UltraShareControlChannel.serveOnce(
+                pairingSecret = secret,
+                port = port,
+                onSessionClosed = { sessionClosed.complete(Unit) },
+                onDFileServerReady = { _, key ->
+                    callbackKey = key
+                    throw IOException("DFile listener could not bind")
+                }
+            ) {
+                UltraShareControlChannel.Decision.ACCEPTED
+            }
+        }
+        delay(150)
+
+        val decision = UltraShareControlChannel.request(
+            host = "127.0.0.1",
+            pairingSecret = secret,
+            peerName = "Fallback Sender",
+            port = port
+        )
+
+        // DFile is an optimization; its startup failure must preserve the
+        // authenticated TCP control session and the legacy transfer fallback.
+        assertEquals(UltraShareControlChannel.Decision.ACCEPTED, decision)
+        assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
+        assertTrue(UltraShareControlChannel.isServerSessionActive("127.0.0.1"))
+        assertEquals(null, UltraShareControlChannel.clientDFilePort("127.0.0.1"))
+        assertEquals(null, UltraShareControlChannel.clientDFileKey("127.0.0.1"))
+        assertEquals(null, UltraShareControlChannel.serverDFileKey("127.0.0.1"))
+        assertTrue(callbackKey!!.all { it == 0.toByte() })
+
+        UltraShareControlChannel.closeSession("127.0.0.1")
+        withTimeout(2_000L) { sessionClosed.await() }
         server.cancelAndJoin()
     }
 
