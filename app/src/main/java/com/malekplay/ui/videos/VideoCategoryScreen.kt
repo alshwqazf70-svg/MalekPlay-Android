@@ -68,21 +68,27 @@ fun VideoCategoryScreen(
     // Classification depends only on the media snapshot. Reuse it across
     // unrelated recompositions (for example playlist dialog visibility).
     val classified = remember(videos) {
-        videos.map { item ->
-            item to VideoKindClassifier.classify(
-                item.media.displayTitle,
-                item.media.folderName,
-                item.media.folderPath
-            )
+        val classificationById = VideoKindClassifier.classifyAll(
+            videos.map { item ->
+                VideoFileDescriptor(
+                    id = item.media.id,
+                    title = item.media.displayTitle,
+                    folderName = item.media.folderName,
+                    folderPath = item.media.folderPath
+                )
+            }
+        )
+        videos.mapNotNull { item ->
+            classificationById[item.media.id]?.let { classification -> item to classification }
         }
     }
     val unclassifiedCount = remember(classified) {
-        classified.count { it.second == VideoKind.UNCLASSIFIED }
+        classified.count { it.second.kind == VideoKind.UNCLASSIFIED }
     }
     val filtered = remember(classified, series, searchQuery) {
         val q = searchQuery.trim()
         classified.filter { (item, kind) ->
-            val inCategory = if (series) kind == VideoKind.SERIES else kind != VideoKind.SERIES
+            val inCategory = if (series) kind.kind == VideoKind.SERIES else kind.kind == VideoKind.MOVIE
             val matches = q.isBlank() ||
                 item.media.displayTitle.contains(q, ignoreCase = true) ||
                 item.media.folderName.contains(q, ignoreCase = true) ||
@@ -95,17 +101,13 @@ fun VideoCategoryScreen(
     // regular expressions from a sort comparator is expensive on large libraries.
     val orderedWithEpisode = remember(filtered) {
         filtered.map { item ->
-            val episode = VideoKindClassifier.episodeSortKey(
-                item.media.displayTitle,
-                item.media.folderName,
-                item.media.folderPath
-            )
-            item to episode
+            item to (classified.firstOrNull { it.first.media.id == item.media.id }?.second
+                ?: ClassifiedVideo(VideoKind.UNCLASSIFIED))
         }.sortedWith(
-            compareBy<Pair<LibraryItem, EpisodeSortKey?>>(
-                { it.second?.seriesKey ?: it.first.media.displayTitle.lowercase() },
-                { it.second?.season ?: Int.MAX_VALUE },
-                { it.second?.episode ?: Int.MAX_VALUE },
+            compareBy<Pair<LibraryItem, ClassifiedVideo>>(
+                { it.second.episode?.seriesKey ?: it.first.media.displayTitle.lowercase() },
+                { it.second.episode?.season ?: Int.MAX_VALUE },
+                { it.second.episode?.episode ?: Int.MAX_VALUE },
                 { it.first.media.displayTitle.lowercase() }
             )
         )
@@ -117,7 +119,7 @@ fun VideoCategoryScreen(
     val seriesSections = remember(orderedWithEpisode, series) {
         if (!series) emptyList()
         else orderedWithEpisode.groupBy { (item, episode) ->
-            episode?.seriesKey?.takeIf { it.isNotBlank() }
+            episode.episode?.seriesKey?.takeIf { it.isNotBlank() }
                 ?: item.media.folderName.takeIf { it.isNotBlank() }
                 ?: item.media.displayTitle.substringBeforeLast('.').ifBlank { item.media.displayTitle }
         }.mapValues { (_, entries) -> entries.map { it.first } }.toList()
