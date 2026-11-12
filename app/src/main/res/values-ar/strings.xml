@@ -375,8 +375,6 @@
     <string name="kids_refresh_library">تحديث مكتبة الوسائط</string>
     <string name="player_gpu_upscaling_on">تحسين التحجيم عبر GPU: يعمل (Lanczos)</string>
     <string name="player_gpu_upscaling_off">تحسين التحجيم عبر GPU: متوقف</string>
-    <string name="player_noise_reduction_unavailable">تقليل الضوضاء: غير متاح في هذا الإصدار</string>
-    <string name="player_motion_smoothing_unavailable">تنعيم الحركة: غير متاح (يتطلب توليد إطارات)</string>
     <string name="player_gpu_upscaling_unavailable">تعذر تفعيل تحسين التحجيم لهذا الفيديو؛ قد يكون محمياً أو يبث إلى جهاز خارجي أو لا يحتاج إلى رفع الدقة.</string>
     <string name="player_noise_reduction_on">تقليل الضوضاء: يعمل (GPU)</string>
     <string name="player_noise_reduction_off">تقليل الضوضاء: متوقف</string>
