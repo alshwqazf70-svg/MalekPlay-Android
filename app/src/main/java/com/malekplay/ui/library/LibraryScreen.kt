@@ -62,6 +62,7 @@ import com.malekplay.ui.components.MediaDeleteButton
 import com.malekplay.ui.components.PlaylistPickerDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 
 private enum class LibraryFilter { ALL, WATCHING, FAVOURITES }
@@ -85,6 +86,13 @@ fun LibraryScreen(
     var filter by remember { mutableStateOf(LibraryFilter.ALL) }
     var sortOpen by remember { mutableStateOf(false) }
     var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
+    var assistantQuery by remember { mutableStateOf("") }
+    var assistantSubmittedQuery by remember { mutableStateOf("") }
+    val assistantFlow: Flow<LibraryAssistantResponse?> = remember(assistantSubmittedQuery) {
+        if (assistantSubmittedQuery.isBlank()) flowOf(null)
+        else viewModel.assist(assistantSubmittedQuery)
+    }
+    val assistantResponse by assistantFlow.collectAsStateWithLifecycle(initialValue = null)
 
     val mediaFlow: Flow<List<LibraryItem>> = remember(query, searching, folder) {
         when {
@@ -223,6 +231,15 @@ fun LibraryScreen(
                     item { FilterPill("متابعة المشاهدة", filter == LibraryFilter.WATCHING) { filter = LibraryFilter.WATCHING } }
                     item { FilterPill("المفضلة", filter == LibraryFilter.FAVOURITES) { filter = LibraryFilter.FAVOURITES } }
                 }
+                if (filter == LibraryFilter.ALL) {
+                    LibraryAssistantPanel(
+                        query = assistantQuery,
+                        onQueryChange = { assistantQuery = it },
+                        onAsk = { assistantSubmittedQuery = assistantQuery.trim() },
+                        response = assistantResponse,
+                        onResultClick = onVideoClick
+                    )
+                }
                 if (filter == LibraryFilter.ALL && smartRecommendations.isNotEmpty()) {
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp),
@@ -335,6 +352,84 @@ fun LibraryScreen(
     playlistTarget?.let { PlaylistPickerDialog(mediaId = it.id, onDismiss = { playlistTarget = null }) }
 }
 
+
+@Composable
+private fun LibraryAssistantPanel(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onAsk: () -> Unit,
+    response: LibraryAssistantResponse?,
+    onResultClick: (LibraryItem) -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface)))
+            .border(1.dp, colors.primary.copy(alpha = .38f), RoundedCornerShape(18.dp))
+            .padding(13.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("مساعد مالك للمكتبة", color = colors.onSurface, fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.weight(1f))
+            Text("محلي • دون إنترنت", color = colors.primary, style = MaterialTheme.typography.labelSmall)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.onSurface),
+                decorationBox = { inner ->
+                    Box {
+                        if (query.isBlank()) Text(
+                            "مثال: اعرض أفلام الخيال العلمي التي لم أشاهدها",
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        inner()
+                    }
+                }
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "اسأل",
+                color = colors.onPrimary,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clip(RoundedCornerShape(11.dp))
+                    .background(colors.primary).clickable(onClick = onAsk)
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+            )
+        }
+        response?.let { result ->
+            Text(result.message, color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            if (result.items.isNotEmpty()) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    items(result.items, key = { "assistant-" + it.media.id }) { item ->
+                        Column(
+                            Modifier.width(150.dp).clip(RoundedCornerShape(13.dp))
+                                .background(colors.surface.copy(alpha = .72f))
+                                .clickable { onResultClick(item) }.padding(10.dp)
+                        ) {
+                            Text(item.media.displayTitle, color = colors.onSurface,
+                                fontWeight = FontWeight.SemiBold, maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                if (item.isInProgress) "متابعة المشاهدة" else item.media.genre.orEmpty().ifBlank { "من مكتبتك" },
+                                color = colors.primary, maxLines = 1,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun SmartCollectionTile(collection: SmartMediaCollection, onClick: () -> Unit) {

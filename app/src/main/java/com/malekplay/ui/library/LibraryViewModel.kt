@@ -103,6 +103,12 @@ class LibraryViewModel @Inject constructor(
         SmartRecommendationPolicy.similar(items, mediaId)
     }.flowOn(Dispatchers.Default)
 
+    /** Interpret a local library command without network access or data mutation. */
+    fun assist(query: String): Flow<LibraryAssistantResponse> =
+        combine(allMedia, lastPlayedMediaId) { items, lastPlayedId ->
+            LibraryAssistantPolicy.answer(items, query, lastPlayedId)
+        }.flowOn(Dispatchers.Default)
+
     /** Genre collections are inferred from the current index and never persisted. */
     val smartCollections = allMedia.map { items ->
         SmartRecommendationPolicy.collections(items)
