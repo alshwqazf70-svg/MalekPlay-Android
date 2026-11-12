@@ -1,6 +1,5 @@
 name: Build MalekPlayer Android APK
 
-# Build automatically for every update to the protected development branch.
 on:
   push:
     branches:
@@ -10,8 +9,6 @@ on:
       - feature/zapya-engineering-analysis
   workflow_dispatch:
 
-# Keep only the newest build for each branch. Rapid development commits should
-# not create a long queue of obsolete 20-30 minute Android builds.
 concurrency:
   group: malekplay-android-v2-${{ github.ref }}
   cancel-in-progress: true
@@ -20,8 +17,8 @@ permissions:
   contents: read
 
 jobs:
-  build-apk:
-    name: Build debug APK and optimized release outputs
+  debug-apk:
+    name: Build universal Debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -30,37 +27,37 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-      - name: Set up Gradle and cache distributions
+      - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
-
       - name: Add Android SDK tools to PATH
         run: |
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-
       - name: Accept Android SDK licenses
         shell: bash
         run: |
           set +o pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-
-      - name: Install Android SDK packages
+      - name: Install Android SDK and native build tools
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
-
       - name: Prepare pinned NSTACKX source trees
         run: bash scripts/prepare_nstackx_sources.sh
-
-      - name: Assemble universal debug APK for direct installation
+      - name: Assemble universal Debug APK
         run: |
-          ./gradlew --stacktrace --max-workers=2 -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" -PenableNstackxNativeBuild=true :app:assembleDebug
+          ./gradlew --stacktrace --max-workers=2 \
+            -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" \
+            -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" \
+            -PenableNstackxNativeBuild=true :app:assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
+      - name: Prepare compressed universal install package
+        shell: bash
+        run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/MalekPlayer-2.0-universal.apk
           cat > dist/README_AR.txt <<'EOF'
@@ -78,9 +75,8 @@ jobs:
           sha256sum MalekPlayer-2.0-universal.apk > SHA256SUMS.txt
           zip -9 MalekPlayer-2.0-Android.zip MalekPlayer-2.0-universal.apk README_AR.txt SHA256SUMS.txt
           unzip -t MalekPlayer-2.0-Android.zip
-          echo "### Universal APK and compressed package sizes" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Universal Debug install package" >> "$GITHUB_STEP_SUMMARY"
           ls -lh MalekPlayer-2.0-universal.apk MalekPlayer-2.0-Android.zip >> "$GITHUB_STEP_SUMMARY"
-
       - name: Upload universal install package
         uses: actions/upload-artifact@v4
         with:
@@ -93,25 +89,58 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Assemble ABI-specific minified release APKs
-        run: ./gradlew --stacktrace --max-workers=2 -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" -PenableNstackxNativeBuild=true -PenableAbiSplits=true :app:assembleRelease
-
-      - name: Assemble Google Play Android App Bundle
-        run: ./gradlew --stacktrace --max-workers=2 -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" -PenableNstackxNativeBuild=true :app:bundleRelease
-
-      - name: Measure optimized release APK and AAB sizes
+  release-outputs:
+    name: Build optimized Release APKs and Google Play AAB
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+      - name: Add Android SDK tools to PATH
+        run: |
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+      - name: Accept Android SDK licenses
         shell: bash
         run: |
+          set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+      - name: Install Android SDK and native build tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Prepare pinned NSTACKX source trees
+        run: bash scripts/prepare_nstackx_sources.sh
+      - name: Assemble optimized Release APKs and AAB in one Gradle invocation
+        run: |
+          ./gradlew --stacktrace --max-workers=2 \
+            -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" \
+            -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" \
+            -PenableNstackxNativeBuild=true \
+            -PenableAbiSplits=true \
+            :app:assembleRelease :app:bundleRelease
+      - name: Verify and measure optimized Release outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$(find app/build/outputs/apk/release -type f -name '*.apk' -print -quit)"
+          test -n "$(find app/build/outputs/bundle/release -type f -name '*.aab' -print -quit)"
           {
             echo "## Optimized Release size measurements"
-            echo 'All values below are exact artifact file sizes in bytes; no ABI or codec is excluded.'
-            echo '```text'
+            echo "Exact output sizes in bytes:"
             find app/build/outputs/apk/release app/build/outputs/bundle/release -type f \
               \( -name '*.apk' -o -name '*.aab' \) -printf '%p %s bytes\n' | sort
-            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload release size-analysis outputs
+      - name: Upload optimized Release APKs and AAB
         uses: actions/upload-artifact@v4
         with:
           name: MalekPlayer-release-size-analysis
@@ -120,23 +149,6 @@ jobs:
             app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 14
-
-      - name: Publish build summary
-        if: always()
-        run: |
-          echo "## MalekPlayer build outputs" >> "$GITHUB_STEP_SUMMARY"
-          if [ -d app/build/outputs/apk/debug ]; then
-            echo "### ABI-specific Debug APKs" >> "$GITHUB_STEP_SUMMARY"
-            ls -lh app/build/outputs/apk/debug/*.apk >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-          fi
-          if [ -d app/build/outputs/apk/release ]; then
-            echo "### ABI-specific minified Release APKs" >> "$GITHUB_STEP_SUMMARY"
-            ls -lh app/build/outputs/apk/release/*.apk >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-          fi
-          if [ -d app/build/outputs/bundle/release ]; then
-            echo "### Android App Bundle" >> "$GITHUB_STEP_SUMMARY"
-            ls -lh app/build/outputs/bundle/release/*.aab >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-          fi
 
   quality-checks:
     name: Unit tests and Android lint
@@ -148,44 +160,35 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-      - name: Set up Gradle and cache distributions
+      - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
-
       - name: Add Android SDK tools to PATH
         run: |
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-
       - name: Accept Android SDK licenses
         shell: bash
         run: |
           set +o pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-
       - name: Install Android SDK packages
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
-
       - name: Run unit tests
         run: ./gradlew --stacktrace --max-workers=2 :app:testDebugUnitTest
-
       - name: Run Android lint
-        if: success()
         run: ./gradlew --stacktrace --max-workers=2 :app:lintDebug
-
       - name: Print Android lint diagnostics
         if: always()
         run: |
           if [ -f app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt ]; then
             cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
           fi
-
       - name: Upload Android lint report
         if: always()
         uses: actions/upload-artifact@v4
@@ -204,15 +207,12 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install desktop companion dependency
         run: python -m pip install -r desktop/requirements.txt
-
       - name: Run desktop protocol tests
         working-directory: desktop
         run: python -m unittest -v
