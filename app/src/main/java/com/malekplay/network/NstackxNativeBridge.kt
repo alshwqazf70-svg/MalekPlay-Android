@@ -92,9 +92,14 @@ object NstackxNativeBridge {
         require(UltraShareTransport.isValidPrivateLanHost(localIpv4))
         require(port in 1..65535 && sessionKey.size == 16)
         require(destinationDirectory.isDirectory && destinationDirectory.canWrite())
-        return nativeDFileStartServer(
-            localIpv4, port, sessionKey.copyOf(), destinationDirectory.canonicalPath
-        )
+        val keyCopy = sessionKey.copyOf()
+        return try {
+            nativeDFileStartServer(
+                localIpv4, port, keyCopy, destinationDirectory.canonicalPath
+            )
+        } finally {
+            keyCopy.fill(0)
+        }
     }
 
     /** Start a native DFile sender to a private IPv4 endpoint. */
@@ -103,7 +108,12 @@ object NstackxNativeBridge {
         if (NstackxAndroidDiscoverySession.current() == null) return NOT_INITIALIZED
         require(UltraShareTransport.isValidPrivateLanHost(remoteIpv4))
         require(port in 1..65535 && sessionKey.size == 16)
-        return nativeDFileStartClient(remoteIpv4, port, sessionKey.copyOf())
+        val keyCopy = sessionKey.copyOf()
+        return try {
+            nativeDFileStartClient(remoteIpv4, port, keyCopy)
+        } finally {
+            keyCopy.fill(0)
+        }
     }
 
     /** Queue local files for DFile; blocked Android packages/PDFs remain blocked. */
