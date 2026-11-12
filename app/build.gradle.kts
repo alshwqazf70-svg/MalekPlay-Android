@@ -78,6 +78,18 @@ android {
         }
     }
 
+
+    // Enable only after the native platform adapters and JNI bridge are complete.
+    // Phase 6 CI will pass -PenableNstackxNativeBuild=true explicitly.
+    if (providers.gradleProperty("enableNstackxNativeBuild").orNull == "true") {
+        externalNativeBuild {
+            cmake {
+                path = file("../native/nstackx/CMakeLists.txt")
+                version = "3.22.1"
+            }
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
