@@ -163,6 +163,9 @@ jobs:
         uses: actions/checkout@v4
       - name: Set up JDK 17
         uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
       - name: Add Android SDK tools to PATH
@@ -185,7 +188,9 @@ jobs:
             -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" \
             -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" \
             -PenableNstackxNativeBuild=true :app:bundleRelease
-          test -s app/build/outputs/bundle/release/app-release.aab
+          aab="$(find app/build/outputs/bundle/release -type f -name '*.aab' -print -quit)"
+          test -n "$aab"
+          test -s "$aab"
       - name: Measure Google Play App Bundle
         shell: bash
         run: |
