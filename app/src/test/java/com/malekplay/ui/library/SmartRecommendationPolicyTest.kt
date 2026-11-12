@@ -87,6 +87,37 @@ class SmartRecommendationPolicyTest {
         assertTrue(picks.all { it.reason.isNotBlank() })
     }
 
+
+    @Test
+    fun smartSearchRanksTitleBeforeArtistAndSupportsArabicMetadata() {
+        val titleMatch = item("title-match").copy(
+            media = item("title-match").media.copy(title = "The Expanse")
+        )
+        val artistMatch = item("artist-match", artist = "The Expanse Studio")
+        val arabicMatch = item("arabic-match", genre = "خيال علمي")
+
+        val titleResults = SmartRecommendationPolicy.search(listOf(artistMatch, titleMatch), "expanse")
+        val arabicResults = SmartRecommendationPolicy.search(listOf(arabicMatch), "خيال")
+
+        assertEquals(listOf("title-match", "artist-match"), titleResults.map { it.media.id })
+        assertEquals(listOf("arabic-match"), arabicResults.map { it.media.id })
+    }
+
+    @Test
+    fun smartSearchRequiresMatchingTokensAndHonoursLimit() {
+        val first = item("first", artist = "Studio North")
+        val second = item("second", artist = "Studio South")
+        val noMatch = item("none", artist = "Other")
+
+        assertEquals(
+            listOf("first"),
+            SmartRecommendationPolicy.search(listOf(first, second, noMatch), "studio", limit = 1)
+                .map { it.media.id }
+        )
+        assertTrue(SmartRecommendationPolicy.search(listOf(first), "missing").isEmpty())
+        assertTrue(SmartRecommendationPolicy.search(listOf(first), "studio", limit = 0).isEmpty())
+    }
+
     private fun item(
         id: String,
         genre: String? = null,

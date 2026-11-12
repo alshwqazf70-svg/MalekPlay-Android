@@ -13,12 +13,14 @@ import com.malekplay.domain.model.ViewMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -152,7 +154,10 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun search(query: String) = mediaRepository.observeSearch(query)
+    /** Search indexed library metadata locally and rank the strongest matches. */
+    fun search(query: String): Flow<List<LibraryItem>> = allMedia.map { items ->
+        SmartRecommendationPolicy.search(items, query)
+    }
 
     fun folderContents(path: String) = mediaRepository.observeFolder(path)
 
