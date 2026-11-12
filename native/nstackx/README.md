@@ -23,8 +23,19 @@ The CMake graph defines separate securec, cJSON, utility, DFinder, congestion, a
 
 ## Deliberate build gate
 
-Gradle does not invoke this CMake graph by default yet. Set `-PenableNstackxNativeBuild=true` only after phase 3 platform adaptation and phase 5 JNI integration are ready. This prevents routine application builds from claiming native integration before Android-specific socket/device/log/crypto/filesystem code is complete.
+Gradle keeps the CMake graph opt-in for local builds. The Android GitHub Actions workflow now passes `-PenableNstackxNativeBuild=true` so CI compiles the native target and exposes remaining NDK/platform errors rather than hiding them.
 
 Phase 3 introduces Bionic-specific adapters for interface discovery/binding (including the upstream-required source-IP-to-P2P/WLAN classification hook), Android logging, thread/runtime helpers, and UDP segmentation fallback under `android/`. The UDP fallback preserves NSTACKX would-block error semantics so the caller can retry when the socket is back-pressured. The epoll, event-pipe and timerfd files remain upstream Unix sources pending targeted NDK compilation and compatibility review. Interface binding is best-effort: Android's OS-selected `Network` route remains authoritative when `SO_BINDTODEVICE` is rejected. The Mbed TLS target is the selected Android crypto candidate, but the DFile crypto wrapper still needs API adaptation in phase 4.
 
 No native compilation or device-level transfer is claimed by this phase.
+
+
+## JNI and Kotlin bridge
+
+- `android/nstackx_jni.c` exposes DFinder init/thread/discovery/release and DFile server/client/send/close entry points.
+- `NstackxNativeBridge.kt` is the Kotlin facade; `NstackxAndroidDiscoverySession.kt` selects an Android Network and supplies its handle before native sockets are created.
+- DFinder results are supplemental discovery metadata. They are matched by stable peer ID and do not authenticate peers.
+- DFile keys must be 16-byte keys derived from an already authenticated session. Never pass the QR/PIN itself to DFile.
+- Ultra Share's existing UDP negotiation, QR approval, encrypted TCP transport, and fallback remain active until DFile passes device acceptance tests.
+
+The native CMake graph and JNI/DFile APIs have not yet passed an Android NDK build in CI. Runtime discovery, DFile crypto interoperability, cancellation/resume, and two-device tests are still outstanding.
