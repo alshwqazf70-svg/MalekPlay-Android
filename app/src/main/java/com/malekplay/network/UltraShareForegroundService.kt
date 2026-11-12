@@ -990,15 +990,27 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun finishService() {
-        // Keep the foreground service alive while either direction still owns a socket.
+        // A completed file/queue is not the end of pairing. Keep the foreground service
+        // and authenticated control channels alive until the user explicitly disconnects
+        // or stops UltraShare. The receiver loop may also still be waiting for more files.
         if (sendJob != null || receiveJob != null || batchReceiveJob != null || hotspotReservation != null || currentState().hotspotStarting) return
 
-        // The transfer lifecycle owns the temporary control sessions too. Close both
-        // client/server channels when the final send/receive task ends, while retaining
-        // only the in-memory reconnect metadata needed to resume an interrupted queue.
-        currentState().activePeers.map { it.host }.distinct().forEach(::disconnectApprovedPeer)
-
         releaseTransferLocks()
+        if (currentState().activePeers.isNotEmpty()) {
+            updateState { current ->
+                current.copy(
+                    sending = false,
+                    progress = if (current.receiving) current.receiveProgress else null,
+                    sendProgress = null,
+                    status = "اكتمل النقل؛ الاتصال مع الجهاز الآخر ما زال نشطاً وجاهزاً."
+                )
+            }
+            // Keep the ongoing foreground notification so Android does not tear down
+            // the idle-but-paired service and its temporary session.
+            startForegroundCompat()
+            return
+        }
+
         stopForeground(true)
         stopSelf()
     }
