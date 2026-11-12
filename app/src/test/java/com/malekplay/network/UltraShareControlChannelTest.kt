@@ -26,7 +26,11 @@ class UltraShareControlChannelTest {
                 port = port,
                 localPeerName = "Receiver Phone",
                 localPeerId = "fedcba9876543210fedcba9876543210",
-                onSessionClosed = { sessionClosed.complete(Unit) }
+                onSessionClosed = { sessionClosed.complete(Unit) },
+                onDFileServerReady = { _, dfileKey ->
+                    assertEquals(16, dfileKey.size)
+                    39_001
+                }
             ) { request ->
                 assertEquals("Sender Phone", request.peerName)
                 assertTrue(request.peerAddress == "127.0.0.1")
@@ -48,6 +52,9 @@ class UltraShareControlChannelTest {
         assertEquals("Receiver Phone", UltraShareControlChannel.sessionPeerName("127.0.0.1"))
         assertEquals("fedcba9876543210fedcba9876543210", UltraShareControlChannel.sessionPeerId("127.0.0.1"))
         assertEquals(stablePeerId, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
+        assertEquals(39_001, UltraShareControlChannel.clientDFilePort("127.0.0.1"))
+        assertTrue(UltraShareControlChannel.clientDFileKey("127.0.0.1")?.size == 16)
+        assertTrue(UltraShareControlChannel.serverDFileKey("127.0.0.1")?.size == 16)
 
         // A second malformed peer must be isolated in its own worker and must not
         // tear down the already approved heartbeat session.
@@ -60,6 +67,7 @@ class UltraShareControlChannelTest {
         UltraShareControlChannel.closeSession("127.0.0.1")
         withTimeout(2_000L) { sessionClosed.await() }
         assertEquals(null, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
+        assertEquals(null, UltraShareControlChannel.serverDFileKey("127.0.0.1"))
         server.cancelAndJoin()
     }
 
