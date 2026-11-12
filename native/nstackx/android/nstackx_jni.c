@@ -220,7 +220,23 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeStopDiscovery(JNIEnv *env, 
 JNIEXPORT void JNICALL
 Java_com_malekplay_network_NstackxNativeBridge_nativeRelease(JNIEnv *env, jclass clazz)
 {
+    int32_t sessions[DFILE_SESSION_CAPACITY];
+    uint32_t i;
     (void)clazz;
+    memset(sessions, 0, sizeof(sessions));
+
+    /* Close DFile sessions without holding g_lock: their worker callbacks may
+     * re-enter JNI and must be allowed to acquire the callback reference. */
+    pthread_mutex_lock(&g_lock);
+    for (i = 0; i < DFILE_SESSION_CAPACITY; ++i) {
+        sessions[i] = g_dfile_sessions[i];
+        g_dfile_sessions[i] = 0;
+    }
+    pthread_mutex_unlock(&g_lock);
+    for (i = 0; i < DFILE_SESSION_CAPACITY; ++i) {
+        if (sessions[i] > 0) NSTACKX_DFileClose(sessions[i]);
+    }
+
     pthread_mutex_lock(&g_lock);
     if (g_initialized) {
         if (g_discovery_started) (void)NSTACKX_StopDeviceFind();
@@ -231,10 +247,10 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeRelease(JNIEnv *env, jclass
     if (g_bridge_class != NULL) (*env)->DeleteGlobalRef(env, g_bridge_class);
     g_bridge_class = NULL;
     g_on_device_found = NULL;
+    g_on_dfile_event = NULL;
     NstackxSetNetworkHandle(0);
     pthread_mutex_unlock(&g_lock);
 }
-
 
 /* DFile uses a 128-bit session key derived from the already-authenticated
  * Ultra Share pairing context. Never pass the QR/PIN itself to these methods. */
