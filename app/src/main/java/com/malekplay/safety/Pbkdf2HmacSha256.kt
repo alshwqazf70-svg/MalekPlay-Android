@@ -24,7 +24,7 @@ internal object Pbkdf2HmacSha256 {
         mac.init(SecretKeySpec(passwordBytes, "HmacSHA256"))
         val hLen = mac.macLength
         val blockCount = (keyLengthBytes + hLen - 1) / hLen
-        require(blockCount <= 0xFFFFFFFFL) { "Derived key is too long." }
+        require(blockCount.toLong() <= 0xFFFFFFFFL) { "Derived key is too long." }
         val result = ByteArray(keyLengthBytes)
         val blockInput = ByteArray(salt.size + 4)
         salt.copyInto(blockInput)
