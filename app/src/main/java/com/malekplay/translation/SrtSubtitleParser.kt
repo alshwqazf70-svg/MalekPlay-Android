@@ -37,6 +37,22 @@ internal object SrtSubtitleParser {
     }
 
     private fun decodeWithoutBom(bytes: ByteArray): String {
+        // Some subtitle exporters write UTF-16 without a BOM. Detect the common
+        // ASCII-compatible zero-byte pattern before falling back to legacy Arabic
+        // encodings; otherwise valid UTF-16 files become unreadable mojibake.
+        val evenZeros = bytes.indices.count { it % 2 == 0 && bytes[it] == 0.toByte() }
+        val oddZeros = bytes.indices.count { it % 2 == 1 && bytes[it] == 0.toByte() }
+        val evenCount = (bytes.size + 1) / 2
+        val oddCount = bytes.size / 2
+        val utf16Charset = when {
+            oddCount > 0 && evenZeros >= 2 && evenZeros * 3 >= evenCount -> StandardCharsets.UTF_16BE
+            evenCount > 0 && oddZeros >= 2 && oddZeros * 3 >= oddCount -> StandardCharsets.UTF_16LE
+            else -> null
+        }
+        if (utf16Charset != null) {
+            runCatching { decodeStrict(bytes, 0, utf16Charset) }.getOrNull()?.let { return it }
+        }
+
         val utf8 = runCatching {
             StandardCharsets.UTF_8.newDecoder()
                 .onMalformedInput(CodingErrorAction.REPORT)
