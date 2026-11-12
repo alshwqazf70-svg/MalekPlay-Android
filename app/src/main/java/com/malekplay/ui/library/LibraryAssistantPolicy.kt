@@ -126,7 +126,7 @@ internal object LibraryAssistantPolicy {
 
     /** Returns inclusive lower/upper duration bounds in milliseconds. */
     private fun parseDurationConstraint(query: String): Pair<Long?, Long?> {
-        val pattern = Regex("(اقل من|اكثر من|اطول من|اقصر من|under|over|longer than|shorter than)\\s+(\\d+(?:\\.\\d+)?)\\s*(دقيقه|دقائق|دقيقه|ساعه|ساعات|min|mins|minute|minutes|hour|hours)")
+        val pattern = Regex("(اقل من|اكثر من|اطول من|اقصر من|under|over|longer than|shorter than)\\s+(\\d+(?:\\.\\d+)?)\\s*(دقيقه|دقائق|ساعه|ساعات|min|mins|minute|minutes|hour|hours)")
         val match = pattern.find(query)
         if (match != null) {
             val amount = match.groupValues[2].toDoubleOrNull() ?: return null to null
@@ -163,8 +163,8 @@ internal object LibraryAssistantPolicy {
         return buildString(source.length) {
             source.forEach { character ->
                 when {
-                    character == '\\u0640' -> Unit
-                    character in '\\u064B'..'\\u065F' || character == '\\u0670' -> Unit
+                    character == '\u0640' -> Unit
+                    character in '\u064B'..'\u065F' || character == '\u0670' -> Unit
                     character in "أإآٱ" -> append('ا')
                     character == 'ى' -> append('ي')
                     character in '٠'..'٩' -> append(('0'.code + character.code - '٠'.code).toChar())
