@@ -1,6 +1,7 @@
 package com.malekplay.network
 
 import android.net.Network
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -386,14 +387,22 @@ object UltraShareControlChannel {
             // Publish the key before preparing the native receiver. The receiver must be
             // listening before ACCEPT is sent, otherwise the first DFile SYN can be lost.
             serverSessionDFileKeys[peerAddress] = dfileKey.copyOf()
-            negotiatedDFilePort = runCatching {
+            negotiatedDFilePort = try {
                 val callbackKey = dfileKey.copyOf()
                 try {
                     onDFileServerReady(request, callbackKey)
                 } finally {
                     callbackKey.fill(0)
                 }
-            }.getOrNull()?.takeIf { it in 1..65535 }
+            } catch (cancelled: CancellationException) {
+                // Never turn structured cancellation into a successful TCP fallback.
+                // The outer finally will retire the published session and wipe keys.
+                throw cancelled
+            } catch (_: Exception) {
+                // DFile is an optional fast path; ordinary startup errors retain
+                // the authenticated control session and its compatible TCP fallback.
+                null
+            }?.takeIf { it in 1..65535 }
             if (negotiatedDFilePort == null) {
                 serverSessionDFileKeys.remove(peerAddress)?.fill(0)
             }
