@@ -214,13 +214,13 @@ class UltraShareViewModel @Inject constructor(
             _state.value = _state.value.copy(
                 requestingConnection = true,
                 error = null,
-                status = "تم إرسال طلب الاتصال؛ نختبر مسارات الجهاز وننتظر موافقته..."
+                status = "جارٍ الاتصال تلقائياً بالجهاز؛ نختبر أفضل مسارات الشبكة..."
             )
             try {
                 val orderedRoutes = UltraShareNegotiation.orderedCandidates(discoveredCandidates)
-                // Try the selected address first, then every other verified interface
-                // belonging to the same discovered peer. A rejected approval is final;
-                // only transport failures move to another route.
+                // Try the selected address first, then each verified interface belonging
+                // to the same peer. The receiver accepts a valid authenticated QR/PIN
+                // automatically; only transport failures move to another route.
                 val routeHosts = (
                     listOf(host.trim()) +
                         alternateHosts.filter {
@@ -302,10 +302,10 @@ class UltraShareViewModel @Inject constructor(
                         approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
                         approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host },
                         status = if (connectedHost != host.trim())
-                            "تم الاقتران عبر مسار بديل بنجاح. جُهزت ${orderedRoutes.size} مسارات احتياطية للنقل."
+                            "تم الاتصال تلقائياً عبر مسار بديل. جُهزت ${orderedRoutes.size} مسارات احتياطية للنقل."
                         else if (orderedRoutes.size > 1)
-                            "وافق الجهاز الآخر على الاتصال. تم تجهيز ${orderedRoutes.size} مسارات للنقل."
-                        else "وافق الجهاز الآخر على الاتصال. يمكنك الآن بدء النقل المشفر.",
+                            "تم الاتصال تلقائياً. جُهزت ${orderedRoutes.size} مسارات للنقل."
+                        else "تم الاتصال تلقائياً بالجهاز الآخر. يمكنك الآن بدء نقل الملفات.",
                         requestingConnection = false,
                         error = null
                     )
