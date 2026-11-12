@@ -103,10 +103,10 @@ import sys
 
 path = Path(sys.argv[1])
 source = path.read_text(encoding="utf-8")
-anchor = '#include "nstackx_dfinder_mgt_msg_log.h"\\n'
+anchor = '#include "nstackx_dfinder_mgt_msg_log.h"\n'
 if source.count(anchor) != 1:
     raise SystemExit("Unexpected upstream management-log include layout; refusing an unsafe patch")
-source = source.replace(anchor, anchor + '#include <securec.h>\\n', 1)
+source = source.replace(anchor, anchor + '#include <securec.h>\n', 1)
 path.write_text(source, encoding="utf-8")
 PY
   fi
