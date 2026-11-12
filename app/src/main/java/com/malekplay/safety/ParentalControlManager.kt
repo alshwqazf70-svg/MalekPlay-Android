@@ -3,8 +3,6 @@ package com.malekplay.safety
 import android.content.Context
 import java.security.MessageDigest
 import java.security.SecureRandom
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.PBEKeySpec
 
 /** PIN verifier with salted PBKDF2 hashes and a short lockout after repeated failures. */
 class ParentalControlManager(context: Context) {
@@ -98,12 +96,10 @@ class ParentalControlManager(context: Context) {
 
     private fun derive(pin: String, salt: ByteArray): ByteArray {
         val chars = pin.toCharArray()
-        val spec = PBEKeySpec(chars, salt, PBKDF2_ITERATIONS, HASH_LENGTH * 8)
-        chars.fill('\u0000')
         return try {
-            SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+            Pbkdf2HmacSha256.derive(chars, salt, PBKDF2_ITERATIONS, HASH_LENGTH)
         } finally {
-            spec.clearPassword()
+            chars.fill('\u0000')
         }
     }
 
