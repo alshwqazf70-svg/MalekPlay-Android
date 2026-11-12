@@ -67,6 +67,7 @@ fun LocalFolderScreen(
     val items by remember(folderPath) { viewModel.folderContents(folderPath) }
         .collectAsStateWithLifecycle(initialValue = emptyList<LibraryItem>())
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val lastPlayedMediaId by viewModel.lastPlayedMediaId.collectAsStateWithLifecycle(initialValue = null)
     val seenNewMediaIds by viewModel.seenNewMediaIds.collectAsStateWithLifecycle()
     val newMediaBaselineMs by viewModel.newMediaBaselineMs.collectAsStateWithLifecycle()
     val selectedUris = remember { mutableStateListOf<android.net.Uri>() }
@@ -153,6 +154,7 @@ fun LocalFolderScreen(
                 FolderItemRow(
                     item = item,
                     isNew = newMediaBaselineMs > 0L && item.media.addedAtMs >= newMediaBaselineMs && item.media.id !in seenNewMediaIds,
+                    isLastPlayed = item.media.id == lastPlayedMediaId,
                     onClick = { onOpenMedia(item.media) },
                     onSend = { toggleSelection(item.media.uri) },
                     selectionMode = selectionMode,
@@ -170,6 +172,7 @@ fun LocalFolderScreen(
 private fun FolderItemRow(
     item: LibraryItem,
     isNew: Boolean,
+    isLastPlayed: Boolean,
     onClick: () -> Unit,
     onSend: () -> Unit,
     selectionMode: Boolean,
@@ -204,6 +207,7 @@ private fun FolderItemRow(
                     text = item.media.displayTitle,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    color = if (isLastPlayed) androidx.compose.ui.graphics.Color(0xFF2196F3) else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
