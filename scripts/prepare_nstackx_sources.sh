@@ -114,6 +114,43 @@ PY
 patch_nstackx_securec_header
 
 checkout_pinned libcoap "$LIBCOAP_REPOSITORY" "$LIBCOAP_COMMIT"
+
+# Android's minimum API level is 23, while bionic only exposes getifaddrs()
+# from API 24. libcoap's configure probe sees the header but the API-23 NDK
+# headers hide the function prototypes, causing both compile and runtime
+# compatibility problems. Disable only libcoap's optional interface-broadcast
+# enumeration on Android; NSTACKX still uses the selected interface and its
+# normal discovery/control paths.
+patch_libcoap_android_ifaddrs() {
+  local source="$DEST/libcoap/src/coap_address.c"
+  if [[ ! -f "$source" ]]; then
+    echo "Missing libcoap address source: $source" >&2
+    return 8
+  fi
+  if ! grep -qF 'MalekPlayer Android API 23 compatibility' "$source"; then
+    python3 - "$source" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+anchor = '#include "coap3/coap_libcoap_build.h"\\n'
+if source.count(anchor) != 1:
+    raise SystemExit("Unexpected upstream coap_address.c include layout; refusing an unsafe patch")
+adaptation = (
+    anchor
+    + '\\n/* MalekPlayer Android API 23 compatibility: getifaddrs is API 24+. */\\n'
+    + '#if defined(__ANDROID__) && defined(HAVE_IFADDRS_H)\\n'
+    + '#undef HAVE_IFADDRS_H\\n'
+    + '#endif\\n'
+)
+source = source.replace(anchor, adaptation, 1)
+path.write_text(source, encoding="utf-8")
+PY
+  fi
+}
+patch_libcoap_android_ifaddrs
+
 checkout_pinned cjson "$CJSON_REPOSITORY" "$CJSON_COMMIT"
 checkout_pinned securec "$SECUREC_REPOSITORY" "$SECUREC_COMMIT"
 checkout_pinned mbedtls "$MBEDTLS_REPOSITORY" "$MBEDTLS_COMMIT"
