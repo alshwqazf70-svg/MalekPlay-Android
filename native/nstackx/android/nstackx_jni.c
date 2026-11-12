@@ -13,6 +13,7 @@
 
 #include "nstackx.h"
 #include "nstackx_struct.h"
+#include "sys_network.h"
 
 #define TAG "MalekPlayerNSTACKX"
 #define MAX_LOCAL_TEXT 96
@@ -77,7 +78,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
 JNIEXPORT jint JNICALL
 Java_com_malekplay_network_NstackxNativeBridge_nativeInitialize(
     JNIEnv *env, jclass clazz, jstring deviceName, jstring deviceId,
-    jstring interfaceName, jstring ipv4Address)
+    jstring interfaceName, jstring ipv4Address, jlong networkHandle)
 {
     const char *name = NULL, *id = NULL, *iface = NULL, *ip = NULL;
     NSTACKX_Parameter parameter;
@@ -85,7 +86,7 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeInitialize(
     int32_t result = -1;
     jclass globalClass = NULL;
 
-    if (deviceName == NULL || deviceId == NULL || interfaceName == NULL || ipv4Address == NULL)
+    if (deviceName == NULL || deviceId == NULL || interfaceName == NULL || ipv4Address == NULL || networkHandle <= 0)
         return -1001;
 
     name = (*env)->GetStringUTFChars(env, deviceName, NULL);
@@ -131,6 +132,7 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeInitialize(
     g_bridge_class = globalClass;
     globalClass = NULL;
 
+    NstackxSetNetworkHandle((uint64_t)networkHandle);
     result = NSTACKX_Init(&parameter);
     if (result == 0) {
         memset(&local, 0, sizeof(local));
@@ -152,6 +154,7 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeInitialize(
         if (g_bridge_class != NULL) (*env)->DeleteGlobalRef(env, g_bridge_class);
         g_bridge_class = NULL;
         g_on_device_found = NULL;
+        NstackxSetNetworkHandle(0);
     }
     pthread_mutex_unlock(&g_lock);
 
@@ -216,5 +219,6 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeRelease(JNIEnv *env, jclass
     if (g_bridge_class != NULL) (*env)->DeleteGlobalRef(env, g_bridge_class);
     g_bridge_class = NULL;
     g_on_device_found = NULL;
+    NstackxSetNetworkHandle(0);
     pthread_mutex_unlock(&g_lock);
 }
