@@ -48,6 +48,7 @@ int32_t SocketSendEx(const Socket *socket, uint16_t mss, const struct iovec *iov
         iov == NULL || count == 0 || mss == 0) return NSTACKX_EINVAL;
 
     for (i = 0; i < count; ++i) {
+        if (iov[i].iov_len != 0 && iov[i].iov_base == NULL) return NSTACKX_EINVAL;
         if (iov[i].iov_len > SIZE_MAX - total) return NSTACKX_EFAILED;
         total += iov[i].iov_len;
     }
