@@ -151,6 +151,51 @@ PY
 }
 patch_libcoap_android_ifaddrs
 
+# getrandom() was added to Android's public bionic API at API 28, but this
+# application still supports API 23. Use bionic arc4random_buf() on Android:
+# it is available from API 21 and is backed by the platform CSPRNG.
+patch_libcoap_android_prng() {
+  local source="$DEST/libcoap/src/coap_prng.c"
+  if [[ ! -f "$source" ]]; then
+    echo "Missing libcoap PRNG source: $source" >&2
+    return 9
+  fi
+  if ! grep -qF 'MalekPlayer Android CSPRNG compatibility' "$source"; then
+    python3 - "$source" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+include_anchor = '#include "coap3/coap_libcoap_build.h"\n'
+if source.count(include_anchor) != 1:
+    raise SystemExit("Unexpected upstream coap_prng.c include layout; refusing an unsafe patch")
+source = source.replace(
+    include_anchor,
+    include_anchor + '#if defined(__ANDROID__)\n#include <stdlib.h>\n#endif\n',
+    1
+)
+function_anchor = (
+    'coap_prng_default(void *buf, size_t len) {\n'
+    '#if defined(MBEDTLS_ENTROPY_HARDWARE_ALT)\n'
+)
+if source.count(function_anchor) != 1:
+    raise SystemExit("Unexpected upstream coap_prng_default layout; refusing an unsafe patch")
+function_replacement = (
+    'coap_prng_default(void *buf, size_t len) {\n'
+    '#if defined(__ANDROID__)\n'
+    '  /* MalekPlayer Android CSPRNG compatibility: API 21+ arc4random_buf. */\n'
+    '  arc4random_buf(buf, len);\n'
+    '  return 1;\n'
+    '#elif defined(MBEDTLS_ENTROPY_HARDWARE_ALT)\n'
+)
+source = source.replace(function_anchor, function_replacement, 1)
+path.write_text(source, encoding="utf-8")
+PY
+  fi
+}
+patch_libcoap_android_prng
+
 checkout_pinned cjson "$CJSON_REPOSITORY" "$CJSON_COMMIT"
 checkout_pinned securec "$SECUREC_REPOSITORY" "$SECUREC_COMMIT"
 checkout_pinned mbedtls "$MBEDTLS_REPOSITORY" "$MBEDTLS_COMMIT"
