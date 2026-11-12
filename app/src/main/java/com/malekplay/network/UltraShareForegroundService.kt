@@ -1580,6 +1580,10 @@ class UltraShareForegroundService : Service() {
         onHostChanged: (String) -> Unit = {},
         onProgress: (UltraShareBatchTransport.FileProgress) -> Unit
     ): UltraShareBatchTransport.BatchOutcome {
+        // DFile is attempted only when the authenticated ACCEPT frame negotiated a
+        // live receiver port. Any failure after NSTACKX accepts the file list is
+        // terminal for this batch: falling back to TCP could duplicate partial files.
+        trySendDFileBatch(host, sources, onProgress)?.let { return it }
         var activeHost = host
         val activeCandidates = candidates.toMutableList()
         val fallbackCandidates = UltraShareNegotiation.orderedCandidates(candidates)
@@ -1734,6 +1738,163 @@ class UltraShareForegroundService : Service() {
             }
         }
     }
+
+    private suspend fun trySendDFileBatch(
+        host: String,
+        sources: List<UltraShareBatchTransport.Source>,
+        onProgress: (UltraShareBatchTransport.FileProgress) -> Unit
+    ): UltraShareBatchTransport.BatchOutcome? {
+        val port = UltraShareControlChannel.clientDFilePort(host) ?: return null
+        if (sources.isEmpty() || sources.size > 500) return null
+        if (!UltraShareControlChannel.isSessionActive(host)) return null
+
+        val safeNames = sources.map { UltraShareTransport.sanitizeFileName(it.name) }
+        // DFile's upstream rename hook resolves collisions on the receiver, but the
+        // completion callback reports basenames. Use the deterministic TCP protocol
+        // for duplicate basenames rather than guessing which item completed.
+        if (safeNames.distinct().size != safeNames.size) return null
+
+        val network = UltraShareNetworkRouting.findNetworkForHost(this, host) ?: return null
+        val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return null
+        val localIpv4 = connectivity.getLinkProperties(network)?.linkAddresses.orEmpty()
+            .mapNotNull { it.address as? Inet4Address }
+            .firstOrNull { !it.isAnyLocalAddress && !it.isLoopbackAddress }
+            ?.hostAddress ?: return null
+        val discovery = NstackxAndroidDiscoverySession.current()
+            ?.takeIf { it.localIpv4 == localIpv4 }
+            ?: runCatching {
+                NstackxAndroidDiscoverySession.start(
+                    this,
+                    preferredLocalIpv4 = localIpv4,
+                    onPeerFound = {}
+                )
+            }.getOrNull() ?: return null
+
+        val staged = ArrayList<UltraShareDFileStager.StagedFile>(sources.size)
+        var nativeSessionId = -1
+        var payloadAccepted = false
+        val sessionIdRef = java.util.concurrent.atomic.AtomicInteger(-1)
+        val earlyEvents = java.util.concurrent.ConcurrentLinkedQueue<NstackxNativeBridge.DFileEvent>()
+        val connected = CompletableDeferred<Boolean>()
+        val completed = CompletableDeferred<Boolean>()
+        val completedNames = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        var lastProgressBytes = 0L
+        var lastProgressAt = System.nanoTime()
+
+        fun handleEvent(event: NstackxNativeBridge.DFileEvent) {
+            if (event.sessionId != sessionIdRef.get()) return
+            when (event.eventType) {
+                NstackxNativeBridge.DFILE_ON_CONNECT_SUCCESS -> connected.complete(true)
+                NstackxNativeBridge.DFILE_ON_CONNECT_FAIL,
+                NstackxNativeBridge.DFILE_ON_FATAL_ERROR -> {
+                    if (!connected.isCompleted) connected.complete(false)
+                    else if (payloadAccepted) completed.complete(false)
+                }
+                NstackxNativeBridge.DFILE_ON_FILE_SEND_SUCCESS -> {
+                    event.fileNames.forEach { completedNames += it.substringAfterLast('/') }
+                    if (completedNames.containsAll(safeNames)) completed.complete(true)
+                }
+                NstackxNativeBridge.DFILE_ON_FILE_SEND_FAIL -> completed.complete(false)
+                NstackxNativeBridge.DFILE_ON_TRANS_IN_PROGRESS,
+                NstackxNativeBridge.DFILE_ON_SESSION_IN_PROGRESS -> {
+                    val name = event.fileNames.firstOrNull()?.substringAfterLast('/')
+                        ?: safeNames.first()
+                    val source = sources.firstOrNull {
+                        UltraShareTransport.sanitizeFileName(it.name) == name
+                    }
+                    val now = System.nanoTime()
+                    val elapsed = ((now - lastProgressAt) / 1_000_000_000L).coerceAtLeast(1L)
+                    val speed = ((event.transferredBytes - lastProgressBytes).coerceAtLeast(0L) / elapsed)
+                    lastProgressBytes = event.transferredBytes
+                    lastProgressAt = now
+                    onProgress(
+                        UltraShareBatchTransport.FileProgress(
+                            fileId = source?.fileId ?: sources.first().fileId,
+                            fileName = name,
+                            transferredBytes = event.transferredBytes.coerceAtLeast(0L),
+                            totalBytes = event.totalBytes.coerceAtLeast(0L),
+                            bytesPerSecond = speed,
+                            receiving = false
+                        )
+                    )
+                }
+            }
+        }
+
+        val listener = NstackxNativeBridge.DFileListener { event ->
+            if (sessionIdRef.get() <= 0) earlyEvents.add(event) else handleEvent(event)
+        }
+        NstackxNativeBridge.addDFileListener(listener)
+        try {
+            sources.forEach { source ->
+                staged += UltraShareDFileStager.stage(
+                    resolver = contentResolver,
+                    cacheDirectory = cacheDir,
+                    uri = source.uri,
+                    displayName = source.name,
+                    mimeType = source.mimeType,
+                    expectedSizeBytes = source.sizeBytes
+                )
+            }
+            nativeSessionId = NstackxNativeBridge.startApprovedDFileClient(host, port)
+            if (nativeSessionId <= 0) return null
+            sessionIdRef.set(nativeSessionId)
+            while (true) {
+                val queued = earlyEvents.poll() ?: break
+                handleEvent(queued)
+            }
+            val isConnected = withTimeoutOrNull(20_000L) { connected.await() } ?: false
+            if (!isConnected) return null
+
+            val sendResult = NstackxNativeBridge.sendDFileFiles(
+                nativeSessionId,
+                staged.map { it.file }
+            )
+            if (sendResult != 0) return null
+            payloadAccepted = true
+            val totalBytes = sources.sumOf { it.sizeBytes.coerceAtLeast(0L) }
+            val timeoutMillis = (60_000L + totalBytes / (256L * 1024L) * 1_000L)
+                .coerceAtMost(30L * 60L * 1_000L)
+            val transferSucceeded = withTimeoutOrNull(timeoutMillis) {
+                completed.await()
+            } ?: false
+            if (!transferSucceeded) {
+                throw DFilePayloadStartedException(
+                    "بدأ DFile إرسال البيانات ثم لم يؤكد اكتمال الدفعة؛ أوقفنا التحويل إلى TCP لتجنب تكرار الملفات."
+                )
+            }
+            return UltraShareBatchTransport.BatchOutcome(
+                batchId = java.util.UUID.randomUUID().toString(),
+                files = sources.map { source ->
+                    UltraShareBatchTransport.FileOutcome(
+                        fileId = source.fileId,
+                        fileName = UltraShareTransport.sanitizeFileName(source.name),
+                        receivedFile = null,
+                        status = UltraShareBatchProtocol.FileStatus.COMPLETED,
+                        transferredBytes = source.sizeBytes
+                    )
+                }
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: DFilePayloadStartedException) {
+            throw failure
+        } catch (failure: Exception) {
+            if (payloadAccepted) {
+                throw DFilePayloadStartedException(
+                    failure.localizedMessage ?: "فشل DFile بعد بدء نقل البيانات."
+                )
+            }
+            return null
+        } finally {
+            NstackxNativeBridge.removeDFileListener(listener)
+            if (nativeSessionId > 0) NstackxNativeBridge.closeDFileSession(nativeSessionId)
+            staged.forEach(UltraShareDFileStager.StagedFile::close)
+        }
+    }
+
+    private class DFilePayloadStartedException(message: String) : IOException(message)
 
     private suspend fun sendWithRetry(
         uri: Uri,
