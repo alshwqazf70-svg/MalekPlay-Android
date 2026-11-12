@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -85,6 +86,11 @@ class LibraryViewModel @Inject constructor(
         folderRows.map { folder ->
             folder.copy(newItemCount = unseenByFolder[folder.path] ?: 0)
         }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Local metadata-based picks; computation stays in memory and off the UI thread. */
+    val smartRecommendations = combine(allMedia, lastPlayedMediaId) { items, lastPlayedId ->
+        SmartRecommendationPolicy.recommend(items, lastPlayedId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val continueWatching = mediaRepository.observeContinueWatching(5)
