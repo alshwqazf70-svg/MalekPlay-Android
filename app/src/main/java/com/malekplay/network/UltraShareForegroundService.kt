@@ -234,6 +234,7 @@ class UltraShareForegroundService : Service() {
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
+                dfileServerSessions.keys.toList().forEach(::closeDFileServerForPeer)
                 currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
                 stopLocalHotspot()
                 if (sendJob == null && receiveJob == null && batchReceiveJob == null) finishService()
@@ -832,6 +833,7 @@ class UltraShareForegroundService : Service() {
         advertisementJob?.cancel()
         controlJob?.cancel()
         pendingConnectionDecision?.cancel()
+        dfileServerSessions.keys.toList().forEach(::closeDFileServerForPeer)
         currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
         releaseTransferLocks()
         activeBatchTransferPort = 0
@@ -858,6 +860,7 @@ class UltraShareForegroundService : Service() {
         controlJob?.cancel()
         pendingConnectionDecision?.cancel()
         dfileServerSessions.keys.toList().forEach(::closeDFileServerForPeer)
+        runCatching { NstackxAndroidDiscoverySession.stop() }
         serviceScope.cancel()
         releaseTransferLocks()
         runCatching { hotspotReservation?.close() }
