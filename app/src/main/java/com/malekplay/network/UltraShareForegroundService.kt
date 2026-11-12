@@ -510,32 +510,8 @@ class UltraShareForegroundService : Service() {
                                     }
                                 }
                             ) { request ->
-                                // A stable device ID is identity, not consent. Require the
-                                // receiver to approve a first-time peer, then remember that
-                                // approval so subsequent QR/PIN sessions reconnect instantly.
-                                // The one-session PIN is still verified by MPC2 on every connect.
-                                val trustedPeerId = request.peerId?.takeIf(
-                                    UltraShareTrustedPeerStore::isValidPeerId
-                                )
-                                val alreadyTrusted = trustedPeerId?.let {
-                                    UltraShareTrustedPeerStore.isTrusted(this@UltraShareForegroundService, it)
-                                } == true
-                                if (alreadyTrusted) {
-                                    val approvedPeerId = requireNotNull(trustedPeerId)
-                                    registerApprovedPeer(
-                                        name = request.peerName,
-                                        host = request.peerAddress,
-                                        role = "جهاز موثوق - اتصال سريع",
-                                        sessionId = approvedPeerId
-                                    )
-                                    updateState { current -> current.copy(
-                                        pendingConnection = null,
-                                        status = "تم الاتصال بالجهاز الموثوق " + request.peerName,
-                                        error = null
-                                    ) }
-                                    UltraShareControlChannel.Decision.ACCEPTED
-                                } else {
-                                // First-time and legacy peers always require visible receiver consent.
+                                // Pairing is temporary: each new session receives one
+                                // visible approval. Device identity never grants silent consent.
                                 pendingConnectionMutex.lock()
                                 try {
                                     val decision = CompletableDeferred<UltraShareControlChannel.Decision>()
@@ -545,24 +521,15 @@ class UltraShareForegroundService : Service() {
                                         status = "طلب اتصال وارد من " + request.peerName
                                     ) }
                                     try {
-                                        // Leave enough time for requests queued behind another
-                                        // approval to reach the foreground approval card.
                                         val result = kotlinx.coroutines.withTimeoutOrNull(110_000L) {
                                             decision.await()
                                         } ?: UltraShareControlChannel.Decision.REJECTED
                                         if (result == UltraShareControlChannel.Decision.ACCEPTED) {
-                                            trustedPeerId?.let { peerId ->
-                                                UltraShareTrustedPeerStore.rememberApproved(
-                                                    this@UltraShareForegroundService,
-                                                    peerId
-                                                )
-                                            }
                                             registerApprovedPeer(
                                                 name = request.peerName,
                                                 host = request.peerAddress,
-                                                role = if (trustedPeerId != null) "تمت الموافقة وحفظ الجهاز كموثوق"
-                                                    else "استقبل طلب الاتصال",
-                                                sessionId = trustedPeerId ?: request.requestId
+                                                role = "اتصال مؤقت عبر QR",
+                                                sessionId = request.peerId ?: request.requestId
                                             )
                                         }
                                         result
@@ -578,7 +545,6 @@ class UltraShareForegroundService : Service() {
                                     }
                                 } finally {
                                     pendingConnectionMutex.unlock()
-                                }
                                 }
                             }
                         } catch (cancelled: CancellationException) {
