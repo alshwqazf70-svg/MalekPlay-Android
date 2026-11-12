@@ -20,6 +20,56 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
+/**
+ * Bounded, expiring cache for NSTACKX display-name hints. Native discovery can
+ * report many transient IDs over time; never let those broadcasts grow memory
+ * for the lifetime of a foreground sharing session.
+ */
+internal class NstackxPeerNameCache(
+    private val maxEntries: Int = 128,
+    private val ttlMillis: Long = 60_000L
+) {
+    private data class Entry(val name: String, val seenAtMillis: Long)
+    private val entries = LinkedHashMap<String, Entry>(16, 0.75f, true)
+
+    init {
+        require(maxEntries > 0)
+        require(ttlMillis >= 0L)
+    }
+
+    @Synchronized
+    fun put(peerId: String, displayName: String, nowMillis: Long = System.currentTimeMillis()) {
+        val key = peerId.trim().lowercase(java.util.Locale.ROOT).take(128)
+        val name = displayName.trim().take(64)
+        if (key.isBlank() || name.isBlank()) return
+        prune(nowMillis)
+        entries[key] = Entry(name, nowMillis)
+        while (entries.size > maxEntries) {
+            val oldest = entries.entries.iterator()
+            if (!oldest.hasNext()) break
+            oldest.next()
+            oldest.remove()
+        }
+    }
+
+    @Synchronized
+    fun get(peerId: String, nowMillis: Long = System.currentTimeMillis()): String? {
+        val key = peerId.trim().lowercase(java.util.Locale.ROOT).take(128)
+        if (key.isBlank()) return null
+        prune(nowMillis)
+        return entries[key]?.name
+    }
+
+    @Synchronized
+    private fun prune(nowMillis: Long) {
+        val iterator = entries.entries.iterator()
+        while (iterator.hasNext()) {
+            val seenAt = iterator.next().value.seenAtMillis
+            if (seenAt > nowMillis || nowMillis - seenAt > ttlMillis) iterator.remove()
+        }
+    }
+}
+
 /** LAN discovery with v2 candidate offers and a v1 compatibility path. */
 object UltraShareDiscovery {
     const val DISCOVERY_PORT = 38742
