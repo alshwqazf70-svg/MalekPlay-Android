@@ -432,7 +432,21 @@ object UltraShareWifiDirect {
                             if (!closed && connectionInProgress && token == connectionAttemptToken) {
                                 connectionInProgress = false
                                 runCatching { manager.cancelConnect(channel, null) }
-                                onError("انتهت مهلة اتصال Wi-Fi Direct بعد 30 ثانية. تأكد من بقاء الجهازين قريبين ثم أعد المحاولة.")
+                                if (attempt < 2) {
+                                    mainHandler.postDelayed({
+                                        if (!closed && token == connectionAttemptToken) {
+                                            connectionInProgress = true
+                                            connectAttempt(
+                                                deviceAddress,
+                                                preferThisDeviceAsGroupOwner,
+                                                token,
+                                                attempt + 1
+                                            )
+                                        }
+                                    }, 800L * (attempt + 1))
+                                } else {
+                                    onError("انتهت مهلة اتصال Wi-Fi Direct بعد محاولات متعددة. تأكد من بقاء الجهازين قريبين ثم أعد المحاولة.")
+                                }
                             }
                         }
                         connectionTimeout = timeout
