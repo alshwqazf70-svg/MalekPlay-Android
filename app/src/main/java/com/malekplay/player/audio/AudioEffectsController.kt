@@ -76,7 +76,20 @@ class AudioEffectsController {
     /** (Re)binds the effect chain to an audio session. */
     @Synchronized
     fun attach(audioSessionId: Int) {
-        if (audioSessionId <= 0 || audioSessionId == currentSessionId) return
+        if (audioSessionId <= 0) {
+            // Media3 can report AUDIO_SESSION_ID_UNSET while the player is being
+            // rebuilt or when an audio track is temporarily unavailable. Do not
+            // leave effects bound to the previous track's session in that window.
+            if (currentSessionId != 0) {
+                val shouldRestartVisualizer = visualizerRequested
+                release()
+                // release() stops capture; keep the user's explicit opt-in so it
+                // resumes automatically when the next valid session is reported.
+                visualizerRequested = shouldRestartVisualizer
+            }
+            return
+        }
+        if (audioSessionId == currentSessionId) return
         // Preserve an explicit user request across audio-session replacement.
         val shouldRestartVisualizer = visualizerRequested
         release()
