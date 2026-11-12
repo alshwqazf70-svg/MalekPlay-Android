@@ -357,6 +357,7 @@ static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileM
     jmethodID callbackMethod = NULL;
     jstring message = NULL;
     int attached = 0;
+    int closeAfterCallback = (msgType == DFILE_ON_FATAL_ERROR);
     jlong transferred = 0;
     jlong total = 0;
     int errorCode = 0;
@@ -400,6 +401,16 @@ static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileM
     }
     if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
     (*env)->DeleteLocalRef(env, callbackClass);
+
+    /*
+     * The pinned DFile API explicitly marks FATAL_ERROR sessions unusable and
+     * requires destruction. Do it after notifying Kotlin so a listener may
+     * close the same handle first; ForgetDFileSession makes that race
+     * idempotent and prevents a stale native handle consuming a registry slot.
+     */
+    if (closeAfterCallback && ForgetDFileSession(sessionId)) {
+        NSTACKX_DFileClose(sessionId);
+    }
     if (attached) (*g_vm)->DetachCurrentThread(g_vm);
 }
 
