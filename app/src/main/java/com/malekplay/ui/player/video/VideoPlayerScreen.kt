@@ -112,6 +112,7 @@ import com.malekplay.domain.model.EqualizerPreset
 import com.malekplay.domain.model.GestureAction
 import com.malekplay.domain.model.MediaItem as DomainMedia
 import com.malekplay.ui.player.PlayerViewModel
+import com.malekplay.player.effects.VideoEnhancementProfile
 import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.videos.VideoKindClassifier
 import com.malekplay.ui.videos.EpisodeSortKey
@@ -197,6 +198,7 @@ fun VideoPlayerScreen(
     val videoUpscalingEnabled by viewModel.videoUpscalingEnabled.collectAsStateWithLifecycle()
     val videoNoiseReductionEnabled by viewModel.videoNoiseReductionEnabled.collectAsStateWithLifecycle()
     val videoMotionSmoothingEnabled by viewModel.videoMotionSmoothingEnabled.collectAsStateWithLifecycle()
+    val videoEnhancementProfile by viewModel.videoEnhancementProfile.collectAsStateWithLifecycle()
     val videoUpscalingError by viewModel.videoUpscalingError.collectAsStateWithLifecycle()
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
     val durationMs by viewModel.durationMs.collectAsStateWithLifecycle()
@@ -870,6 +872,42 @@ fun VideoPlayerScreen(
                     onClick = {
                         showMenu = false
                         viewModel.addBookmark(currentVideoId, positionMs, formatDuration(positionMs))
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            (if (videoEnhancementProfile == VideoEnhancementProfile.ECONOMY) "✓ " else "") +
+                                "جودة الصورة: اقتصادي"
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        viewModel.setVideoEnhancementProfile(VideoEnhancementProfile.ECONOMY)
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            (if (videoEnhancementProfile == VideoEnhancementProfile.BALANCED) "✓ " else "") +
+                                "جودة الصورة: متوازن"
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        viewModel.setVideoEnhancementProfile(VideoEnhancementProfile.BALANCED)
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            (if (videoEnhancementProfile == VideoEnhancementProfile.ULTRA) "✓ " else "") +
+                                "جودة الصورة: فائق"
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        viewModel.setVideoEnhancementProfile(VideoEnhancementProfile.ULTRA)
                     }
                 )
                 DropdownMenuItem(
