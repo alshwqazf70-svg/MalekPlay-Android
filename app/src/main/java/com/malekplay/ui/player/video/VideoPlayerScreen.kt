@@ -335,6 +335,13 @@ fun VideoPlayerScreen(
         }
     }
 
+    // GPU processing is opt-in and scoped to the visible video-player session.
+    // Leaving the screen always releases the additional GL effect, even if audio
+    // playback continues in the background.
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.setVideoUpscalingEnabled(false) }
+    }
+
     // -------------------------------------------------------------- ui state
     var chromeVisible by remember { mutableStateOf(true) }
     var locked by remember { mutableStateOf(false) }
