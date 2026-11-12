@@ -42,6 +42,22 @@ object UltraShareDiscovery {
     internal fun identityKey(peer: Peer): String =
         peer.peerId?.takeIf { it.isNotBlank() }?.let { "id:$it" } ?: "host:${peer.host}"
 
+    /**
+     * Join the native NSTACKX identity/name signal to the routable LAN offer.
+     * NSTACKX's current JNI callback does not expose a remote IPv4 endpoint, so
+     * it must never invent a host or make a name-only peer connectable.
+     */
+    internal fun mergeNativePeerName(
+        peer: Peer,
+        nativePeerId: String,
+        nativeDisplayName: String
+    ): Peer {
+        if (nativePeerId.isBlank() || nativeDisplayName.isBlank()) return peer
+        return if (peer.peerId?.equals(nativePeerId, ignoreCase = true) == true) {
+            peer.copy(name = nativeDisplayName.trim().take(64))
+        } else peer
+    }
+
     /** A peer remains visible briefly to absorb small UDP discovery gaps, then expires. */
     internal fun isSightingFresh(lastSeenMillis: Long, nowMillis: Long, ttlMillis: Long): Boolean =
         ttlMillis >= 0L && lastSeenMillis <= nowMillis && nowMillis - lastSeenMillis <= ttlMillis
