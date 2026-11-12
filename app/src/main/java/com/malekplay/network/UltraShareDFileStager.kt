@@ -122,7 +122,10 @@ internal object UltraShareDFileStager {
         require(olderThanMillis >= 0L)
         val root = File(cacheDirectory, STAGING_DIRECTORY)
         val cutoff = System.currentTimeMillis() - olderThanMillis
+        val canonicalCache = runCatching { cacheDirectory.canonicalFile }.getOrNull() ?: return
         val canonicalRoot = runCatching { root.canonicalFile }.getOrNull() ?: return
+        // Never follow a replaced staging-root symlink outside the app cache.
+        if (canonicalRoot.parentFile != canonicalCache) return
         root.listFiles()?.forEach { entry ->
             val isOwnedChild = runCatching {
                 entry.canonicalFile.parentFile == canonicalRoot
