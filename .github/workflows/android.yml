@@ -59,7 +59,7 @@ jobs:
 
       - name: Assemble universal debug APK for direct installation
         run: |
-          ./gradlew --stacktrace --max-workers=2 -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" :app:assembleDebug
+          ./gradlew --stacktrace --max-workers=2 -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" -PenableNstackxNativeBuild=true :app:assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/MalekPlayer-2.0-universal.apk
@@ -94,10 +94,10 @@ jobs:
           retention-days: 14
 
       - name: Assemble ABI-specific minified release APKs
-        run: ./gradlew --stacktrace --max-workers=2 -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" -PenableAbiSplits=true :app:assembleRelease
+        run: ./gradlew --stacktrace --max-workers=2 -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" -PenableNstackxNativeBuild=true -PenableAbiSplits=true :app:assembleRelease
 
       - name: Assemble Google Play Android App Bundle
-        run: ./gradlew --stacktrace --max-workers=2 -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" :app:bundleRelease
+        run: ./gradlew --stacktrace --max-workers=2 -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" -PenableNstackxNativeBuild=true :app:bundleRelease
 
       - name: Measure optimized release APK and AAB sizes
         shell: bash
