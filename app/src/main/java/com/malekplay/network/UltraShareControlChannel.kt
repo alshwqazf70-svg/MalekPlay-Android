@@ -346,6 +346,7 @@ object UltraShareControlChannel {
         }
 
         val key = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
+        var publishedRequest: Request? = null
         try {
         val expectedMac = requestAuthentication(key, challenge, requestId, nameBytes)
         if (!MessageDigest.isEqual(expectedMac, suppliedMac)) {
@@ -375,6 +376,9 @@ object UltraShareControlChannel {
                 runCatching { previous.close() }
                 serverSessionDFileKeys.remove(peerAddress)?.fill(0)
             }
+            // From this point onward, every failure must retire this exact session.
+            // The outer finally owns cleanup so failures during DFile setup are covered too.
+            publishedRequest = request
             serverSessionPeerIds.remove(peerAddress)
             request.peerId?.let { serverSessionPeerIds[peerAddress] = it }
         }
@@ -416,46 +420,37 @@ object UltraShareControlChannel {
             return
         }
 
-        try {
-            // Publish the approved server-side session before the ACCEPT frame reaches
-            // the sender. Otherwise the first v2 data socket can race this map update.
-            socket.soTimeout = SESSION_TIMEOUT_MS
-            // A reconnect from the same address replaces the prior session atomically.
-            // Closing the old socket prevents an orphaned heartbeat from surviving the new approval.
-            serverSessions.put(request.peerAddress, socket)?.takeIf { it !== socket }?.let { previous ->
-                runCatching { previous.close() }
-                serverSessionDFileKeys.remove(request.peerAddress)?.fill(0)
-            }
-            serverSessionPeerIds.remove(request.peerAddress)
-            request.peerId?.let { serverSessionPeerIds[request.peerAddress] = it }
-            if (negotiatedDFilePort == null) {
-                serverSessionDFileKeys.remove(request.peerAddress)?.fill(0)
-            }
-            output.writeInt(frame.size)
-            output.write(frame)
-            output.flush()
-            while (!socket.isClosed) {
-                when (input.readUTF()) {
-                    "PING" -> {
-                        output.writeUTF("PONG")
-                        output.flush()
-                    }
-                    "CLOSE" -> return
-                    else -> error("أمر قناة التحكم غير معروف.")
+        // The approved session was published before DFile setup so the receiver can
+        // bind its data socket before ACCEPT is sent. Do not publish it a second time:
+        // a single owner and a single cleanup path avoid stale-session races.
+        if (negotiatedDFilePort == null) {
+            serverSessionDFileKeys.remove(request.peerAddress)?.fill(0)
+        }
+        output.writeInt(frame.size)
+        output.write(frame)
+        output.flush()
+        while (!socket.isClosed) {
+            when (input.readUTF()) {
+                "PING" -> {
+                    output.writeUTF("PONG")
+                    output.flush()
                 }
-            }
-        } finally {
-            // A stale socket must never report the newer session as disconnected.
-            // Only the coroutine that still owns the address entry may clear it.
-            val wasCurrentSession = serverSessions.remove(request.peerAddress, socket)
-            if (wasCurrentSession) {
-                serverSessionPeerIds.remove(request.peerAddress)
-                serverSessionDFileKeys.remove(request.peerAddress)?.fill(0)
-                onSessionClosed(request)
+                "CLOSE" -> return
+                else -> error("أمر قناة التحكم غير معروف.")
             }
         }
         } finally {
             key.fill(0)
+            // Also covers exceptions while preparing the DFile receiver or response.
+            // remove(key, value) ensures an old coroutine cannot erase a replacement.
+            val requestToClose = publishedRequest
+            if (requestToClose != null &&
+                serverSessions.remove(requestToClose.peerAddress, socket)
+            ) {
+                serverSessionPeerIds.remove(requestToClose.peerAddress)
+                serverSessionDFileKeys.remove(requestToClose.peerAddress)?.fill(0)
+                onSessionClosed(requestToClose)
+            }
         }
     }
 
