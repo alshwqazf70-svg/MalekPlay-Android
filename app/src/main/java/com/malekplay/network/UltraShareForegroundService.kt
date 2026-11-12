@@ -20,6 +20,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -129,7 +130,11 @@ internal fun latestActivePeerReceiveProgress(
  */
 class UltraShareForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val dfileServerSessions = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private data class ActiveDFileServer(
+        val sessionId: Int,
+        val listener: NstackxNativeBridge.DFileListener
+    )
+    private val dfileServerSessions = java.util.concurrent.ConcurrentHashMap<String, ActiveDFileServer>()
     @Volatile private var receiveJob: Job? = null
     @Volatile private var batchReceiveJob: Job? = null
     @Volatile private var activeBatchTransferPort: Int = 0
@@ -612,39 +617,126 @@ class UltraShareForegroundService : Service() {
         if (!NstackxNativeBridge.isAvailable) return null
         val localIpv4 = localAddress?.takeIf { UltraShareTransport.isValidPrivateLanHost(it) }
             ?: return null
-        val discovery = NstackxAndroidDiscoverySession.current()
-            ?.takeIf { it.localIpv4 == localIpv4 }
-            ?: runCatching {
+
+        // Never reinitialize the process-global NSTACKX engine on another interface:
+        // release() would silently destroy every other peer's active DFile session.
+        val currentDiscovery = NstackxAndroidDiscoverySession.current()
+        val discovery = when {
+            currentDiscovery != null && currentDiscovery.localIpv4 == localIpv4 -> currentDiscovery
+            currentDiscovery != null -> return null
+            else -> runCatching {
                 NstackxAndroidDiscoverySession.start(
                     this,
                     preferredLocalIpv4 = localIpv4,
                     onPeerFound = {}
                 )
-            }.getOrNull()
-            ?: return null
-        // A replacement approval supersedes the old native receiver for this peer.
-        dfileServerSessions.remove(peerAddress)?.let(NstackxNativeBridge::closeDFileSession)
-        val destination = UltraShareTransport.defaultReceiveDirectory(this)
-        if (!destination.isDirectory || !destination.canWrite()) return null
+            }.getOrNull() ?: return null
+        }
 
-        // Probe a free high port. The native server binds it before ACCEPT is emitted.
+        val destination = UltraShareTransport.defaultReceiveDirectory(this)
+        val base = (getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+            ?: File(filesDir, "downloads")).canonicalFile
+        if (!destination.exists() && !destination.mkdirs()) return null
+        val safeDestination = runCatching { destination.canonicalFile }.getOrNull() ?: return null
+        if (!safeDestination.isDirectory || !safeDestination.canWrite() ||
+            safeDestination.path != File(base, "MalekPlayer/Received").canonicalPath
+        ) return null
+
+        // Probe an OS-assigned port; NSTACKX binds it before ACCEPT is emitted.
         val port = runCatching { ServerSocket(0).use { it.localPort } }
-            .getOrNull()?.takeIf { it in 40_000..65_535 } ?: return null
-        val sessionId = runCatching {
+            .getOrNull()?.takeIf { it in 1..65535 } ?: return null
+
+        // Replace only this peer's receiver and detach its old listener.
+        closeDFileServerForPeer(peerAddress)
+        val sessionIdRef = java.util.concurrent.atomic.AtomicInteger(-1)
+        val earlyEvents = java.util.concurrent.ConcurrentLinkedQueue<NstackxNativeBridge.DFileEvent>()
+        val listener = NstackxNativeBridge.DFileListener { event ->
+            val expected = sessionIdRef.get()
+            if (expected <= 0) earlyEvents.add(event)
+            else if (event.sessionId == expected) handleDFileServerEvent(peerAddress, safeDestination, event)
+        }
+        NstackxNativeBridge.addDFileListener(listener)
+        val sessionId = try {
             NstackxNativeBridge.startApprovedDFileServer(
                 peerIpv4 = peerAddress,
                 localIpv4 = discovery.localIpv4,
                 port = port,
-                destinationDirectory = destination
+                destinationDirectory = safeDestination
             )
-        }.getOrDefault(-1)
-        if (sessionId <= 0) return null
-        dfileServerSessions.put(peerAddress, sessionId)?.let(NstackxNativeBridge::closeDFileSession)
+        } catch (failure: Exception) {
+            -1
+        }
+        if (sessionId <= 0) {
+            NstackxNativeBridge.removeDFileListener(listener)
+            return null
+        }
+        sessionIdRef.set(sessionId)
+        dfileServerSessions[peerAddress] = ActiveDFileServer(sessionId, listener)
+        while (true) {
+            val event = earlyEvents.poll() ?: break
+            if (event.sessionId == sessionId) handleDFileServerEvent(peerAddress, safeDestination, event)
+        }
         return port
     }
 
+    private fun handleDFileServerEvent(
+        peerAddress: String,
+        destination: File,
+        event: NstackxNativeBridge.DFileEvent
+    ) {
+        when (event.eventType) {
+            NstackxNativeBridge.DFILE_ON_FILE_RECEIVE_SUCCESS -> {
+                event.fileNames.forEach { receivedName ->
+                    serviceScope.launch {
+                        val safeName = UltraShareTransport.sanitizeFileName(receivedName)
+                        val receivedFile = File(destination, safeName)
+                        val canonical = runCatching { receivedFile.canonicalFile }.getOrNull()
+                            ?: return@launch
+                        if (canonical.parentFile != destination.canonicalFile ||
+                            !canonical.isFile || canonical.length() < 0L
+                        ) return@launch
+                        val mimeType = MimeTypeMap.getSingleton()
+                            .getMimeTypeFromExtension(canonical.extension.lowercase())
+                            ?: "application/octet-stream"
+                        val received = UltraShareTransport.ReceivedFile(
+                            file = canonical,
+                            fileName = safeName,
+                            sizeBytes = canonical.length(),
+                            mimeType = mimeType
+                        )
+                        val publishedUri = UltraShareReceivedPublisher.publish(this@UltraShareForegroundService, received)
+                        UltraShareReceivedHistoryStore.record(
+                            context = this@UltraShareForegroundService,
+                            file = canonical,
+                            fileName = safeName,
+                            mimeType = mimeType,
+                            sizeBytes = canonical.length(),
+                            publishedUri = publishedUri?.toString()
+                        )
+                        updateState { current -> current.copy(
+                            receiving = true,
+                            receivedFile = received.copy(publishedUri = publishedUri),
+                            status = "تم استلام $safeName عبر DFile من $peerAddress",
+                            error = null
+                        ) }
+                    }
+                }
+            }
+            NstackxNativeBridge.DFILE_ON_FILE_RECEIVE_FAIL,
+            NstackxNativeBridge.DFILE_ON_FATAL_ERROR -> {
+                updateState { current -> current.copy(
+                    error = event.message.ifBlank { "تعذر استلام الملفات عبر DFile من $peerAddress" },
+                    status = "تعذر إكمال استقبال DFile؛ لم نكرر الدفعة عبر TCP تلقائياً."
+                ) }
+            }
+        }
+    }
+
     private fun closeDFileServerForPeer(peerAddress: String) {
-        dfileServerSessions.remove(peerAddress)?.let(NstackxNativeBridge::closeDFileSession)
+        dfileServerSessions.remove(peerAddress)?.let { active ->
+            NstackxNativeBridge.removeDFileListener(active.listener)
+            NstackxNativeBridge.closeDFileSession(active.sessionId)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
