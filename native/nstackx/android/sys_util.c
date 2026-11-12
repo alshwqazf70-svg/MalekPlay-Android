@@ -17,6 +17,24 @@
 
 #define TAG "NSTACKXAndroidUtil"
 
+/* Keep upstream DFile path-traversal validation available on Android. */
+uint8_t IsFileNameLegal(const char *fileName)
+{
+    static const char *const illegalHead[] = { "../" };
+    static const char *const illegalPath[] = { "/../" };
+    size_t i;
+    if (fileName == NULL || fileName[0] == '\0') return NSTACKX_FALSE;
+    for (i = 0; i < sizeof(illegalHead) / sizeof(illegalHead[0]); ++i) {
+        size_t n = strlen(illegalHead[i]);
+        if (strlen(fileName) >= n && memcmp(fileName, illegalHead[i], n) == 0)
+            return NSTACKX_FALSE;
+    }
+    for (i = 0; i < sizeof(illegalPath) / sizeof(illegalPath[0]); ++i) {
+        if (strstr(fileName, illegalPath[i]) != NULL) return NSTACKX_FALSE;
+    }
+    return NSTACKX_TRUE;
+}
+
 int32_t GetCpuNum(void)
 {
     long count = sysconf(_SC_NPROCESSORS_ONLN);
@@ -87,3 +105,10 @@ int32_t PthreadMutexInit(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr
 void PthreadMutexDestroy(pthread_mutex_t *mutex) { int rc = pthread_mutex_destroy(mutex); if (rc != 0) LOGE(TAG, "mutex destroy: %d", rc); }
 int32_t PthreadMutexLock(pthread_mutex_t *mutex) { return pthread_mutex_lock(mutex); }
 int32_t PthreadMutexUnlock(pthread_mutex_t *mutex) { return pthread_mutex_unlock(mutex); }
+
+/* NSTACKX epoll and DFile platform contract. */
+void CloseDesc(int32_t desc)
+{
+    if (desc >= 0 && close(desc) != 0)
+        LOGE(TAG, "close desc error: %d", errno);
+}
