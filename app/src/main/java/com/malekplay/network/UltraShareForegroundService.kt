@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -1857,15 +1858,18 @@ class UltraShareForegroundService : Service() {
             .mapNotNull { it.address as? Inet4Address }
             .firstOrNull { !it.isAnyLocalAddress && !it.isLoopbackAddress }
             ?.hostAddress ?: return null
-        val discovery = NstackxAndroidDiscoverySession.current()
-            ?.takeIf { it.localIpv4 == localIpv4 }
-            ?: runCatching {
+        val currentDiscovery = NstackxAndroidDiscoverySession.current()
+        val discovery = when {
+            currentDiscovery != null && currentDiscovery.localIpv4 == localIpv4 -> currentDiscovery
+            currentDiscovery != null -> return null
+            else -> runCatching {
                 NstackxAndroidDiscoverySession.start(
                     this,
                     preferredLocalIpv4 = localIpv4,
                     onPeerFound = {}
                 )
             }.getOrNull() ?: return null
+        }
 
         val staged = ArrayList<UltraShareDFileStager.StagedFile>(sources.size)
         var nativeSessionId = -1
