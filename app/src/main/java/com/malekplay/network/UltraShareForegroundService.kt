@@ -665,7 +665,7 @@ class UltraShareForegroundService : Service() {
         closeDFileServerForPeer(peerAddress)
         val sessionIdRef = java.util.concurrent.atomic.AtomicInteger(-1)
         val earlyEvents = java.util.concurrent.ConcurrentLinkedQueue<NstackxNativeBridge.DFileEvent>()
-        val activeTransferIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
+        val activeTransferIds = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Int, Boolean>())
         val listener = NstackxNativeBridge.DFileListener { event ->
             val expected = sessionIdRef.get()
             if (expected <= 0) earlyEvents.add(event)
@@ -1957,7 +1957,7 @@ class UltraShareForegroundService : Service() {
         val earlyEvents = java.util.concurrent.ConcurrentLinkedQueue<NstackxNativeBridge.DFileEvent>()
         val connected = CompletableDeferred<Boolean>()
         val completed = CompletableDeferred<Boolean>()
-        val completedNames = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        val completedNames = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
         var lastProgressBytes = 0L
         var lastProgressAt = System.nanoTime()
 
