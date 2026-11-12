@@ -146,11 +146,34 @@ object UltraShareTransport {
         require(isValidPairingSecret(value)) { "رمز الاقتران غير صالح." }
         require(challenge.size == CHALLENGE_BYTES) { "تحدي الاقتران غير صالح." }
         if (value.length == PIN_LENGTH) {
-            val spec = PBEKeySpec(value.toCharArray(), challenge.copyOfRange(0, PIN_SALT_BYTES), PIN_KDF_ITERATIONS, SECRET_BYTES * 8)
-            return try {
-                SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+            // Avoid provider-specific SecretKeyFactory registration: some Android/OEM
+            // providers omit PBKDF2WithHmacSHA256 even when HmacSHA256 is available.
+            // This RFC 8018 implementation preserves the existing desktop wire vector.
+            val password = value.toByteArray(Charsets.US_ASCII)
+            val salt = challenge.copyOfRange(0, PIN_SALT_BYTES)
+            val blockInput = ByteArray(salt.size + 4)
+            salt.copyInto(blockInput)
+            blockInput[blockInput.lastIndex] = 1 // INT_32_BE(1)
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(password, "HmacSHA256"))
+            var u = mac.doFinal(blockInput)
+            val derived = u.copyOf()
+            try {
+                repeat(PIN_KDF_ITERATIONS - 1) {
+                    val next = mac.doFinal(u)
+                    for (index in derived.indices) {
+                        derived[index] = (derived[index].toInt() xor next[index].toInt()).toByte()
+                    }
+                    u.fill(0)
+                    u = next
+                }
+                return derived.copyOf(SECRET_BYTES)
             } finally {
-                spec.clearPassword()
+                password.fill(0)
+                salt.fill(0)
+                blockInput.fill(0)
+                u.fill(0)
+                derived.fill(0)
             }
         }
         return ByteArray(SECRET_BYTES) { index ->
