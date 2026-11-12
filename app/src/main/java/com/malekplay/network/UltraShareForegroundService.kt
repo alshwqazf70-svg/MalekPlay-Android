@@ -226,6 +226,15 @@ class UltraShareForegroundService : Service() {
                 stopLocalHotspot()
                 return START_NOT_STICKY
             }
+            ACTION_STOP_IF_IDLE -> {
+                if (sendJob == null && receiveJob == null && batchReceiveJob == null &&
+                    !currentState().receiving && currentState().activePeers.isEmpty() &&
+                    hotspotReservation == null && !currentState().hotspotStarting
+                ) {
+                    finishService()
+                }
+                return START_NOT_STICKY
+            }
             ACTION_STOP, ACTION_CANCEL -> {
                 if (sendJob == null && receiveJob == null && batchReceiveJob == null) startForegroundCompat()
                 sendJob?.cancel()
@@ -2178,6 +2187,7 @@ class UltraShareForegroundService : Service() {
         const val ACTION_CANCEL = "com.malekplay.ultrashare.CANCEL"
         const val ACTION_CANCEL_SEND = "com.malekplay.ultrashare.CANCEL_SEND"
         const val ACTION_STOP_RECEIVING = "com.malekplay.ultrashare.STOP_RECEIVING"
+        const val ACTION_STOP_IF_IDLE = "com.malekplay.ultrashare.STOP_IF_IDLE"
         const val ACTION_START_HOTSPOT = "com.malekplay.ultrashare.START_HOTSPOT"
         const val ACTION_STOP_HOTSPOT = "com.malekplay.ultrashare.STOP_HOTSPOT"
         const val ACTION_PAUSE = "com.malekplay.ultrashare.PAUSE"
@@ -2399,6 +2409,10 @@ class UltraShareForegroundService : Service() {
 
         fun cancelSending(context: Context) {
             context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_CANCEL_SEND))
+        }
+
+        fun stopIfUnpaired(context: Context) {
+            context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_STOP_IF_IDLE))
         }
 
         fun stopReceiving(context: Context) {
