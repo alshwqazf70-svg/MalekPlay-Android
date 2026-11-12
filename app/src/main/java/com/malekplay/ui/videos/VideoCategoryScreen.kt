@@ -89,7 +89,7 @@ fun VideoCategoryScreen(
     val filtered = remember(classified, series, searchQuery) {
         val q = searchQuery.trim()
         classified.filter { (item, kind) ->
-            val inCategory = if (series) kind.kind == VideoKind.SERIES else kind.kind == VideoKind.MOVIE
+            val inCategory = if (series) kind.kind == VideoKind.SERIES else kind.kind != VideoKind.SERIES
             val matches = q.isBlank() ||
                 item.media.displayTitle.contains(q, ignoreCase = true) ||
                 item.media.folderName.contains(q, ignoreCase = true) ||
