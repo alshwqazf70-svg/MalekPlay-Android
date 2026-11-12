@@ -63,7 +63,7 @@ internal object LibraryAssistantPolicy {
         )
     }
 
-    private fun containsAny(value: String, terms: Set<String>): Boolean = terms.any(value::contains)
+    private fun containsAny(value: String, terms: Set<String>): Boolean = terms.any { term -> value.contains(term) }
 
     private fun normalize(value: String?): String {
         val source = value?.lowercase(Locale.ROOT).orEmpty()
