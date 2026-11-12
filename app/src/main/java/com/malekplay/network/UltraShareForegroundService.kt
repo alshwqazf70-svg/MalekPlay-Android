@@ -778,6 +778,17 @@ class UltraShareForegroundService : Service() {
      * Stop all work immediately when the system reports that the limit was reached.
      */
     override fun onTimeout(startId: Int, fgsType: Int) {
+        // Android may terminate a dataSync foreground service while a peer is paired.
+        // Close both client and server control sockets (and their DFile keys) before
+        // clearing state; otherwise the independent heartbeat coroutine can outlive us.
+        val timeoutPeers = (
+            currentState().activePeers.map { it.host } +
+                approvedSendTargets().map { it.host }
+            ).distinct()
+        timeoutPeers.forEach { host ->
+            closeDFileServerForPeer(host)
+            disconnectApprovedPeer(host)
+        }
         updateState { current -> current.copy(
                 receiving = false,
                 sending = false,
@@ -791,6 +802,7 @@ class UltraShareForegroundService : Service() {
                 hotspotSsid = null,
                 hotspotPassword = null,
                 pendingConnection = null,
+                activePeers = emptyList(),
                 error = "أوقف Android خدمة النقل بعد بلوغ الحد الزمني المسموح. يمكنك بدء النقل مجدداً."
             ) }
         sendJob?.cancel()
@@ -800,7 +812,6 @@ class UltraShareForegroundService : Service() {
         controlJob?.cancel()
         pendingConnectionDecision?.cancel()
         dfileServerSessions.keys.toList().forEach(::closeDFileServerForPeer)
-        currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
         releaseTransferLocks()
         activeBatchTransferPort = 0
         runCatching { hotspotReservation?.close() }
@@ -816,8 +827,16 @@ class UltraShareForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        if (currentState().receiving) {
-            currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
+        // Service destruction is a hard session boundary, regardless of whether this
+        // device was the sender or receiver. Close both socket directions and wipe
+        // session-scoped keys so no heartbeat or stale peer remains in process memory.
+        val destroyPeers = (
+            currentState().activePeers.map { it.host } +
+                approvedSendTargets().map { it.host }
+            ).distinct()
+        destroyPeers.forEach { host ->
+            closeDFileServerForPeer(host)
+            disconnectApprovedPeer(host)
         }
         sendJob?.cancel()
         receiveJob?.cancel()
@@ -846,7 +865,7 @@ class UltraShareForegroundService : Service() {
                 hotspotSsid = null,
                 hotspotPassword = null,
                 pendingConnection = null,
-                activePeers = if (current.receiving) emptyList() else current.activePeers
+                activePeers = emptyList()
             )
         }
         if (::notificationManager.isInitialized) notificationManager.cancel(NOTIFICATION_ID)
