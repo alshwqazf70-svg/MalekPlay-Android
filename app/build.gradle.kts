@@ -159,8 +159,6 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
 
     implementation(libs.mlkit.translate)
-    // Offline speech recognition; language models are installed on demand, never bundled in the APK.
-    implementation("com.alphacephei:vosk-android:0.3.75")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:core:1.6.1")
