@@ -128,7 +128,11 @@ void BindToDevInTheSameLan(SocketDesc sockfd, const struct sockaddr_in *sockAddr
 {
     struct ifaddrs *all = NULL;
     struct ifaddrs *it;
-    if (sockfd < 0 || sockAddr == NULL || getifaddrs(&all) != 0) return;
+    if (sockfd < 0 || sockAddr == NULL) return;
+    if (getifaddrs(&all) != 0) {
+        (void)BindCurrentAndroidNetwork(sockfd);
+        return;
+    }
     for (it = all; it != NULL; it = it->ifa_next) {
         struct sockaddr_in *local;
         struct sockaddr_in *mask;
