@@ -163,6 +163,10 @@ class PlayerViewModel @Inject constructor(
     private val _stats = MutableStateFlow(PlaybackStats())
     private val _videoUpscalingEnabled = MutableStateFlow(false)
     val videoUpscalingEnabled: StateFlow<Boolean> = _videoUpscalingEnabled.asStateFlow()
+    private val _videoNoiseReductionEnabled = MutableStateFlow(false)
+    val videoNoiseReductionEnabled: StateFlow<Boolean> = _videoNoiseReductionEnabled.asStateFlow()
+    private val _videoMotionSmoothingEnabled = MutableStateFlow(false)
+    val videoMotionSmoothingEnabled: StateFlow<Boolean> = _videoMotionSmoothingEnabled.asStateFlow()
     private val _videoUpscalingError = MutableStateFlow<String?>(null)
     val videoUpscalingError: StateFlow<String?> = _videoUpscalingError.asStateFlow()
     val stats: StateFlow<PlaybackStats> = _stats.asStateFlow()
@@ -295,6 +299,8 @@ class PlayerViewModel @Inject constructor(
             // GPU upscaling is an explicit per-video action, never an implicit
             // background setting carried into the next item.
             _videoUpscalingEnabled.value = false
+            _videoNoiseReductionEnabled.value = false
+            _videoMotionSmoothingEnabled.value = false
             // The player already points at the new item here. Do not save its
             // position under the previous item's id.
             val nextMediaId = mediaItem?.mediaId
@@ -384,27 +390,37 @@ class PlayerViewModel @Inject constructor(
     }
 
 
-    /** Requests GPU Lanczos resampling from the playback service, which owns the real ExoPlayer. */
-    fun setVideoUpscalingEnabled(enabled: Boolean) {
+    /** Sends an explicit per-video effect toggle to the service that owns ExoPlayer. */
+    fun setVideoUpscalingEnabled(enabled: Boolean) =
+        setVideoEffectEnabled(PlaybackVideoEffects.ACTION_UPSCALING, enabled) { _videoUpscalingEnabled.value = it }
+
+    fun setVideoNoiseReductionEnabled(enabled: Boolean) =
+        setVideoEffectEnabled(PlaybackVideoEffects.ACTION_NOISE_REDUCTION, enabled) { _videoNoiseReductionEnabled.value = it }
+
+    fun setVideoMotionSmoothingEnabled(enabled: Boolean) =
+        setVideoEffectEnabled(PlaybackVideoEffects.ACTION_MOTION_SMOOTHING, enabled) { _videoMotionSmoothingEnabled.value = it }
+
+    private fun setVideoEffectEnabled(
+        action: String,
+        enabled: Boolean,
+        publishState: (Boolean) -> Unit
+    ) {
         val player = _controller.value ?: return
         _videoUpscalingError.value = null
-        val args = Bundle().apply {
-            putBoolean(PlaybackVideoEffects.KEY_ENABLED, enabled)
-        }
-        val future = runCatching {
-            player.sendCustomCommand(PlaybackVideoEffects.COMMAND, args)
-        }.getOrNull() ?: run {
-            _videoUpscalingEnabled.value = false
-            _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_gpu_upscaling_unavailable)
+        val command = androidx.media3.session.SessionCommand(action, Bundle.EMPTY)
+        val args = Bundle().apply { putBoolean(PlaybackVideoEffects.KEY_ENABLED, enabled) }
+        val future = runCatching { player.sendCustomCommand(command, args) }.getOrNull() ?: run {
+            publishState(false)
+            _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_video_effect_unavailable)
             return
         }
         future.addListener(
             {
                 val result = runCatching { future.get() }.getOrNull()
                 val success = result?.resultCode == SessionResult.RESULT_SUCCESS
-                _videoUpscalingEnabled.value = enabled && success
+                publishState(enabled && success)
                 if (!success) {
-                    _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_gpu_upscaling_unavailable)
+                    _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_video_effect_unavailable)
                 }
             },
             ContextCompat.getMainExecutor(app)
