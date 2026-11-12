@@ -333,13 +333,26 @@ private fun FolderTile(folder: MediaFolder, onOpen: () -> Unit) {
             .clickable(onClick = onOpen).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
-                .background(colors.primaryContainer.copy(.25f))
-                .border(1.dp, colors.primary.copy(.35f), RoundedCornerShape(13.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Filled.Folder, null, tint = colors.primary)
+        Box {
+            Box(
+                Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
+                    .background(colors.primaryContainer.copy(.25f))
+                    .border(1.dp, colors.primary.copy(.35f), RoundedCornerShape(13.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.Folder, null, tint = colors.primary)
+            }
+            if (folder.newItemCount > 0) {
+                Box(
+                    Modifier.align(Alignment.TopStart).offset(x = (-5).dp, y = (-5).dp)
+                        .clip(CircleShape).background(colors.primary)
+                        .border(1.dp, colors.surface, CircleShape)
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                ) {
+                    Text(folder.newItemCount.toString(), color = colors.onPrimary,
+                        style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+            }
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
