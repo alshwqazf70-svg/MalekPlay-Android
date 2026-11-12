@@ -384,29 +384,33 @@ object UltraShareControlChannel {
             request.peerId?.let { serverSessionPeerIds[peerAddress] = it }
         }
         if (dfileKey != null) {
-            // Publish the key before preparing the native receiver. The receiver must be
-            // listening before ACCEPT is sent, otherwise the first DFile SYN can be lost.
-            serverSessionDFileKeys[peerAddress] = dfileKey.copyOf()
-            negotiatedDFilePort = try {
-                val callbackKey = dfileKey.copyOf()
-                try {
-                    onDFileServerReady(request, callbackKey)
-                } finally {
-                    callbackKey.fill(0)
+            try {
+                // Publish the key before preparing the native receiver. The receiver must be
+                // listening before ACCEPT is sent, otherwise the first DFile SYN can be lost.
+                serverSessionDFileKeys[peerAddress] = dfileKey.copyOf()
+                negotiatedDFilePort = try {
+                    val callbackKey = dfileKey.copyOf()
+                    try {
+                        onDFileServerReady(request, callbackKey)
+                    } finally {
+                        callbackKey.fill(0)
+                    }
+                } catch (cancelled: CancellationException) {
+                    // Never turn structured cancellation into a successful TCP fallback.
+                    // The outer finally will retire the published session and wipe keys.
+                    throw cancelled
+                } catch (_: Exception) {
+                    // DFile is an optional fast path; ordinary startup errors retain
+                    // the authenticated control session and its compatible TCP fallback.
+                    null
+                }?.takeIf { it in 1..65535 }
+                if (negotiatedDFilePort == null) {
+                    serverSessionDFileKeys.remove(peerAddress)?.fill(0)
                 }
-            } catch (cancelled: CancellationException) {
-                // Never turn structured cancellation into a successful TCP fallback.
-                // The outer finally will retire the published session and wipe keys.
-                throw cancelled
-            } catch (_: Exception) {
-                // DFile is an optional fast path; ordinary startup errors retain
-                // the authenticated control session and its compatible TCP fallback.
-                null
-            }?.takeIf { it in 1..65535 }
-            if (negotiatedDFilePort == null) {
-                serverSessionDFileKeys.remove(peerAddress)?.fill(0)
+            } finally {
+                // Wipe the derived local key even when the callback is cancelled.
+                dfileKey.fill(0)
             }
-            dfileKey.fill(0)
         }
         val encodedLocalName = encodeHex(localPeerName.take(48).toByteArray(Charsets.UTF_8))
         val stableLocalPeerId = localPeerId?.replace("-", "")?.lowercase()
