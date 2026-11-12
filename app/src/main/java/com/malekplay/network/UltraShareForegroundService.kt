@@ -510,42 +510,21 @@ class UltraShareForegroundService : Service() {
                                     }
                                 }
                             ) { request ->
-                                // Pairing is temporary: each new session receives one
-                                // visible approval. Device identity never grants silent consent.
-                                pendingConnectionMutex.lock()
-                                try {
-                                    val decision = CompletableDeferred<UltraShareControlChannel.Decision>()
-                                    pendingConnectionDecision = decision
-                                    updateState { current -> current.copy(
-                                        pendingConnection = request,
-                                        status = "طلب اتصال وارد من " + request.peerName
-                                    ) }
-                                    try {
-                                        val result = kotlinx.coroutines.withTimeoutOrNull(110_000L) {
-                                            decision.await()
-                                        } ?: UltraShareControlChannel.Decision.REJECTED
-                                        if (result == UltraShareControlChannel.Decision.ACCEPTED) {
-                                            registerApprovedPeer(
-                                                name = request.peerName,
-                                                host = request.peerAddress,
-                                                role = "اتصال مؤقت عبر QR",
-                                                sessionId = request.peerId ?: request.requestId
-                                            )
-                                        }
-                                        result
-                                    } finally {
-                                        if (pendingConnectionDecision === decision) {
-                                            pendingConnectionDecision = null
-                                        }
-                                        updateState { current ->
-                                            if (current.pendingConnection?.requestId == request.requestId) {
-                                                current.copy(pendingConnection = null)
-                                            } else current
-                                        }
-                                    }
-                                } finally {
-                                    pendingConnectionMutex.unlock()
-                                }
+                                // A valid QR/PIN is the user's pairing authorization.
+                                // Accept the authenticated session immediately; do not ask
+                                // the receiver for a second approval or persist device trust.
+                                registerApprovedPeer(
+                                    name = request.peerName,
+                                    host = request.peerAddress,
+                                    role = "اتصال تلقائي مؤقت عبر QR/الرمز",
+                                    sessionId = request.peerId ?: request.requestId
+                                )
+                                updateState { current -> current.copy(
+                                    pendingConnection = null,
+                                    status = "تم الاتصال تلقائياً مع " + request.peerName,
+                                    error = null
+                                ) }
+                                UltraShareControlChannel.Decision.ACCEPTED
                             }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
@@ -1758,7 +1737,7 @@ class UltraShareForegroundService : Service() {
                     var samePathReady = UltraShareControlChannel.isSessionActive(activeHost)
                     if (!samePathReady) {
                         updateState { current -> current.copy(
-                            status = "انقطع الاتصال؛ نعيد طلب الموافقة من الجهاز المستقبل قبل استئناف الملفات..."
+                            status = "انقطع الاتصال؛ نعيد الاتصال تلقائياً بالجهاز المستقبل قبل استئناف الملفات..."
                         ) }
                         try {
                             val decision = UltraShareControlChannel.request(
@@ -1770,7 +1749,7 @@ class UltraShareForegroundService : Service() {
                                 onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
                             )
                             check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
-                                "لم يوافق الجهاز المستقبل على إعادة الاتصال."
+                                "تعذر إكمال إعادة الاتصال التلقائي بالجهاز المستقبل."
                             }
                             check(UltraShareControlChannel.isSessionActive(activeHost)) {
                                 "انقطعت قناة التحكم أثناء إعادة الاتصال."
@@ -1846,7 +1825,7 @@ class UltraShareForegroundService : Service() {
                             onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
                         )
                         check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
-                            "لم يوافق الجهاز المستقبل على المسار البديل."
+                            "تعذر الاتصال تلقائياً عبر المسار البديل."
                         }
                         check(UltraShareControlChannel.isSessionActive(candidate.host)) {
                             "انقطعت قناة التحكم أثناء تفعيل المسار البديل."
