@@ -257,7 +257,7 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "platform-tools" "ndk;27.2.12479018" "cmake;3.22.1"
       - name: Prepare pinned NSTACKX source trees
         run: bash scripts/prepare_nstackx_sources.sh
-      - name: Run instrumentation tests on Android 15 emulator
+      - name: Run instrumentation tests on Android API ${{ matrix.api-level }} emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
