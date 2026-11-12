@@ -895,7 +895,7 @@ fun UltraShareExperienceScreen(
                             }
                             Text("انضم إلى مجموعة صديقك", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                             Text(
-                                "امسح رمز QR الظاهر على هاتف المضيف، أو ابحث عن الأجهزة القريبة. سيطلب MalekPlay موافقة المضيف قبل بدء الاتصال والنقل.",
+                                "امسح رمز QR الظاهر على هاتف المضيف، أو ابحث عن الأجهزة القريبة. سيبدأ الاتصال تلقائياً بعد التحقق من رمز الاقتران، ويمكنك نقل الملفات مباشرة.",
                                 color = Color(0xFFB7C5E7),
                                 style = MaterialTheme.typography.bodyMedium,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
