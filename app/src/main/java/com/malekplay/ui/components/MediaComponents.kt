@@ -408,6 +408,7 @@ fun MediaListRow(
 fun MediaGridCard(
     item: LibraryItem,
     modifier: Modifier = Modifier,
+    isLastPlayed: Boolean = false,
     onPlay: () -> Unit,
     onFavourite: () -> Unit,
     onAddToPlaylist: () -> Unit,
@@ -506,7 +507,7 @@ fun MediaGridCard(
             Text(
                 text = item.media.displayTitle,
                 style = MaterialTheme.typography.titleSmall,
-                color = colors.onSurface,
+                color = if (isLastPlayed) Color(0xFF2196F3) else colors.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
