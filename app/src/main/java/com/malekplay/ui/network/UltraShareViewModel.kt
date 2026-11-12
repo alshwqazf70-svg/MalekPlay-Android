@@ -351,6 +351,9 @@ class UltraShareViewModel @Inject constructor(
     fun disconnectPeer(host: String) {
         UltraShareForegroundService.disconnectApprovedPeer(host)
         forgetApprovedSenderTarget(host)
+        // This is an explicit user disconnect. Stop only an otherwise-idle sender
+        // service; an active receiver remains available for other incoming peers.
+        UltraShareForegroundService.stopIfUnpaired(context)
     }
 
     fun reconnectPeer(host: String) {
@@ -409,6 +412,7 @@ class UltraShareViewModel @Inject constructor(
         val currentHost = _state.value.approvedPeerHost ?: return
         UltraShareForegroundService.disconnectApprovedPeer(currentHost)
         forgetApprovedSenderTarget(currentHost)
+        UltraShareForegroundService.stopIfUnpaired(context)
     }
 
     fun acceptConnection() {
