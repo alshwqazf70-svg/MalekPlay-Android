@@ -8,11 +8,16 @@
  */
 #include <jni.h>
 #include <pthread.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "nstackx.h"
 #include "nstackx_struct.h"
+#include "nstackx_dfile.h"
 #include "sys_network.h"
 
 #define TAG "MalekPlayerNSTACKX"
@@ -22,6 +27,9 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static JavaVM *g_vm = NULL;
 static jclass g_bridge_class = NULL;
 static jmethodID g_on_device_found = NULL;
+static jmethodID g_on_dfile_event = NULL;
+#define DFILE_SESSION_CAPACITY 32
+static int32_t g_dfile_sessions[DFILE_SESSION_CAPACITY] = {0};
 static int g_initialized = 0;
 static int g_discovery_started = 0;
 
@@ -122,7 +130,9 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeInitialize(
     g_on_device_found = (*env)->GetStaticMethodID(
         env, clazz, "onNativeDeviceFound",
         "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
-    if (g_on_device_found == NULL) {
+    g_on_dfile_event = (*env)->GetStaticMethodID(
+        env, clazz, "onNativeDFileEvent", "(IIJJLjava/lang/String;)V");
+    if (g_on_device_found == NULL || g_on_dfile_event == NULL) {
         (*env)->DeleteGlobalRef(env, globalClass);
         globalClass = NULL;
         pthread_mutex_unlock(&g_lock);
@@ -155,6 +165,7 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeInitialize(
         if (g_bridge_class != NULL) (*env)->DeleteGlobalRef(env, g_bridge_class);
         g_bridge_class = NULL;
         g_on_device_found = NULL;
+        g_on_dfile_event = NULL;
         NstackxSetNetworkHandle(0);
     }
     pthread_mutex_unlock(&g_lock);
@@ -222,4 +233,261 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeRelease(JNIEnv *env, jclass
     g_on_device_found = NULL;
     NstackxSetNetworkHandle(0);
     pthread_mutex_unlock(&g_lock);
+}
+
+
+/* DFile uses a 128-bit session key derived from the already-authenticated
+ * Ultra Share pairing context. Never pass the QR/PIN itself to these methods. */
+static int RegisterDFileSession(int32_t sessionId)
+{
+    uint32_t i;
+    int added = 0;
+    pthread_mutex_lock(&g_lock);
+    for (i = 0; i < DFILE_SESSION_CAPACITY; ++i) {
+        if (g_dfile_sessions[i] == 0) {
+            g_dfile_sessions[i] = sessionId;
+            added = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_lock);
+    return added;
+}
+
+static void ForgetDFileSession(int32_t sessionId)
+{
+    uint32_t i;
+    pthread_mutex_lock(&g_lock);
+    for (i = 0; i < DFILE_SESSION_CAPACITY; ++i) {
+        if (g_dfile_sessions[i] == sessionId) {
+            g_dfile_sessions[i] = 0;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_lock);
+}
+
+static void OnDFileRename(DFileRenamePara *renamePara)
+{
+    const char *name;
+    const char *dot;
+    size_t prefixLength;
+    const char *extension;
+    unsigned int suffix;
+    if (renamePara == NULL || renamePara->initFileName == NULL) return;
+    name = strrchr(renamePara->initFileName, '/');
+    name = (name == NULL) ? renamePara->initFileName : name + 1;
+    dot = strrchr(name, '.');
+    if (dot == NULL || dot == name) dot = name + strlen(name);
+    prefixLength = (size_t)(dot - renamePara->initFileName);
+    extension = dot;
+    for (suffix = 1; suffix < 10000; ++suffix) {
+        int written = snprintf(renamePara->newFileName, sizeof(renamePara->newFileName),
+            "%.*s (%u)%s", (int)prefixLength, renamePara->initFileName, suffix, extension);
+        if (written > 0 && (size_t)written < sizeof(renamePara->newFileName)) return;
+    }
+    renamePara->newFileName[0] = '\\0';
+}
+
+static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileMsg *msg)
+{
+    JNIEnv *env = NULL;
+    jclass callbackClass = NULL;
+    jstring message = NULL;
+    int attached = 0;
+    jlong transferred = 0;
+    jlong total = 0;
+    int errorCode = 0;
+    char text[96];
+
+    pthread_mutex_lock(&g_lock);
+    if (g_bridge_class != NULL && g_on_dfile_event != NULL) {
+        callbackClass = (jclass)(*g_vm)->NewLocalRef(g_vm, g_bridge_class);
+    }
+    pthread_mutex_unlock(&g_lock);
+    if (callbackClass == NULL || g_vm == NULL) return;
+
+    jint status = (*g_vm)->GetEnv(g_vm, (void **)&env, JNI_VERSION_1_6);
+    if (status == JNI_EDETACHED) {
+        if ((*g_vm)->AttachCurrentThread(g_vm, &env, NULL) != JNI_OK) return;
+        attached = 1;
+    } else if (status != JNI_OK) {
+        return;
+    }
+
+    if (msg != NULL) {
+        errorCode = msg->errorCode;
+        if (msgType == DFILE_ON_TRANS_IN_PROGRESS ||
+            msgType == DFILE_ON_SESSION_IN_PROGRESS) {
+            transferred = (jlong)msg->transferUpdate.bytesTransferred;
+            total = (jlong)msg->transferUpdate.totalBytes;
+        }
+    }
+    (void)snprintf(text, sizeof(text), "%s%d",
+        errorCode == 0 ? "" : "error:", errorCode);
+    message = (*env)->NewStringUTF(env, text);
+    if (message != NULL) {
+        (*env)->CallStaticVoidMethod(env, callbackClass, g_on_dfile_event,
+            (jint)sessionId, (jint)msgType, transferred, total, message);
+        (*env)->DeleteLocalRef(env, message);
+    }
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    (*env)->DeleteLocalRef(env, callbackClass);
+    if (attached) (*g_vm)->DetachCurrentThread(g_vm);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_malekplay_network_NstackxNativeBridge_nativeDFileStartServer(
+    JNIEnv *env, jclass clazz, jstring localIpv4, jint port, jbyteArray key, jstring storagePath)
+{
+    const char *ip = NULL, *path = NULL;
+    jbyte *keyBytes = NULL;
+    jsize keyLength;
+    struct sockaddr_in address;
+    struct in_addr parsed;
+    int32_t sessionId;
+    int32_t result;
+    (void)clazz;
+    if (localIpv4 == NULL || storagePath == NULL || key == NULL ||
+        port < 1 || port > 65535) return -1201;
+    keyLength = (*env)->GetArrayLength(env, key);
+    if (keyLength != 16) return -1202;
+    ip = (*env)->GetStringUTFChars(env, localIpv4, NULL);
+    path = (*env)->GetStringUTFChars(env, storagePath, NULL);
+    keyBytes = (*env)->GetByteArrayElements(env, key, NULL);
+    if (ip == NULL || path == NULL || keyBytes == NULL) {
+        result = -1203;
+        goto SERVER_CLEANUP;
+    }
+    if (inet_pton(AF_INET, ip, &parsed) != 1 || strlen(path) == 0 ||
+        strlen(path) > NSTACKX_MAX_PATH_LEN) {
+        result = -1204;
+        goto SERVER_CLEANUP;
+    }
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = ntohl(parsed.s_addr); /* DFile API expects host order. */
+    address.sin_port = (uint16_t)port;
+
+    sessionId = NSTACKX_DFileServer(&address, sizeof(address),
+        (const uint8_t *)keyBytes, (uint32_t)keyLength, OnDFileMessage);
+    if (sessionId <= 0) {
+        result = sessionId;
+        goto SERVER_CLEANUP;
+    }
+    if (!RegisterDFileSession(sessionId)) {
+        NSTACKX_DFileClose(sessionId);
+        result = -1205;
+        goto SERVER_CLEANUP;
+    }
+    result = NSTACKX_DFileSetStoragePath(sessionId, path);
+    if (result == 0) result = NSTACKX_DFileSetRenameHook(sessionId, OnDFileRename);
+    if (result != 0) {
+        ForgetDFileSession(sessionId);
+        NSTACKX_DFileClose(sessionId);
+    } else {
+        result = sessionId;
+    }
+
+SERVER_CLEANUP:
+    if (keyBytes != NULL) (*env)->ReleaseByteArrayElements(env, key, keyBytes, JNI_ABORT);
+    ReleaseUtf(env, localIpv4, ip);
+    ReleaseUtf(env, storagePath, path);
+    return result;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_malekplay_network_NstackxNativeBridge_nativeDFileStartClient(
+    JNIEnv *env, jclass clazz, jstring remoteIpv4, jint port, jbyteArray key)
+{
+    const char *ip = NULL;
+    jbyte *keyBytes = NULL;
+    jsize keyLength;
+    struct sockaddr_in address;
+    struct in_addr parsed;
+    int32_t sessionId;
+    int32_t result;
+    (void)clazz;
+    if (remoteIpv4 == NULL || key == NULL || port < 1 || port > 65535) return -1211;
+    keyLength = (*env)->GetArrayLength(env, key);
+    if (keyLength != 16) return -1212;
+    ip = (*env)->GetStringUTFChars(env, remoteIpv4, NULL);
+    keyBytes = (*env)->GetByteArrayElements(env, key, NULL);
+    if (ip == NULL || keyBytes == NULL) {
+        result = -1213;
+        goto CLIENT_CLEANUP;
+    }
+    if (inet_pton(AF_INET, ip, &parsed) != 1) {
+        result = -1214;
+        goto CLIENT_CLEANUP;
+    }
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = ntohl(parsed.s_addr); /* DFile API expects host order. */
+    address.sin_port = (uint16_t)port;
+    sessionId = NSTACKX_DFileClient(&address, sizeof(address),
+        (const uint8_t *)keyBytes, (uint32_t)keyLength, OnDFileMessage);
+    if (sessionId <= 0) {
+        result = sessionId;
+    } else if (!RegisterDFileSession(sessionId)) {
+        NSTACKX_DFileClose(sessionId);
+        result = -1215;
+    } else {
+        result = sessionId;
+    }
+
+CLIENT_CLEANUP:
+    if (keyBytes != NULL) (*env)->ReleaseByteArrayElements(env, key, keyBytes, JNI_ABORT);
+    ReleaseUtf(env, remoteIpv4, ip);
+    return result;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_malekplay_network_NstackxNativeBridge_nativeDFileSendFiles(
+    JNIEnv *env, jclass clazz, jint sessionId, jobjectArray filePaths)
+{
+    jsize count;
+    const char **paths;
+    jsize i;
+    int32_t result;
+    (void)clazz;
+    if (sessionId <= 0 || filePaths == NULL) return -1221;
+    count = (*env)->GetArrayLength(env, filePaths);
+    if (count <= 0 || count > NSTACKX_MAX_FILE_LIST_NUM) return -1222;
+    paths = (const char **)calloc((size_t)count, sizeof(char *));
+    if (paths == NULL) return -1223;
+    for (i = 0; i < count; ++i) {
+        jstring path = (jstring)(*env)->GetObjectArrayElement(env, filePaths, i);
+        if (path == NULL) {
+            result = -1224;
+            goto SEND_CLEANUP;
+        }
+        paths[i] = (*env)->GetStringUTFChars(env, path, NULL);
+        (*env)->DeleteLocalRef(env, path);
+        if (paths[i] == NULL) {
+            result = -1225;
+            goto SEND_CLEANUP;
+        }
+    }
+    result = NSTACKX_DFileSendFiles(sessionId, paths, (uint32_t)count, "MalekPlayer");
+SEND_CLEANUP:
+    for (i = 0; i < count; ++i) {
+        if (paths[i] != NULL) {
+            /* GetStringUTFChars is paired with the original local reference only
+             * if it is retained; JNI releases by matching the jstring object. */
+        }
+    }
+    free(paths);
+    return result;
+}
+
+JNIEXPORT void JNICALL
+Java_com_malekplay_network_NstackxNativeBridge_nativeDFileCloseSession(
+    JNIEnv *env, jclass clazz, jint sessionId)
+{
+    (void)env;
+    (void)clazz;
+    if (sessionId <= 0) return;
+    ForgetDFileSession(sessionId);
+    NSTACKX_DFileClose(sessionId);
 }
