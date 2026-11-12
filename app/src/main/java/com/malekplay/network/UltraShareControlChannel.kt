@@ -364,7 +364,12 @@ object UltraShareControlChannel {
             // listening before ACCEPT is sent, otherwise the first DFile SYN can be lost.
             serverSessionDFileKeys[peerAddress] = dfileKey.copyOf()
             negotiatedDFilePort = runCatching {
-                onDFileServerReady(request, dfileKey.copyOf())
+                val callbackKey = dfileKey.copyOf()
+                try {
+                    onDFileServerReady(request, callbackKey)
+                } finally {
+                    callbackKey.fill(0)
+                }
             }.getOrNull()?.takeIf { it in 1..65535 }
             if (negotiatedDFilePort == null) {
                 serverSessionDFileKeys.remove(peerAddress)?.fill(0)
