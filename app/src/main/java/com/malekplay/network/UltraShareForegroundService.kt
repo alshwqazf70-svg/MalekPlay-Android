@@ -40,6 +40,7 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import java.net.ServerSocket
 
 data class UltraShareServiceState(
     val pairingSecret: String = "",
@@ -127,6 +128,7 @@ internal fun latestActivePeerReceiveProgress(
  */
 class UltraShareForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val dfileServerSessions = java.util.concurrent.ConcurrentHashMap<String, Int>()
     @Volatile private var receiveJob: Job? = null
     @Volatile private var batchReceiveJob: Job? = null
     @Volatile private var activeBatchTransferPort: Int = 0
@@ -191,7 +193,11 @@ class UltraShareForegroundService : Service() {
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
-                currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
+                currentState().activePeers.forEach {
+                    closeDFileServerForPeer(it.host)
+                    UltraShareControlChannel.closeServerSession(it.host)
+                }
+                dfileServerSessions.keys.toList().forEach(::closeDFileServerForPeer)
                 updateState { current -> current.copy(activePeers = emptyList(), pendingConnection = null) }
                 return START_NOT_STICKY
             }
@@ -484,7 +490,15 @@ class UltraShareForegroundService : Service() {
                                 localPeerName = Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
                                 localPeerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
                                 onSessionClosed = { request ->
+                                    closeDFileServerForPeer(request.peerAddress)
                                     disconnectApprovedPeer(request.peerAddress)
+                                },
+                                onDFileServerReady = { request, ephemeralKey ->
+                                    try {
+                                        startDFileServerForPeer(request.peerAddress)
+                                    } finally {
+                                        ephemeralKey.fill(0)
+                                    }
                                 }
                             ) { request ->
                                 // A current MalekPlay client proves possession of the one-session
@@ -593,6 +607,36 @@ class UltraShareForegroundService : Service() {
         return START_NOT_STICKY
     }
 
+    private fun startDFileServerForPeer(peerAddress: String): Int? {
+        if (!NstackxNativeBridge.isAvailable) return null
+        val discovery = NstackxAndroidDiscoverySession.current()
+            ?: runCatching {
+                NstackxAndroidDiscoverySession.start(this, onPeerFound = {})
+            }.getOrNull()
+            ?: return null
+        val destination = UltraShareTransport.defaultReceiveDirectory(this)
+        if (!destination.isDirectory || !destination.canWrite()) return null
+
+        // Probe a free high port. The native server binds it before ACCEPT is emitted.
+        val port = runCatching { ServerSocket(0).use { it.localPort } }
+            .getOrNull()?.takeIf { it in 40_000..65_535 } ?: return null
+        val sessionId = runCatching {
+            NstackxNativeBridge.startApprovedDFileServer(
+                peerIpv4 = peerAddress,
+                localIpv4 = discovery.localIpv4,
+                port = port,
+                destinationDirectory = destination
+            )
+        }.getOrDefault(-1)
+        if (sessionId <= 0) return null
+        dfileServerSessions.put(peerAddress, sessionId)?.let(NstackxNativeBridge::closeDFileSession)
+        return port
+    }
+
+    private fun closeDFileServerForPeer(peerAddress: String) {
+        dfileServerSessions.remove(peerAddress)?.let(NstackxNativeBridge::closeDFileSession)
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     /**
@@ -646,6 +690,7 @@ class UltraShareForegroundService : Service() {
         advertisementJob?.cancel()
         controlJob?.cancel()
         pendingConnectionDecision?.cancel()
+        dfileServerSessions.keys.toList().forEach(::closeDFileServerForPeer)
         serviceScope.cancel()
         releaseTransferLocks()
         runCatching { hotspotReservation?.close() }
