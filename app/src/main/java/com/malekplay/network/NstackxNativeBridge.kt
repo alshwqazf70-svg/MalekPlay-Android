@@ -27,8 +27,10 @@ object NstackxNativeBridge {
     data class DFileEvent(
         val sessionId: Int,
         val eventType: Int,
+        val transferId: Int,
         val transferredBytes: Long,
         val totalBytes: Long,
+        val fileNames: List<String>,
         val message: String
     ) {
         /** The pinned upstream API says fatal sessions cannot be reused and must be closed. */
@@ -203,11 +205,21 @@ object NstackxNativeBridge {
     private fun onNativeDFileEvent(
         sessionId: Int,
         eventType: Int,
+        transferId: Int,
         transferredBytes: Long,
         totalBytes: Long,
+        fileNames: Array<String>,
         message: String
     ) {
-        val event = DFileEvent(sessionId, eventType, transferredBytes, totalBytes, message)
+        val event = DFileEvent(
+            sessionId = sessionId,
+            eventType = eventType,
+            transferId = transferId,
+            transferredBytes = transferredBytes.coerceAtLeast(0L),
+            totalBytes = totalBytes.coerceAtLeast(0L),
+            fileNames = fileNames.filter { it.isNotBlank() }.map { it.substringAfterLast('/') }.distinct(),
+            message = message
+        )
         dfileListeners.forEach { listener -> runCatching { listener.onEvent(event) } }
     }
 

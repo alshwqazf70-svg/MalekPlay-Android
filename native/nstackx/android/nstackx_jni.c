@@ -142,7 +142,7 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeInitialize(
         env, bridgeClass, "onNativeDeviceFound",
         "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
     g_on_dfile_event = (*env)->GetStaticMethodID(
-        env, bridgeClass, "onNativeDFileEvent", "(IIJJLjava/lang/String;)V");
+        env, bridgeClass, "onNativeDFileEvent", "(IIIJJ[Ljava/lang/String;Ljava/lang/String;)V");
     if (g_on_device_found == NULL || g_on_dfile_event == NULL) {
         (*env)->DeleteGlobalRef(env, globalClass);
         globalClass = NULL;
@@ -356,11 +356,16 @@ static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileM
     jclass callbackClass = NULL;
     jmethodID callbackMethod = NULL;
     jstring message = NULL;
+    jobjectArray fileNames = NULL;
+    jclass stringClass = NULL;
     int attached = 0;
     int closeAfterCallback = (msgType == DFILE_ON_FATAL_ERROR);
     jlong transferred = 0;
     jlong total = 0;
+    jint transferId = 0;
     int errorCode = 0;
+    uint32_t fileCount = 0;
+    uint32_t i;
     char text[96];
 
     if (g_vm == NULL) return;
@@ -386,19 +391,50 @@ static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileM
     if (msg != NULL) {
         errorCode = msg->errorCode;
         if (msgType == DFILE_ON_TRANS_IN_PROGRESS ||
-            msgType == DFILE_ON_SESSION_IN_PROGRESS) {
+            msgType == DFILE_ON_SESSION_IN_PROGRESS ||
+            msgType == DFILE_ON_FILE_RECEIVE_SUCCESS ||
+            msgType == DFILE_ON_FILE_RECEIVE_FAIL ||
+            msgType == DFILE_ON_FILE_SEND_SUCCESS ||
+            msgType == DFILE_ON_FILE_SEND_FAIL) {
+            transferId = (jint)msg->transferUpdate.transId;
             transferred = (jlong)msg->transferUpdate.bytesTransferred;
             total = (jlong)msg->transferUpdate.totalBytes;
+        }
+        if (msgType == DFILE_ON_FILE_LIST_RECEIVED ||
+            msgType == DFILE_ON_FILE_RECEIVE_SUCCESS ||
+            msgType == DFILE_ON_FILE_RECEIVE_FAIL ||
+            msgType == DFILE_ON_FILE_SEND_SUCCESS ||
+            msgType == DFILE_ON_FILE_SEND_FAIL ||
+            msgType == DFILE_ON_TRANS_IN_PROGRESS) {
+            fileCount = msg->fileList.fileNum;
+            if (fileCount > NSTACKX_MAX_FILE_LIST_NUM) fileCount = NSTACKX_MAX_FILE_LIST_NUM;
+        }
+    }
+    stringClass = (*env)->FindClass(env, "java/lang/String");
+    if (stringClass != NULL) {
+        fileNames = (*env)->NewObjectArray(env, (jsize)fileCount, stringClass, NULL);
+        (*env)->DeleteLocalRef(env, stringClass);
+    }
+    if (fileNames != NULL && msg != NULL && msg->fileList.files != NULL) {
+        for (i = 0; i < fileCount; ++i) {
+            if (msg->fileList.files[i] != NULL) {
+                jstring fileName = (*env)->NewStringUTF(env, msg->fileList.files[i]);
+                if (fileName != NULL) {
+                    (*env)->SetObjectArrayElement(env, fileNames, (jsize)i, fileName);
+                    (*env)->DeleteLocalRef(env, fileName);
+                }
+            }
         }
     }
     (void)snprintf(text, sizeof(text), "%s%d",
         errorCode == 0 ? "" : "error:", errorCode);
     message = (*env)->NewStringUTF(env, text);
-    if (message != NULL) {
+    if (message != NULL && fileNames != NULL) {
         (*env)->CallStaticVoidMethod(env, callbackClass, callbackMethod,
-            (jint)sessionId, (jint)msgType, transferred, total, message);
+            (jint)sessionId, (jint)msgType, transferId, transferred, total, fileNames, message);
         (*env)->DeleteLocalRef(env, message);
     }
+    if (fileNames != NULL) (*env)->DeleteLocalRef(env, fileNames);
     if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
     (*env)->DeleteLocalRef(env, callbackClass);
 
