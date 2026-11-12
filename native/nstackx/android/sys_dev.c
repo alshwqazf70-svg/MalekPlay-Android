@@ -149,10 +149,3 @@ int32_t GetConnectionTypeByDev(const uint32_t sourceIp, uint16_t *connectType)
     return NSTACKX_EFAILED;
 }
 
-/* The public API in nstackx_dev.h is implemented by nstackx_util/core/nstackx_dev.c.
- * DFile's platform-specific pointer-width query remains here on Android.
- */
-uint8_t DFileGetDeviceBits(void)
-{
-    return (sizeof(void *) == 4) ? DEVICE_32_BITS : DEVICE_64_BITS;
-}
