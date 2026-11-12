@@ -100,7 +100,7 @@ target_include_directories(nstackx_util PUBLIC
     "${NSTACKX_ROOT}/nstackx_core")
 target_compile_definitions(nstackx_util PUBLIC
     NSTACKX_WITH_LINUX MBEDTLS_INCLUDED ENABLE_USER_LOG)
-target_link_libraries(nstackx_util PUBLIC nstackx_securec mbedtls mbedx509 mbedcrypto)
+target_link_libraries(nstackx_util PUBLIC nstackx_securec mbedtls mbedx509 mbedcrypto dl)
 
 set(NSTACKX_DFINDER_SOURCES
     "${NSTACKX_CTRL}/core/json_payload.c"
