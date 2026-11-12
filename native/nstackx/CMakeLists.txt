@@ -178,8 +178,7 @@ target_compile_definitions(nstackx_dfile PUBLIC
 target_link_libraries(nstackx_dfile PUBLIC
     nstackx_congestion nstackx_util nstackx_securec mbedtls mbedx509 mbedcrypto)
 
-# Shared library packaging is enabled only after the JNI bridge is added in phase 5.
-# Keeping the native modules as real static targets prevents shipping an empty JNI shell.
+# Package the real DFinder + DFile static modules behind the JNI lifecycle/transfer bridge.
 
 add_library(nstackx_engine SHARED
     "${CMAKE_CURRENT_LIST_DIR}/nstackx_engine_entry.c"
