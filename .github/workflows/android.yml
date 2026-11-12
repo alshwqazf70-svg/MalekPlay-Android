@@ -52,7 +52,10 @@ jobs:
 
       - name: Install Android SDK packages
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - name: Prepare pinned NSTACKX source trees
+        run: bash scripts/prepare_nstackx_sources.sh
 
       - name: Assemble universal debug APK for direct installation
         run: |
