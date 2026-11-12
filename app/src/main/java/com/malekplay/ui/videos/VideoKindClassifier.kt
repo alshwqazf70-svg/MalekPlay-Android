@@ -28,6 +28,8 @@ internal object VideoKindClassifier {
     )
     private val seasonPattern = Regex("""(?i)\bseason\s*(\d{1,2})\b|الموسم\s*(\d{1,2})""")
     private val trailingEpisodePattern = Regex("""(?i)^(.+?)[ ._-]+(?:episode|ep|e)?\s*([0-9]{1,2})$""")
+    private val leadingEpisodePattern = Regex("""^([0-9]{1,2})[ ._-]+(.+)$""")
+    private val numericEpisodePattern = Regex("""^([0-9]{1,2})$""")
     private val genericFolders = setOf("download", "downloads", "movies", "videos", "video", "dcim", "camera", "مسلسلات", "أفلام", "افلام", "فيديو", "الفيديوهات")
 
     private fun normalizeDigits(value: String): String = buildString(value.length) {
@@ -91,10 +93,26 @@ internal object VideoKindClassifier {
             val kind = result[file.id]?.kind
             if (kind == VideoKind.MOVIE || (kind == VideoKind.SERIES && result[file.id]?.episode != null)) return@mapNotNull null
             val title = normalizedKey(file.title)
-            val match = trailingEpisodePattern.matchEntire(title) ?: return@mapNotNull null
-            val prefix = normalizedKey(match.groupValues[1])
-            val number = match.groupValues[2].toIntOrNull() ?: return@mapNotNull null
-            if (prefix.isBlank() || number !in 1..99) return@mapNotNull null
+            val trailing = trailingEpisodePattern.matchEntire(title)
+            val leading = leadingEpisodePattern.matchEntire(title)
+            val numeric = numericEpisodePattern.matchEntire(title)
+            val number = when {
+                trailing != null -> trailing.groupValues[2].toIntOrNull()
+                leading != null -> leading.groupValues[1].toIntOrNull()
+                numeric != null -> numeric.groupValues[1].toIntOrNull()
+                else -> null
+            } ?: return@mapNotNull null
+            if (number !in 1..99) return@mapNotNull null
+            val folderName = file.folderName.takeIf {
+                normalizedKey(it) !in genericFolders && seasonPattern.find(normalizeDigits(it)) == null
+            } ?: file.folderPath.split('/').asReversed().firstOrNull {
+                normalizedKey(it) !in genericFolders && seasonPattern.find(normalizeDigits(it)) == null
+            }.orEmpty()
+            val prefix = when {
+                trailing != null -> normalizedKey(trailing.groupValues[1])
+                else -> normalizedKey(folderName)
+            }
+            if (prefix.isBlank()) return@mapNotNull null
             val folder = normalizedKey(file.folderPath.ifBlank { file.folderName })
             Triple(file, "$folder|$prefix", number)
         }
@@ -103,7 +121,11 @@ internal object VideoKindClassifier {
             siblings.forEach { (file, _, episodeNumber) ->
                 val season = seasonPattern.find(normalizeDigits(file.folderName + " " + file.folderPath))
                     ?.groupValues?.drop(1)?.firstOrNull(String::isNotBlank)?.toIntOrNull() ?: 1
-                val prefix = trailingEpisodePattern.matchEntire(normalizedKey(file.title))?.groupValues?.get(1).orEmpty()
+                val title = normalizedKey(file.title)
+                val prefix = trailingEpisodePattern.matchEntire(title)?.groupValues?.get(1)
+                    ?: file.folderName.takeIf { normalizedKey(it) !in genericFolders }
+                    ?: file.folderPath.split('/').asReversed().firstOrNull { normalizedKey(it) !in genericFolders }
+                    .orEmpty()
                 result[file.id] = ClassifiedVideo(VideoKind.SERIES, EpisodeSortKey(normalizedKey(prefix), season, episodeNumber))
             }
         }
