@@ -6,20 +6,26 @@
 #include <stdint.h>
 #include <android/multinetwork.h>
 #include <sys/socket.h>
-#include <stdatomic.h>
+#include <pthread.h>
 
 #include "sys_network.h"
 
-static atomic_uint_fast64_t g_networkHandle = ATOMIC_VAR_INIT(0);
+static pthread_mutex_t g_networkLock = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t g_networkHandle = 0;
 
 void NstackxSetNetworkHandle(uint64_t networkHandle)
 {
-    atomic_store_explicit(&g_networkHandle, networkHandle, memory_order_release);
+    pthread_mutex_lock(&g_networkLock);
+    g_networkHandle = networkHandle;
+    pthread_mutex_unlock(&g_networkLock);
 }
 
 int NstackxBindSocketToCurrentNetwork(int socketFd)
 {
-    uint64_t handle = atomic_load_explicit(&g_networkHandle, memory_order_acquire);
+    uint64_t handle;
+    pthread_mutex_lock(&g_networkLock);
+    handle = g_networkHandle;
+    pthread_mutex_unlock(&g_networkLock);
     if (handle == 0) {
         errno = ENONET;
         return -1;
