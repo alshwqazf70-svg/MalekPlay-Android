@@ -97,7 +97,7 @@ class UltraShareViewModel @Inject constructor(
     private var bluetoothSession: UltraShareBluetoothDiscovery.Session? = null
     private var bleSession: UltraShareBleDiscovery.Session? = null
     private var nstackxStartJob: Job? = null
-    private val nstackxPeerNames = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val nstackxPeerNames = NstackxPeerNameCache()
     private data class PendingQrPairing(val secret: String, val hosts: List<String>)
     private var pendingQrPairing: PendingQrPairing? = null
     private var qrP2pConnectStarted = false
@@ -481,7 +481,7 @@ class UltraShareViewModel @Inject constructor(
                         val peer = sighting.first
                         val nativeName = peer.peerId
                             ?.lowercase(java.util.Locale.ROOT)
-                            ?.let(nstackxPeerNames::get)
+                            ?.let { nstackxPeerNames.get(it) }
                         if (nativeName.isNullOrBlank()) peer
                         else UltraShareDiscovery.mergeNativePeerName(
                             peer,
@@ -518,7 +518,7 @@ class UltraShareViewModel @Inject constructor(
      * address mapping is validated on real Android devices.
      */
     private fun onNstackxPeerFound(peer: NstackxNativeBridge.Peer) {
-        nstackxPeerNames[peer.deviceId.lowercase(java.util.Locale.ROOT)] = peer.deviceName
+        nstackxPeerNames.put(peer.deviceId, peer.deviceName)
         val current = _state.value
         _state.value = current.copy(
             discoveredPeers = current.discoveredPeers.map { sighting ->
