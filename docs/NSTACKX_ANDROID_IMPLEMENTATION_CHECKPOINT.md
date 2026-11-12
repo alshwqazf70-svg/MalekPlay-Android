@@ -156,3 +156,11 @@ Still not complete:
 - The current DFile JNI API is a low-level integration surface; it is not yet substituted into the foreground-service transfer coordinator. A caller must derive the 16-byte DFile key from the authenticated session context, stage content URIs into readable app-owned files, and manage DFile server/client event state.
 - DFile server/client runtime, encryption interoperability, receive publication to MediaStore, cancellation semantics, resume behavior, and two-device transfer are not yet accepted.
 - NDK CMake build, all four ABI outputs, unit tests, and real-device discovery/transfer remain unverified until CI completes.
+
+
+## DFile session-key binding — 2026-11-12
+
+- MPC2 already derives a per-connection 256-bit control key from the challenge-response handshake.
+- The approved client and server now derive a dedicated 128-bit DFile key using HMAC-SHA256 with the domain label `MalekPlayer/NSTACKX/DFile/v1`, truncated to 16 bytes.
+- The key is stored only with the corresponding live approved control session, exposed as a defensive copy, and cleared when that session closes or is replaced. This avoids reusing the visible pairing PIN as the DFile encryption key.
+- This establishes matching key material for both peers; it does not yet mean DFile has been connected to the foreground-service batch coordinator or proven interoperable on devices.
