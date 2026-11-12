@@ -91,7 +91,7 @@ object UltraShareNegotiation {
         if (peerId.isNullOrBlank()) return emptyList()
         return orderedCandidates(
             discoveredPeers.asSequence()
-                .filter { it.peerId == peerId }
+                .filter { it.peerId?.equals(peerId, ignoreCase = true) == true }
                 .flatMap { it.candidates.asSequence() }
                 .toList()
         )
