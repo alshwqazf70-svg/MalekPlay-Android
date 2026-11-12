@@ -1066,6 +1066,13 @@ fun UltraShareScreen(
                     Text(stringResource(R.string.ultra_share_pairing_code), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                     Text(state.pairingSecret.chunked(3).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(stringResource(R.string.ultra_share_code_warning), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    if (state.receiving && qrBitmap == null) {
+                        Text(
+                            "جارٍ تجهيز رمز QR الآمن والتحقق من عنوان الاتصال. سيظهر الرمز تلقائياً بعد جاهزية خدمة الاستقبال؛ لا تمسح رمزاً قديماً أو فارغاً.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                     qrBitmap?.let { bitmap ->
                         val activeQrPayload = qrPayload ?: return@let
                         Image(
