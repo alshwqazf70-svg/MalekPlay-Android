@@ -8,6 +8,7 @@ import com.malekplay.data.local.entity.BookmarkEntity
 import com.malekplay.data.local.entity.MediaItemEntity
 import com.malekplay.data.local.entity.PlaybackProgressEntity
 import com.malekplay.data.local.entity.TrackPreferenceEntity
+import com.malekplay.data.local.nextPlaybackCount
 import com.malekplay.data.local.model.MediaWithState
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -83,7 +84,7 @@ interface MediaDao {
     ): Boolean {
         if (getMedia(progress.mediaId) == null) return false
         val existing = getProgress(progress.mediaId)
-        val count = (existing?.playCount ?: 0) + if (markPlayed) 1 else 0
+        val count = nextPlaybackCount(existing?.playCount ?: 0, markPlayed)
         upsertProgress(progress.copy(playCount = count))
         return true
     }
