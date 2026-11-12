@@ -90,8 +90,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  release-outputs:
-    name: Build optimized Release APKs and Google Play AAB
+  release-apks:
+    name: Build optimized ABI-specific Release APKs
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -128,39 +128,77 @@ jobs:
             -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" \
             -PenableNstackxNativeBuild=true \
             -PenableAbiSplits=true :app:assembleRelease
+      - name: Verify and measure optimized Release APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t apks < <(find app/build/outputs/apk/release -type f -name '*.apk' -print)
+          test "${#apks[@]}" -gt 0
+          echo "## Release APK signature verification" >> "$GITHUB_STEP_SUMMARY"
+          for apk in "${apks[@]}"; do
+            if "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$apk" >/dev/null 2>&1; then
+              echo "Signed and verified: $apk" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "Unsigned Release APK (not ready for direct installation): $apk" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            stat -c '%n %s bytes' "$apk"
+          done | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload optimized Release APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: MalekPlayer-release-apks
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  release-aab:
+    name: Build Google Play Android App Bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+      - name: Add Android SDK tools to PATH
+        run: |
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+      - name: Install Android SDK and native build tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Prepare pinned NSTACKX source trees
+        run: bash scripts/prepare_nstackx_sources.sh
       - name: Assemble Google Play Android App Bundle
         run: |
           ./gradlew --stacktrace --max-workers=2 \
             -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" \
             -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" \
             -PenableNstackxNativeBuild=true :app:bundleRelease
-      - name: Verify and measure optimized Release outputs
+          test -s app/build/outputs/bundle/release/app-release.aab
+      - name: Measure Google Play App Bundle
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$(find app/build/outputs/apk/release -type f -name '*.apk' -print -quit)"
-          test -n "$(find app/build/outputs/bundle/release -type f -name '*.aab' -print -quit)"
-          echo "## Release signature verification" >> "$GITHUB_STEP_SUMMARY"
-          while IFS= read -r apk; do
-            if "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$apk" >/dev/null 2>&1; then
-              echo "Signed and verified: $apk" >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "Unsigned Release APK (not ready for direct installation): $apk" >> "$GITHUB_STEP_SUMMARY"
-            fi
-          done < <(find app/build/outputs/apk/release -type f -name '*.apk' -print)
-          {
-            echo "## Optimized Release size measurements"
-            echo "Exact output sizes in bytes:"
-            find app/build/outputs/apk/release app/build/outputs/bundle/release -type f \
-              \( -name '*.apk' -o -name '*.aab' \) -printf '%p %s bytes\n' | sort
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload optimized Release APKs and AAB
+          aab="$(find app/build/outputs/bundle/release -type f -name '*.aab' -print -quit)"
+          test -n "$aab"
+          echo "## Google Play AAB size" >> "$GITHUB_STEP_SUMMARY"
+          stat -c '%n %s bytes' "$aab" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload Google Play App Bundle
         uses: actions/upload-artifact@v4
         with:
-          name: MalekPlayer-release-size-analysis
-          path: |
-            app/build/outputs/apk/release/*.apk
-            app/build/outputs/bundle/release/*.aab
+          name: MalekPlayer-google-play-aab
+          path: app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 14
 
