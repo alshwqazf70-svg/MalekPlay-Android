@@ -35,6 +35,15 @@ class NetworkCredentialVaultInstrumentedTest {
     }
 
     @Test
+    fun roundTripsUtf8CredentialsWithoutSplittingInsideMultibyteCharacters() {
+        val vault = NetworkCredentialVault(context)
+        val expected = "مستخدم-شبكة" to "كلمة مرور آمنة 🔐"
+        vault.save("profile_utf8", expected.first, expected.second)
+
+        assertEquals(expected, vault.load("profile_utf8"))
+    }
+
+    @Test
     fun encryptedCredentialsCannotBeMovedBetweenProfiles() {
         val vault = NetworkCredentialVault(context)
         vault.save("profile_alpha", "alice", "secret-one")
