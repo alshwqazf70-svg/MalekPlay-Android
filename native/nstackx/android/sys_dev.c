@@ -4,6 +4,7 @@
  * Android/Bionic adaptation for MalekPlayer.
  */
 #include <ifaddrs.h>
+#include <dlfcn.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -17,6 +18,27 @@
 #include "sys_network.h"
 
 #define TAG "NSTACKXAndroidDev"
+
+/*
+ * getifaddrs was added to Android's public NDK API at API 24, while this
+ * application still supports API 23. Resolve it dynamically so the native
+ * library links on API 23 and gracefully reports no interface list there.
+ */
+typedef int (*AndroidGetIfAddrsFn)(struct ifaddrs **);
+typedef void (*AndroidFreeIfAddrsFn)(struct ifaddrs *);
+
+static int AndroidGetIfAddrs(struct ifaddrs **addresses)
+{
+    AndroidGetIfAddrsFn function = (AndroidGetIfAddrsFn)dlsym(RTLD_DEFAULT, "getifaddrs");
+    if (function == NULL) return -1;
+    return function(addresses);
+}
+
+static void AndroidFreeIfAddrs(struct ifaddrs *addresses)
+{
+    AndroidFreeIfAddrsFn function = (AndroidFreeIfAddrsFn)dlsym(RTLD_DEFAULT, "freeifaddrs");
+    if (function != NULL && addresses != NULL) function(addresses);
+}
 
 static int IsUpIpv4(const struct ifaddrs *it)
 {
@@ -37,7 +59,7 @@ static int FindIpv4Interface(uint32_t address, const char *requestedName,
     struct ifaddrs *all = NULL;
     struct ifaddrs *it;
     int found = 0;
-    if (getifaddrs(&all) != 0) {
+    if (AndroidGetIfAddrs(&all) != 0) {
         LOGE(TAG, "getifaddrs failed: %d", errno);
         return NSTACKX_EFAILED;
     }
@@ -55,7 +77,7 @@ static int FindIpv4Interface(uint32_t address, const char *requestedName,
         found = 1;
         break;
     }
-    freeifaddrs(all);
+    AndroidFreeIfAddrs(all);
     return found ? NSTACKX_EOK : NSTACKX_EFAILED;
 }
 
@@ -129,7 +151,7 @@ void BindToDevInTheSameLan(SocketDesc sockfd, const struct sockaddr_in *sockAddr
     struct ifaddrs *all = NULL;
     struct ifaddrs *it;
     if (sockfd < 0 || sockAddr == NULL) return;
-    if (getifaddrs(&all) != 0) {
+    if (AndroidGetIfAddrs(&all) != 0) {
         (void)BindCurrentAndroidNetwork(sockfd);
         return;
     }
@@ -145,7 +167,7 @@ void BindToDevInTheSameLan(SocketDesc sockfd, const struct sockaddr_in *sockAddr
             break;
         }
     }
-    freeifaddrs(all);
+    AndroidFreeIfAddrs(all);
     /* A peer may be reachable through an Android Network route that is not
      * represented by a matching address prefix (notably Wi-Fi Direct). */
     (void)BindCurrentAndroidNetwork(sockfd);
