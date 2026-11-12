@@ -58,4 +58,18 @@ class Pbkdf2HmacSha256Android10Test {
         )
     }
 
+    @Test
+    fun verifiesPreviouslyStoredSha256PinHashWithoutChangingItsFormat() {
+        val saltHex = (0..15).joinToString("") { "%02x".format(it) }
+        context.getSharedPreferences("malekplay_family", Context.MODE_PRIVATE)
+            .edit()
+            .putString("pin_salt", saltHex)
+            .putString("pin_hash", "2497e41fe56f78db046c2e2fbe82320c17b011b2b08d811adbde38e56a33d656")
+            .putInt("pin_failures", 0)
+            .putLong("pin_lock_until", 0L)
+            .commit()
+
+        assertTrue(ParentalControlManager(context).verifyPin("4826"))
+    }
+
 }
