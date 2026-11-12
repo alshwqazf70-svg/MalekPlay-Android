@@ -201,9 +201,9 @@ class UltraShareForegroundService : Service() {
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
-                currentState().activePeers.forEach {
-                    closeDFileServerForPeer(it.host)
-                    UltraShareControlChannel.closeServerSession(it.host)
+                currentState().activePeers.map { it.host }.distinct().forEach { host ->
+                    closeDFileServerForPeer(host)
+                    disconnectApprovedPeer(host)
                 }
                 dfileServerSessions.keys.toList().forEach(::closeDFileServerForPeer)
                 updateState { current -> current.copy(activePeers = emptyList(), pendingConnection = null) }
@@ -244,7 +244,7 @@ class UltraShareForegroundService : Service() {
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
                 dfileServerSessions.keys.toList().forEach(::closeDFileServerForPeer)
-                currentState().activePeers.forEach { UltraShareControlChannel.closeServerSession(it.host) }
+                currentState().activePeers.map { it.host }.distinct().forEach(::disconnectApprovedPeer)
                 stopLocalHotspot()
                 if (sendJob == null && receiveJob == null && batchReceiveJob == null) finishService()
                 return START_NOT_STICKY
