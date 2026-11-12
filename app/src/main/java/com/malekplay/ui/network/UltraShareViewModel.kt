@@ -224,8 +224,7 @@ class UltraShareViewModel @Inject constructor(
                 val routeHosts = (
                     listOf(host.trim()) +
                         alternateHosts.filter {
-                            UltraShareTransport.isValidPrivateLanHost(it) &&
-                                !UltraShareNetworkRouting.isWifiDirectGroupHost(it)
+                            UltraShareTransport.isValidPrivateLanHost(it)
                         } +
                         orderedRoutes.map { it.host }
                     ).distinct()
@@ -784,7 +783,7 @@ class UltraShareViewModel @Inject constructor(
                                 requestConnection(
                                     host = fallback,
                                     secret = pending.secret,
-                                    alternateHosts = pending.hosts.drop(1)
+                                    alternateHosts = pending.hosts.filter { it != fallback }
                                 )
                             } else {
                                 _state.value = _state.value.copy(
