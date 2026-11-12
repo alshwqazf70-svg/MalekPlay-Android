@@ -57,7 +57,14 @@
     <uses-feature android:name="android.software.picture_in_picture" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
-    <!-- Legacy DLNA may use HTTP. App code permits it only through dedicated DLNA routes after private-host validation, LAN socket binding and redirect blocking; ordinary HTTP media URLs are rejected. -->
+    <!--
+        Legacy DLNA devices frequently expose HTTP on dynamic RFC1918/link-local addresses.
+        Android Network Security Config cannot express private-IP ranges, so disabling
+        cleartext globally would break those devices. Keep HTTP compatibility here only
+        while DLNA call sites enforce numeric private-peer validation, same-device endpoint
+        checks, explicit LAN socket binding where supported, bounded responses and no redirects.
+        Ordinary playback HTTP URLs, WebDAV and remote network profiles require HTTPS.
+    -->
     <application
         android:name=".MalekPlayApplication"
         android:allowBackup="true"
