@@ -307,6 +307,7 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          emulator-options: -no-window -no-audio -no-boot-anim -camera-back none -camera-front none
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
           script: ./gradlew --stacktrace --max-workers=2 -PenableNstackxNativeBuild=true :app:connectedDebugAndroidTest
