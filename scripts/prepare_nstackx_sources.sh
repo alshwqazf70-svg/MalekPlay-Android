@@ -59,6 +59,9 @@ checkout_pinned libcoap "$LIBCOAP_REPOSITORY" "$LIBCOAP_COMMIT"
 checkout_pinned cjson "$CJSON_REPOSITORY" "$CJSON_COMMIT"
 checkout_pinned securec "$SECUREC_REPOSITORY" "$SECUREC_COMMIT"
 checkout_pinned mbedtls "$MBEDTLS_REPOSITORY" "$MBEDTLS_COMMIT"
+# The OpenHarmony Mbed TLS snapshot requires its framework submodule at configure time.
+# Pin the exact gitlink SHA recorded by the upstream mbedtls-3.6.5 release tag.
+checkout_pinned mbedtls/framework "$MBEDTLS_FRAMEWORK_REPOSITORY" "$MBEDTLS_FRAMEWORK_COMMIT"
 
 echo "Pinned source acquisition completed."
 echo "This script does not compile or link NSTACKX; Android adaptation/build is a later phase."
