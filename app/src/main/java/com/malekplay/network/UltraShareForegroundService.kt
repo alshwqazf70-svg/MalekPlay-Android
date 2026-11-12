@@ -614,6 +614,8 @@ class UltraShareForegroundService : Service() {
                 NstackxAndroidDiscoverySession.start(this, onPeerFound = {})
             }.getOrNull()
             ?: return null
+        // A replacement approval supersedes the old native receiver for this peer.
+        dfileServerSessions.remove(peerAddress)?.let(NstackxNativeBridge::closeDFileSession)
         val destination = UltraShareTransport.defaultReceiveDirectory(this)
         if (!destination.isDirectory || !destination.canWrite()) return null
 
