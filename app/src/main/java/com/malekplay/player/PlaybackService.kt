@@ -187,8 +187,10 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         progressJob?.cancel()
-        thermalStatusListener?.let { listener ->
-            runCatching { thermalPowerManager?.removeThermalStatusListener(listener) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            thermalStatusListener?.let { listener ->
+                runCatching { thermalPowerManager?.removeThermalStatusListener(listener) }
+            }
         }
         thermalStatusListener = null
         thermalPowerManager = null
