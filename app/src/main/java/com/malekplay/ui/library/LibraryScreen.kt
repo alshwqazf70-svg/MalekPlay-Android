@@ -31,16 +31,6 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
-import androidx.compose.ui.platform.LocalContext
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
-import androidx.activity.result.contract.ActivityResultContracts
-import android.os.Build
-import android.provider.MediaStore
-import android.widget.Toast
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.DropdownMenu
@@ -68,7 +58,6 @@ import com.malekplay.domain.model.SortMode
 import com.malekplay.domain.model.ViewMode
 import com.malekplay.ui.components.MediaGridCard
 import com.malekplay.ui.components.MediaThumbnail
-import com.malekplay.ui.components.MediaDeleteButton
 import com.malekplay.ui.components.PlaylistPickerDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -242,7 +231,7 @@ fun LibraryScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(viewModel.applyFolderSort(folders, settings.sortMode), key = { it.path }) { entry ->
-                            FolderTile(entry, onOpen = { folder = entry }, onDeleted = viewModel::refresh)
+                            FolderTile(entry, onOpen = { folder = entry })
                         }
                     }
                 }
@@ -276,7 +265,7 @@ fun LibraryScreen(
                                 onPlay = { onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
                                 onAddToPlaylist = { playlistTarget = item.media },
-                                onDeleted = viewModel::refresh
+                                showDeleteAction = false
                             )
                         }
                     }
@@ -290,8 +279,7 @@ fun LibraryScreen(
                                 item = item,
                                 onClick = { onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
-                                onAddToPlaylist = { playlistTarget = item.media },
-                                onDeleted = viewModel::refresh
+                                onAddToPlaylist = { playlistTarget = item.media }
                             )
                         }
                     }
@@ -333,17 +321,7 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun FolderTile(folder: MediaFolder, onOpen: () -> Unit, onDeleted: () -> Unit) {
-    val context = LocalContext.current
-    var confirmDelete by remember(folder.path) { mutableStateOf(false) }
-    val deleteLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK) {
-            Toast.makeText(context, "تم حذف محتويات المجلد", Toast.LENGTH_SHORT).show()
-            onDeleted()
-        }
-    }
+private fun FolderTile(folder: MediaFolder, onOpen: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val glass = Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface))
     val glassStroke = Brush.linearGradient(listOf(colors.primary.copy(alpha = .45f), colors.outlineVariant, colors.secondary.copy(alpha = .25f)))
@@ -353,92 +331,26 @@ private fun FolderTile(folder: MediaFolder, onOpen: () -> Unit, onDeleted: () ->
             .clickable(onClick = onOpen).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box {
-            Box(
-                Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(.25f))
-                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(.35f), RoundedCornerShape(13.dp)),
-                contentAlignment = Alignment.Center
-            ) { Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary) }
-            // MX-style badge: this is the unseen-new count, not the folder total.
-            if (folder.newItemCount > 0) {
-                Box(
-                    Modifier.align(Alignment.TopStart).offset(x = (-5).dp, y = (-5).dp)
-                        .clip(CircleShape).background(MaterialTheme.colorScheme.primary)
-                        .border(1.dp, colors.surface, CircleShape)
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        folder.newItemCount.toString(),
-                        color = colors.onPrimary,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+        Box(
+            Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
+                .background(colors.primaryContainer.copy(.25f))
+                .border(1.dp, colors.primary.copy(.35f), RoundedCornerShape(13.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Filled.Folder, null, tint = colors.primary)
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                folder.name,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Text(folder.name, color = colors.onSurface, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 "${folder.itemCount} ملف • ${folder.videoCount} فيديو • ${folder.audioCount} موسيقى",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 2
+                color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, maxLines = 2
             )
-            Text(
-                formatFileSize(folder.totalBytes),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall
-            )
-        }
-        Box(Modifier.size(34.dp).clip(CircleShape).clickable { confirmDelete = true }, contentAlignment = Alignment.Center) {
-            Icon(Icons.Filled.DeleteOutline, contentDescription = "حذف المجلد", tint = colors.error, modifier = Modifier.size(19.dp))
+            Text(formatFileSize(folder.totalBytes), color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall)
         }
     }
-    if (confirmDelete) AlertDialog(
-        onDismissRequest = { confirmDelete = false },
-        title = { Text("حذف المجلد") },
-        text = { Text("سيتم طلب موافقة Android لحذف جميع الملفات داخل «${folder.name}» وعددها ${folder.itemCount}. لا يمكن التراجع عن الحذف.") },
-        confirmButton = {
-            TextButton(onClick = {
-                confirmDelete = false
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                    Toast.makeText(context, "حذف المجلدات يتطلب Android 11 أو أحدث حالياً", Toast.LENGTH_LONG).show()
-                } else {
-                    runCatching {
-                        val collection = MediaStore.Files.getContentUri("external")
-                        val projection = arrayOf(MediaStore.Files.FileColumns._ID)
-                        val selection = "${MediaStore.Files.FileColumns.DATA} LIKE ?"
-                        val pattern = folder.path.trimEnd('/') + "/%"
-                        val uris = mutableListOf<android.net.Uri>()
-                        context.contentResolver.query(collection, projection, selection, arrayOf(pattern), null)?.use { cursor ->
-                            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-                            while (cursor.moveToNext()) {
-                                uris += android.content.ContentUris.withAppendedId(collection, cursor.getLong(idColumn))
-                            }
-                        }
-                        if (uris.isEmpty()) {
-                            Toast.makeText(context, "لم يتم العثور على ملفات قابلة للحذف داخل المجلد", Toast.LENGTH_LONG).show()
-                        } else {
-                            deleteLauncher.launch(IntentSenderRequest.Builder(
-                                MediaStore.createDeleteRequest(context.contentResolver, uris).intentSender
-                            ).build())
-                        }
-                    }.onFailure {
-                        Toast.makeText(context, it.localizedMessage ?: "تعذر طلب حذف المجلد", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }) { Text("حذف المحتويات", color = MaterialTheme.colorScheme.error) }
-        },
-        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("إلغاء") } }
-    )
 }
 
 @Composable
@@ -446,8 +358,7 @@ private fun PremiumVideoRow(
     item: LibraryItem,
     onClick: () -> Unit,
     onFavourite: () -> Unit,
-    onAddToPlaylist: () -> Unit,
-    onDeleted: () -> Unit
+    onAddToPlaylist: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val glass = Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface))
@@ -509,7 +420,6 @@ private fun PremiumVideoRow(
                 modifier = Modifier.size(19.dp)
             )
         }
-        MediaDeleteButton(media = item.media, onDeleted = onDeleted)
     }
 }
 
