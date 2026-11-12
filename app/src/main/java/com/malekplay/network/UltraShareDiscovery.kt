@@ -93,7 +93,7 @@ object UltraShareDiscovery {
 
     /** Stable identity prevents one physical phone appearing once per network interface. */
     internal fun identityKey(peer: Peer): String =
-        peer.peerId?.takeIf { it.isNotBlank() }?.let { "id:$it" } ?: "host:${peer.host}"
+        peer.peerId?.takeIf { it.isNotBlank() }?.lowercase(java.util.Locale.ROOT)?.let { "id:$it" } ?: "host:${peer.host}"
 
     /**
      * Join the native NSTACKX identity/name signal to the routable LAN offer.
@@ -109,6 +109,28 @@ object UltraShareDiscovery {
         return if (peer.peerId?.equals(nativePeerId, ignoreCase = true) == true) {
             peer.copy(name = nativeDisplayName.trim().take(64))
         } else peer
+    }
+
+    /**
+     * Merge repeated offers from the same physical device across WLAN, hotspot and
+     * Wi-Fi Direct. A later broadcast must not erase already-probed working routes.
+     */
+    internal fun mergePeerSightings(
+        first: Peer,
+        second: Peer
+    ): Peer {
+        val firstId = first.peerId?.lowercase(java.util.Locale.ROOT)
+        val secondId = second.peerId?.lowercase(java.util.Locale.ROOT)
+        if (firstId.isNullOrBlank() || firstId != secondId) return second
+        val routes = UltraShareNegotiation.orderedCandidates(first.candidates + second.candidates)
+        val selected = UltraShareNegotiation.selectCandidate(routes)
+        return Peer(
+            host = selected?.host ?: second.host,
+            port = selected?.port ?: second.port,
+            name = second.name.takeIf { it.isNotBlank() } ?: first.name,
+            peerId = first.peerId,
+            candidates = routes
+        )
     }
 
     /** A peer remains visible briefly to absorb small UDP discovery gaps, then expires. */
@@ -214,13 +236,17 @@ object UltraShareDiscovery {
                         // Suppress a legacy offer only after at least one V2 route is verified.
                         v2SourceHosts += host
                         peers.remove("host:$host") // Upgrade an earlier V1 sighting to its stable V2 identity.
-                        peers["id:${v2.peerId}"] = Peer(
+                        val incoming = Peer(
                             host = endpoint.host,
                             port = endpoint.port,
                             name = v2.displayName,
                             peerId = v2.peerId,
                             candidates = testedCandidates
                         )
+                        val identity = "id:${v2.peerId.lowercase(java.util.Locale.ROOT)}"
+                        peers[identity] = peers[identity]?.let { existing ->
+                            mergePeerSightings(existing, incoming)
+                        } ?: incoming
                         continue
                     }
                     if (!message.startsWith(OFFER_PREFIX_V1)) continue
