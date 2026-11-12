@@ -10,7 +10,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BaseGlShaderProgram
 import androidx.media3.effect.GlEffect
 import androidx.media3.effect.GlShaderProgram
-import java.io.IOException
 
 /**
  * Low-strength edge-aware spatial denoising. It smooths small pixel variations while
@@ -43,8 +42,6 @@ private class SpatialNoiseReductionProgram(
         program.setFloatsUniform("uTexTransformationMatrix", identity)
         program.setFloatUniform("uStrength", strength)
     }
-
-    override fun configure(inputWidth: Int, inputHeight: Int) = Size(inputWidth, inputHeight)
 
     override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
         try {
