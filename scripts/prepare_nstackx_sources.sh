@@ -72,13 +72,13 @@ import sys
 
 path = Path(sys.argv[1])
 source = path.read_text(encoding="utf-8")
-anchor = '#include "coap_app.h"\\n'
+anchor = '#include "coap_app.h"\n'
 if source.count(anchor) != 1:
     raise SystemExit("Unexpected upstream coap_app.c include layout; refusing an unsafe patch")
 source = source.replace(
     anchor,
-    anchor + '\\n/* NSTACKX uses libcoap's private socket API in this adapter. */\\n'
-    '#include <coap3/coap_internal.h>\\n',
+    anchor + '\n/* NSTACKX uses libcoap's private socket API in this adapter. */\n'
+    '#include <coap3/coap_internal.h>\n',
     1,
 )
 path.write_text(source, encoding="utf-8")
