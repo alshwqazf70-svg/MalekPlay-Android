@@ -66,6 +66,7 @@ object UltraShareControlChannel {
         val peerName: String,
         val peerId: String?,
         val dfileKey: ByteArray,
+        val dfilePort: Int?,
         val lock: Any = Any(),
         var heartbeat: Job? = null
     )
@@ -95,6 +96,7 @@ object UltraShareControlChannel {
         localPeerName: String = "MalekPlay Android",
         localPeerId: String? = null,
         onSessionClosed: suspend (Request) -> Unit = {},
+        onDFileServerReady: suspend (Request, ByteArray) -> Int? = { _, _ -> null },
         onRequest: suspend (Request) -> Decision
     ) = withContext(Dispatchers.IO) {
         require(UltraShareTransport.isValidPairingSecret(pairingSecret))
@@ -122,7 +124,10 @@ object UltraShareControlChannel {
                                 client.soTimeout = HANDSHAKE_TIMEOUT_MS
                                 client.tcpNoDelay = true
                                 client.keepAlive = true
-                                handleIncoming(client, pairingSecret, localPeerName, localPeerId, onRequest, onSessionClosed)
+                                handleIncoming(
+                                    client, pairingSecret, localPeerName, localPeerId,
+                                    onRequest, onSessionClosed, onDFileServerReady
+                                )
                             }
                         } catch (cancelled: kotlinx.coroutines.CancellationException) {
                             throw cancelled
@@ -200,7 +205,7 @@ object UltraShareControlChannel {
             val nonce = encrypted.copyOfRange(0, NONCE_BYTES)
             val ciphertext = encrypted.copyOfRange(NONCE_BYTES, encrypted.size)
             val response = decrypt(key, nonce, ciphertext)
-            val responseParts = response.split('|', limit = 4)
+            val responseParts = response.split('|', limit = 5)
             require(responseParts.size >= 2 && responseParts[1] == requestId &&
                 (responseParts[0] == "ACCEPT" || responseParts[0] == "REJECT")
             ) { "استجابة قبول الاتصال غير صالحة." }
@@ -209,8 +214,13 @@ object UltraShareControlChannel {
                     runCatching { String(decodeHex(it), Charsets.UTF_8) }.getOrNull()
                 }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
                 val remotePeerId = responseParts.getOrNull(3)?.takeIf(::isStablePeerId)
+                val negotiatedDFilePort = responseParts.getOrNull(4)?.toIntOrNull()
+                    ?.takeIf { it in 1..65535 }
                 socket.soTimeout = SESSION_TIMEOUT_MS
-                val session = ClientSession(socket, input, output, remoteName, remotePeerId, deriveDFileKey(key))
+                val session = ClientSession(
+                    socket, input, output, remoteName, remotePeerId,
+                    deriveDFileKey(key), negotiatedDFilePort
+                )
                 synchronized(clientSessionGuard) { clientSessions[host] = session }
                 session.heartbeat = CoroutineScope(Dispatchers.IO).launch {
                     while (isActive && !socket.isClosed) {
@@ -277,6 +287,9 @@ object UltraShareControlChannel {
     fun serverDFileKey(host: String): ByteArray? =
         serverSessionDFileKeys[host]?.copyOf()
 
+    /** DFile endpoint advertised inside the authenticated ACCEPT frame; null means TCP fallback. */
+    fun clientDFilePort(host: String): Int? = clientSessions[host]?.dfilePort
+
     fun isSessionActive(host: String): Boolean {
         val session = clientSessions[host] ?: return false
         val socket = session.socket
@@ -296,7 +309,8 @@ object UltraShareControlChannel {
         localPeerName: String,
         localPeerId: String?,
         onRequest: suspend (Request) -> Decision,
-        onSessionClosed: suspend (Request) -> Unit
+        onSessionClosed: suspend (Request) -> Unit,
+        onDFileServerReady: suspend (Request, ByteArray) -> Int?
     ) {
         val peerAddress = socket.inetAddress.hostAddress.orEmpty()
         check(pairingAttemptLimiter.isAllowed(peerAddress)) {
@@ -343,12 +357,27 @@ object UltraShareControlChannel {
             peerId = peerId
         )
         val decision = withTimeoutOrNull(120_000L) { onRequest(request) } ?: Decision.REJECTED
+        val dfileKey = if (decision == Decision.ACCEPTED) deriveDFileKey(key) else null
+        var negotiatedDFilePort: Int? = null
+        if (dfileKey != null) {
+            // Publish the key before preparing the native receiver. The receiver must be
+            // listening before ACCEPT is sent, otherwise the first DFile SYN can be lost.
+            serverSessionDFileKeys[peerAddress] = dfileKey.copyOf()
+            negotiatedDFilePort = runCatching {
+                onDFileServerReady(request, dfileKey.copyOf())
+            }.getOrNull()?.takeIf { it in 1..65535 }
+            if (negotiatedDFilePort == null) {
+                serverSessionDFileKeys.remove(peerAddress)?.fill(0)
+            }
+            dfileKey.fill(0)
+        }
         val encodedLocalName = encodeHex(localPeerName.take(48).toByteArray(Charsets.UTF_8))
         val stableLocalPeerId = localPeerId?.replace("-", "")?.lowercase()
             ?.takeIf(::isStablePeerId)
         val payload = if (decision == Decision.ACCEPTED) {
-            if (stableLocalPeerId != null) "ACCEPT|$requestId|$encodedLocalName|$stableLocalPeerId"
-            else "ACCEPT|$requestId|$encodedLocalName"
+            val identity = stableLocalPeerId?.let { "|$it" }.orEmpty()
+            val dfileEndpoint = negotiatedDFilePort?.let { "|$it" }.orEmpty()
+            "ACCEPT|$requestId|$encodedLocalName$identity$dfileEndpoint"
         } else "REJECT|$requestId"
         val nonce = ByteArray(NONCE_BYTES).also(SecureRandom()::nextBytes)
         val ciphertext = encrypt(key, nonce, payload)
@@ -374,7 +403,9 @@ object UltraShareControlChannel {
             }
             serverSessionPeerIds.remove(request.peerAddress)
             request.peerId?.let { serverSessionPeerIds[request.peerAddress] = it }
-            serverSessionDFileKeys[request.peerAddress] = deriveDFileKey(key)
+            if (negotiatedDFilePort == null) {
+                serverSessionDFileKeys.remove(request.peerAddress)?.fill(0)
+            }
             output.writeInt(frame.size)
             output.write(frame)
             output.flush()
