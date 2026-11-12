@@ -109,3 +109,20 @@ Still pending within phase 3:
 - Wire Android ConnectivityManager network handles into socket creation before claiming deterministic multi-network routing.
 
 No native build, DFinder runtime discovery, or two-device connection is claimed yet.
+
+
+## Phase 3 — per-socket Android Network binding adapter — 2026-11-12
+
+Added:
+- `native/nstackx/android/sys_network.h` and `sys_network.c` expose
+  `NstackxBindSocketToNetwork(fd, networkHandle)`.
+- The adapter uses NDK `android_setsocknetwork()` (Android API 23+) with the
+  `Network.getNetworkHandle()` value supplied by the Android layer. It binds
+  an individual socket, does not change the process-wide default network, and
+  returns failure rather than silently routing a socket over another network.
+- CMake includes the adapter and links the NDK `android` library.
+
+This is the native half of deterministic socket routing. It is **not yet called
+from JNI/Kotlin**: the Java/Kotlin `ConnectivityManager` selection, handle
+lifetime, socket-creation ordering, and P2P-vs-WLAN routing policy remain phase 5
+integration work. NDK compilation and runtime behavior are still unverified.
