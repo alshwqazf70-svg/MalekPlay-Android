@@ -250,7 +250,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
       - name: Install Android SDK packages
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "platform-tools" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Prepare pinned NSTACKX source trees
+        run: bash scripts/prepare_nstackx_sources.sh
       - name: Run instrumentation tests on Android 15 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -260,4 +262,4 @@ jobs:
           profile: pixel_2
           emulator-options: -no-window -no-audio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
-          script: ./gradlew --stacktrace --max-workers=2 :app:connectedDebugAndroidTest
+          script: ./gradlew --stacktrace --max-workers=2 -PenableNstackxNativeBuild=true :app:connectedDebugAndroidTest
