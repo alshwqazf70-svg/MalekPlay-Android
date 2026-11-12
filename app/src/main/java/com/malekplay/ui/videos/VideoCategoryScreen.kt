@@ -267,6 +267,7 @@ fun VideoCategoryScreen(
                             items(episodes, key = { it.media.id }) { item ->
                                 MediaGridCard(
                             item = item,
+                            isLastPlayed = item.media.id == lastPlayedMediaId,
                             onPlay = { onOpenMedia(item.media) },
                             onFavourite = { viewModel.toggleFavourite(item.media.id) },
                             onAddToPlaylist = { playlistTarget = item.media },
@@ -282,6 +283,7 @@ fun VideoCategoryScreen(
                         items(orderedFiltered, key = { it.media.id }) { item ->
                             MediaGridCard(
                             item = item,
+                            isLastPlayed = item.media.id == lastPlayedMediaId,
                             onPlay = { onOpenMedia(item.media) },
                             onFavourite = { viewModel.toggleFavourite(item.media.id) },
                             onAddToPlaylist = { playlistTarget = item.media },
