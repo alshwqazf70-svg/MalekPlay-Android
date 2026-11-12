@@ -84,6 +84,7 @@ set(NSTACKX_UTIL_SOURCES
     "${NSTACKX_UTIL}/core/nstackx_timer.c"
     "${NSTACKX_UTIL}/core/nstackx_util.c"
     "${CMAKE_CURRENT_LIST_DIR}/android/sys_dev.c"
+    "${CMAKE_CURRENT_LIST_DIR}/android/sys_network.c"
     "${NSTACKX_UTIL}/platform/unix/sys_epoll.c"
     "${NSTACKX_UTIL}/platform/unix/sys_event.c"
     "${CMAKE_CURRENT_LIST_DIR}/android/sys_log.c"
@@ -187,4 +188,4 @@ target_link_libraries(nstackx_engine PRIVATE
     "-Wl,--whole-archive"
     nstackx_dfinder nstackx_dfile nstackx_congestion nstackx_util nstackx_securec
     "-Wl,--no-whole-archive"
-    coap-3 mbedtls mbedx509 mbedcrypto log)
+    coap-3 mbedtls mbedx509 mbedcrypto log android)
