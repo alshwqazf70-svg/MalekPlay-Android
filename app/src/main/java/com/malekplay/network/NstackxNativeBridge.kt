@@ -55,6 +55,7 @@ object NstackxNativeBridge {
      * @return zero when DFinder initialized and the local device registered.
      * interfaceName and ipv4Address must describe the same active Android Network.
      */
+    @Synchronized
     fun initialize(
         deviceName: String,
         deviceId: String,
@@ -69,9 +70,11 @@ object NstackxNativeBridge {
         return nativeInitialize(deviceName, deviceId, interfaceName, ipv4Address, networkHandle)
     }
 
+    @Synchronized
     fun startDiscovery(): Int =
         if (libraryLoaded) nativeStartDiscovery() else LOAD_ERROR
 
+    @Synchronized
     fun stopDiscovery(): Int =
         if (libraryLoaded) nativeStopDiscovery() else LOAD_ERROR
 
@@ -81,6 +84,7 @@ object NstackxNativeBridge {
      * the authenticated QR/PIN session; never pass the visible PIN directly.
      * The destination must be an existing app-owned writable directory.
      */
+    @Synchronized
     fun startDFileServer(
         localIpv4: String,
         port: Int,
@@ -103,6 +107,7 @@ object NstackxNativeBridge {
     }
 
     /** Start a native DFile sender to a private IPv4 endpoint. */
+    @Synchronized
     fun startDFileClient(remoteIpv4: String, port: Int, sessionKey: ByteArray): Int {
         if (!libraryLoaded) return LOAD_ERROR
         if (NstackxAndroidDiscoverySession.current() == null) return NOT_INITIALIZED
@@ -146,6 +151,7 @@ object NstackxNativeBridge {
     }
 
     /** Queue local files for DFile; blocked Android packages/PDFs remain blocked. */
+    @Synchronized
     fun sendDFileFiles(sessionId: Int, files: List<File>): Int {
         if (!libraryLoaded) return LOAD_ERROR
         require(sessionId > 0 && files.isNotEmpty() && files.size <= 500)
@@ -160,6 +166,7 @@ object NstackxNativeBridge {
         return nativeDFileSendFiles(sessionId, paths.toTypedArray())
     }
 
+    @Synchronized
     fun closeDFileSession(sessionId: Int) {
         if (libraryLoaded && sessionId > 0) nativeDFileCloseSession(sessionId)
     }
@@ -172,6 +179,7 @@ object NstackxNativeBridge {
         dfileListeners -= listener
     }
 
+    @Synchronized
     fun release() {
         if (libraryLoaded) nativeRelease()
     }
