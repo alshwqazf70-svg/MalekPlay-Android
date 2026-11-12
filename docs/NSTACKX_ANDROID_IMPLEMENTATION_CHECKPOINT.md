@@ -126,3 +126,19 @@ This is the native half of deterministic socket routing. It is **not yet called
 from JNI/Kotlin**: the Java/Kotlin `ConnectivityManager` selection, handle
 lifetime, socket-creation ordering, and P2P-vs-WLAN routing policy remain phase 5
 integration work. NDK compilation and runtime behavior are still unverified.
+
+
+## Phase 5 — first JNI / Kotlin DFinder lifecycle slice — 2026-11-12
+
+Implemented on the development branch:
+- Added `native/nstackx/android/nstackx_jni.c` with JNI init, DFinder thread init, local-device registration, discovery start/stop, callback delivery, and deterministic release.
+- Added `NstackxNativeBridge.kt` as a Kotlin facade. Native callbacks are dispatched to registered listeners; discovered IDs/names/interfaces remain untrusted discovery metadata and do not bypass QR/PIN authentication.
+- Added `NstackxAndroidDiscoverySession.kt` to select a currently available Android Wi-Fi/Wi-Fi Direct/Ethernet Network, obtain its interface/IP/Network handle, and own native discovery lifecycle.
+- Extended the Android socket adapter with an atomic selected Network handle. NSTACKX's existing interface-binding hooks now attempt `android_setsocknetwork()` when `SO_BINDTODEVICE` is unavailable, so socket routing is applied per socket rather than changing the process default.
+- Updated the CMake shared target to compile the JNI bridge and expose the required pinned public headers.
+- Updated the Android workflow to pass `-PenableNstackxNativeBuild=true` for debug APK, release APK, and AAB builds. The first CI compile is expected to expose remaining upstream/NDK portability issues; do not disable this gate to hide failures.
+
+Important limits:
+- This JNI slice integrates DFinder lifecycle and peer metadata only. It does not yet wire DFile server/client sessions or transfer callbacks into the existing authenticated Ultra Share protocol.
+- Android Network selection currently starts DFinder on one selected network per session; simultaneous dual-interface discovery/multipath remains follow-up work.
+- No successful NDK build or two-physical-device discovery/transfer is claimed until CI and device acceptance pass.
