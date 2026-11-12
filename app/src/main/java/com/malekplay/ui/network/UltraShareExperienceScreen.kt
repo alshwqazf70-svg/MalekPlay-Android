@@ -599,7 +599,9 @@ fun UltraShareExperienceScreen(
     }
 
     val qrPayload = state.localAddresses
-        .takeIf { state.receiving && state.pairingSecret.isNotBlank() && it.isNotEmpty() }
+        // Once a peer is paired, hide the invitation QR/code. The active session
+        // remains available for additional transfers until the user disconnects.
+        .takeIf { state.receiving && state.activePeers.isEmpty() && state.pairingSecret.isNotBlank() && it.isNotEmpty() }
         ?.let {
             if (state.invitationId.isBlank()) {
                 UltraShareQrCode.createReceiverPayload(
