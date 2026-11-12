@@ -34,6 +34,7 @@ import com.malekplay.player.PipController
 import com.malekplay.player.PlaybackService
 import com.malekplay.player.cast.DlnaPlaybackController
 import com.malekplay.player.PlaybackVideoEffects
+import com.malekplay.player.effects.VideoEnhancementProfile
 import com.malekplay.player.PlaybackValuePolicy
 import com.malekplay.player.mediaItemFromUri
 import com.malekplay.player.audio.AudioEffectsController
@@ -167,6 +168,8 @@ class PlayerViewModel @Inject constructor(
     val videoNoiseReductionEnabled: StateFlow<Boolean> = _videoNoiseReductionEnabled.asStateFlow()
     private val _videoMotionSmoothingEnabled = MutableStateFlow(false)
     val videoMotionSmoothingEnabled: StateFlow<Boolean> = _videoMotionSmoothingEnabled.asStateFlow()
+    private val _videoEnhancementProfile = MutableStateFlow(VideoEnhancementProfile.BALANCED)
+    val videoEnhancementProfile: StateFlow<VideoEnhancementProfile> = _videoEnhancementProfile.asStateFlow()
     private val _videoUpscalingError = MutableStateFlow<String?>(null)
     val videoUpscalingError: StateFlow<String?> = _videoUpscalingError.asStateFlow()
     val stats: StateFlow<PlaybackStats> = _stats.asStateFlow()
@@ -399,6 +402,31 @@ class PlayerViewModel @Inject constructor(
 
     fun setVideoMotionSmoothingEnabled(enabled: Boolean) =
         setVideoEffectEnabled(PlaybackVideoEffects.ACTION_MOTION_SMOOTHING, enabled) { _videoMotionSmoothingEnabled.value = it }
+
+    /** Applies a requested quality preset; the service may cap it for device safety. */
+    fun setVideoEnhancementProfile(profile: VideoEnhancementProfile) {
+        val player = _controller.value ?: return
+        _videoUpscalingError.value = null
+        val command = androidx.media3.session.SessionCommand(
+            PlaybackVideoEffects.ACTION_QUALITY_PROFILE, Bundle.EMPTY
+        )
+        val args = Bundle().apply {
+            putString(PlaybackVideoEffects.KEY_PROFILE, profile.wireValue)
+        }
+        val future = runCatching { player.sendCustomCommand(command, args) }.getOrNull() ?: run {
+            _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_video_effect_unavailable)
+            return
+        }
+        future.addListener(
+            {
+                val success = runCatching { future.get().resultCode == SessionResult.RESULT_SUCCESS }
+                    .getOrDefault(false)
+                if (success) _videoEnhancementProfile.value = profile
+                else _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_video_effect_unavailable)
+            },
+            ContextCompat.getMainExecutor(app)
+        )
+    }
 
     private fun setVideoEffectEnabled(
         action: String,
