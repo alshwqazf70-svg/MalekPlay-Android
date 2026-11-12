@@ -215,7 +215,10 @@ class UltraShareViewModel @Inject constructor(
                 // only transport failures move to another route.
                 val routeHosts = (
                     listOf(host.trim()) +
-                        alternateHosts.filter { UltraShareTransport.isValidPrivateLanHost(it) } +
+                        alternateHosts.filter {
+                            UltraShareTransport.isValidPrivateLanHost(it) &&
+                                !UltraShareNetworkRouting.isWifiDirectGroupHost(it)
+                        } +
                         orderedRoutes.map { it.host }
                     ).distinct()
                 var acceptedHost: String? = null
@@ -519,7 +522,8 @@ class UltraShareViewModel @Inject constructor(
                 val receiving = _state.value.receiving || UltraShareForegroundService.state.value.receiving
                 val pending = pendingQrPairing
                 val fallbackHosts = pending?.hosts.orEmpty().filter {
-                    UltraShareTransport.isValidPrivateLanHost(it)
+                    UltraShareTransport.isValidPrivateLanHost(it) &&
+                        !UltraShareNetworkRouting.isWifiDirectGroupHost(it)
                 }
                 if (pending != null) {
                     pendingQrPairing = null
@@ -655,7 +659,8 @@ class UltraShareViewModel @Inject constructor(
                             // already-advertised LAN addresses through the authenticated
                             // MPC2 channel before reporting a terminal connection error.
                             val fallback = pending.hosts.firstOrNull {
-                                UltraShareTransport.isValidPrivateLanHost(it)
+                                UltraShareTransport.isValidPrivateLanHost(it) &&
+                                    !UltraShareNetworkRouting.isWifiDirectGroupHost(it)
                             }
                             if (fallback != null) {
                                 _state.value = _state.value.copy(
