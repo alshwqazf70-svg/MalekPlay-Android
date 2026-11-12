@@ -878,7 +878,7 @@ fun VideoPlayerScreen(
                     text = {
                         Text(
                             (if (videoEnhancementProfile == VideoEnhancementProfile.ECONOMY) "✓ " else "") +
-                                "جودة الصورة: اقتصادي"
+                                stringResource(R.string.player_video_quality_economy)
                         )
                     },
                     onClick = {
@@ -890,7 +890,7 @@ fun VideoPlayerScreen(
                     text = {
                         Text(
                             (if (videoEnhancementProfile == VideoEnhancementProfile.BALANCED) "✓ " else "") +
-                                "جودة الصورة: متوازن"
+                                stringResource(R.string.player_video_quality_balanced)
                         )
                     },
                     onClick = {
@@ -902,7 +902,7 @@ fun VideoPlayerScreen(
                     text = {
                         Text(
                             (if (videoEnhancementProfile == VideoEnhancementProfile.ULTRA) "✓ " else "") +
-                                "جودة الصورة: فائق"
+                                stringResource(R.string.player_video_quality_ultra)
                         )
                     },
                     onClick = {
