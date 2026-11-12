@@ -43,12 +43,11 @@ static void ReleaseUtf(JNIEnv *env, jstring value, const char *chars)
 static void OnDeviceFound(const NSTACKX_DeviceInfo *devices, uint32_t count)
 {
     JNIEnv *env = NULL;
+    jclass callbackClass = NULL;
+    jmethodID callbackMethod = NULL;
     int attached = 0;
     uint32_t i;
-    if (devices == NULL || count == 0 || g_vm == NULL || g_bridge_class == NULL ||
-        g_on_device_found == NULL) {
-        return;
-    }
+    if (devices == NULL || count == 0 || g_vm == NULL) return;
 
     jint status = (*g_vm)->GetEnv(g_vm, (void **)&env, JNI_VERSION_1_6);
     if (status == JNI_EDETACHED) {
@@ -58,21 +57,30 @@ static void OnDeviceFound(const NSTACKX_DeviceInfo *devices, uint32_t count)
         return;
     }
 
+    pthread_mutex_lock(&g_lock);
+    if (g_bridge_class != NULL && g_on_device_found != NULL) {
+        callbackClass = (jclass)(*env)->NewLocalRef(env, g_bridge_class);
+        callbackMethod = g_on_device_found;
+    }
+    pthread_mutex_unlock(&g_lock);
+    if (callbackClass == NULL || callbackMethod == NULL) {
+        if (attached) (*g_vm)->DetachCurrentThread(g_vm);
+        return;
+    }
+
     for (i = 0; i < count; ++i) {
         jstring id = (*env)->NewStringUTF(env, devices[i].deviceId);
         jstring name = (*env)->NewStringUTF(env, devices[i].deviceName);
         jstring iface = (*env)->NewStringUTF(env, devices[i].networkName);
         if (id != NULL && name != NULL && iface != NULL) {
-            (*env)->CallStaticVoidMethod(env, g_bridge_class, g_on_device_found, id, name, iface);
+            (*env)->CallStaticVoidMethod(env, callbackClass, callbackMethod, id, name, iface);
         }
-        if ((*env)->ExceptionCheck(env)) {
-            /* A UI listener must not poison NSTACKX's native worker thread. */
-            (*env)->ExceptionClear(env);
-        }
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
         if (id != NULL) (*env)->DeleteLocalRef(env, id);
         if (name != NULL) (*env)->DeleteLocalRef(env, name);
         if (iface != NULL) (*env)->DeleteLocalRef(env, iface);
     }
+    (*env)->DeleteLocalRef(env, callbackClass);
     if (attached) (*g_vm)->DetachCurrentThread(g_vm);
 }
 
@@ -416,7 +424,7 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeDFileStartServer(
     }
 
 SERVER_CLEANUP:
-    if (keyBytes != NULL) (*env)->ReleaseByteArrayElements(env, key, keyBytes, JNI_ABORT);
+    if (keyBytes != NULL) { memset(keyBytes, 0, (size_t)keyLength); (*env)->ReleaseByteArrayElements(env, key, keyBytes, JNI_ABORT); }
     ReleaseUtf(env, localIpv4, ip);
     ReleaseUtf(env, storagePath, path);
     return result;
@@ -463,7 +471,7 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeDFileStartClient(
     }
 
 CLIENT_CLEANUP:
-    if (keyBytes != NULL) (*env)->ReleaseByteArrayElements(env, key, keyBytes, JNI_ABORT);
+    if (keyBytes != NULL) { memset(keyBytes, 0, (size_t)keyLength); (*env)->ReleaseByteArrayElements(env, key, keyBytes, JNI_ABORT); }
     ReleaseUtf(env, remoteIpv4, ip);
     return result;
 }
