@@ -8,9 +8,52 @@ import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.nio.charset.StandardCharsets
+
+/**
+ * Validate renderer-pulled media URLs before embedding them in SOAP/DIDL.
+ * Plain HTTP is permitted only for numeric private-LAN endpoints; HTTPS keeps
+ * normal platform certificate validation. Credentials and fragments are never
+ * forwarded to a renderer.
+ */
+internal fun validateDlnaRendererMediaUrl(raw: String): URL {
+    require(raw.length in 1..4096) { "رابط وسائط DLNA غير صالح." }
+    val uri = URI(raw).normalize()
+    require(uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) {
+        "يجب أن يكون رابط الوسائط HTTP أو HTTPS."
+    }
+    require(uri.host != null && uri.userInfo == null && uri.fragment == null) {
+        "رابط وسائط DLNA يحتوي على بيانات أو مكونات غير مسموحة."
+    }
+    require(uri.port == -1 || uri.port in 1..65535) { "منفذ وسائط DLNA غير صالح." }
+    if (uri.scheme.equals("http", true)) {
+        require(isPrivateLanHost(uri.host)) {
+            "روابط HTTP مسموحة فقط لخادم البث المحلي على الشبكة الخاصة."
+        }
+    }
+    return uri.toURL()
+}
+
+/** Restrict UPnP description/control endpoints to the exact discovered LAN peer. */
+internal fun validateDlnaRendererEndpointUrl(raw: String, deviceHost: String): URL {
+    require(raw.length in 1..4096) { "رابط جهاز DLNA غير صالح." }
+    require(isPrivateLanHost(deviceHost)) { "عنوان جهاز DLNA ليس عنوان شبكة محلية." }
+    val uri = URI(raw).normalize()
+    require(uri.scheme.equals("http", true) || uri.scheme.equals("https", true)) {
+        "بروتوكول رابط DLNA غير مدعوم."
+    }
+    require(uri.host != null && uri.userInfo == null && uri.fragment == null) {
+        "رابط DLNA يحتوي على بيانات أو مكونات غير مسموحة."
+    }
+    require(uri.port == -1 || uri.port in 1..65535) { "منفذ DLNA غير صالح." }
+    require(isPrivateLanHost(uri.host) && uri.host.equals(deviceHost, ignoreCase = true)) {
+        "تم رفض رابط DLNA خارج الجهاز المكتشف."
+    }
+    return uri.toURL()
+}
 
 /**
  * UPnP AVTransport control point for discovered DLNA renderers.
@@ -28,15 +71,7 @@ class DlnaRendererClient(
 
     suspend fun play(device: DiscoveredNetworkDevice, mediaUrl: String, title: String, mimeType: String) =
         withContext(Dispatchers.IO) {
-            val mediaUri = URL(mediaUrl)
-            require(mediaUri.protocol.equals("http", true) || mediaUri.protocol.equals("https", true)) {
-                "يجب أن يكون رابط الوسائط HTTP أو HTTPS ويمكن للتلفزيون الوصول إليه."
-            }
-            if (mediaUri.protocol.equals("http", true)) {
-                require(isPrivateLanHost(mediaUri.host)) {
-                    "روابط HTTP مسموحة فقط لخادم البث المحلي على الشبكة الخاصة."
-                }
-            }
+            validateDlnaRendererMediaUrl(mediaUrl)
             val endpoint = resolveAvTransportEndpoint(device)
             soap(endpoint, "SetAVTransportURI", """
                 <InstanceID>0</InstanceID>
@@ -111,11 +146,7 @@ class DlnaRendererClient(
         // or description endpoint changes. Never reuse a control URL across hosts.
         val cacheKey = dlnaEndpointCacheKey(device.id, device.host, description)
         endpointCache[cacheKey]?.let { return it }
-        val descriptionUrl = URL(description)
-        require(descriptionUrl.protocol == "http" || descriptionUrl.protocol == "https")
-        require(descriptionUrl.host.equals(device.host, ignoreCase = true)) {
-            "تم رفض رابط وصف لا يطابق عنوان الجهاز المكتشف."
-        }
+        val descriptionUrl = validateDlnaRendererEndpointUrl(description, device.host)
         val xml = readUrl(descriptionUrl)
         val parser = Xml.newPullParser().apply {
             setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
@@ -136,13 +167,10 @@ class DlnaRendererClient(
                 XmlPullParser.END_TAG -> if (parser.name == "service" && inService) {
                     if (serviceType?.matches(Regex("urn:schemas-upnp-org:service:AVTransport:[0-9]+", RegexOption.IGNORE_CASE)) == true && !controlPath.isNullOrBlank()) {
                         val resolved = URL(descriptionUrl, controlPath)
-                        require(resolved.protocol == "http" || resolved.protocol == "https") {
-                            "بروتوكول رابط تحكم DLNA غير مدعوم."
-                        }
-                        require(resolved.host.equals(device.host, ignoreCase = true)) {
-                            "تم رفض عنوان تحكم DLNA خارج الجهاز المكتشف."
-                        }
-                        val endpoint = AvTransportEndpoint(resolved, serviceType!!)
+                        val safeControlUrl = validateDlnaRendererEndpointUrl(
+                            resolved.toExternalForm(), device.host
+                        )
+                        val endpoint = AvTransportEndpoint(safeControlUrl, serviceType!!)
                         endpointCache[cacheKey] = endpoint
                         return endpoint
                     }
@@ -185,6 +213,8 @@ class DlnaRendererClient(
             connectTimeout = connectTimeoutMs
             readTimeout = readTimeoutMs
             requestMethod = "POST"
+            instanceFollowRedirects = false
+            useCaches = false
             doOutput = true
             setRequestProperty("Content-Type", "text/xml; charset=utf-8")
             setRequestProperty("SOAPAction", "\"$service#$action\"")
