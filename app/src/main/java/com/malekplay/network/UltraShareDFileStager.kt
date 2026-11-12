@@ -26,10 +26,13 @@ internal object UltraShareDFileStager {
         val displayName: String,
         val mimeType: String,
         val sizeBytes: Long,
-        val sha256: ByteArray
+        val sha256: ByteArray,
+        private val stagingDirectory: File
     ) : AutoCloseable {
         override fun close() {
             runCatching { file.delete() }
+            runCatching { stagingDirectory.delete() }
+            sha256.fill(0)
         }
     }
 
@@ -56,7 +59,11 @@ internal object UltraShareDFileStager {
             "مسار تجهيز الملفات غير آمن."
         }
 
-        val target = File.createTempFile("dfile-", ".stage", root)
+        // Keep the original sanitized filename: NSTACKX DFile derives the
+        // remote filename from the staged path's leaf name.
+        val stagingDirectory = File(root, "session-" + java.util.UUID.randomUUID().toString())
+        check(stagingDirectory.mkdir()) { "تعذر حجز مساحة مؤقتة للملف." }
+        val target = File(stagingDirectory, safeName)
         var completed = false
         try {
             val digest = MessageDigest.getInstance("SHA-256")
@@ -92,13 +99,19 @@ internal object UltraShareDFileStager {
             check(copied == expectedSizeBytes && target.length() == expectedSizeBytes) {
                 "تغير حجم الملف أثناء تجهيزه؛ أعد اختيار الملف."
             }
-            check(target.isFile && target.canonicalFile.parentFile == root.canonicalFile) {
+            check(target.isFile &&
+                target.canonicalFile.parentFile == stagingDirectory.canonicalFile &&
+                stagingDirectory.canonicalFile.parentFile == root.canonicalFile
+            ) {
                 "تعذر التحقق من مسار الملف المجهز."
             }
             completed = true
-            StagedFile(target, safeName, safeMime, copied, digest.digest())
+            StagedFile(target, safeName, safeMime, copied, digest.digest(), stagingDirectory)
         } finally {
-            if (!completed) runCatching { target.delete() }
+            if (!completed) {
+                runCatching { target.delete() }
+                runCatching { stagingDirectory.delete() }
+            }
         }
     }
 
@@ -106,8 +119,12 @@ internal object UltraShareDFileStager {
         require(olderThanMillis >= 0L)
         val root = File(cacheDirectory, STAGING_DIRECTORY)
         val cutoff = System.currentTimeMillis() - olderThanMillis
-        root.listFiles()?.forEach { file ->
-            if (file.isFile && file.lastModified() < cutoff) runCatching { file.delete() }
+        root.listFiles()?.forEach { entry ->
+            if (entry.canonicalFile.parentFile == root.canonicalFile &&
+                entry.lastModified() < cutoff
+            ) {
+                runCatching { entry.deleteRecursively() }
+            }
         }
         if (root.isDirectory && root.listFiles()?.isEmpty() == true) runCatching { root.delete() }
     }
