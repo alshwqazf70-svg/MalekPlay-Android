@@ -134,6 +134,7 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeInitialize(
 
     NstackxSetNetworkHandle((uint64_t)networkHandle);
     result = NSTACKX_Init(&parameter);
+    if (result == 0) result = NSTACKX_ThreadInit();
     if (result == 0) {
         memset(&local, 0, sizeof(local));
         (void)strncpy(local.name, name, sizeof(local.name) - 1);
