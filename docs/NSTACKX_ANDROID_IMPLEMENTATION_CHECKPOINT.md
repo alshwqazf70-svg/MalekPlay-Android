@@ -77,3 +77,17 @@ The dependency repository heads inspected in the audit are candidate snapshots o
 3. Phase 4: port DFile and congestion control, including Android crypto and filesystem adapters.
 4. Phase 5: implement JNI lifecycle/callback safety and integrate with the existing Kotlin authenticated session and transfer fallback.
 5. Phase 6: compile, fix native/Gradle issues, run automated tests and two-device discovery/send/receive acceptance.
+
+
+## Phase 2 — Android NDK/CMake build graph — 2026-11-12
+
+- Added `native/nstackx/CMakeLists.txt` with separate targets for securec, cJSON, NSTACKX utility, DFinder, congestion control, DFile, and a shared native packaging target.
+- The source lists were cross-checked against the selected immutable OpenHarmony tree; cJSON and securec source/header locations were also checked against their pinned upstream trees.
+- Added `native/nstackx/nstackx_engine_entry.c`, which exports the pinned source revision as diagnostic build metadata. This is not a JNI bridge and does not claim to initialize NSTACKX.
+- Pinned Android NDK `27.2.12479018`, CMake `3.22.1`, and ABI filters for `arm64-v8a`, `armeabi-v7a`, `x86`, and `x86_64` in the app Gradle configuration.
+- Updated the Android workflow to install the pinned NDK/CMake versions and prepare all immutable source checkouts.
+- Corrected the source-preparation script's repository-root calculation.
+- Added a deliberate Gradle property gate: `-PenableNstackxNativeBuild=true` enables CMake only when the platform adapters and JNI bridge are ready. Routine app builds will not accidentally attempt an incomplete native port.
+- **Not yet validated:** the CMake graph has not been configured or compiled with the NDK. Android/Bionic platform adaptation remains phase 3; DFile crypto/filesystem adaptation remains phase 4; JNI remains phase 5. The shared library is not yet wired into Kotlin and no real transfer is claimed.
+
+Phase 2 establishes the build graph and toolchain provisioning, not a successful native build.
