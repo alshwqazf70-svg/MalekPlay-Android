@@ -279,6 +279,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # Run emulators sequentially to avoid KVM/RAM contention and phantom API-level=1 devices.
+      max-parallel: 1
       matrix:
         api-level: [29, 35]
     timeout-minutes: 35
@@ -306,8 +308,8 @@ jobs:
           api-level: ${{ matrix.api-level }}
           target: google_apis
           arch: x86_64
-          profile: pixel_2
-          emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim -camera-back none -camera-front none
+          emulator-boot-timeout: 1200
+          # Cold boot each API image; avoid stale snapshots and run one emulator at a time.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -wipe-data -noaudio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
           script: ./gradlew --stacktrace --max-workers=2 -PenableNstackxNativeBuild=true :app:connectedDebugAndroidTest
