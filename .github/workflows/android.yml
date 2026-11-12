@@ -55,6 +55,7 @@ jobs:
             -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" \
             -PenableNstackxNativeBuild=true :app:assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
       - name: Prepare compressed universal install package
         shell: bash
         run: |
@@ -139,6 +140,14 @@ jobs:
           set -euo pipefail
           test -n "$(find app/build/outputs/apk/release -type f -name '*.apk' -print -quit)"
           test -n "$(find app/build/outputs/bundle/release -type f -name '*.aab' -print -quit)"
+          echo "## Release signature verification" >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r apk; do
+            if "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$apk" >/dev/null 2>&1; then
+              echo "Signed and verified: $apk" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "Unsigned Release APK (not ready for direct installation): $apk" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done < <(find app/build/outputs/apk/release -type f -name '*.apk' -print)
           {
             echo "## Optimized Release size measurements"
             echo "Exact output sizes in bytes:"
