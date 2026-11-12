@@ -83,13 +83,13 @@ set(NSTACKX_UTIL_SOURCES
     "${NSTACKX_UTIL}/core/nstackx_socket.c"
     "${NSTACKX_UTIL}/core/nstackx_timer.c"
     "${NSTACKX_UTIL}/core/nstackx_util.c"
-    "${NSTACKX_UTIL}/platform/unix/sys_dev.c"
+    "${CMAKE_CURRENT_LIST_DIR}/android/sys_dev.c"
     "${NSTACKX_UTIL}/platform/unix/sys_epoll.c"
     "${NSTACKX_UTIL}/platform/unix/sys_event.c"
-    "${NSTACKX_UTIL}/platform/unix/sys_log.c"
+    "${CMAKE_CURRENT_LIST_DIR}/android/sys_log.c"
     "${NSTACKX_UTIL}/platform/unix/sys_socket.c"
     "${NSTACKX_UTIL}/platform/unix/sys_timer.c"
-    "${NSTACKX_UTIL}/platform/unix/sys_util.c")
+    "${CMAKE_CURRENT_LIST_DIR}/android/sys_util.c")
 
 add_library(nstackx_util STATIC ${NSTACKX_UTIL_SOURCES})
 target_include_directories(nstackx_util PUBLIC
@@ -187,4 +187,4 @@ target_link_libraries(nstackx_engine PRIVATE
     "-Wl,--whole-archive"
     nstackx_dfinder nstackx_dfile nstackx_congestion nstackx_util nstackx_securec
     "-Wl,--no-whole-archive"
-    coap-3 mbedtls mbedx509 mbedcrypto)
+    coap-3 mbedtls mbedx509 mbedcrypto log)
