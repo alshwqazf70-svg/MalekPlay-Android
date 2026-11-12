@@ -122,4 +122,15 @@ Second cue
         assertEquals(1, SrtSubtitleParser.splitBlocks(srt).size)
     }
 
+
+    @Test
+    fun detectsUtf16LittleAndBigEndianWithoutBom() {
+        val text = "1\\n00:00:01,000 --> 00:00:02,000\\nHello subtitle"
+        val utf16Le = text.toByteArray(StandardCharsets.UTF_16LE)
+        val utf16Be = text.toByteArray(StandardCharsets.UTF_16BE)
+
+        assertEquals(text, SrtSubtitleParser.decode(utf16Le))
+        assertEquals(text, SrtSubtitleParser.decode(utf16Be))
+    }
+
 }
