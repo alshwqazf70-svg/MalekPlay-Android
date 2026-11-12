@@ -386,6 +386,12 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun forgetPeer(host: String) {
+        // "Forget device" must revoke both the live route and the persisted consent.
+        val peerId = (_state.value.activePeers + _state.value.reconnectablePeers)
+            .firstOrNull { it.host == host }?.sessionId
+        peerId?.takeIf(UltraShareTrustedPeerStore::isValidPeerId)?.let {
+            UltraShareTrustedPeerStore.forget(context, it)
+        }
         UltraShareForegroundService.forgetApprovedPeer(host)
         val next = UltraShareForegroundService.approvedSendTargets().lastOrNull()
         _state.value = _state.value.copy(
