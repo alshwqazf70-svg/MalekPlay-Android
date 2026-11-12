@@ -101,7 +101,7 @@ internal object VideoKindClassifier {
         candidates.groupBy { it.second }.values.forEach { siblings ->
             if (siblings.size < 2 || siblings.map { it.third }.distinct().size < 2) return@forEach
             siblings.forEach { (file, _, episodeNumber) ->
-                val season = seasonPattern.find(normalizeDigits("\${file.folderName} \${file.folderPath}"))
+                val season = seasonPattern.find(normalizeDigits(file.folderName + " " + file.folderPath))
                     ?.groupValues?.drop(1)?.firstOrNull(String::isNotBlank)?.toIntOrNull() ?: 1
                 val prefix = trailingEpisodePattern.matchEntire(normalizedKey(file.title))?.groupValues?.get(1).orEmpty()
                 result[file.id] = ClassifiedVideo(VideoKind.SERIES, EpisodeSortKey(normalizedKey(prefix), season, episodeNumber))
