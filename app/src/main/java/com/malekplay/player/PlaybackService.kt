@@ -186,6 +186,15 @@ class PlaybackService : MediaSessionService() {
     }
 
 
+    /**
+     * Media3 may classify an in-process MediaController differently across Android
+     * versions. The controller package identity is authenticated by the platform,
+     * so explicitly allow this app's own controller while keeping external clients
+     * behind Media3's trusted-controller policy.
+     */
+    private fun isTrustedAppController(controller: MediaSession.ControllerInfo): Boolean =
+        controller.isTrusted || controller.packageName == packageName
+
     private val videoEffectSessionCallback = object : MediaSession.Callback {
         override fun onConnect(
             session: MediaSession,
@@ -194,7 +203,7 @@ class PlaybackService : MediaSessionService() {
             // Start from the supported default session commands for every controller.
             // The custom GPU effect command is exposed only to trusted app controllers.
             val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().apply {
-                if (controller.isTrusted) PlaybackVideoEffects.COMMANDS.forEach { add(it) }
+                if (isTrustedAppController(controller)) PlaybackVideoEffects.COMMANDS.forEach { add(it) }
             }.build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(commands)
@@ -207,7 +216,7 @@ class PlaybackService : MediaSessionService() {
             customCommand: SessionCommand,
             args: Bundle
         ): ListenableFuture<SessionResult> {
-            if (!controller.isTrusted) {
+            if (!isTrustedAppController(controller)) {
                 return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
             }
             val requested = args.getBoolean(PlaybackVideoEffects.KEY_ENABLED, false)
