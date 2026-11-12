@@ -126,7 +126,7 @@ target_include_directories(nstackx_dfinder PUBLIC
     "${NSTACKX_UTIL}/interface"
     "${NSTACKX_UTIL}/platform/unix")
 target_compile_definitions(nstackx_dfinder PUBLIC
-    NSTACKX_EXTEND_BUSINESSDATA DFI NDER_SAVE_DEVICE_LIST
+    NSTACKX_EXTEND_BUSINESSDATA DFINDER_SAVE_DEVICE_LIST
     DFINDER_SUPPORT_SET_SCREEN_STATUS
     DFINDER_DISTINGUISH_ACTIVE_PASSIVE_DISCOVERY
     DFINDER_MGT_MSG_LOG NSTACKX_DFINDER_HIDUMP)
@@ -179,3 +179,12 @@ target_link_libraries(nstackx_dfile PUBLIC
 
 # Shared library packaging is enabled only after the JNI bridge is added in phase 5.
 # Keeping the native modules as real static targets prevents shipping an empty JNI shell.
+
+add_library(nstackx_engine SHARED "${CMAKE_CURRENT_LIST_DIR}/nstackx_engine_entry.c")
+target_compile_definitions(nstackx_engine PRIVATE
+    NSTACKX_ANDROID_NSTACKX_REVISION="fbf280db18092eb00bb065e59ce6676c7b85b8c9")
+target_link_libraries(nstackx_engine PRIVATE
+    "-Wl,--whole-archive"
+    nstackx_dfinder nstackx_dfile nstackx_congestion nstackx_util nstackx_securec
+    "-Wl,--no-whole-archive"
+    coap-3 mbedtls mbedx509 mbedcrypto)
