@@ -56,7 +56,9 @@ object UltraShareControlChannel {
         val requestId: String,
         val peerName: String,
         val peerAddress: String,
-        val peerId: String? = null
+        val peerId: String? = null,
+        /** Local interface address selected by the accepted control socket. */
+        val localAddress: String? = null
     )
 
     private data class ClientSession(
@@ -354,7 +356,8 @@ object UltraShareControlChannel {
             requestId = requestId,
             peerName = name,
             peerAddress = peerAddress,
-            peerId = peerId
+            peerId = peerId,
+            localAddress = socket.localAddress?.hostAddress
         )
         val decision = withTimeoutOrNull(120_000L) { onRequest(request) } ?: Decision.REJECTED
         val dfileKey = if (decision == Decision.ACCEPTED) deriveDFileKey(key) else null

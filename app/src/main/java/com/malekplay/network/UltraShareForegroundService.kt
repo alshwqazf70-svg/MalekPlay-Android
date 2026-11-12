@@ -495,7 +495,7 @@ class UltraShareForegroundService : Service() {
                                 },
                                 onDFileServerReady = { request, ephemeralKey ->
                                     try {
-                                        startDFileServerForPeer(request.peerAddress)
+                                        startDFileServerForPeer(request.peerAddress, request.localAddress)
                                     } finally {
                                         ephemeralKey.fill(0)
                                     }
@@ -607,11 +607,18 @@ class UltraShareForegroundService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun startDFileServerForPeer(peerAddress: String): Int? {
+    private fun startDFileServerForPeer(peerAddress: String, localAddress: String?): Int? {
         if (!NstackxNativeBridge.isAvailable) return null
+        val localIpv4 = localAddress?.takeIf(UltraShareTransport::isValidPrivateLanHost)
+            ?: return null
         val discovery = NstackxAndroidDiscoverySession.current()
+            ?.takeIf { it.localIpv4 == localIpv4 }
             ?: runCatching {
-                NstackxAndroidDiscoverySession.start(this, onPeerFound = {})
+                NstackxAndroidDiscoverySession.start(
+                    this,
+                    preferredLocalIpv4 = localIpv4,
+                    onPeerFound = {}
+                )
             }.getOrNull()
             ?: return null
         // A replacement approval supersedes the old native receiver for this peer.

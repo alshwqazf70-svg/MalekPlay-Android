@@ -40,6 +40,7 @@ object NstackxAndroidDiscoverySession {
         context: Context,
         displayName: String = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" }
             ?: "MalekPlayer Android",
+        preferredLocalIpv4: String? = null,
         onPeerFound: (NstackxNativeBridge.Peer) -> Unit
     ): Started {
         check(NstackxNativeBridge.isAvailable) {
@@ -73,8 +74,15 @@ object NstackxAndroidDiscoverySession {
                 Candidate(network, iface, ipv4, rank)
             }
             .sortedByDescending { it.rank }
-            .firstOrNull()
-            ?: error("لم يعثر Android على واجهة Wi-Fi أو Wi-Fi Direct نشطة بعنوان IPv4.")
+            .let { candidates ->
+                if (preferredLocalIpv4.isNullOrBlank()) candidates.firstOrNull()
+                else candidates.firstOrNull { it.localIpv4 == preferredLocalIpv4 }
+            }
+            ?: error(
+                if (preferredLocalIpv4.isNullOrBlank())
+                    "لم يعثر Android على واجهة Wi-Fi أو Wi-Fi Direct نشطة بعنوان IPv4."
+                else "واجهة الشبكة التي استقبلت طلب الاقتران غير متاحة لبدء DFile."
+            )
 
         val handle = candidate.network.networkHandle
         check(handle > 0L) { "معرّف شبكة Android غير صالح." }
