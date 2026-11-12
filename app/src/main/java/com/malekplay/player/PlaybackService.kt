@@ -1,7 +1,10 @@
 package com.malekplay.player
 
+import android.app.ActivityManager
 import android.app.PendingIntent
 import android.os.Bundle
+import android.os.Build
+import android.os.PowerManager
 import android.content.Intent
 import android.util.Log
 import androidx.media3.common.MediaItem
@@ -27,6 +30,8 @@ import androidx.media3.effect.LanczosResample
 import com.malekplay.player.effects.SpatialNoiseReductionEffect
 import com.malekplay.player.effects.TemporalMotionSmoothingEffect
 import com.malekplay.player.effects.VideoDetailEnhancementEffect
+import com.malekplay.player.effects.VideoEnhancementProfile
+import com.malekplay.player.effects.VideoEnhancementPolicy
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.render.AssVideoEffectRegistry
 import io.github.peerless2012.ass.media.type.AssRenderType
@@ -77,6 +82,7 @@ class PlaybackService : MediaSessionService() {
     private var videoUpscalingEnabled = false
     private var videoNoiseReductionEnabled = false
     private var videoMotionSmoothingEnabled = false
+    private var videoEnhancementProfile = VideoEnhancementProfile.BALANCED
     private var castMediaHttpServer: CastMediaHttpServer? = null
     private lateinit var profileStore: NetworkProfileStore
     private lateinit var credentialVault: NetworkCredentialVault
@@ -225,6 +231,9 @@ class PlaybackService : MediaSessionService() {
                 PlaybackVideoEffects.ACTION_UPSCALING -> setVideoUpscaling(requested)
                 PlaybackVideoEffects.ACTION_NOISE_REDUCTION -> setVideoNoiseReduction(requested)
                 PlaybackVideoEffects.ACTION_MOTION_SMOOTHING -> setVideoMotionSmoothing(requested)
+                PlaybackVideoEffects.ACTION_QUALITY_PROFILE -> setVideoEnhancementProfile(
+                    VideoEnhancementProfile.fromWireValue(args.getString(PlaybackVideoEffects.KEY_PROFILE))
+                )
                 else -> false
             }
             return Futures.immediateFuture(
@@ -315,6 +324,31 @@ class PlaybackService : MediaSessionService() {
         return false
     }
 
+    private fun setVideoEnhancementProfile(profile: VideoEnhancementProfile): Boolean {
+        val previous = videoEnhancementProfile
+        videoEnhancementProfile = profile
+        if (applyVideoEnhancements()) return true
+        videoEnhancementProfile = previous
+        applyVideoEnhancements()
+        return false
+    }
+
+    private fun resolveVideoEnhancementTuning() = run {
+        val activityManager = getSystemService(ActivityManager::class.java)
+        val thermalStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching {
+                getSystemService(PowerManager::class.java)?.currentThermalStatus
+            }.getOrNull()
+        } else null
+        VideoEnhancementPolicy.resolve(
+            requested = videoEnhancementProfile,
+            sdkInt = Build.VERSION.SDK_INT,
+            isLowRamDevice = activityManager?.isLowRamDevice == true,
+            memoryClassMb = activityManager?.memoryClass ?: 256,
+            thermalStatus = thermalStatus
+        )
+    }
+
     private fun hasAnyVideoEnhancementEnabled(): Boolean =
         videoUpscalingEnabled || videoNoiseReductionEnabled || videoMotionSmoothingEnabled
 
@@ -340,7 +374,12 @@ class PlaybackService : MediaSessionService() {
         // will apply it as soon as the selected video format becomes available.
         if (!canApplyLocalVideoEnhancement()) return true
 
-        val effects = ArrayList<Effect>(3)
+        val tuning = resolveVideoEnhancementTuning()
+        val profile = tuning.effective
+        if (tuning.downgradeReason != null) {
+            Log.w(TAG, "Video enhancement profile capped: ${tuning.downgradeReason}")
+        }
+        val effects = ArrayList<Effect>(4)
         if (videoUpscalingEnabled) {
             val videoSize = player.videoSize
             val metrics = resources.displayMetrics
@@ -355,11 +394,13 @@ class PlaybackService : MediaSessionService() {
                 effects += LanczosResample.scaleToFitWithFlexibleOrientation(targetLong, targetShort)
             }
         }
-        if (videoNoiseReductionEnabled) effects += SpatialNoiseReductionEffect()
+        if (videoNoiseReductionEnabled) effects += SpatialNoiseReductionEffect(profile.denoiseStrength)
         if (videoUpscalingEnabled || videoNoiseReductionEnabled) {
-            effects += VideoDetailEnhancementEffect()
+            effects += VideoDetailEnhancementEffect(profile.detailStrength)
         }
-        if (videoMotionSmoothingEnabled) effects += TemporalMotionSmoothingEffect()
+        if (videoMotionSmoothingEnabled && profile.previousFrameWeight > 0f) {
+            effects += TemporalMotionSmoothingEffect(profile.previousFrameWeight)
+        }
         return runCatching {
             AssVideoEffectRegistry.setAdditionalEffects(player, effects)
         }.onFailure { error ->
