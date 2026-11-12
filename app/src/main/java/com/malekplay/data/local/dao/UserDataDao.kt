@@ -74,6 +74,10 @@ interface UserDataDao {
     @Query("SELECT mediaId FROM history ORDER BY lastPlayedAtMs DESC LIMIT :limit")
     suspend fun recentHistoryIds(limit: Int): List<String>
 
+    /** Emits the most recently played item and updates live after each real playback start. */
+    @Query("SELECT mediaId FROM history ORDER BY lastPlayedAtMs DESC LIMIT 1")
+    fun observeLastPlayedMediaId(): Flow<String?>
+
     @Query(
         """DELETE FROM history WHERE mediaId NOT IN
            (SELECT mediaId FROM history ORDER BY lastPlayedAtMs DESC LIMIT 200)"""
