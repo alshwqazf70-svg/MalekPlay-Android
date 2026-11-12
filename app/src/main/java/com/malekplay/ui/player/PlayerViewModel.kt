@@ -474,21 +474,25 @@ class PlayerViewModel @Inject constructor(
         _currentItemId.value = nextMediaId
         _playerError.value = null
 
-        // Resolve companion subtitles off the main thread for every video in the queue.
-        // A generation guard prevents a slow folder scan from replacing a newer playback request.
+        // Do not scan every item in the folder before playback starts. Large folders
+        // can contain hundreds of videos and sidecar subtitle lookups used to delay
+        // the first frame. Resolve only the selected video's companion subtitle.
+        // Other queue items are handed to ExoPlayer immediately without blocking startup.
         val requestGeneration = ++playbackGeneration
         viewModelScope.launch {
-            val preparedItems = withContext(Dispatchers.IO) {
-                safeItems.map { media ->
-                    val subtitle = if (media.isVideo) {
-                        LocalSubtitleResolver.findMatchingSubtitle(app, media)
-                    } else null
-                    media to subtitle
-                }
+            val selectedMedia = safeItems[safeIndex]
+            val selectedSubtitle = withContext(Dispatchers.IO) {
+                if (selectedMedia.isVideo) {
+                    LocalSubtitleResolver.findMatchingSubtitle(app, selectedMedia)
+                } else null
             }
             if (requestGeneration != playbackGeneration || _controller.value !== player) return@launch
+            val mediaItems = safeItems.mapIndexed { index, media ->
+                if (index == safeIndex) media.toMedia3Item(selectedSubtitle)
+                else media.toMedia3Item(null)
+            }
             player.setMediaItems(
-                preparedItems.map { (media, subtitle) -> media.toMedia3Item(subtitle) },
+                mediaItems,
                 safeIndex,
                 startPositionMs.coerceAtLeast(0L)
             )
