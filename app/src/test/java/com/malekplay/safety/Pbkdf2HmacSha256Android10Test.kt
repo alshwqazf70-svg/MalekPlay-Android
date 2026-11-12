@@ -45,4 +45,17 @@ class Pbkdf2HmacSha256Android10Test {
         assertTrue(manager.verifyPin("4826"))
         assertTrue(ParentalControlManager(context).verifyPin("4826"))
     }
+    @Test
+    fun ultraShareHandshakeKeyMatchesExistingDesktopProtocolOnAndroid10() {
+        val challenge = ByteArray(32) { it.toByte() }
+        val actual = com.malekplay.network.UltraShareTransport
+            .derivePairingKey("004219837", challenge)
+            .joinToString("") { "%02x".format(it) }
+
+        assertEquals(
+            "313f3930d3a5684ebdd21a38ea0be31fb255fe5436476972f2a387b2ded57150",
+            actual
+        )
+    }
+
 }
