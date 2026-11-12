@@ -30,7 +30,22 @@ object NstackxNativeBridge {
         val transferredBytes: Long,
         val totalBytes: Long,
         val message: String
-    )
+    ) {
+        /** The pinned upstream API says fatal sessions cannot be reused and must be closed. */
+        val isFatal: Boolean
+            get() = eventType == DFILE_ON_FATAL_ERROR
+    }
+
+    const val DFILE_ON_CONNECT_SUCCESS = 1
+    const val DFILE_ON_CONNECT_FAIL = 2
+    const val DFILE_ON_FILE_LIST_RECEIVED = 3
+    const val DFILE_ON_FILE_RECEIVE_SUCCESS = 4
+    const val DFILE_ON_FILE_RECEIVE_FAIL = 5
+    const val DFILE_ON_FILE_SEND_SUCCESS = 6
+    const val DFILE_ON_FILE_SEND_FAIL = 7
+    const val DFILE_ON_FATAL_ERROR = 8
+    const val DFILE_ON_SESSION_IN_PROGRESS = 9
+    const val DFILE_ON_TRANS_IN_PROGRESS = 10
 
     fun interface DFileListener {
         fun onEvent(event: DFileEvent)
