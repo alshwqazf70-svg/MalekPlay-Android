@@ -146,6 +146,49 @@ int32_t BindToTargetDev(SocketDesc sockfd, const char *targetInterfaceName)
     return BindVerifiedInterface(sockfd, targetInterfaceName);
 }
 
+/*
+ * NSTACKX DFinder calls this platform hook to map a remote IPv4 endpoint
+ * to the local interface on the same subnet. Keep the symbol present on
+ * Android even though actual socket binding is performed with the selected
+ * Android Network (android_setsocknetwork), not SO_BINDTODEVICE.
+ */
+int32_t GetTargetInterface(const struct sockaddr_in *dstAddr, struct ifreq *localDev)
+{
+    struct ifaddrs *all = NULL;
+    struct ifaddrs *it;
+    if (dstAddr == NULL || localDev == NULL || dstAddr->sin_family != AF_INET) {
+        return NSTACKX_EINVAL;
+    }
+    if (AndroidGetIfAddrs(&all) != 0) {
+        LOGE(TAG, "getifaddrs failed while resolving target interface: %d", errno);
+        return NSTACKX_EFAILED;
+    }
+    for (it = all; it != NULL; it = it->ifa_next) {
+        const struct sockaddr_in *local;
+        const struct sockaddr_in *mask;
+        if (!IsUpIpv4(it) || !IsSupportedName(it->ifa_name) || it->ifa_netmask == NULL) {
+            continue;
+        }
+        local = (const struct sockaddr_in *)it->ifa_addr;
+        mask = (const struct sockaddr_in *)it->ifa_netmask;
+        if ((dstAddr->sin_addr.s_addr & mask->sin_addr.s_addr) !=
+            (local->sin_addr.s_addr & mask->sin_addr.s_addr)) {
+            continue;
+        }
+        memset(localDev, 0, sizeof(*localDev));
+        if (strncpy_s(localDev->ifr_ifrn.ifrn_name, IFNAMSIZ,
+            it->ifa_name, strlen(it->ifa_name)) != EOK) {
+            AndroidFreeIfAddrs(all);
+            LOGE(TAG, "target interface name is too long");
+            return NSTACKX_EFAILED;
+        }
+        AndroidFreeIfAddrs(all);
+        return NSTACKX_EOK;
+    }
+    AndroidFreeIfAddrs(all);
+    return NSTACKX_EFAILED;
+}
+
 void BindToDevInTheSameLan(SocketDesc sockfd, const struct sockaddr_in *sockAddr)
 {
     struct ifaddrs *all = NULL;
