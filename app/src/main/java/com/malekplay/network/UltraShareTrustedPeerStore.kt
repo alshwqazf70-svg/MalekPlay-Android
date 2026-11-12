@@ -14,8 +14,16 @@ internal object UltraShareTrustedPeerStore {
     private const val KEY_PEER_IDS = "approved_peer_ids"
     private const val MAX_TRUSTED_PEERS = 64
 
-    fun isValidPeerId(value: String): Boolean =
-        value.length == 32 && value.all { it.digitToIntOrNull(16) != null }
+    fun isValidPeerId(value: String): Boolean {
+        // Android's stable identity is generated with UUID.toString() (36 chars),
+        // while older/native peers may expose the compact 32-hex representation.
+        // Accept both canonical encodings; reject arbitrary IDs before persisting trust.
+        val compact = value.length == 32 && value.all { it.digitToIntOrNull(16) != null }
+        val uuid = value.length == 36 && runCatching {
+            java.util.UUID.fromString(value).toString().equals(value, ignoreCase = true)
+        }.getOrDefault(false)
+        return compact || uuid
+    }
 
     @Synchronized
     fun isTrusted(context: Context, peerId: String): Boolean {
