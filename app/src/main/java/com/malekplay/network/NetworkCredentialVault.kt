@@ -38,12 +38,20 @@ class NetworkCredentialVault(context: Context) {
                 plain.fill(0)
             }
             // Bind ciphertext to its profile so encrypted records cannot be swapped.
-            val packed = FORMAT_MARKER + cipher.iv + encrypted
-            check(
-                preferences.edit()
-                    .putString(profileId, Base64.encodeToString(packed, Base64.NO_WRAP))
-                    .commit()
-            ) { "Could not save network credentials" }
+            val iv = cipher.iv
+            val packed = FORMAT_MARKER + iv + encrypted
+            try {
+                check(
+                    preferences.edit()
+                        .putString(profileId, Base64.encodeToString(packed, Base64.NO_WRAP))
+                        .commit()
+                ) { "Could not save network credentials" }
+            } finally {
+                // Clear all temporary binary copies after Base64 persistence.
+                packed.fill(0)
+                iv.fill(0)
+                encrypted.fill(0)
+            }
         }
     }
 
@@ -61,29 +69,52 @@ class NetworkCredentialVault(context: Context) {
         } catch (error: IllegalArgumentException) {
             throw IllegalStateException("Stored network credentials are corrupted", error)
         }
-        val hasMarker = packed.size >= FORMAT_MARKER.size &&
-            MessageDigest.isEqual(packed.copyOfRange(0, FORMAT_MARKER.size), FORMAT_MARKER)
-        val offset = if (hasMarker) FORMAT_MARKER.size else 0
-        require(packed.size > offset + IV_LENGTH + 16) {
-            "Stored network credentials are incomplete"
-        }
+        try {
+            val marker = if (packed.size >= FORMAT_MARKER.size) {
+                packed.copyOfRange(0, FORMAT_MARKER.size)
+            } else {
+                ByteArray(0)
+            }
+            val hasMarker = try {
+                MessageDigest.isEqual(marker, FORMAT_MARKER)
+            } finally {
+                marker.fill(0)
+            }
+            val offset = if (hasMarker) FORMAT_MARKER.size else 0
+            require(packed.size > offset + IV_LENGTH + 16) {
+                "Stored network credentials are incomplete"
+            }
 
-        val iv = packed.copyOfRange(offset, offset + IV_LENGTH)
-        val ciphertext = packed.copyOfRange(offset + IV_LENGTH, packed.size)
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
-        if (hasMarker) cipher.updateAAD(profileId.toByteArray(StandardCharsets.UTF_8))
-        val decodedBytes = cipher.doFinal(ciphertext)
-        val decoded = try {
-            String(decodedBytes, StandardCharsets.UTF_8)
+            val iv = packed.copyOfRange(offset, offset + IV_LENGTH)
+            val ciphertext = packed.copyOfRange(offset + IV_LENGTH, packed.size)
+            try {
+                val cipher = Cipher.getInstance(TRANSFORMATION)
+                cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
+                if (hasMarker) cipher.updateAAD(profileId.toByteArray(StandardCharsets.UTF_8))
+                val decodedBytes = cipher.doFinal(ciphertext)
+                try {
+                    // Split on the binary delimiter before creating immutable Strings;
+                    // avoid constructing an extra combined plaintext String in memory.
+                    val separator = decodedBytes.indexOf(0)
+                    check(separator >= 0) { "Stored network credentials have an invalid format" }
+                    val credentials = String(
+                        decodedBytes, 0, separator, StandardCharsets.UTF_8
+                    ) to String(
+                        decodedBytes, separator + 1,
+                        decodedBytes.size - separator - 1, StandardCharsets.UTF_8
+                    )
+                    if (!hasMarker) save(profileId, credentials.first, credentials.second)
+                    credentials
+                } finally {
+                    decodedBytes.fill(0)
+                }
+            } finally {
+                iv.fill(0)
+                ciphertext.fill(0)
+            }
         } finally {
-            decodedBytes.fill(0)
+            packed.fill(0)
         }
-        val separator = decoded.indexOf('\u0000')
-        check(separator >= 0) { "Stored network credentials have an invalid format" }
-        val credentials = decoded.substring(0, separator) to decoded.substring(separator + 1)
-        if (!hasMarker) save(profileId, credentials.first, credentials.second)
-        credentials
     }
 
     fun remove(profileId: String) {
