@@ -55,6 +55,38 @@ checkout_pinned() {
 }
 
 checkout_pinned nstackx "$NSTACKX_REPOSITORY" "$NSTACKX_COMMIT"
+# NSTACKX's CoAP adapter accesses libcoap socket internals (flags/fd), but the
+# pinned libcoap public coap.h intentionally exposes only forward declarations.
+# Include the matching private header in this upstream integration translation
+# unit so the Android NDK build sees the complete coap_socket_t definition.
+patch_nstackx_coap_private_api() {
+  local source="$DEST/nstackx/nstackx_ctrl/core/coap_discover/coap_app.c"
+  if [[ ! -f "$source" ]]; then
+    echo "Missing NSTACKX CoAP adapter source: $source" >&2
+    return 6
+  fi
+  if ! grep -qF '#include <coap3/coap_internal.h>' "$source"; then
+    python3 - "$source" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+anchor = '#include "coap_app.h"\\n'
+if source.count(anchor) != 1:
+    raise SystemExit("Unexpected upstream coap_app.c include layout; refusing an unsafe patch")
+source = source.replace(
+    anchor,
+    anchor + '\\n/* NSTACKX uses libcoap's private socket API in this adapter. */\\n'
+    '#include <coap3/coap_internal.h>\\n',
+    1,
+)
+path.write_text(source, encoding="utf-8")
+PY
+  fi
+}
+
+patch_nstackx_coap_private_api
 checkout_pinned libcoap "$LIBCOAP_REPOSITORY" "$LIBCOAP_COMMIT"
 checkout_pinned cjson "$CJSON_REPOSITORY" "$CJSON_COMMIT"
 checkout_pinned securec "$SECUREC_REPOSITORY" "$SECUREC_COMMIT"
