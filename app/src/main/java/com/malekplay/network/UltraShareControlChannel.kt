@@ -359,6 +359,17 @@ object UltraShareControlChannel {
         val decision = withTimeoutOrNull(120_000L) { onRequest(request) } ?: Decision.REJECTED
         val dfileKey = if (decision == Decision.ACCEPTED) deriveDFileKey(key) else null
         var negotiatedDFilePort: Int? = null
+        if (decision == Decision.ACCEPTED) {
+            // Replace the old control session before publishing the new DFile key. This
+            // prevents the old session's close callback from erasing the new peer key.
+            socket.soTimeout = SESSION_TIMEOUT_MS
+            serverSessions.put(peerAddress, socket)?.takeIf { it !== socket }?.let { previous ->
+                runCatching { previous.close() }
+                serverSessionDFileKeys.remove(peerAddress)?.fill(0)
+            }
+            serverSessionPeerIds.remove(peerAddress)
+            request.peerId?.let { serverSessionPeerIds[peerAddress] = it }
+        }
         if (dfileKey != null) {
             // Publish the key before preparing the native receiver. The receiver must be
             // listening before ACCEPT is sent, otherwise the first DFile SYN can be lost.
