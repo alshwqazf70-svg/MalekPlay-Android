@@ -59,6 +59,7 @@ fun VideoCategoryScreen(
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val videos by viewModel.videos.collectAsStateWithLifecycle()
+    val lastPlayedMediaId by viewModel.lastPlayedMediaId.collectAsStateWithLifecycle(initialValue = null)
     var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     val selectedMedia = remember { mutableStateListOf<Uri>() }
