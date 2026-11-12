@@ -45,13 +45,14 @@ object NstackxNativeBridge {
         deviceName: String,
         deviceId: String,
         interfaceName: String,
-        ipv4Address: String
+        ipv4Address: String,
+        networkHandle: Long
     ): Int {
         if (!libraryLoaded) return LOAD_ERROR
         if (deviceName.isBlank() || deviceId.isBlank() ||
-            interfaceName.isBlank() || ipv4Address.isBlank()
+            interfaceName.isBlank() || ipv4Address.isBlank() || networkHandle <= 0L
         ) return INVALID_ARGUMENT
-        return nativeInitialize(deviceName, deviceId, interfaceName, ipv4Address)
+        return nativeInitialize(deviceName, deviceId, interfaceName, ipv4Address, networkHandle)
     }
 
     fun startDiscovery(): Int =
@@ -77,7 +78,8 @@ object NstackxNativeBridge {
         deviceName: String,
         deviceId: String,
         interfaceName: String,
-        ipv4Address: String
+        ipv4Address: String,
+        networkHandle: Long
     ): Int
 
     private external fun nativeStartDiscovery(): Int
