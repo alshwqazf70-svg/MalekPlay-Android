@@ -195,6 +195,8 @@ fun VideoPlayerScreen(
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val isBuffering by viewModel.isBuffering.collectAsStateWithLifecycle()
     val videoUpscalingEnabled by viewModel.videoUpscalingEnabled.collectAsStateWithLifecycle()
+    val videoNoiseReductionEnabled by viewModel.videoNoiseReductionEnabled.collectAsStateWithLifecycle()
+    val videoMotionSmoothingEnabled by viewModel.videoMotionSmoothingEnabled.collectAsStateWithLifecycle()
     val videoUpscalingError by viewModel.videoUpscalingError.collectAsStateWithLifecycle()
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
     val durationMs by viewModel.durationMs.collectAsStateWithLifecycle()
@@ -339,7 +341,11 @@ fun VideoPlayerScreen(
     // Leaving the screen always releases the additional GL effect, even if audio
     // playback continues in the background.
     DisposableEffect(viewModel) {
-        onDispose { viewModel.setVideoUpscalingEnabled(false) }
+        onDispose {
+            viewModel.setVideoUpscalingEnabled(false)
+            viewModel.setVideoNoiseReductionEnabled(false)
+            viewModel.setVideoMotionSmoothingEnabled(false)
+        }
     }
 
     // -------------------------------------------------------------- ui state
@@ -881,14 +887,28 @@ fun VideoPlayerScreen(
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text(stringResource(R.string.player_noise_reduction_unavailable)) },
-                    enabled = false,
-                    onClick = {}
+                    text = {
+                        Text(stringResource(
+                            if (videoNoiseReductionEnabled) R.string.player_noise_reduction_on
+                            else R.string.player_noise_reduction_off
+                        ))
+                    },
+                    onClick = {
+                        showMenu = false
+                        viewModel.setVideoNoiseReductionEnabled(!videoNoiseReductionEnabled)
+                    }
                 )
                 DropdownMenuItem(
-                    text = { Text(stringResource(R.string.player_motion_smoothing_unavailable)) },
-                    enabled = false,
-                    onClick = {}
+                    text = {
+                        Text(stringResource(
+                            if (videoMotionSmoothingEnabled) R.string.player_motion_smoothing_on
+                            else R.string.player_motion_smoothing_off
+                        ))
+                    },
+                    onClick = {
+                        showMenu = false
+                        viewModel.setVideoMotionSmoothingEnabled(!videoMotionSmoothingEnabled)
+                    }
                 )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.player_bookmarks)) },
