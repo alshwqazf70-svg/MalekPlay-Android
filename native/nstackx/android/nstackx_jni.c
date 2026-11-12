@@ -453,36 +453,45 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeDFileSendFiles(
     JNIEnv *env, jclass clazz, jint sessionId, jobjectArray filePaths)
 {
     jsize count;
-    const char **paths;
+    char **paths;
     jsize i;
     int32_t result;
     (void)clazz;
     if (sessionId <= 0 || filePaths == NULL) return -1221;
     count = (*env)->GetArrayLength(env, filePaths);
     if (count <= 0 || count > NSTACKX_MAX_FILE_LIST_NUM) return -1222;
-    paths = (const char **)calloc((size_t)count, sizeof(char *));
+    paths = (char **)calloc((size_t)count, sizeof(char *));
     if (paths == NULL) return -1223;
+
     for (i = 0; i < count; ++i) {
         jstring path = (jstring)(*env)->GetObjectArrayElement(env, filePaths, i);
+        const char *utfPath;
+        size_t length;
         if (path == NULL) {
             result = -1224;
             goto SEND_CLEANUP;
         }
-        paths[i] = (*env)->GetStringUTFChars(env, path, NULL);
-        (*env)->DeleteLocalRef(env, path);
-        if (paths[i] == NULL) {
+        utfPath = (*env)->GetStringUTFChars(env, path, NULL);
+        if (utfPath == NULL) {
+            (*env)->DeleteLocalRef(env, path);
             result = -1225;
             goto SEND_CLEANUP;
         }
-    }
-    result = NSTACKX_DFileSendFiles(sessionId, paths, (uint32_t)count, "MalekPlayer");
-SEND_CLEANUP:
-    for (i = 0; i < count; ++i) {
-        if (paths[i] != NULL) {
-            /* GetStringUTFChars is paired with the original local reference only
-             * if it is retained; JNI releases by matching the jstring object. */
+        length = strlen(utfPath);
+        paths[i] = (char *)malloc(length + 1);
+        if (paths[i] != NULL) memcpy(paths[i], utfPath, length + 1);
+        (*env)->ReleaseStringUTFChars(env, path, utfPath);
+        (*env)->DeleteLocalRef(env, path);
+        if (paths[i] == NULL) {
+            result = -1226;
+            goto SEND_CLEANUP;
         }
     }
+
+    result = NSTACKX_DFileSendFiles(sessionId, (const char **)paths, (uint32_t)count, "MalekPlayer");
+
+SEND_CLEANUP:
+    for (i = 0; i < count; ++i) free(paths[i]);
     free(paths);
     return result;
 }
