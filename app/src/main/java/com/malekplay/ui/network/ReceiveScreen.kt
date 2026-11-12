@@ -64,6 +64,13 @@ fun ReceiveScreen(
             textAlign = TextAlign.Center
         )
         if (state.receiving) {
+            if (state.activePeers.isNotEmpty()) {
+                val connectedNames = state.activePeers.joinToString("، ") { it.name }
+                ShareInfoCard(
+                    title = "تم الاتصال بنجاح",
+                    body = "متصل الآن مع: $connectedNames\nرمز QR مخفي لأن الاقتران اكتمل. يمكنك إرسال واستقبال ملفات إضافية دون إعادة الاتصال."
+                )
+            } else {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
@@ -129,9 +136,9 @@ fun ReceiveScreen(
             ShareInfoCard(
                 title = "حالة المجموعة",
                 body = if (state.pendingConnection != null) {
-                    "يوجد طلب اتصال من ${state.pendingConnection.peerName}. راجعه أدناه للموافقة أو الرفض."
+                    "طلب اتصال من ${state.pendingConnection.peerName} قيد التحقق."
                 } else {
-                    "المجموعة جاهزة لاستقبال طلبات الانضمام. لا يبدأ نقل الملفات قبل موافقتك."
+                    "المجموعة جاهزة لاقتران جهاز آخر؛ يبدأ الاتصال تلقائياً بعد التحقق من QR أو الرمز."
                 }
             )
             Row(
@@ -160,6 +167,7 @@ fun ReceiveScreen(
             ) {
                 Icon(Icons.Filled.QrCode, contentDescription = null)
                 Text("نسخ بيانات QR", modifier = Modifier.padding(start = 8.dp))
+            }
             }
         } else {
             ShareInfoCard(
