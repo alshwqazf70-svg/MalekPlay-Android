@@ -494,34 +494,46 @@ class UltraShareViewModel @Inject constructor(
      * endpoint discovery remains authoritative until native peer-to-peer
      * address mapping is validated on real Android devices.
      */
+    private fun onNstackxPeerFound(peer: NstackxNativeBridge.Peer) {
+        nstackxPeerNames[peer.deviceId] = peer.deviceName
+        val current = _state.value
+        _state.value = current.copy(
+            discoveredPeers = current.discoveredPeers.map { sighting ->
+                if (sighting.peerId == peer.deviceId) sighting.copy(name = peer.deviceName)
+                else sighting
+            }
+        )
+    }
+
     private fun ensureNstackxDiscovery() {
-        if (!NstackxNativeBridge.isAvailable ||
-            NstackxAndroidDiscoverySession.current() != null ||
-            nstackxStartJob?.isActive == true
-        ) return
+        if (!NstackxNativeBridge.isAvailable || nstackxStartJob?.isActive == true) return
+
+        // A foreground receiver can outlive this ViewModel. Reattach the current
+        // screen observer to the existing native engine instead of stopping/restarting
+        // NSTACKX, which can tear down a DFile session already serving another phone.
+        if (NstackxAndroidDiscoverySession.current() != null) {
+            NstackxAndroidDiscoverySession.setPeerListener(::onNstackxPeerFound)
+            return
+        }
 
         nstackxStartJob = viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                NstackxAndroidDiscoverySession.start(context) { peer ->
-                    nstackxPeerNames[peer.deviceId] = peer.deviceName
-                    val current = _state.value
-                    _state.value = current.copy(
-                        discoveredPeers = current.discoveredPeers.map { sighting ->
-                            if (sighting.peerId == peer.deviceId) {
-                                sighting.copy(name = peer.deviceName)
-                            } else sighting
-                        }
-                    )
-                }
+                NstackxAndroidDiscoverySession.start(context, onPeerFound = ::onNstackxPeerFound)
             }
-            if (!_state.value.receiving && !_state.value.scanning) {
+            val serviceState = UltraShareForegroundService.state.value
+            if (!_state.value.receiving && !_state.value.scanning &&
+                !serviceState.receiving && serviceState.activePeers.isEmpty()
+            ) {
                 NstackxAndroidDiscoverySession.stop()
             }
         }
     }
 
     private fun stopNstackxIfIdle() {
-        if (_state.value.receiving || _state.value.scanning) return
+        val serviceState = UltraShareForegroundService.state.value
+        if (_state.value.receiving || _state.value.scanning ||
+            serviceState.receiving || serviceState.activePeers.isNotEmpty()
+        ) return
         if (nstackxStartJob?.isActive == true) nstackxStartJob?.cancel()
         NstackxAndroidDiscoverySession.stop()
     }
@@ -1118,7 +1130,14 @@ class UltraShareViewModel @Inject constructor(
         bleSession?.close()
         bleSession = null
         nstackxStartJob?.cancel()
-        NstackxAndroidDiscoverySession.stop()
+        // The native engine is process-global and may currently own DFile sessions
+        // for the foreground service. Detach this screen's callback first; stop the
+        // engine only when no foreground receive/approved peer session depends on it.
+        NstackxAndroidDiscoverySession.detachPeerListener()
+        val serviceState = UltraShareForegroundService.state.value
+        if (!serviceState.receiving && serviceState.activePeers.isEmpty()) {
+            NstackxAndroidDiscoverySession.stop()
+        }
         nstackxPeerNames.clear()
         // Transfer jobs belong to the foreground service and deliberately outlive this ViewModel.
         super.onCleared()
