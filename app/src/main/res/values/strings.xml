@@ -375,7 +375,10 @@
     <string name="kids_refresh_library">Refresh library</string>
     <string name="player_gpu_upscaling_on">GPU upscaling: ON (Lanczos)</string>
     <string name="player_gpu_upscaling_off">GPU upscaling: OFF</string>
-    <string name="player_noise_reduction_unavailable">Noise reduction: unavailable on this build</string>
-    <string name="player_motion_smoothing_unavailable">Motion smoothing: unavailable (frame interpolation required)</string>
+    <string name="player_noise_reduction_on">Noise reduction: ON (GPU)</string>
+    <string name="player_noise_reduction_off">Noise reduction: OFF</string>
+    <string name="player_motion_smoothing_on">Motion smoothing: ON (temporal blend)</string>
+    <string name="player_motion_smoothing_off">Motion smoothing: OFF</string>
+    <string name="player_video_effect_unavailable">This video effect is unavailable for the current video or playback output.</string>
     <string name="player_gpu_upscaling_unavailable">GPU upscaling is unavailable for this video, protected content, remote playback, or when no upscaling is needed.</string>
 </resources>
