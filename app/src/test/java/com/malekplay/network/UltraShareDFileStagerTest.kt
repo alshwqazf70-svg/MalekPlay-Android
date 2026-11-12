@@ -24,6 +24,7 @@ class UltraShareDFileStagerTest {
             )
 
             file.close()
+            file.close() // Closing a completed/cancelled transfer twice is harmless.
 
             assertFalse(staged.exists())
             assertFalse(session.exists())
