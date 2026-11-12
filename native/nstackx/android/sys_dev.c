@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <errno.h>
 #include <string.h>
 #include "nstackx_dev.h"
@@ -38,6 +39,37 @@ static void AndroidFreeIfAddrs(struct ifaddrs *addresses)
 {
     AndroidFreeIfAddrsFn function = (AndroidFreeIfAddrsFn)dlsym(RTLD_DEFAULT, "freeifaddrs");
     if (function != NULL && addresses != NULL) function(addresses);
+}
+
+/*
+ * NSTACKX DFinder's upstream platform contract uses ioctl-based interface
+ * enumeration. Keep these entry points on Android and use Bionic's IPv4
+ * interface structures so the existing discovery logic can enumerate wlan/p2p.
+ */
+int32_t GetInterfaceList(struct ifconf *ifc, struct ifreq *buffer, uint32_t size)
+{
+    int fd;
+    if (ifc == NULL || buffer == NULL || size == 0 || size > INT32_MAX) return NSTACKX_EINVAL;
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return NSTACKX_EFAILED;
+    memset(ifc, 0, sizeof(*ifc));
+    ifc->ifc_len = (int)size;
+    ifc->ifc_buf = (char *)buffer;
+    if (ioctl(fd, SIOCGIFCONF, ifc) < 0) {
+        int savedErrno = errno;
+        close(fd);
+        errno = savedErrno;
+        return NSTACKX_EFAILED;
+    }
+    return fd;
+}
+
+int32_t GetInterfaceIP(int32_t fd, struct ifreq *interface)
+{
+    if (fd < 0 || interface == NULL) return NSTACKX_EINVAL;
+    if (ioctl(fd, SIOCGIFFLAGS, interface) < 0) return NSTACKX_EFAILED;
+    if ((interface->ifr_flags & IFF_UP) == 0) return NSTACKX_EINVAL;
+    return ioctl(fd, SIOCGIFADDR, interface) == 0 ? NSTACKX_EOK : NSTACKX_EFAILED;
 }
 
 static int IsUpIpv4(const struct ifaddrs *it)
