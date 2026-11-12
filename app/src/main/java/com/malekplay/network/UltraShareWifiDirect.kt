@@ -390,11 +390,26 @@ object UltraShareWifiDirect {
             if (connectionInProgress) return
             connectionInProgress = true
             val token = ++connectionAttemptToken
+            // requestPeers is asynchronous and some OEM Wi-Fi P2P implementations
+            // fail to deliver its callback. Bound this preflight separately from the
+            // later 30-second group-negotiation timeout so the session cannot remain
+            // permanently stuck in connectionInProgress.
+            connectionTimeout?.let(mainHandler::removeCallbacks)
+            val peerRefreshTimeout = Runnable {
+                if (!closed && connectionInProgress && token == connectionAttemptToken) {
+                    connectionInProgress = false
+                    onError("لم يستجب Android لتحديث قائمة أجهزة Wi-Fi Direct. أعد البحث ثم حاول الاتصال مجدداً.")
+                }
+            }
+            connectionTimeout = peerRefreshTimeout
+            mainHandler.postDelayed(peerRefreshTimeout, 5_000L)
             try {
                 // Refresh the peer list immediately before connecting; old peer entries
                 // can remain visible after an invitation has already failed.
                 manager.requestPeers(channel) { peers ->
                     if (closed || token != connectionAttemptToken) return@requestPeers
+                    connectionTimeout?.let(mainHandler::removeCallbacks)
+                    connectionTimeout = null
                     val currentPeer = peers.deviceList.firstOrNull {
                         it.deviceAddress.equals(deviceAddress, ignoreCase = true)
                     }
