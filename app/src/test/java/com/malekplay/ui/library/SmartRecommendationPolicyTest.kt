@@ -159,7 +159,7 @@ class SmartRecommendationPolicyTest {
             "source"
         )
 
-        assertEquals(listOf("album", "genre", "duration"), result.map { it.item.media.id })
+        assertEquals(listOf("genre", "album", "duration"), result.map { it.item.media.id })
         assertTrue(result.first().reason.isNotBlank())
     }
 
