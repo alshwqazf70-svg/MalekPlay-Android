@@ -58,6 +58,35 @@ class SmartRecommendationPolicyTest {
         assertTrue(SmartRecommendationPolicy.recommend(listOf(anchor), "anchor").isEmpty())
     }
 
+
+    @Test
+    fun localIntelligenceLearnsGenreAndArtistPreferencesAndExplainsPicks() {
+        val anchor = item("watched", genre = "Sci-Fi", artist = "Studio A").copy(isCompleted = true)
+        val sameGenre = item("same-genre", genre = "sci-fi")
+        val sameArtist = item("same-artist", artist = "studio a")
+        val unrelated = item("unrelated", genre = "Comedy")
+
+        val picks = SmartRecommendationPolicy.analyze(
+            listOf(anchor, sameGenre, sameArtist, unrelated),
+            lastPlayedMediaId = "watched"
+        )
+
+        assertEquals("same-genre", picks.first().item.media.id)
+        assertTrue(picks.first().reason.isNotBlank())
+        assertEquals("same-artist", picks[1].item.media.id)
+    }
+
+    @Test
+    fun localIntelligenceFallsBackToFreshLibraryPicksWithoutHistory() {
+        val older = item("older", addedAtMs = 1L)
+        val newer = item("newer", addedAtMs = 20L)
+
+        val picks = SmartRecommendationPolicy.analyze(listOf(older, newer), null)
+
+        assertEquals(listOf("newer", "older"), picks.map { it.item.media.id })
+        assertTrue(picks.all { it.reason.isNotBlank() })
+    }
+
     private fun item(
         id: String,
         genre: String? = null,

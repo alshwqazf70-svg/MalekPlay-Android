@@ -227,16 +227,16 @@ fun LibraryScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("اقتراحات ذكية", color = colors.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                        Text("ذكاء مالك المحلي", color = colors.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.weight(1f))
-                        Text("محلية • بدون إنترنت", color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                        Text("يتعلم من مكتبتك • دون إنترنت", color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                     }
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(smartRecommendations, key = { "smart-" + it.media.id }) { recommendation ->
-                            SmartRecommendationTile(recommendation) { onVideoClick(recommendation) }
+                            SmartRecommendationTile(recommendation) { onVideoClick(recommendation.item) }
                         }
                     }
                 }
@@ -312,7 +312,8 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun SmartRecommendationTile(item: LibraryItem, onClick: () -> Unit) {
+private fun SmartRecommendationTile(recommendation: SmartMediaRecommendation, onClick: () -> Unit) {
+    val item = recommendation.item
     val colors = MaterialTheme.colorScheme
     Column(
         Modifier.width(172.dp).clip(RoundedCornerShape(16.dp))
@@ -331,9 +332,8 @@ private fun SmartRecommendationTile(item: LibraryItem, onClick: () -> Unit) {
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            item.media.genre?.takeIf { it.isNotBlank() }
-                ?: item.media.folderName,
-            color = colors.onSurfaceVariant,
+            recommendation.reason,
+            color = colors.primary,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis

@@ -12,11 +12,13 @@ import com.malekplay.domain.model.SortMode
 import com.malekplay.domain.model.ViewMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -88,10 +90,11 @@ class LibraryViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Local metadata-based picks; computation stays in memory and off the UI thread. */
+    /** Local AI-style inference over existing library metadata; no model, network or extra storage. */
     val smartRecommendations = combine(allMedia, lastPlayedMediaId) { items, lastPlayedId ->
-        SmartRecommendationPolicy.recommend(items, lastPlayedId)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        SmartRecommendationPolicy.analyze(items, lastPlayedId)
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val continueWatching = mediaRepository.observeContinueWatching(5)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
