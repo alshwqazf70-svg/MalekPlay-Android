@@ -166,6 +166,19 @@ class NetworkModelsTest {
     }
 
     @Test
+    fun knownHostsImportStopsIfInputRepeatedlyReturnsZeroBytes() {
+        val input = object : java.io.InputStream() {
+            override fun read(): Int = -1
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int = 0
+        }
+        val output = ByteArrayOutputStream()
+        assertThrows(java.io.IOException::class.java) {
+            copyKnownHostsBounded(input, output, maxBytes = 10L)
+        }
+        assertEquals(0, output.size())
+    }
+
+    @Test
     fun knownHostsImportCopiesFilesWithinLimit() {
         val source = "trusted-host-key".toByteArray()
         val output = ByteArrayOutputStream()
