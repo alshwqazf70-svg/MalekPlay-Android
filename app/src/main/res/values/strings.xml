@@ -379,6 +379,9 @@
     <string name="player_noise_reduction_off">Noise reduction: OFF</string>
     <string name="player_motion_smoothing_on">Motion smoothing: ON (temporal blend)</string>
     <string name="player_motion_smoothing_off">Motion smoothing: OFF</string>
+    <string name="player_video_quality_economy">Image quality: Economy</string>
+    <string name="player_video_quality_balanced">Image quality: Balanced</string>
+    <string name="player_video_quality_ultra">Image quality: Ultra</string>
     <string name="player_video_effect_unavailable">This video effect is unavailable for the current video or playback output.</string>
     <string name="player_gpu_upscaling_unavailable">GPU upscaling is unavailable for this video, protected content, remote playback, or when no upscaling is needed.</string>
 </resources>
