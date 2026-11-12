@@ -992,6 +992,12 @@ class UltraShareForegroundService : Service() {
     private fun finishService() {
         // Keep the foreground service alive while either direction still owns a socket.
         if (sendJob != null || receiveJob != null || batchReceiveJob != null || hotspotReservation != null || currentState().hotspotStarting) return
+
+        // The transfer lifecycle owns the temporary control sessions too. Close both
+        // client/server channels when the final send/receive task ends, while retaining
+        // only the in-memory reconnect metadata needed to resume an interrupted queue.
+        currentState().activePeers.map { it.host }.distinct().forEach(::disconnectApprovedPeer)
+
         releaseTransferLocks()
         stopForeground(true)
         stopSelf()
