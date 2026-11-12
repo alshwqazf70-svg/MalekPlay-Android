@@ -96,10 +96,10 @@ Phase 2 establishes the build graph and toolchain provisioning, not a successful
 ## Phase 3 — Android platform adaptation (in progress)
 
 Implemented Android/Bionic platform adapters:
-- `native/nstackx/android/sys_dev.c`: enumerates active IPv4 interfaces with `getifaddrs`, resolves local IP/interface names, derives broadcast addresses, and performs verified best-effort interface binding. It does not assume privileged routing or force an interface when Android rejects `SO_BINDTODEVICE`.
+- `native/nstackx/android/sys_dev.c`: enumerates active IPv4 interfaces with `getifaddrs`, resolves local IP/interface names, derives broadcast addresses, classifies the source interface as P2P/WLAN for the upstream `GetConnectionTypeByDev` contract, and performs verified best-effort interface binding. It does not assume privileged routing or force an interface when Android rejects `SO_BINDTODEVICE`.
 - `native/nstackx/android/sys_log.c`: routes NSTACKX logs to Android logcat.
 - `native/nstackx/android/sys_util.c`: uses Android/Bionic thread, semaphore, clock and pthread APIs; CPU affinity is best-effort and maximum-priority escalation is intentionally disabled.
-- `native/nstackx/android/sys_socket.c`: replaces Linux UDP_SEGMENT/GSO assumptions with ordinary UDP datagrams split at the requested MSS, preserving the byte-stream segmentation contract on Android kernels without GSO.
+- `native/nstackx/android/sys_socket.c`: replaces Linux UDP_SEGMENT/GSO assumptions with ordinary UDP datagrams split at the requested MSS, preserving the byte-stream segmentation contract on Android kernels without GSO and mapping EAGAIN/EWOULDBLOCK back to NSTACKX retry status.
 - CMake now selects these Android adapters instead of the upstream Unix versions for the four replaced platform modules and links Android `log`.
 
 Still pending within phase 3:
