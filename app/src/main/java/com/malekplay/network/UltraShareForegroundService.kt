@@ -521,11 +521,12 @@ class UltraShareForegroundService : Service() {
                                     UltraShareTrustedPeerStore.isTrusted(this@UltraShareForegroundService, it)
                                 } == true
                                 if (alreadyTrusted) {
+                                    val approvedPeerId = requireNotNull(trustedPeerId)
                                     registerApprovedPeer(
                                         name = request.peerName,
                                         host = request.peerAddress,
                                         role = "جهاز موثوق - اتصال سريع",
-                                        sessionId = trustedPeerId
+                                        sessionId = approvedPeerId
                                     )
                                     updateState { current -> current.copy(
                                         pendingConnection = null,
