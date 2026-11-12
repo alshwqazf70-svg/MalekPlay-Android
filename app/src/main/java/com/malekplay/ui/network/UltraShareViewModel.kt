@@ -480,7 +480,12 @@ class UltraShareViewModel @Inject constructor(
                     val visible = found.values.map { sighting ->
                         val peer = sighting.first
                         val nativeName = peer.peerId?.let(nstackxPeerNames::get)
-                        if (nativeName.isNullOrBlank()) peer else peer.copy(name = nativeName)
+                        if (nativeName.isNullOrBlank()) peer
+                        else UltraShareDiscovery.mergeNativePeerName(
+                            peer,
+                            peer.peerId.orEmpty(),
+                            nativeName
+                        )
                     }
                     _state.value = _state.value.copy(
                         discoveredPeers = visible,
