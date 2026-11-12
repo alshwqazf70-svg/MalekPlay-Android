@@ -246,14 +246,13 @@ class PlaybackService : MediaSessionService() {
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
             // Media3 can publish an empty/initial track snapshot before selection.
             // Keep requested effects pending until the video track is actually known.
-            if (tracks.groups.isEmpty()) return
-            val hasVideo = tracks.groups.any { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }
-            if (!hasVideo) {
-                disableAllVideoEnhancements()
-                localExoPlayer?.let { AssVideoEffectRegistry.setAdditionalEffects(it, emptyList()) }
-            } else if (hasAnyVideoEnhancementEnabled()) {
-                applyVideoEnhancements()
-            }
+            val videoGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
+            // Audio-only/initial snapshots can arrive before the video group is published.
+            // Do not discard a pending user request until Media3 reports video tracks.
+            if (videoGroups.isEmpty()) return
+            val hasSelectedVideo = videoGroups.any { it.isSelected }
+            if (!hasSelectedVideo) return
+            if (hasAnyVideoEnhancementEnabled()) applyVideoEnhancements()
         }
 
         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
