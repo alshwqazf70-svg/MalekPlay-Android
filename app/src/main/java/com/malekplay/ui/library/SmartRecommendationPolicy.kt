@@ -139,13 +139,15 @@ internal object SmartRecommendationPolicy {
         val normalizedQuery = query.normalized() ?: return emptyList()
         // Accept short natural-language commands and remove generic media words.
         val searchableQuery = normalizedQuery
-            .replace(Regex("^(ابحث عن|بحث عن|اعثر على|أوجد|شغل|شغّل|افتح|find|search for|play|open)\\s+"), "")
+            .replace(Regex("^(ابحث عن|بحث عن|اعثر على|اوجد|شغل|افتح|find|search for|play|open)\\s+"), "")
             .split(Regex("\\s+"))
             .filterNot { it in SEARCH_STOP_WORDS }
             .joinToString(" ")
             .trim()
             .ifEmpty { normalizedQuery }
-        val tokens = searchableQuery.split(Regex("\\s+")).filter { it.isNotBlank() }
+        val tokens = searchableQuery.split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+            .map { token -> if (token.startsWith("ال") && token.length > 3) token.drop(2) else token }
         if (tokens.isEmpty()) return emptyList()
 
         return items.asSequence()
@@ -226,7 +228,7 @@ internal object SmartRecommendationPolicy {
     private const val PREFIX_MATCH_MULTIPLIER = 2
     private const val TOKEN_COVERAGE_BONUS = 3
     private val SEARCH_STOP_WORDS = setOf(
-        "فيلم", "أفلام", "الفيلم", "الأفلام", "فيديو", "فيديوهات",
+        "فيلم", "افلام", "الفيلم", "الافلام", "فيديو", "فيديوهات",
         "مقطع", "مقاطع", "عن", "من", "في", "الذي", "التي",
         "movie", "movies", "video", "videos", "the", "a", "an"
     )
