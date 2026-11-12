@@ -510,27 +510,31 @@ class UltraShareForegroundService : Service() {
                                     }
                                 }
                             ) { request ->
-                                // A current MalekPlay client proves possession of the one-session
-                                // QR/PIN secret and supplies its stable device identity in the
-                                // authenticated MPC2 handshake. This is the explicit QR/manual
-                                // pairing action, so accept it without a second approval tap.
-                                // Legacy clients without an identity keep the manual approval flow.
-                                if (!request.peerId.isNullOrBlank()) {
+                                // A stable device ID is identity, not consent. Require the
+                                // receiver to approve a first-time peer, then remember that
+                                // approval so subsequent QR/PIN sessions reconnect instantly.
+                                // The one-session PIN is still verified by MPC2 on every connect.
+                                val trustedPeerId = request.peerId?.takeIf(
+                                    UltraShareTrustedPeerStore::isValidPeerId
+                                )
+                                val alreadyTrusted = trustedPeerId?.let {
+                                    UltraShareTrustedPeerStore.isTrusted(this@UltraShareForegroundService, it)
+                                } == true
+                                if (alreadyTrusted) {
                                     registerApprovedPeer(
                                         name = request.peerName,
                                         host = request.peerAddress,
-                                        role = "اقتران آمن تلقائي عبر QR أو الرمز",
-                                        sessionId = request.peerId
+                                        role = "جهاز موثوق - اتصال سريع",
+                                        sessionId = trustedPeerId
                                     )
                                     updateState { current -> current.copy(
                                         pendingConnection = null,
-                                        status = "تم الاتصال الآمن تلقائياً مع " + request.peerName,
+                                        status = "تم الاتصال بالجهاز الموثوق " + request.peerName,
                                         error = null
                                     ) }
                                     UltraShareControlChannel.Decision.ACCEPTED
                                 } else {
-                                // Legacy peer: retain explicit approval for clients that cannot
-                                // prove a stable MalekPlay device identity.
+                                // First-time and legacy peers always require visible receiver consent.
                                 pendingConnectionMutex.lock()
                                 try {
                                     val decision = CompletableDeferred<UltraShareControlChannel.Decision>()
@@ -546,11 +550,18 @@ class UltraShareForegroundService : Service() {
                                             decision.await()
                                         } ?: UltraShareControlChannel.Decision.REJECTED
                                         if (result == UltraShareControlChannel.Decision.ACCEPTED) {
+                                            trustedPeerId?.let { peerId ->
+                                                UltraShareTrustedPeerStore.rememberApproved(
+                                                    this@UltraShareForegroundService,
+                                                    peerId
+                                                )
+                                            }
                                             registerApprovedPeer(
                                                 name = request.peerName,
                                                 host = request.peerAddress,
-                                                role = "استقبل طلب الاتصال",
-                                                sessionId = request.peerId ?: request.requestId
+                                                role = if (trustedPeerId != null) "تمت الموافقة وحفظ الجهاز كموثوق"
+                                                    else "استقبل طلب الاتصال",
+                                                sessionId = trustedPeerId ?: request.requestId
                                             )
                                         }
                                         result
