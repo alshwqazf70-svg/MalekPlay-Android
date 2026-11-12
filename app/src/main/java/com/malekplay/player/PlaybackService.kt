@@ -26,6 +26,7 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.effect.LanczosResample
 import com.malekplay.player.effects.SpatialNoiseReductionEffect
 import com.malekplay.player.effects.TemporalMotionSmoothingEffect
@@ -83,6 +84,7 @@ class PlaybackService : MediaSessionService() {
     private var videoNoiseReductionEnabled = false
     private var videoMotionSmoothingEnabled = false
     private var videoEnhancementProfile = VideoEnhancementProfile.BALANCED
+    private var performanceQualityCap: VideoEnhancementProfile? = null
     private var thermalPowerManager: PowerManager? = null
     private var thermalStatusListener: PowerManager.OnThermalStatusChangedListener? = null
     private var castMediaHttpServer: CastMediaHttpServer? = null
@@ -173,6 +175,7 @@ class PlaybackService : MediaSessionService() {
         castPlayer.addListener(progressListener)
         castPlayer.addListener(videoEffectRouteListener)
         player.addListener(localVideoEffectListener)
+        player.addAnalyticsListener(enhancementAnalyticsListener)
         mediaSession = MediaSession.Builder(this, castPlayer)
             .setCallback(videoEffectSessionCallback)
             .setSessionActivity(buildSessionActivityIntent())
@@ -194,6 +197,7 @@ class PlaybackService : MediaSessionService() {
             player.removeListener(progressListener)
             player.removeListener(videoEffectRouteListener)
             localExoPlayer?.removeListener(localVideoEffectListener)
+            localExoPlayer?.removeAnalyticsListener(enhancementAnalyticsListener)
             localExoPlayer?.let(AssVideoEffectRegistry::detach)
             player.release()
             release()
@@ -276,8 +280,33 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private val enhancementAnalyticsListener = object : AnalyticsListener {
+        override fun onDroppedVideoFrames(
+            eventTime: AnalyticsListener.EventTime,
+            droppedFrames: Int,
+            elapsedMs: Long
+        ) {
+            if (!hasAnyVideoEnhancementEnabled() || droppedFrames <= 0) return
+            // Ignore isolated frame drops; react only to a sustained/burst regression.
+            if (droppedFrames >= 5 || (droppedFrames >= 3 && elapsedMs <= 1_500L)) {
+                val suggestedCap = if (droppedFrames >= 8) {
+                    VideoEnhancementProfile.ECONOMY
+                } else {
+                    VideoEnhancementProfile.BALANCED
+                }
+                val currentCap = performanceQualityCap
+                if (currentCap == null || suggestedCap.ordinal < currentCap.ordinal) {
+                    performanceQualityCap = suggestedCap
+                    Log.w(TAG, "Video effects capped after dropped-frame burst: $droppedFrames")
+                    applyVideoEnhancements()
+                }
+            }
+        }
+    }
+
     private val localVideoEffectListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            performanceQualityCap = null
             // Effects are opt-in per video. Do not keep a GPU pipeline running
             // after the user advances to another item.
             disableAllVideoEnhancements()
@@ -367,7 +396,8 @@ class PlaybackService : MediaSessionService() {
             sdkInt = Build.VERSION.SDK_INT,
             isLowRamDevice = activityManager?.isLowRamDevice == true,
             memoryClassMb = activityManager?.memoryClass ?: 256,
-            thermalStatus = thermalStatus
+            thermalStatus = thermalStatus,
+            performanceCap = performanceQualityCap
         )
     }
 
