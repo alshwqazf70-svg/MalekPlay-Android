@@ -230,6 +230,13 @@ class PlaybackService : MediaSessionService() {
     }
 
     private val localVideoEffectListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // Effects are opt-in per video. Do not keep a GPU pipeline running
+            // after the user advances to another item.
+            videoUpscalingEnabled = false
+            localExoPlayer?.let { AssVideoEffectRegistry.setAdditionalEffects(it, emptyList()) }
+        }
+
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
             val hasVideo = tracks.groups.any { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }
             if (!hasVideo) {
