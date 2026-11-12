@@ -121,6 +121,7 @@ set(NSTACKX_DFINDER_SOURCES
 
 add_library(nstackx_dfinder STATIC ${NSTACKX_DFINDER_SOURCES})
 target_include_directories(nstackx_dfinder PUBLIC
+    "${NSTACKX_DEPS}/securec/include"
     "${NSTACKX_CTRL}/interface"
     "${NSTACKX_CTRL}/include"
     "${NSTACKX_CTRL}/include/coap_discover"

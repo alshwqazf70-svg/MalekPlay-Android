@@ -86,6 +86,33 @@ PY
 }
 
 patch_nstackx_coap_private_api
+
+# This pinned upstream translation unit uses securec APIs but omits its public
+# declaration header. Keep the source revision immutable and apply a guarded,
+# reproducible Android-only include adaptation after checkout.
+patch_nstackx_securec_header() {
+  local source="$DEST/nstackx/nstackx_ctrl/core/nstackx_dfinder_mgt_msg_log.c"
+  if [[ ! -f "$source" ]]; then
+    echo "Missing NSTACKX management log source: $source" >&2
+    return 7
+  fi
+  if ! grep -qF '#include <securec.h>' "$source"; then
+    python3 - "$source" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+anchor = '#include "nstackx_dfinder_mgt_msg_log.h"\\n'
+if source.count(anchor) != 1:
+    raise SystemExit("Unexpected upstream management-log include layout; refusing an unsafe patch")
+source = source.replace(anchor, anchor + '#include <securec.h>\\n', 1)
+path.write_text(source, encoding="utf-8")
+PY
+  fi
+}
+patch_nstackx_securec_header
+
 checkout_pinned libcoap "$LIBCOAP_REPOSITORY" "$LIBCOAP_COMMIT"
 checkout_pinned cjson "$CJSON_REPOSITORY" "$CJSON_COMMIT"
 checkout_pinned securec "$SECUREC_REPOSITORY" "$SECUREC_COMMIT"
