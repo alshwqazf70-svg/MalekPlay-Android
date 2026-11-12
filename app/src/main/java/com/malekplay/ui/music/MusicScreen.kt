@@ -76,6 +76,7 @@ import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.data.repository.MediaRepository
+import com.malekplay.data.repository.UserDataRepository
 import com.malekplay.domain.model.AlbumSummary
 import com.malekplay.domain.model.ArtistSummary
 import com.malekplay.domain.model.GenreSummary
@@ -97,8 +98,11 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class MusicViewModel @Inject constructor(
-    private val mediaRepository: MediaRepository
+    private val mediaRepository: MediaRepository,
+    userDataRepository: UserDataRepository
 ) : ViewModel() {
+
+    val lastPlayedMediaId = userDataRepository.observeLastPlayedMediaId()
 
     fun albums(unknownLabel: String): Flow<List<AlbumSummary>> =
         mediaRepository.observeAlbums(unknownLabel)
@@ -121,6 +125,7 @@ fun MusicScreen(
 
     val songs by libraryViewModel.audio.collectAsStateWithLifecycle()
     val settings by libraryViewModel.settings.collectAsStateWithLifecycle()
+    val lastPlayedMediaId by viewModel.lastPlayedMediaId.collectAsStateWithLifecycle(initialValue = null)
 
     val unknownAlbum = stringResource(R.string.music_unknown_album)
     val unknownArtist = stringResource(R.string.music_unknown_artist)
@@ -287,6 +292,7 @@ fun MusicScreen(
             0 -> SongsTab(
                 songs = visibleSongs,
                 unknownArtist = unknownArtist,
+                lastPlayedMediaId = lastPlayedMediaId,
                 onOpenMedia = onOpenMedia,
                 onSendMedia = onSendMedia,
                 selectionMode = songSelectionMode,
@@ -309,6 +315,7 @@ fun MusicScreen(
 private fun SongsTab(
     songs: List<LibraryItem>,
     unknownArtist: String,
+    lastPlayedMediaId: String?,
     onOpenMedia: (MediaItem) -> Unit,
     onSendMedia: (List<MediaItem>) -> Unit,
     selectionMode: Boolean,
@@ -333,6 +340,7 @@ private fun SongsTab(
             SongRow(
                 item = item,
                 unknownArtist = unknownArtist,
+                isLastPlayed = item.media.id == lastPlayedMediaId,
                 onClick = { onOpenMedia(item.media) },
                 onSend = { onToggleSelection(item.media.uri) },
                 selectionMode = selectionMode,
@@ -349,6 +357,7 @@ private fun SongsTab(
 private fun SongRow(
     item: LibraryItem,
     unknownArtist: String,
+    isLastPlayed: Boolean,
     onClick: () -> Unit,
     onSend: () -> Unit,
     selectionMode: Boolean,
@@ -386,7 +395,7 @@ private fun SongRow(
             Text(
                 text = item.media.displayTitle,
                 style = MaterialTheme.typography.bodyLarge,
-                color = colors.onSurface,
+                color = if (isLastPlayed) Color(0xFF2196F3) else colors.onSurface,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -401,13 +410,18 @@ private fun SongRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(
-                text = item.media.album?.takeIf { it.isNotBlank() } ?: formatDuration(item.media.durationMs),
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            val distinctAlbum = item.media.album?.takeIf {
+                it.isNotBlank() && !it.equals(subtitle, ignoreCase = true)
+            }
+            if (distinctAlbum != null) {
+                Text(
+                    text = distinctAlbum,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
         Spacer(modifier = Modifier.width(8.dp))
         Text(
