@@ -194,18 +194,22 @@ private class TemporalMotionSmoothingProgram(
             GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, previousFramebuffer, 0)
             GLES20.glGetIntegerv(GLES20.GL_VIEWPORT, previousViewport, 0)
 
-            GlUtil.focusFramebufferUsingCurrentContext(historyFramebufferId, historyWidth, historyHeight)
-            copyProgram.use()
-            copyProgram.setSamplerTexIdUniform("uTexSampler", inputTexId, 0)
-            copyProgram.bindAttributesAndUniforms()
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-            GlUtil.checkGlError()
-
-            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, previousFramebuffer[0])
-            GLES20.glViewport(
-                previousViewport[0], previousViewport[1],
-                previousViewport[2], previousViewport[3]
-            )
+            try {
+                GlUtil.focusFramebufferUsingCurrentContext(historyFramebufferId, historyWidth, historyHeight)
+                copyProgram.use()
+                copyProgram.setSamplerTexIdUniform("uTexSampler", inputTexId, 0)
+                copyProgram.bindAttributesAndUniforms()
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+                GlUtil.checkGlError()
+            } finally {
+                // Restore the Media3 output target even if history-buffer copying fails.
+                // Leaving the history FBO bound would corrupt subsequent video frames.
+                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, previousFramebuffer[0])
+                GLES20.glViewport(
+                    previousViewport[0], previousViewport[1],
+                    previousViewport[2], previousViewport[3]
+                )
+            }
             GlUtil.checkGlError()
             hasPreviousFrame = true
             lastPresentationTimeUs = presentationTimeUs
@@ -364,7 +368,11 @@ private class VideoDetailEnhancementProgram(
         """
         const val SHARPEN_FRAGMENT_SHADER = """
             #version 100
+            #ifdef GL_FRAGMENT_PRECISION_HIGH
+            precision highp float;
+            #else
             precision mediump float;
+            #endif
             uniform sampler2D uTexSampler;
             uniform vec2 uTexelSize;
             uniform float uStrength;
@@ -380,7 +388,8 @@ private class VideoDetailEnhancementProgram(
                 float edgeMagnitude = length(detail);
                 float edgeGate = smoothstep(0.006, 0.055, edgeMagnitude);
                 vec3 enhanced = center.rgb + detail * uStrength * edgeGate;
-                gl_FragColor = vec4(clamp(enhanced, 0.0, 1.0), center.a);
+                // Preserve HDR values above 1.0; only prevent invalid negative light.
+                gl_FragColor = vec4(max(enhanced, vec3(0.0)), center.a);
             }
         """
     }
