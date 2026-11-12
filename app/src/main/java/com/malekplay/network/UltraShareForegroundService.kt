@@ -729,10 +729,23 @@ class UltraShareForegroundService : Service() {
                         val mimeType = MimeTypeMap.getSingleton()
                             .getMimeTypeFromExtension(canonical.extension.lowercase())
                             ?: "application/octet-stream"
+                        val receivedSize = canonical.length()
+                        if (receivedSize !in 0..UltraShareTransport.MAX_FILE_BYTES ||
+                            !UltraShareTransport.isAllowedShareFile(safeName, mimeType)
+                        ) {
+                            // Enforce the same file policy on the receiving device; never
+                            // trust a sender-side filter when the native engine is exposed.
+                            runCatching { canonical.delete() }
+                            updateState { current -> current.copy(
+                                error = "رُفض ملف DFile غير مسموح: $safeName",
+                                status = "تم رفض الملف قبل إضافته إلى سجل الاستلام."
+                            ) }
+                            return@launch
+                        }
                         val received = UltraShareTransport.ReceivedFile(
                             file = canonical,
                             fileName = safeName,
-                            sizeBytes = canonical.length(),
+                            sizeBytes = receivedSize,
                             mimeType = mimeType
                         )
                         val publishedUri = UltraShareReceivedPublisher.publish(this@UltraShareForegroundService, received)
@@ -741,7 +754,7 @@ class UltraShareForegroundService : Service() {
                             file = canonical,
                             fileName = safeName,
                             mimeType = mimeType,
-                            sizeBytes = canonical.length(),
+                            sizeBytes = receivedSize,
                             publishedUri = publishedUri?.toString()
                         )
                         updateState { current -> current.copy(
