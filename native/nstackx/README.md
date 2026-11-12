@@ -25,6 +25,6 @@ The CMake graph defines separate securec, cJSON, utility, DFinder, congestion, a
 
 Gradle does not invoke this CMake graph by default yet. Set `-PenableNstackxNativeBuild=true` only after phase 3 platform adaptation and phase 5 JNI integration are ready. This prevents routine application builds from claiming native integration before Android-specific socket/device/log/crypto/filesystem code is complete.
 
-The current graph still selects upstream Unix platform files as compile inputs. Those files are **not yet certified for Android/Bionic**; phase 3 replaces/adapts the affected platform pieces. The Mbed TLS target is the selected Android crypto candidate, but the DFile crypto wrapper still needs API adaptation in phase 4.
+Phase 3 introduces Bionic-specific adapters for interface discovery/binding, Android logging, and thread/runtime helpers under `android/`. The epoll, event-pipe, timerfd and UDP implementation files remain upstream Unix sources pending targeted NDK compilation and the remaining socket/timer compatibility review. Interface binding is best-effort: Android's OS-selected `Network` route remains authoritative when `SO_BINDTODEVICE` is rejected. The Mbed TLS target is the selected Android crypto candidate, but the DFile crypto wrapper still needs API adaptation in phase 4.
 
 No native compilation or device-level transfer is claimed by this phase.
