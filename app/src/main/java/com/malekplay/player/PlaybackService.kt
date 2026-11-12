@@ -244,6 +244,9 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            // Media3 can publish an empty/initial track snapshot before selection.
+            // Keep requested effects pending until the video track is actually known.
+            if (tracks.groups.isEmpty()) return
             val hasVideo = tracks.groups.any { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }
             if (!hasVideo) {
                 disableAllVideoEnhancements()
@@ -259,31 +262,48 @@ class PlaybackService : MediaSessionService() {
     }
 
     /** Effects are explicit, per-video opt-ins and only run on local clear video playback. */
-    private fun canApplyLocalVideoEnhancement(): Boolean {
+    private fun isLocalClearVideoSession(): Boolean {
         val player = localExoPlayer ?: return false
         val sessionPlayer = mediaSession?.player ?: return false
         return sessionPlayer.deviceInfo.playbackType != DeviceInfo.PLAYBACK_TYPE_REMOTE &&
-            player.currentMediaItem?.localConfiguration?.drmConfiguration == null &&
+            player.currentMediaItem?.localConfiguration?.drmConfiguration == null
+    }
+
+    private fun canApplyLocalVideoEnhancement(): Boolean {
+        val player = localExoPlayer ?: return false
+        return isLocalClearVideoSession() &&
             player.currentTracks.groups.any { it.isSelected && it.type == C.TRACK_TYPE_VIDEO } &&
             player.videoSize.width > 0 && player.videoSize.height > 0
     }
 
     private fun setVideoUpscaling(enabled: Boolean): Boolean {
-        if (enabled && !canApplyLocalVideoEnhancement()) return false
+        if (enabled && !isLocalClearVideoSession()) return false
+        val previous = videoUpscalingEnabled
         videoUpscalingEnabled = enabled
-        return applyVideoEnhancements()
+        if (applyVideoEnhancements()) return true
+        videoUpscalingEnabled = previous
+        applyVideoEnhancements()
+        return false
     }
 
     private fun setVideoNoiseReduction(enabled: Boolean): Boolean {
-        if (enabled && !canApplyLocalVideoEnhancement()) return false
+        if (enabled && !isLocalClearVideoSession()) return false
+        val previous = videoNoiseReductionEnabled
         videoNoiseReductionEnabled = enabled
-        return applyVideoEnhancements()
+        if (applyVideoEnhancements()) return true
+        videoNoiseReductionEnabled = previous
+        applyVideoEnhancements()
+        return false
     }
 
     private fun setVideoMotionSmoothing(enabled: Boolean): Boolean {
-        if (enabled && !canApplyLocalVideoEnhancement()) return false
+        if (enabled && !isLocalClearVideoSession()) return false
+        val previous = videoMotionSmoothingEnabled
         videoMotionSmoothingEnabled = enabled
-        return applyVideoEnhancements()
+        if (applyVideoEnhancements()) return true
+        videoMotionSmoothingEnabled = previous
+        applyVideoEnhancements()
+        return false
     }
 
     private fun hasAnyVideoEnhancementEnabled(): Boolean =
@@ -301,11 +321,15 @@ class PlaybackService : MediaSessionService() {
             AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
             return true
         }
-        if (!canApplyLocalVideoEnhancement()) {
+        if (!isLocalClearVideoSession()) {
             disableAllVideoEnhancements()
-            AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
+            runCatching { AssVideoEffectRegistry.setAdditionalEffects(player, emptyList()) }
             return false
         }
+        // A user may toggle an effect while Media3 is still selecting tracks or
+        // reporting the first frame size. Accept it as pending; listeners above
+        // will apply it as soon as the selected video format becomes available.
+        if (!canApplyLocalVideoEnhancement()) return true
 
         val effects = ArrayList<Effect>(3)
         if (videoUpscalingEnabled) {
@@ -328,8 +352,13 @@ class PlaybackService : MediaSessionService() {
         }
         if (videoNoiseReductionEnabled) effects += SpatialNoiseReductionEffect()
         if (videoMotionSmoothingEnabled) effects += TemporalMotionSmoothingEffect()
-        AssVideoEffectRegistry.setAdditionalEffects(player, effects)
-        return true
+        return runCatching {
+            AssVideoEffectRegistry.setAdditionalEffects(player, effects)
+        }.onFailure { error ->
+            Log.e(TAG, "Failed to apply local video enhancement effects", error)
+            disableAllVideoEnhancements()
+            runCatching { AssVideoEffectRegistry.setAdditionalEffects(player, emptyList()) }
+        }.isSuccess
     }
 
     /** Progress belongs to the playback service, so it continues after player UI closes. */
