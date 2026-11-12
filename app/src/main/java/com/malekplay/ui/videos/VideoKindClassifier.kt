@@ -89,7 +89,7 @@ internal object VideoKindClassifier {
 
         val candidates = files.mapNotNull { file ->
             val kind = result[file.id]?.kind
-            if (kind == VideoKind.SERIES || kind == VideoKind.MOVIE) return@mapNotNull null
+            if (kind == VideoKind.MOVIE || (kind == VideoKind.SERIES && result[file.id]?.episode != null)) return@mapNotNull null
             val title = normalizedKey(file.title)
             val match = trailingEpisodePattern.matchEntire(title) ?: return@mapNotNull null
             val prefix = normalizedKey(match.groupValues[1])
