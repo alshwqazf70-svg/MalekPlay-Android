@@ -380,5 +380,8 @@
     <string name="player_noise_reduction_off">تقليل الضوضاء: متوقف</string>
     <string name="player_motion_smoothing_on">تنعيم الحركة: يعمل (دمج زمني خفيف)</string>
     <string name="player_motion_smoothing_off">تنعيم الحركة: متوقف</string>
+    <string name="player_video_quality_economy">جودة الصورة: اقتصادي</string>
+    <string name="player_video_quality_balanced">جودة الصورة: متوازن</string>
+    <string name="player_video_quality_ultra">جودة الصورة: فائق</string>
     <string name="player_video_effect_unavailable">هذا التأثير غير متاح للفيديو الحالي أو لطريقة التشغيل الحالية.</string>
 </resources>
