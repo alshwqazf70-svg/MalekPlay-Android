@@ -169,12 +169,7 @@ object UltraShareWifiDirect {
                             override fun onSuccess() {
                                 if (closed) return
                                 invitationRequest = request
-                                manager.discoverServices(channel, object : WifiP2pManager.ActionListener {
-                                    override fun onSuccess() = Unit
-                                    override fun onFailure(reason: Int) {
-                                        onError("تعذر البحث عن دعوة Wi-Fi Direct (رمز $reason).")
-                                    }
-                                })
+                                startInvitationServiceDiscovery(request, 0)
                             }
                             override fun onFailure(reason: Int) {
                                 onError("تعذر تهيئة البحث عن دعوة Wi-Fi Direct (رمز $reason).")
@@ -243,6 +238,41 @@ object UltraShareWifiDirect {
                         localInvitationId = null
                     }
                 })
+            }
+        }
+
+        /**
+         * OEM Wi-Fi P2P stacks can briefly report BUSY/ERROR while the radio is
+         * changing discovery state. Retry the service scan a few times before
+         * handing control back to the QR/LAN fallback.
+         */
+        @SuppressLint("MissingPermission")
+        private fun startInvitationServiceDiscovery(
+            request: WifiP2pDnsSdServiceRequest,
+            attempt: Int
+        ) {
+            if (closed || invitationRequest !== request) return
+            try {
+                manager.discoverServices(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() = Unit
+
+                    override fun onFailure(reason: Int) {
+                        if (closed || invitationRequest !== request) return
+                        val retryable = reason == WifiP2pManager.BUSY ||
+                            reason == WifiP2pManager.ERROR
+                        if (retryable && attempt < 3) {
+                            mainHandler.postDelayed({
+                                if (!closed && invitationRequest === request) {
+                                    startInvitationServiceDiscovery(request, attempt + 1)
+                                }
+                            }, 600L * (attempt + 1))
+                        } else {
+                            onError("تعذر البحث عن دعوة Wi-Fi Direct (رمز $reason).")
+                        }
+                    }
+                })
+            } catch (failure: SecurityException) {
+                onError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
             }
         }
 
