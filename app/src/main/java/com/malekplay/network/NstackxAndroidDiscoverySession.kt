@@ -105,10 +105,12 @@ object NstackxAndroidDiscoverySession {
         // Android filters Wi-Fi multicast/broadcast receive traffic unless the app
         // holds this lock. Keep it only for the lifetime of native discovery.
         val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        val lock = wifiManager?.createMulticastLock("MalekPlayer:NSTACKX")?.apply {
-            setReferenceCounted(false)
-            acquire()
-        }
+        val lock = runCatching {
+            wifiManager?.createMulticastLock("MalekPlayer:NSTACKX")?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        }.getOrNull()
         multicastLock = lock
 
         val discoveryResult = NstackxNativeBridge.startDiscovery()
