@@ -194,7 +194,7 @@ class PlaybackService : MediaSessionService() {
             // Start from the supported default session commands for every controller.
             // The custom GPU effect command is exposed only to trusted app controllers.
             val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().apply {
-                if (controller.isTrusted) PlaybackVideoEffects.COMMANDS.forEach(::add)
+                if (controller.isTrusted) PlaybackVideoEffects.COMMANDS.forEach { add(it) }
             }.build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(commands)
