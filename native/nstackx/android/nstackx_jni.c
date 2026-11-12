@@ -293,6 +293,7 @@ static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileM
 {
     JNIEnv *env = NULL;
     jclass callbackClass = NULL;
+    jmethodID callbackMethod = NULL;
     jstring message = NULL;
     int attached = 0;
     jlong transferred = 0;
@@ -300,18 +301,23 @@ static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileM
     int errorCode = 0;
     char text[96];
 
-    pthread_mutex_lock(&g_lock);
-    if (g_bridge_class != NULL && g_on_dfile_event != NULL) {
-        callbackClass = (jclass)(*g_vm)->NewLocalRef(g_vm, g_bridge_class);
-    }
-    pthread_mutex_unlock(&g_lock);
-    if (callbackClass == NULL || g_vm == NULL) return;
-
+    if (g_vm == NULL) return;
     jint status = (*g_vm)->GetEnv(g_vm, (void **)&env, JNI_VERSION_1_6);
     if (status == JNI_EDETACHED) {
         if ((*g_vm)->AttachCurrentThread(g_vm, &env, NULL) != JNI_OK) return;
         attached = 1;
     } else if (status != JNI_OK) {
+        return;
+    }
+
+    pthread_mutex_lock(&g_lock);
+    if (g_bridge_class != NULL && g_on_dfile_event != NULL) {
+        callbackClass = (jclass)(*env)->NewLocalRef(env, g_bridge_class);
+        callbackMethod = g_on_dfile_event;
+    }
+    pthread_mutex_unlock(&g_lock);
+    if (callbackClass == NULL || callbackMethod == NULL) {
+        if (attached) (*g_vm)->DetachCurrentThread(g_vm);
         return;
     }
 
@@ -327,7 +333,7 @@ static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileM
         errorCode == 0 ? "" : "error:", errorCode);
     message = (*env)->NewStringUTF(env, text);
     if (message != NULL) {
-        (*env)->CallStaticVoidMethod(env, callbackClass, g_on_dfile_event,
+        (*env)->CallStaticVoidMethod(env, callbackClass, callbackMethod,
             (jint)sessionId, (jint)msgType, transferred, total, message);
         (*env)->DeleteLocalRef(env, message);
     }
