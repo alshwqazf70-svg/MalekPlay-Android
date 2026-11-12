@@ -7,6 +7,15 @@ import org.junit.Test
 
 class UltraShareDiscoveryTest {
     @Test
+    fun stableIdentityMustBeCanonicalUuidAndCaseInsensitive() {
+        assertTrue(UltraShareDiscovery.isValidStablePeerId("123e4567-e89b-12d3-a456-426614174000"))
+        assertTrue(UltraShareDiscovery.isValidStablePeerId("123E4567-E89B-12D3-A456-426614174000"))
+        assertFalse(UltraShareDiscovery.isValidStablePeerId(""))
+        assertFalse(UltraShareDiscovery.isValidStablePeerId("123e4567e89b12d3a456426614174000"))
+        assertFalse(UltraShareDiscovery.isValidStablePeerId("123e4567-e89b-12d3-a456-42661417400z"))
+    }
+
+    @Test
     fun discoveryProbeHasDedicatedNonTransferMarker() {
         val marker = UltraShareBatchTransport.discoveryProbeProof()
         assertEquals(32, marker.size)
