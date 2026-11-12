@@ -142,6 +142,41 @@ class SmartRecommendationPolicyTest {
 
 
     @Test
+    fun similarMediaRanksSharedAlbumAndGenreAndExplainsMatches() {
+        val source = item("source", genre = "Drama", artist = "Studio A")
+            .copy(media = item("source", genre = "Drama", artist = "Studio A").media.copy(album = "Collection X", durationMs = 100_000L))
+        val sameAlbum = item("album", genre = "Comedy", artist = "Studio B")
+            .copy(media = item("album").media.copy(album = "collection x", durationMs = 300_000L))
+        val sameGenre = item("genre", genre = "drama")
+            .copy(media = item("genre").media.copy(durationMs = 90_000L))
+        val durationOnly = item("duration")
+            .copy(media = item("duration").media.copy(durationMs = 98_000L))
+        val unrelated = item("unrelated", genre = "Comedy")
+            .copy(media = item("unrelated").media.copy(durationMs = 400_000L))
+
+        val result = SmartRecommendationPolicy.similar(
+            listOf(source, durationOnly, unrelated, sameGenre, sameAlbum),
+            "source"
+        )
+
+        assertEquals(listOf("album", "genre", "duration"), result.map { it.item.media.id })
+        assertTrue(result.first().reason.isNotBlank())
+    }
+
+    @Test
+    fun similarMediaExcludesSourceAndHonoursLimitsAndMissingIds() {
+        val source = item("source", genre = "Drama")
+        val related = item("related", genre = "Drama")
+        assertEquals(
+            listOf("related"),
+            SmartRecommendationPolicy.similar(listOf(source, related), "source", limit = 1)
+                .map { it.item.media.id }
+        )
+        assertTrue(SmartRecommendationPolicy.similar(listOf(source, related), "missing").isEmpty())
+        assertTrue(SmartRecommendationPolicy.similar(listOf(source, related), "source", limit = 0).isEmpty())
+    }
+
+    @Test
     fun smartCollectionsGroupRepeatedGenresAndIgnoreSingletons() {
         val items = listOf(
             item("one", genre = "Sci-Fi"),

@@ -23,6 +23,12 @@ internal data class SmartMediaCollection(
     val kind: String
 )
 
+internal data class SmartSimilarMedia(
+    val item: LibraryItem,
+    val reason: String,
+    val score: Double
+)
+
 internal object SmartRecommendationPolicy {
 
     fun recommend(
@@ -82,6 +88,57 @@ internal object SmartRecommendationPolicy {
             }
             .sortedWith(
                 compareByDescending<SmartMediaRecommendation> { it.score }
+                    .thenByDescending { it.item.media.addedAtMs }
+                    .thenBy { it.item.media.title.lowercase(Locale.ROOT) }
+            )
+            .take(limit)
+            .toList()
+    }
+
+    /** Find related local media using metadata affinity and a bounded duration signal. */
+    fun similar(
+        items: List<LibraryItem>,
+        mediaId: String,
+        limit: Int = SIMILAR_LIMIT
+    ): List<SmartSimilarMedia> {
+        if (limit <= 0) return emptyList()
+        val source = items.firstOrNull { it.media.id == mediaId } ?: return emptyList()
+        val sourceGenre = source.media.genre.normalized()
+        val sourceArtist = source.media.artist.normalized()
+        val sourceAlbum = source.media.album.normalized()
+        val sourceFolder = source.media.folderPath.normalized()
+        val sourceDuration = source.media.durationMs
+
+        return items.asSequence()
+            .filterNot { it.media.id == mediaId }
+            .mapNotNull { candidate ->
+                val sameGenre = sourceGenre != null && sourceGenre == candidate.media.genre.normalized()
+                val sameArtist = sourceArtist != null && sourceArtist == candidate.media.artist.normalized()
+                val sameAlbum = sourceAlbum != null && sourceAlbum == candidate.media.album.normalized()
+                val sameFolder = sourceFolder != null && sourceFolder == candidate.media.folderPath.normalized()
+                val candidateDuration = candidate.media.durationMs
+                val durationScore = if (sourceDuration > 0L && candidateDuration > 0L) {
+                    val ratio = minOf(sourceDuration, candidateDuration).toDouble() /
+                        maxOf(sourceDuration, candidateDuration).toDouble()
+                    if (ratio >= DURATION_SIMILARITY_THRESHOLD) DURATION_FACTOR * ratio else 0.0
+                } else 0.0
+                val score = (if (sameGenre) SIMILAR_GENRE_WEIGHT else 0.0) +
+                    (if (sameArtist) SIMILAR_ARTIST_WEIGHT else 0.0) +
+                    (if (sameAlbum) SIMILAR_ALBUM_WEIGHT else 0.0) +
+                    (if (sameFolder) SIMILAR_FOLDER_WEIGHT else 0.0) + durationScore
+                if (score <= 0.0) return@mapNotNull null
+                val reason = when {
+                    sameAlbum -> "من الألبوم نفسه"
+                    sameArtist && sameGenre -> "من الفنان والنوع نفسيهما"
+                    sameArtist -> "من الفنان نفسه"
+                    sameGenre -> "من النوع نفسه"
+                    sameFolder -> "من المجلد نفسه"
+                    else -> "مدة تشغيل قريبة"
+                }
+                SmartSimilarMedia(candidate, reason, score)
+            }
+            .sortedWith(
+                compareByDescending<SmartSimilarMedia> { it.score }
                     .thenByDescending { it.item.media.addedAtMs }
                     .thenBy { it.item.media.title.lowercase(Locale.ROOT) }
             )
@@ -216,6 +273,13 @@ internal object SmartRecommendationPolicy {
     private const val ARTIST_FACTOR = 4.0
     private const val ALBUM_FACTOR = 2.0
     private const val FAVOURITE_BONUS = 1.0
+    private const val SIMILAR_LIMIT = 12
+    private const val SIMILAR_GENRE_WEIGHT = 6.0
+    private const val SIMILAR_ARTIST_WEIGHT = 5.0
+    private const val SIMILAR_ALBUM_WEIGHT = 4.0
+    private const val SIMILAR_FOLDER_WEIGHT = 1.0
+    private const val DURATION_FACTOR = 2.0
+    private const val DURATION_SIMILARITY_THRESHOLD = 0.75
     private const val COLLECTION_LIMIT = 6
     private const val COLLECTION_MINIMUM_ITEMS = 2
     private const val SEARCH_LIMIT = 100

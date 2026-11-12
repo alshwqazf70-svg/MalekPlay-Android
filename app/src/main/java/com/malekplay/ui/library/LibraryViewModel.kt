@@ -98,6 +98,11 @@ class LibraryViewModel @Inject constructor(
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Discover related items from the current local index without network access. */
+    fun similarMedia(mediaId: String): Flow<List<SmartSimilarMedia>> = allMedia.map { items ->
+        SmartRecommendationPolicy.similar(items, mediaId)
+    }.flowOn(Dispatchers.Default)
+
     /** Genre collections are inferred from the current index and never persisted. */
     val smartCollections = allMedia.map { items ->
         SmartRecommendationPolicy.collections(items)
