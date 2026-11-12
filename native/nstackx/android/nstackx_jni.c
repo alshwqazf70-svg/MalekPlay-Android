@@ -266,33 +266,66 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeRelease(JNIEnv *env, jclass
 
 /* DFile uses a 128-bit session key derived from the already-authenticated
  * Ultra Share pairing context. Never pass the QR/PIN itself to these methods. */
+/*
+ * Keep the native session registry authoritative. DFile session identifiers
+ * are process-local handles; never forward an untracked/stale identifier back
+ * into the upstream library, and do not consume two slots for one handle.
+ */
 static int RegisterDFileSession(int32_t sessionId)
 {
     uint32_t i;
-    int added = 0;
+    int freeSlot = -1;
+    int registered = 0;
+    if (sessionId <= 0) return 0;
+
     pthread_mutex_lock(&g_lock);
     for (i = 0; i < DFILE_SESSION_CAPACITY; ++i) {
-        if (g_dfile_sessions[i] == 0) {
-            g_dfile_sessions[i] = sessionId;
-            added = 1;
+        if (g_dfile_sessions[i] == sessionId) {
+            registered = 1;
+            break;
+        }
+        if (g_dfile_sessions[i] == 0 && freeSlot < 0) {
+            freeSlot = (int)i;
+        }
+    }
+    if (!registered && freeSlot >= 0) {
+        g_dfile_sessions[freeSlot] = sessionId;
+        registered = 1;
+    }
+    pthread_mutex_unlock(&g_lock);
+    return registered;
+}
+
+static int HasDFileSession(int32_t sessionId)
+{
+    uint32_t i;
+    int found = 0;
+    if (sessionId <= 0) return 0;
+    pthread_mutex_lock(&g_lock);
+    for (i = 0; i < DFILE_SESSION_CAPACITY; ++i) {
+        if (g_dfile_sessions[i] == sessionId) {
+            found = 1;
             break;
         }
     }
     pthread_mutex_unlock(&g_lock);
-    return added;
+    return found;
 }
 
-static void ForgetDFileSession(int32_t sessionId)
+static int ForgetDFileSession(int32_t sessionId)
 {
     uint32_t i;
+    int found = 0;
     pthread_mutex_lock(&g_lock);
     for (i = 0; i < DFILE_SESSION_CAPACITY; ++i) {
         if (g_dfile_sessions[i] == sessionId) {
             g_dfile_sessions[i] = 0;
+            found = 1;
             break;
         }
     }
     pthread_mutex_unlock(&g_lock);
+    return found;
 }
 
 static void OnDFileRename(DFileRenamePara *renamePara)
@@ -486,6 +519,7 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeDFileSendFiles(
     int32_t result;
     (void)clazz;
     if (sessionId <= 0 || filePaths == NULL) return -1221;
+    if (!HasDFileSession(sessionId)) return -1227;
     count = (*env)->GetArrayLength(env, filePaths);
     if (count <= 0 || count > NSTACKX_MAX_FILE_LIST_NUM) return -1222;
     paths = (char **)calloc((size_t)count, sizeof(char *));
@@ -531,6 +565,7 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeDFileCloseSession(
     (void)env;
     (void)clazz;
     if (sessionId <= 0) return;
-    ForgetDFileSession(sessionId);
+    /* Ignore duplicate/stale close requests after release or a prior callback. */
+    if (!ForgetDFileSession(sessionId)) return;
     NSTACKX_DFileClose(sessionId);
 }
