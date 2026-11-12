@@ -112,6 +112,7 @@ class SubtitleTranslationEngine @Inject constructor(
             val translated = translatedCues.joinToString("\n\n")
             val output = withContext(Dispatchers.IO) {
                 currentCoroutineContext().ensureActive()
+                pruneExpiredTranslatedSubtitles(context.cacheDir)
                 File.createTempFile("malekplay-ar-", ".srt", context.cacheDir).also {
                     it.writeText(translated, StandardCharsets.UTF_8)
                 }
@@ -124,6 +125,25 @@ class SubtitleTranslationEngine @Inject constructor(
 
     private companion object {
         const val MAX_SUBTITLE_BYTES = 5_000_000
+        const val TRANSLATED_SUBTITLE_PREFIX = "malekplay-ar-"
+        const val TRANSLATED_SUBTITLE_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1_000
+
+        /**
+         * Keep the app cache bounded without deleting recently generated subtitles
+         * that may still be selected by the player or another screen.
+         */
+        fun pruneExpiredTranslatedSubtitles(cacheDir: File, nowMs: Long = System.currentTimeMillis()) {
+            val expiry = nowMs - TRANSLATED_SUBTITLE_MAX_AGE_MS
+            cacheDir.listFiles()
+                ?.asSequence()
+                ?.filter { file ->
+                    file.isFile &&
+                        file.name.startsWith(TRANSLATED_SUBTITLE_PREFIX) &&
+                        file.name.endsWith(".srt") &&
+                        file.lastModified() < expiry
+                }
+                ?.forEach { file -> runCatching { file.delete() } }
+        }
     }
 
     private suspend fun <T> Task<T>.awaitResult(): T =
