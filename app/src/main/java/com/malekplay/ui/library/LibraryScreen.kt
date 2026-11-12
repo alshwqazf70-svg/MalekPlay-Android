@@ -74,6 +74,7 @@ fun LibraryScreen(
 ) {
     val folders by viewModel.folders.collectAsStateWithLifecycle()
     val videos by viewModel.videos.collectAsStateWithLifecycle()
+    val smartRecommendations by viewModel.smartRecommendations.collectAsStateWithLifecycle()
     val refreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -221,6 +222,24 @@ fun LibraryScreen(
                     item { FilterPill("متابعة المشاهدة", filter == LibraryFilter.WATCHING) { filter = LibraryFilter.WATCHING } }
                     item { FilterPill("المفضلة", filter == LibraryFilter.FAVOURITES) { filter = LibraryFilter.FAVOURITES } }
                 }
+                if (filter == LibraryFilter.ALL && smartRecommendations.isNotEmpty()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("اقتراحات ذكية", color = colors.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.weight(1f))
+                        Text("محلية • بدون إنترنت", color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    }
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(smartRecommendations, key = { "smart-" + it.media.id }) { recommendation ->
+                            SmartRecommendationTile(recommendation) { onVideoClick(recommendation) }
+                        }
+                    }
+                }
                 if (folders.isNotEmpty()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("تصفح المجلدات", color = colors.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
@@ -290,6 +309,36 @@ fun LibraryScreen(
         }
     }
     playlistTarget?.let { PlaylistPickerDialog(mediaId = it.id, onDismiss = { playlistTarget = null }) }
+}
+
+@Composable
+private fun SmartRecommendationTile(item: LibraryItem, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        Modifier.width(172.dp).clip(RoundedCornerShape(16.dp))
+            .background(Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface)))
+            .border(1.dp, colors.primary.copy(alpha = .28f), RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 12.dp)
+    ) {
+        Text(
+            item.media.displayTitle,
+            color = colors.onSurface,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            item.media.genre?.takeIf { it.isNotBlank() }
+                ?: item.media.folderName,
+            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
 
 @Composable
