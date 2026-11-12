@@ -118,6 +118,26 @@ class SmartRecommendationPolicyTest {
         assertTrue(SmartRecommendationPolicy.search(listOf(first), "studio", limit = 0).isEmpty())
     }
 
+
+    @Test
+    fun smartCollectionsGroupRepeatedGenresAndIgnoreSingletons() {
+        val items = listOf(
+            item("one", genre = "Sci-Fi"),
+            item("two", genre = " sci-fi "),
+            item("three", genre = "Drama"),
+            item("four", genre = "DRAMA"),
+            item("singleton", genre = "Comedy"),
+            item("missing")
+        )
+
+        val groups = SmartRecommendationPolicy.collections(items)
+
+        assertEquals(listOf("Drama", "Sci-Fi"), groups.map { it.title })
+        assertEquals(listOf(2, 2), groups.map { it.itemCount })
+        assertEquals(listOf("drama", "sci-fi"), groups.map { it.query })
+        assertTrue(SmartRecommendationPolicy.collections(items, limit = 0).isEmpty())
+    }
+
     private fun item(
         id: String,
         genre: String? = null,

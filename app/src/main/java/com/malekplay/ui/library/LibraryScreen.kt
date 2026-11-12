@@ -75,6 +75,7 @@ fun LibraryScreen(
     val folders by viewModel.folders.collectAsStateWithLifecycle()
     val videos by viewModel.videos.collectAsStateWithLifecycle()
     val smartRecommendations by viewModel.smartRecommendations.collectAsStateWithLifecycle()
+    val smartCollections by viewModel.smartCollections.collectAsStateWithLifecycle()
     val refreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -240,6 +241,29 @@ fun LibraryScreen(
                         }
                     }
                 }
+                if (filter == LibraryFilter.ALL && smartCollections.isNotEmpty()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("مجموعات أنشأها الذكاء المحلي", color = colors.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.weight(1f))
+                        Text("تجميع تلقائي حسب النوع", color = colors.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    }
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(smartCollections, key = { "smart-collection-" + it.query }) { collection ->
+                            SmartCollectionTile(collection) {
+                                folder = null
+                                filter = LibraryFilter.ALL
+                                searching = true
+                                query = collection.title
+                            }
+                        }
+                    }
+                }
                 if (folders.isNotEmpty()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("تصفح المجلدات", color = colors.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
@@ -309,6 +333,34 @@ fun LibraryScreen(
         }
     }
     playlistTarget?.let { PlaylistPickerDialog(mediaId = it.id, onDismiss = { playlistTarget = null }) }
+}
+
+
+@Composable
+private fun SmartCollectionTile(collection: SmartMediaCollection, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        Modifier.width(158.dp).clip(RoundedCornerShape(16.dp))
+            .background(Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface)))
+            .border(1.dp, colors.secondary.copy(alpha = .35f), RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 12.dp)
+    ) {
+        Text(
+            collection.title,
+            color = colors.onSurface,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "${collection.itemCount} عناصر • مجموعة ذكية",
+            color = colors.secondary,
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
 }
 
 @Composable

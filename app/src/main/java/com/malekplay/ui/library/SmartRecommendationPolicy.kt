@@ -16,6 +16,12 @@ internal data class SmartMediaRecommendation(
     val score: Double
 )
 
+internal data class SmartMediaCollection(
+    val title: String,
+    val query: String,
+    val itemCount: Int
+)
+
 internal object SmartRecommendationPolicy {
 
     fun recommend(
@@ -82,6 +88,32 @@ internal object SmartRecommendationPolicy {
             .toList()
     }
 
+    /** Discover useful genre collections without writing generated playlists to storage. */
+    fun collections(
+        items: List<LibraryItem>,
+        limit: Int = COLLECTION_LIMIT,
+        minimumItems: Int = COLLECTION_MINIMUM_ITEMS
+    ): List<SmartMediaCollection> {
+        if (limit <= 0 || minimumItems < 2) return emptyList()
+        return items.asSequence()
+            .mapNotNull { item ->
+                val genre = item.media.genre?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                genre.normalized()?.let { it to genre }
+            }
+            .groupBy({ it.first }, { it.second })
+            .mapNotNull { (normalized, names) ->
+                val count = names.size
+                if (count < minimumItems) null
+                else SmartMediaCollection(
+                    title = names.first(),
+                    query = normalized,
+                    itemCount = count
+                )
+            }
+            .sortedWith(compareByDescending<SmartMediaCollection> { it.itemCount }.thenBy { it.title.lowercase(Locale.ROOT) })
+            .take(limit)
+    }
+
     /** Rank local metadata matches, including Arabic and Latin queries. */
     fun search(
         items: List<LibraryItem>,
@@ -142,6 +174,8 @@ internal object SmartRecommendationPolicy {
     private const val ARTIST_FACTOR = 4.0
     private const val ALBUM_FACTOR = 2.0
     private const val FAVOURITE_BONUS = 1.0
+    private const val COLLECTION_LIMIT = 6
+    private const val COLLECTION_MINIMUM_ITEMS = 2
     private const val SEARCH_LIMIT = 100
     private const val TITLE_WEIGHT = 12
     private const val ARTIST_SEARCH_WEIGHT = 8

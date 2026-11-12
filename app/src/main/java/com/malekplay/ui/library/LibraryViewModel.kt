@@ -98,6 +98,12 @@ class LibraryViewModel @Inject constructor(
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Genre collections are inferred from the current index and never persisted. */
+    val smartCollections = allMedia.map { items ->
+        SmartRecommendationPolicy.collections(items)
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     val continueWatching = mediaRepository.observeContinueWatching(5)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
