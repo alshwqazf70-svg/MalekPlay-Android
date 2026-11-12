@@ -460,6 +460,14 @@ class UltraShareViewModel @Inject constructor(
                 // Short repeated discovery windows make newly-started receivers appear
                 // without forcing the user to restart the scan manually.
                 while (true) {
+                    // NSTACKX may start before Android finishes bringing up Wi-Fi/P2P.
+                    // Re-attempt its bounded startup while the user is still scanning;
+                    // UDP discovery remains available as an independent fallback.
+                    if (NstackxAndroidDiscoverySession.current() == null &&
+                        nstackxStartJob?.isActive != true
+                    ) {
+                        ensureNstackxDiscovery()
+                    }
                     val peers = UltraShareDiscovery.discoverPeers(scanWindowMs = 1_500L, context = context)
                     val now = System.currentTimeMillis()
                     peers.forEach { peer ->
@@ -524,15 +532,41 @@ class UltraShareViewModel @Inject constructor(
         }
 
         nstackxStartJob = viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                NstackxAndroidDiscoverySession.start(context, onPeerFound = ::onNstackxPeerFound)
+            var lastFailure: Exception? = null
+            for (attempt in 0..2) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                val serviceState = UltraShareForegroundService.state.value
+                val stillNeeded = _state.value.receiving || _state.value.scanning ||
+                    serviceState.receiving || serviceState.activePeers.isNotEmpty()
+                if (!stillNeeded) break
+                try {
+                    NstackxAndroidDiscoverySession.start(
+                        context,
+                        onPeerFound = ::onNstackxPeerFound
+                    )
+                    lastFailure = null
+                    break
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    lastFailure = failure
+                    if (attempt < 2) delay(750L * (attempt + 1))
+                }
             }
+
             val serviceState = UltraShareForegroundService.state.value
-            if (!_state.value.receiving && !_state.value.scanning &&
-                !serviceState.receiving && serviceState.activePeers.isEmpty()
-            ) {
-                NstackxAndroidDiscoverySession.stop()
+            val stillNeeded = _state.value.receiving || _state.value.scanning ||
+                serviceState.receiving || serviceState.activePeers.isNotEmpty()
+            if (lastFailure != null && stillNeeded) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    _state.value = _state.value.copy(
+                        error = "تعذر تشغيل اكتشاف NSTACKX بعد عدة محاولات: " +
+                            (lastFailure?.localizedMessage ?: "خطأ غير معروف") +
+                            ". يستمر البحث المحلي وQR كمسار احتياطي."
+                    )
+                }
             }
+            if (!stillNeeded) NstackxAndroidDiscoverySession.stop()
         }
     }
 
