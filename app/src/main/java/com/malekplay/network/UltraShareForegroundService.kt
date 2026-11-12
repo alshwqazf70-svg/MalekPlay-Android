@@ -1777,7 +1777,7 @@ class UltraShareForegroundService : Service() {
 
         val staged = ArrayList<UltraShareDFileStager.StagedFile>(sources.size)
         var nativeSessionId = -1
-        var payloadAccepted = false
+        val payloadAccepted = java.util.concurrent.atomic.AtomicBoolean(false)
         val sessionIdRef = java.util.concurrent.atomic.AtomicInteger(-1)
         val earlyEvents = java.util.concurrent.ConcurrentLinkedQueue<NstackxNativeBridge.DFileEvent>()
         val connected = CompletableDeferred<Boolean>()
@@ -1793,7 +1793,7 @@ class UltraShareForegroundService : Service() {
                 NstackxNativeBridge.DFILE_ON_CONNECT_FAIL,
                 NstackxNativeBridge.DFILE_ON_FATAL_ERROR -> {
                     if (!connected.isCompleted) connected.complete(false)
-                    else if (payloadAccepted) completed.complete(false)
+                    else if (payloadAccepted.get()) completed.complete(false)
                 }
                 NstackxNativeBridge.DFILE_ON_FILE_SEND_SUCCESS -> {
                     event.fileNames.forEach { completedNames += it.substringAfterLast('/') }
@@ -1856,7 +1856,7 @@ class UltraShareForegroundService : Service() {
                 staged.map { it.file }
             )
             if (sendResult != 0) return null
-            payloadAccepted = true
+            payloadAccepted.set(true)
             val totalBytes = sources.sumOf { it.sizeBytes.coerceAtLeast(0L) }
             val timeoutMillis = (60_000L + totalBytes / (256L * 1024L) * 1_000L)
                 .coerceAtMost(30L * 60L * 1_000L)
@@ -1885,7 +1885,7 @@ class UltraShareForegroundService : Service() {
         } catch (failure: DFilePayloadStartedException) {
             throw failure
         } catch (failure: Exception) {
-            if (payloadAccepted) {
+            if (payloadAccepted.get()) {
                 throw DFilePayloadStartedException(
                     failure.localizedMessage ?: "فشل DFile بعد بدء نقل البيانات."
                 )
