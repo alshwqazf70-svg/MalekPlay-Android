@@ -19,17 +19,20 @@ internal object Pbkdf2HmacSha256 {
         require(iterations > 0) { "PBKDF2 iteration count must be positive." }
         require(keyLengthBytes > 0) { "Derived key length must be positive." }
 
-        val passwordBytes = String(password).toByteArray(Charsets.UTF_8)
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(passwordBytes, "HmacSHA256"))
-        val hLen = mac.macLength
-        val blockCount = (keyLengthBytes + hLen - 1) / hLen
-        require(blockCount.toLong() <= 0xFFFFFFFFL) { "Derived key is too long." }
+        require(password.all { it.code in 0..0x7F }) {
+            "This PIN derivation accepts normalized ASCII digits only."
+        }
+        val passwordBytes = ByteArray(password.size) { password[it].code.toByte() }
         val result = ByteArray(keyLengthBytes)
         val blockInput = ByteArray(salt.size + 4)
         salt.copyInto(blockInput)
-        var outputOffset = 0
         try {
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(passwordBytes, "HmacSHA256"))
+            val hLen = mac.macLength
+            val blockCount = (keyLengthBytes + hLen - 1) / hLen
+            require(blockCount.toLong() <= 0xFFFFFFFFL) { "Derived key is too long." }
+            var outputOffset = 0
             for (block in 1..blockCount) {
                 blockInput[blockInput.lastIndex - 3] = (block ushr 24).toByte()
                 blockInput[blockInput.lastIndex - 2] = (block ushr 16).toByte()
