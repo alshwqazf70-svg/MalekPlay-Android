@@ -82,6 +82,7 @@ fun VideoCategoryScreen(
             classificationById[item.media.id]?.let { classification -> item to classification }
         }
     }
+    val classificationById = remember(classified) { classified.associate { it.first.media.id to it.second } }
     val unclassifiedCount = remember(classified) {
         classified.count { it.second.kind == VideoKind.UNCLASSIFIED }
     }
@@ -101,8 +102,7 @@ fun VideoCategoryScreen(
     // regular expressions from a sort comparator is expensive on large libraries.
     val orderedWithEpisode = remember(filtered) {
         filtered.map { item ->
-            item to (classified.firstOrNull { it.first.media.id == item.media.id }?.second
-                ?: ClassifiedVideo(VideoKind.UNCLASSIFIED))
+            item to (classificationById[item.media.id] ?: ClassifiedVideo(VideoKind.UNCLASSIFIED))
         }.sortedWith(
             compareBy<Pair<LibraryItem, ClassifiedVideo>>(
                 { it.second.episode?.seriesKey ?: it.first.media.displayTitle.lowercase() },
