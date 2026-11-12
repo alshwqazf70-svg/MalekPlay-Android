@@ -85,7 +85,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
 
 JNIEXPORT jint JNICALL
 Java_com_malekplay_network_NstackxNativeBridge_nativeInitialize(
-    JNIEnv *env, jclass clazz, jstring deviceName, jstring deviceId,
+    JNIEnv *env, jobject thiz, jstring deviceName, jstring deviceId,
     jstring interfaceName, jstring ipv4Address, jlong networkHandle)
 {
     const char *name = NULL, *id = NULL, *iface = NULL, *ip = NULL;
@@ -93,10 +93,13 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeInitialize(
     NSTACKX_LocalDeviceInfo local;
     int32_t result = -1;
     jclass globalClass = NULL;
+    jclass bridgeClass = NULL;
 
     if (deviceName == NULL || deviceId == NULL || interfaceName == NULL || ipv4Address == NULL || networkHandle <= 0)
         return -1001;
 
+    bridgeClass = (*env)->GetObjectClass(env, thiz);
+    if (bridgeClass == NULL) return -1003;
     name = (*env)->GetStringUTFChars(env, deviceName, NULL);
     id = (*env)->GetStringUTFChars(env, deviceId, NULL);
     iface = (*env)->GetStringUTFChars(env, interfaceName, NULL);
@@ -121,17 +124,17 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeInitialize(
     parameter.onDeviceListChanged = OnDeviceFound;
     parameter.maxDeviceNum = 64;
 
-    globalClass = (*env)->NewGlobalRef(env, clazz);
+    globalClass = (*env)->NewGlobalRef(env, bridgeClass);
     if (globalClass == NULL) {
         pthread_mutex_unlock(&g_lock);
         result = -1003;
         goto CLEANUP;
     }
     g_on_device_found = (*env)->GetStaticMethodID(
-        env, clazz, "onNativeDeviceFound",
+        env, bridgeClass, "onNativeDeviceFound",
         "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
     g_on_dfile_event = (*env)->GetStaticMethodID(
-        env, clazz, "onNativeDFileEvent", "(IIJJLjava/lang/String;)V");
+        env, bridgeClass, "onNativeDFileEvent", "(IIJJLjava/lang/String;)V");
     if (g_on_device_found == NULL || g_on_dfile_event == NULL) {
         (*env)->DeleteGlobalRef(env, globalClass);
         globalClass = NULL;
@@ -176,6 +179,7 @@ CLEANUP:
     ReleaseUtf(env, deviceId, id);
     ReleaseUtf(env, interfaceName, iface);
     ReleaseUtf(env, ipv4Address, ip);
+    if (bridgeClass != NULL) (*env)->DeleteLocalRef(env, bridgeClass);
     return result;
 }
 
