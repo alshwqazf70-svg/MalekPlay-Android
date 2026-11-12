@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <string.h>
 #include <pthread.h>
+#include <sched.h>
 #include "nstackx_util.h"
 #include "nstackx_error.h"
 #include "nstackx_log.h"
