@@ -150,6 +150,8 @@ class UltraShareForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // Remove abandoned DFile staging artifacts left by process death or force-stop.
+        UltraShareDFileStager.cleanupStale(cacheDir)
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
