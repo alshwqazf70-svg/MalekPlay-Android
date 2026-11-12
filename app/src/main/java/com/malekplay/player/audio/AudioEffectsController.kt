@@ -128,7 +128,9 @@ class AudioEffectsController {
     @Synchronized
     fun setBands(values: List<Int>) {
         pendingPreset = null
-        bands = values.toList()
+        // Persist only the bands supported by this controller; malformed or oversized
+        // settings must never create unbounded work or affect a later audio session.
+        bands = values.take(MAX_BANDS).toList()
         applyBands(bands)
     }
 
@@ -146,11 +148,7 @@ class AudioEffectsController {
     }
 
     private fun mapPreset(preset: EqualizerPreset, count: Int): List<Int> =
-        List(count.coerceAtLeast(1)) { index ->
-            val source = (index * preset.bands.size / count.coerceAtLeast(1))
-                .coerceIn(0, preset.bands.lastIndex)
-            preset.bands[source]
-        }
+        EqualizerBandMapper.map(preset.bands, count)
 
     private fun applyBands(values: List<Int>) {
         val eq = equalizer ?: return
