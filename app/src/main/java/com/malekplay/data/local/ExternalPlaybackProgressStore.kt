@@ -57,27 +57,7 @@ class ExternalPlaybackProgressStore @Inject constructor(
         require(mediaId.isNotBlank()) { "Media id must not be blank" }
         val raw = preferences.getString(keyFor(mediaId), null) ?: return null
         return try {
-            val json = JSONObject(raw)
-            val position = json.getLong("positionMs")
-            val duration = json.getLong("durationMs")
-            val speed = json.getDouble("playbackSpeed").toFloat()
-            val lastPlayed = json.getLong("lastPlayedAtMs")
-            val playCount = json.getInt("playCount")
-            check(position >= 0L && duration >= 0L && lastPlayed >= 0L && playCount >= 0) {
-                "Stored playback progress contains negative values"
-            }
-            check(speed.isFinite() && speed in 0.25f..4f) {
-                "Stored playback speed is invalid"
-            }
-            PlaybackProgressEntity(
-                mediaId = mediaId,
-                positionMs = position,
-                durationMs = duration,
-                playbackSpeed = speed,
-                isCompleted = json.getBoolean("isCompleted"),
-                lastPlayedAtMs = lastPlayed,
-                playCount = playCount
-            )
+            parseProgressRecord(raw, mediaId)
         } catch (error: Exception) {
             throw IllegalStateException("Stored playback progress is corrupted", error)
         }
@@ -94,15 +74,42 @@ class ExternalPlaybackProgressStore @Inject constructor(
     private fun trimOldEntries() {
         val entries = preferences.all.mapNotNull { (key, value) ->
             if (!key.startsWith(PREFIX)) return@mapNotNull null
-            val json = (value as? String)?.let { runCatching { JSONObject(it) }.getOrNull() }
-                ?: return@mapNotNull key to 0L
-            key to json.optLong("lastPlayedAtMs", 0L).coerceAtLeast(0L)
+            val raw = value as? String ?: return@mapNotNull null
+            // Never evict a corrupt record as a side effect of saving another item.
+            // get() must remain able to report the damaged entry to the caller.
+            val progress = runCatching { parseProgressRecord(raw, key) }.getOrNull()
+                ?: return@mapNotNull null
+            key to progress.lastPlayedAtMs
         }
         if (entries.size <= MAX_ENTRIES) return
         val editor = preferences.edit()
         entries.sortedBy { it.second }.take(entries.size - MAX_ENTRIES)
             .forEach { editor.remove(it.first) }
         check(editor.commit()) { "Could not prune old playback progress" }
+    }
+
+    private fun parseProgressRecord(raw: String, mediaId: String): PlaybackProgressEntity {
+        val json = JSONObject(raw)
+        val position = json.getLong("positionMs")
+        val duration = json.getLong("durationMs")
+        val speed = json.getDouble("playbackSpeed").toFloat()
+        val lastPlayed = json.getLong("lastPlayedAtMs")
+        val playCount = json.getInt("playCount")
+        check(position >= 0L && duration >= 0L && lastPlayed >= 0L && playCount >= 0) {
+            "Stored playback progress contains negative values"
+        }
+        check(speed.isFinite() && speed in 0.25f..4f) {
+            "Stored playback speed is invalid"
+        }
+        return PlaybackProgressEntity(
+            mediaId = mediaId,
+            positionMs = position,
+            durationMs = duration,
+            playbackSpeed = speed,
+            isCompleted = json.getBoolean("isCompleted"),
+            lastPlayedAtMs = lastPlayed,
+            playCount = playCount
+        )
     }
 
     private fun keyFor(mediaId: String): String {
