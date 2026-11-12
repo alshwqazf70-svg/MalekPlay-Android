@@ -91,3 +91,20 @@ The dependency repository heads inspected in the audit are candidate snapshots o
 - **Not yet validated:** the CMake graph has not been configured or compiled with the NDK. Android/Bionic platform adaptation remains phase 3; DFile crypto/filesystem adaptation remains phase 4; JNI remains phase 5. The shared library is not yet wired into Kotlin and no real transfer is claimed.
 
 Phase 2 establishes the build graph and toolchain provisioning, not a successful native build.
+
+
+## Phase 3 — Android platform adaptation (in progress)
+
+Implemented Android/Bionic platform adapters:
+- `native/nstackx/android/sys_dev.c`: enumerates active IPv4 interfaces with `getifaddrs`, resolves local IP/interface names, derives broadcast addresses, and performs verified best-effort interface binding. It does not assume privileged routing or force an interface when Android rejects `SO_BINDTODEVICE`.
+- `native/nstackx/android/sys_log.c`: routes NSTACKX logs to Android logcat.
+- `native/nstackx/android/sys_util.c`: uses Android/Bionic thread, semaphore, clock and pthread APIs; CPU affinity is best-effort and maximum-priority escalation is intentionally disabled.
+- CMake now selects these Android adapters instead of the upstream Unix versions for the three replaced platform modules and links Android `log`.
+
+Still pending within phase 3:
+- NDK compilation of the Android adapters and the complete DFinder target.
+- Review/replace UDP GSO behavior and verify Wi-Fi Direct/LAN socket routing on Android devices.
+- Review remaining epoll/event/timer sources against the minimum Android API.
+- Wire Android ConnectivityManager network handles into socket creation before claiming deterministic multi-network routing.
+
+No native build, DFinder runtime discovery, or two-device connection is claimed yet.
