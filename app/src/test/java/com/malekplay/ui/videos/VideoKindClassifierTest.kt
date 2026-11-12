@@ -120,4 +120,29 @@ class VideoKindClassifierTest {
         assertEquals(2, classified.getValue("b").episode?.episode)
     }
 
+    @Test fun recognizesLeadingEpisodeNumbersInsideNamedSeriesFolders() {
+        val files = listOf(
+            VideoFileDescriptor("first", "01 - البداية.mp4", "The Series", "/storage/TV/The Series"),
+            VideoFileDescriptor("second", "02 - الرحلة.mp4", "The Series", "/storage/TV/The Series")
+        )
+        val classified = VideoKindClassifier.classifyAll(files)
+        assertEquals(VideoKind.SERIES, classified.getValue("first").kind)
+        assertEquals(VideoKind.SERIES, classified.getValue("second").kind)
+        assertEquals("the series", classified.getValue("first").episode?.seriesKey)
+        assertEquals(1, classified.getValue("first").episode?.episode)
+        assertEquals(2, classified.getValue("second").episode?.episode)
+    }
+
+    @Test fun recognizesNumberOnlyEpisodesWhenFolderNamesTheShow() {
+        val files = listOf(
+            VideoFileDescriptor("one", "01.mp4", "رحلة الغد", "/storage/TV/رحلة الغد/Season 1"),
+            VideoFileDescriptor("two", "02.mp4", "رحلة الغد", "/storage/TV/رحلة الغد/Season 1")
+        )
+        val classified = VideoKindClassifier.classifyAll(files)
+        assertEquals(VideoKind.SERIES, classified.getValue("one").kind)
+        assertEquals(1, classified.getValue("one").episode?.season)
+        assertEquals(1, classified.getValue("one").episode?.episode)
+        assertEquals(2, classified.getValue("two").episode?.episode)
+    }
+
 }
