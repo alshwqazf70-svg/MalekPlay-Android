@@ -16,7 +16,6 @@ android {
         applicationId = "com.malekplay"
         minSdk = 23
         targetSdk = 35
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64") }
         versionCode = providers.gradleProperty("malekplayVersionCode")
             .orNull?.toIntOrNull() ?: 2
         versionName = providers.gradleProperty("malekplayVersionName")
