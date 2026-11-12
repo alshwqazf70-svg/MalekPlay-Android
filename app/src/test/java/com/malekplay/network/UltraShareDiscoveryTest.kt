@@ -136,7 +136,7 @@ class UltraShareDiscoveryTest {
     }
 
     @Test
-    fun nativeNstackxNameCannotRenameAnUnmatchedOrUnroutablePeer() {
+    fun nativeNstackxNameCannotRenameAnUnmatchedPeer() {
         val lanPeer = UltraShareDiscovery.Peer(
             host = "192.168.1.25",
             port = UltraShareBatchTransport.DEFAULT_PORT,
