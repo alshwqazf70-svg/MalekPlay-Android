@@ -98,9 +98,7 @@ object NstackxAndroidDiscoverySession {
         )
         check(initResult == 0) { "فشل تهيئة NSTACKX أو تسجيل الجهاز (رمز $initResult)." }
 
-        val listener = NstackxNativeBridge.Listener(onPeerFound)
-        peerListener = listener
-        NstackxNativeBridge.addListener(listener)
+        setPeerListener(onPeerFound)
 
         // Android filters Wi-Fi multicast/broadcast receive traffic unless the app
         // holds this lock. Keep it only for the lifetime of native discovery.
@@ -127,10 +125,29 @@ object NstackxAndroidDiscoverySession {
             .also { started = it }
     }
 
+    /**
+     * Replace the UI observer without restarting the process-global NSTACKX engine.
+     * The foreground sharing service may keep discovery alive while the screen/ViewModel
+     * is recreated; restarting it would interrupt active DFile sessions.
+     */
     @Synchronized
-    fun stop() {
+    fun setPeerListener(onPeerFound: (NstackxNativeBridge.Peer) -> Unit) {
+        peerListener?.let(NstackxNativeBridge::removeListener)
+        val listener = NstackxNativeBridge.Listener(onPeerFound)
+        peerListener = listener
+        NstackxNativeBridge.addListener(listener)
+    }
+
+    /** Detach a screen-scoped observer while leaving native discovery alive. */
+    @Synchronized
+    fun detachPeerListener() {
         peerListener?.let(NstackxNativeBridge::removeListener)
         peerListener = null
+    }
+
+    @Synchronized
+    fun stop() {
+        detachPeerListener()
         if (started != null) {
             runCatching { NstackxNativeBridge.stopDiscovery() }
             NstackxNativeBridge.release()
