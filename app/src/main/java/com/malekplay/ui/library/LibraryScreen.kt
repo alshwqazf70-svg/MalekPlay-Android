@@ -58,6 +58,7 @@ import com.malekplay.domain.model.SortMode
 import com.malekplay.domain.model.ViewMode
 import com.malekplay.ui.components.MediaGridCard
 import com.malekplay.ui.components.MediaThumbnail
+import com.malekplay.ui.components.MediaDeleteButton
 import com.malekplay.ui.components.PlaylistPickerDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -265,7 +266,7 @@ fun LibraryScreen(
                                 onPlay = { onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
                                 onAddToPlaylist = { playlistTarget = item.media },
-                                showDeleteAction = false
+                                onDeleted = viewModel::refresh
                             )
                         }
                     }
@@ -279,7 +280,8 @@ fun LibraryScreen(
                                 item = item,
                                 onClick = { onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
-                                onAddToPlaylist = { playlistTarget = item.media }
+                                onAddToPlaylist = { playlistTarget = item.media },
+                                onDeleted = viewModel::refresh
                             )
                         }
                     }
@@ -358,7 +360,8 @@ private fun PremiumVideoRow(
     item: LibraryItem,
     onClick: () -> Unit,
     onFavourite: () -> Unit,
-    onAddToPlaylist: () -> Unit
+    onAddToPlaylist: () -> Unit,
+    onDeleted: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val glass = Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface))
@@ -420,6 +423,7 @@ private fun PremiumVideoRow(
                 modifier = Modifier.size(19.dp)
             )
         }
+        MediaDeleteButton(media = item.media, compact = true, onDeleted = onDeleted)
     }
 }
 
