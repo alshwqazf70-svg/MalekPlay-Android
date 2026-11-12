@@ -1756,7 +1756,7 @@ class UltraShareForegroundService : Service() {
                         .filter {
                             !it.isLoopbackAddress &&
                                 (it.isSiteLocalAddress || it.isLinkLocalAddress) &&
-                                !UltraShareNetworkRouting.isWifiDirectGroupAddress(it.hostAddress.orEmpty())
+                                !UltraShareNetworkRouting.isWifiDirectGroupHost(it.hostAddress.orEmpty())
                         }
                         .mapNotNull { it.hostAddress }
                 }
@@ -1776,7 +1776,7 @@ class UltraShareForegroundService : Service() {
                     .filter {
                         !it.isLoopbackAddress &&
                             (it.isSiteLocalAddress || it.isLinkLocalAddress) &&
-                            !UltraShareNetworkRouting.isWifiDirectGroupAddress(it.hostAddress.orEmpty())
+                            !UltraShareNetworkRouting.isWifiDirectGroupHost(it.hostAddress.orEmpty())
                     }
                     .map { network.name.lowercase() to it }
             }
