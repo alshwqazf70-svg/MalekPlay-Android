@@ -312,6 +312,7 @@ fun MediaListRow(
     onAddToPlaylist: () -> Unit,
     showFolder: Boolean = false,
     onDeleted: () -> Unit = {},
+    showDeleteAction: Boolean = true,
     onSend: () -> Unit = {},
     selectionMode: Boolean = false,
     isSelected: Boolean = false,
@@ -452,7 +453,9 @@ fun MediaGridCard(
                     Icon(Icons.Filled.PlaylistAdd, contentDescription = "إضافة إلى قائمة التشغيل",
                         tint = Color.White, modifier = Modifier.size(18.dp))
                 }
-                MediaDeleteButton(media = item.media, compact = true, onDeleted = onDeleted)
+                if (showDeleteAction) {
+                    MediaDeleteButton(media = item.media, compact = true, onDeleted = onDeleted)
+                }
                 Box(
                     Modifier.size(32.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.62f))
                         .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape).clickable(onClick = onFavourite),
