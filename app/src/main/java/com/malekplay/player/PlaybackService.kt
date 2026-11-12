@@ -26,6 +26,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.effect.LanczosResample
 import com.malekplay.player.effects.SpatialNoiseReductionEffect
 import com.malekplay.player.effects.TemporalMotionSmoothingEffect
+import com.malekplay.player.effects.VideoDetailEnhancementEffect
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.render.AssVideoEffectRegistry
 import io.github.peerless2012.ass.media.type.AssRenderType
@@ -347,18 +348,17 @@ class PlaybackService : MediaSessionService() {
             val targetShort = minOf(metrics.widthPixels, metrics.heightPixels)
             val sourceLong = maxOf(videoSize.width, videoSize.height)
             val sourceShort = minOf(videoSize.width, videoSize.height)
-            // Lanczos is enabled only when both source dimensions are below the display target.
-            if (sourceLong >= targetLong || sourceShort >= targetShort) {
-                videoUpscalingEnabled = false
-                if (!videoNoiseReductionEnabled && !videoMotionSmoothingEnabled) {
-                    AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
-                    return false
-                }
-            } else {
+            // Resample only when the source is smaller than the physical display target.
+            // High-resolution sources remain valid: they still pass through detail enhancement
+            // rather than having the user's request silently rejected.
+            if (sourceLong < targetLong && sourceShort < targetShort) {
                 effects += LanczosResample.scaleToFitWithFlexibleOrientation(targetLong, targetShort)
             }
         }
         if (videoNoiseReductionEnabled) effects += SpatialNoiseReductionEffect()
+        if (videoUpscalingEnabled || videoNoiseReductionEnabled) {
+            effects += VideoDetailEnhancementEffect()
+        }
         if (videoMotionSmoothingEnabled) effects += TemporalMotionSmoothingEffect()
         return runCatching {
             AssVideoEffectRegistry.setAdditionalEffects(player, effects)
