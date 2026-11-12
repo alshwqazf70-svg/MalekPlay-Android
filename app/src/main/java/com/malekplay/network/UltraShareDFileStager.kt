@@ -29,7 +29,10 @@ internal object UltraShareDFileStager {
         val sha256: ByteArray,
         private val stagingDirectory: File
     ) : AutoCloseable {
+        private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+
         override fun close() {
+            if (!closed.compareAndSet(false, true)) return
             runCatching { file.delete() }
             runCatching { stagingDirectory.delete() }
             sha256.fill(0)
