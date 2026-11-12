@@ -122,10 +122,11 @@ internal object VideoKindClassifier {
                 val season = seasonPattern.find(normalizeDigits(file.folderName + " " + file.folderPath))
                     ?.groupValues?.drop(1)?.firstOrNull(String::isNotBlank)?.toIntOrNull() ?: 1
                 val title = normalizedKey(file.title)
-                val prefix = trailingEpisodePattern.matchEntire(title)?.groupValues?.get(1)
-                    ?: file.folderName.takeIf { normalizedKey(it) !in genericFolders }
-                    ?: file.folderPath.split('/').asReversed().firstOrNull { normalizedKey(it) !in genericFolders }
-                    .orEmpty()
+                val prefix = (
+                    trailingEpisodePattern.matchEntire(title)?.groupValues?.get(1)
+                        ?: file.folderName.takeIf { normalizedKey(it) !in genericFolders }
+                        ?: file.folderPath.split('/').asReversed().firstOrNull { normalizedKey(it) !in genericFolders }
+                    ).orEmpty()
                 result[file.id] = ClassifiedVideo(VideoKind.SERIES, EpisodeSortKey(normalizedKey(prefix), season, episodeNumber))
             }
         }
