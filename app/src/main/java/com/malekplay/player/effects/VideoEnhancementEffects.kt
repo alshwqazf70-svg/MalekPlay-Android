@@ -88,22 +88,44 @@ private class SpatialNoiseReductionProgram(
         """
         const val DENOISE_FRAGMENT_SHADER = """
             #version 100
+            #ifdef GL_FRAGMENT_PRECISION_HIGH
+            precision highp float;
+            #else
             precision mediump float;
+            #endif
             uniform sampler2D uTexSampler;
             uniform vec2 uTexelSize;
             uniform float uStrength;
             varying vec2 vTexSamplingCoord;
+
+            float luma(vec3 color) {
+                return dot(color, vec3(0.2126, 0.7152, 0.0722));
+            }
+
             void main() {
-                vec4 c = texture2D(uTexSampler, vTexSamplingCoord);
-                vec3 n1 = texture2D(uTexSampler, vTexSamplingCoord + vec2(uTexelSize.x, 0.0)).rgb;
-                vec3 n2 = texture2D(uTexSampler, vTexSamplingCoord - vec2(uTexelSize.x, 0.0)).rgb;
-                vec3 n3 = texture2D(uTexSampler, vTexSamplingCoord + vec2(0.0, uTexelSize.y)).rgb;
-                vec3 n4 = texture2D(uTexSampler, vTexSamplingCoord - vec2(0.0, uTexelSize.y)).rgb;
-                vec3 averageColor = (n1 + n2 + n3 + n4) * 0.25;
-                float edge = length(averageColor - c.rgb);
-                float edgeProtection = 1.0 - smoothstep(0.035, 0.18, edge);
-                float amount = uStrength * edgeProtection;
-                gl_FragColor = vec4(mix(c.rgb, averageColor, amount), c.a);
+                vec4 center = texture2D(uTexSampler, vTexSamplingCoord);
+                vec3 north = texture2D(uTexSampler, vTexSamplingCoord + vec2(0.0, uTexelSize.y)).rgb;
+                vec3 south = texture2D(uTexSampler, vTexSamplingCoord - vec2(0.0, uTexelSize.y)).rgb;
+                vec3 east = texture2D(uTexSampler, vTexSamplingCoord + vec2(uTexelSize.x, 0.0)).rgb;
+                vec3 west = texture2D(uTexSampler, vTexSamplingCoord - vec2(uTexelSize.x, 0.0)).rgb;
+
+                // Bilateral-style range weights: neighbors across strong luminance
+                // edges contribute less, preserving text, faces and fine contours.
+                float centerLuma = luma(center.rgb);
+                float rangeScale = mix(18.0, 9.0, uStrength);
+                float wN = exp(-abs(luma(north) - centerLuma) * rangeScale);
+                float wS = exp(-abs(luma(south) - centerLuma) * rangeScale);
+                float wE = exp(-abs(luma(east) - centerLuma) * rangeScale);
+                float wW = exp(-abs(luma(west) - centerLuma) * rangeScale);
+
+                vec3 weighted = center.rgb + north * wN + south * wS + east * wE + west * wW;
+                float weightSum = 1.0 + wN + wS + wE + wW;
+                vec3 filtered = weighted / max(weightSum, 0.0001);
+
+                // Keep the denoise amount conservative; profile strength controls
+                // blending, while bilateral weights protect high-contrast detail.
+                float amount = clamp(uStrength, 0.08, 0.42);
+                gl_FragColor = vec4(mix(center.rgb, filtered, amount), center.a);
             }
         """
     }
