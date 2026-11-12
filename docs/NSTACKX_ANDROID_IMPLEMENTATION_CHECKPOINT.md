@@ -142,3 +142,17 @@ Important limits:
 - This JNI slice integrates DFinder lifecycle and peer metadata only. It does not yet wire DFile server/client sessions or transfer callbacks into the existing authenticated Ultra Share protocol.
 - Android Network selection currently starts DFinder on one selected network per session; simultaneous dual-interface discovery/multipath remains follow-up work.
 - No successful NDK build or two-physical-device discovery/transfer is claimed until CI and device acceptance pass.
+
+
+## Phase 4/5 — DFile JNI API slice and app discovery hook — 2026-11-12
+
+Additional implementation now present:
+- JNI exposes DFile server/client creation, multi-file send queueing, session close, transfer progress/error callbacks, storage-root configuration, and collision-safe rename callback.
+- Kotlin facade validates private IPv4 endpoints, 16-byte session-key length, app-owned writable receive directory, readable local files, and the existing APK/PDF share restrictions. Temporary key copies are zeroed after native handoff.
+- Native release tracks and closes outstanding DFile sessions before tearing down DFinder callback references.
+- Ultra Share ViewModel starts DFinder as a best-effort supplemental discovery signal while receiving or scanning. Existing UDP v1/v2 candidate discovery, QR approval, AES-GCM TCP transfer, and fallback remain authoritative; NSTACKX peer metadata only enriches names for matching stable peer IDs.
+
+Still not complete:
+- The current DFile JNI API is a low-level integration surface; it is not yet substituted into the foreground-service transfer coordinator. A caller must derive the 16-byte DFile key from the authenticated session context, stage content URIs into readable app-owned files, and manage DFile server/client event state.
+- DFile server/client runtime, encryption interoperability, receive publication to MediaStore, cancellation semantics, resume behavior, and two-device transfer are not yet accepted.
+- NDK CMake build, all four ABI outputs, unit tests, and real-device discovery/transfer remain unverified until CI completes.
