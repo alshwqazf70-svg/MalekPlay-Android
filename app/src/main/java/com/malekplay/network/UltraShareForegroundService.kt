@@ -609,7 +609,7 @@ class UltraShareForegroundService : Service() {
 
     private fun startDFileServerForPeer(peerAddress: String, localAddress: String?): Int? {
         if (!NstackxNativeBridge.isAvailable) return null
-        val localIpv4 = localAddress?.takeIf(UltraShareTransport::isValidPrivateLanHost)
+        val localIpv4 = localAddress?.takeIf { UltraShareTransport.isValidPrivateLanHost(it) }
             ?: return null
         val discovery = NstackxAndroidDiscoverySession.current()
             ?.takeIf { it.localIpv4 == localIpv4 }
