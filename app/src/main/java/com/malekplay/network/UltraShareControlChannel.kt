@@ -183,6 +183,7 @@ object UltraShareControlChannel {
             val challenge = ByteArray(CHALLENGE_BYTES)
             input.readFully(challenge)
             val key = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
+            try {
             // Append the stable device token to the opaque request ID. This remains
             // wire-compatible with older peers (which already accept up to 64 hex chars)
             // without changing the displayed device name or control-frame layout.
@@ -255,6 +256,9 @@ object UltraShareControlChannel {
                 Decision.ACCEPTED
             } else {
                 Decision.REJECTED
+            }
+            } finally {
+                key.fill(0)
             }
         } finally {
             if (!retained) runCatching { socket.close() }
@@ -342,6 +346,7 @@ object UltraShareControlChannel {
         }
 
         val key = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
+        try {
         val expectedMac = requestAuthentication(key, challenge, requestId, nameBytes)
         if (!MessageDigest.isEqual(expectedMac, suppliedMac)) {
             pairingAttemptLimiter.recordFailure(peerAddress)
@@ -448,6 +453,9 @@ object UltraShareControlChannel {
                 serverSessionDFileKeys.remove(request.peerAddress)?.fill(0)
                 onSessionClosed(request)
             }
+        }
+        } finally {
+            key.fill(0)
         }
     }
 
