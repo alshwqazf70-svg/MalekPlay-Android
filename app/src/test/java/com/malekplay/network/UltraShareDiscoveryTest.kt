@@ -247,6 +247,30 @@ class UltraShareDiscoveryTest {
     }
 
     @Test
+    fun candidateLookupUsesCaseInsensitiveStablePeerIdentity() {
+        val candidate = UltraShareNegotiation.Candidate(
+            UltraShareNegotiation.Transport.WLAN,
+            "192.168.1.30",
+            UltraShareBatchTransport.DEFAULT_PORT,
+            reachable = true,
+            priority = 20
+        )
+        val peer = UltraShareDiscovery.Peer(
+            candidate.host, candidate.port, "Receiver",
+            "123e4567-e89b-12d3-a456-426614174000",
+            listOf(candidate)
+        )
+
+        assertEquals(
+            listOf(candidate),
+            UltraShareNegotiation.candidatesForPeer(
+                "123E4567-E89B-12D3-A456-426614174000",
+                listOf(peer)
+            )
+        )
+    }
+
+    @Test
     fun legacyPeersFallBackToTheirLanAddress() {
         val peer = UltraShareDiscovery.Peer(
             host = "192.168.1.15",
