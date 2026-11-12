@@ -232,8 +232,12 @@ jobs:
         run: python -m unittest -v
 
   android-instrumentation:
-    name: Android emulator smoke and Room migration tests
+    name: Android ${{ matrix.api-level }} emulator smoke and Room migration tests
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [29, 35]
     timeout-minutes: 35
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
@@ -256,7 +260,7 @@ jobs:
       - name: Run instrumentation tests on Android 15 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: ${{ matrix.api-level }}
           target: google_apis
           arch: x86_64
           profile: pixel_2
