@@ -138,6 +138,22 @@ class SmartRecommendationPolicyTest {
         assertTrue(SmartRecommendationPolicy.collections(items, limit = 0).isEmpty())
     }
 
+
+    @Test
+    fun smartSearchNormalizesArabicAlefAndDiacritics() {
+        val hamzaVariant = item("hamza", genre = "أفلام")
+        val diacriticVariant = item("diacritics", genre = "إِنْمَاء")
+
+        assertEquals(
+            listOf("hamza"),
+            SmartRecommendationPolicy.search(listOf(hamzaVariant), "افلام").map { it.media.id }
+        )
+        assertEquals(
+            listOf("diacritics"),
+            SmartRecommendationPolicy.search(listOf(diacriticVariant), "انماء").map { it.media.id }
+        )
+    }
+
     private fun item(
         id: String,
         genre: String? = null,

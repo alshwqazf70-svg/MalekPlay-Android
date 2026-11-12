@@ -162,8 +162,25 @@ internal object SmartRecommendationPolicy {
         this[key] = (this[key] ?: 0.0) + weight
     }
 
-    private fun String?.normalized(): String? =
-        this?.trim()?.takeIf { it.isNotEmpty() }?.lowercase(Locale.ROOT)
+    /**
+     * Normalize common Arabic spelling variants and diacritics for local search.
+     * Keep meaningful letters (including taa marbuta) distinct to avoid false matches.
+     */
+    private fun String?.normalized(): String? {
+        val source = this?.lowercase(Locale.ROOT)?.takeIf { it.isNotBlank() } ?: return null
+        val normalized = buildString(source.length) {
+            source.forEach { character ->
+                when {
+                    character == '\u0640' -> Unit // tatweel
+                    character in '\u064B'..'\u065F' || character == '\u0670' -> Unit
+                    character in "أإآٱ" -> append('ا')
+                    character == 'ى' -> append('ي')
+                    else -> append(character)
+                }
+            }
+        }.replace(Regex("\\s+"), " ").trim()
+        return normalized.takeIf { it.isNotEmpty() }
+    }
 
     private const val DEFAULT_LIMIT = 12
     private const val LAST_PLAYED_WEIGHT = 5.0
