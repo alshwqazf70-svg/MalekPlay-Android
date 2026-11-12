@@ -43,6 +43,8 @@ class UserDataRepository @Inject constructor(
         userDataDao.replaceFavourites(ids, System.currentTimeMillis())
     }
 
+    fun observeLastPlayedMediaId(): Flow<String?> = userDataDao.observeLastPlayedMediaId()
+
     suspend fun recentHistoryIds(limit: Int): List<String> =
         withContext(Dispatchers.IO) { userDataDao.recentHistoryIds(limit) }
 
