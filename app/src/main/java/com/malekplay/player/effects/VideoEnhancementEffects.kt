@@ -17,10 +17,10 @@ import androidx.media3.effect.GlShaderProgram
  */
 @UnstableApi
 class SpatialNoiseReductionEffect(
-    private val strength: Float = 0.22f
+    private val strength: Float = 0.34f
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        SpatialNoiseReductionProgram(context, useHdr, strength.coerceIn(0.05f, 0.35f))
+        SpatialNoiseReductionProgram(context, useHdr, strength.coerceIn(0.10f, 0.48f))
 }
 
 @UnstableApi
@@ -278,6 +278,109 @@ private class TemporalMotionSmoothingProgram(
                     vec4 previous = texture2D(uPreviousFrame, vTexSamplingCoord);
                     gl_FragColor = mix(current, previous, uPreviousWeight);
                 }
+            }
+        """
+    }
+}
+
+
+/**
+ * Edge-aware unsharp masking applied after resampling/denoising.
+ * It restores local edge contrast lost during scaling and compression cleanup;
+ * it does not invent detail that is absent from the source.
+ */
+@UnstableApi
+class VideoDetailEnhancementEffect(
+    private val strength: Float = 0.78f
+) : GlEffect {
+    override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
+        VideoDetailEnhancementProgram(context, useHdr, strength.coerceIn(0.20f, 1.10f))
+}
+
+@UnstableApi
+private class VideoDetailEnhancementProgram(
+    context: Context,
+    useHdr: Boolean,
+    strength: Float
+) : BaseGlShaderProgram(useHdr, 1) {
+    private val program = GlProgram(VERTEX_SHADER, SHARPEN_FRAGMENT_SHADER)
+    private var inputWidthForShader = 1
+    private var inputHeightForShader = 1
+
+    init {
+        program.setBufferAttribute(
+            "aFramePosition",
+            GlUtil.getNormalizedCoordinateBounds(),
+            GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE
+        )
+        val identity = GlUtil.create4x4IdentityMatrix()
+        program.setFloatsUniform("uTransformationMatrix", identity)
+        program.setFloatsUniform("uTexTransformationMatrix", identity)
+        program.setFloatUniform("uStrength", strength)
+    }
+
+    override fun configure(inputWidth: Int, inputHeight: Int): Size {
+        inputWidthForShader = inputWidth
+        inputHeightForShader = inputHeight
+        return Size(inputWidth, inputHeight)
+    }
+
+    override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
+        try {
+            program.use()
+            program.setSamplerTexIdUniform("uTexSampler", inputTexId, 0)
+            program.setFloatsUniform(
+                "uTexelSize",
+                floatArrayOf(
+                    1f / inputWidthForShader.coerceAtLeast(1),
+                    1f / inputHeightForShader.coerceAtLeast(1)
+                )
+            )
+            program.bindAttributesAndUniforms()
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+            GlUtil.checkGlError()
+        } catch (error: GlUtil.GlException) {
+            throw VideoFrameProcessingException(error, presentationTimeUs)
+        }
+    }
+
+    override fun release() {
+        super.release()
+        program.delete()
+    }
+
+    private companion object {
+        const val VERTEX_SHADER = """
+            #version 100
+            attribute vec4 aFramePosition;
+            uniform mat4 uTransformationMatrix;
+            uniform mat4 uTexTransformationMatrix;
+            varying vec2 vTexSamplingCoord;
+            void main() {
+                gl_Position = uTransformationMatrix * aFramePosition;
+                vec4 p = vec4(aFramePosition.xy * 0.5 + 0.5, 0.0, 1.0);
+                vTexSamplingCoord = (uTexTransformationMatrix * p).xy;
+            }
+        """
+        const val SHARPEN_FRAGMENT_SHADER = """
+            #version 100
+            precision mediump float;
+            uniform sampler2D uTexSampler;
+            uniform vec2 uTexelSize;
+            uniform float uStrength;
+            varying vec2 vTexSamplingCoord;
+            void main() {
+                vec4 center = texture2D(uTexSampler, vTexSamplingCoord);
+                vec3 north = texture2D(uTexSampler, vTexSamplingCoord + vec2(0.0, uTexelSize.y)).rgb;
+                vec3 south = texture2D(uTexSampler, vTexSamplingCoord - vec2(0.0, uTexelSize.y)).rgb;
+                vec3 east = texture2D(uTexSampler, vTexSamplingCoord + vec2(uTexelSize.x, 0.0)).rgb;
+                vec3 west = texture2D(uTexSampler, vTexSamplingCoord - vec2(uTexelSize.x, 0.0)).rgb;
+                vec3 localAverage = (north + south + east + west) * 0.25;
+                vec3 detail = center.rgb - localAverage;
+                float edgeMagnitude = length(detail);
+                float edgeGate = smoothstep(0.006, 0.055, edgeMagnitude);
+                vec3 enhanced = center.rgb + detail * uStrength * edgeGate;
+                gl_FragColor = vec4(clamp(enhanced, 0.0, 1.0), center.a);
             }
         """
     }
