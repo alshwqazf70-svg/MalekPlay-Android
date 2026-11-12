@@ -421,7 +421,6 @@ class UltraShareViewModel @Inject constructor(
 
     fun stopReceiving() {
         UltraShareForegroundService.stopReceiving(context)
-        stopNstackxIfIdle()
         runCatching { wifiDirectSession?.stopInvitationAdvertisement() }
         runCatching { wifiDirectSession?.removeGroup() }
         _state.value = _state.value.copy(
@@ -432,6 +431,7 @@ class UltraShareViewModel @Inject constructor(
             progress = if (_state.value.sending) UltraShareForegroundService.state.value.sendProgress else null,
             status = context.getString(R.string.ultra_share_stopped)
         )
+        stopNstackxIfIdle()
     }
 
     fun scanNearbyDevices() {
