@@ -96,6 +96,7 @@ int32_t SocketSendEx(const Socket *socket, uint16_t mss, const struct iovec *iov
             if (sent < 0 || (size_t)sent != packetBytes) {
                 LOGE(TAG, "UDP fallback send failed: sent=%ld expected=%zu errno=%d",
                     (long)sent, packetBytes, errno);
+                result = (sent < 0) ? CheckSocketError() : NSTACKX_EFAILED;
                 goto OUT;
             }
         }
