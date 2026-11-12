@@ -29,4 +29,21 @@ class PlaybackProgressPolicyTest {
     fun clampsNegativePositionsToZero() {
         assertFalse(isPlaybackCompleted(-1L, 10_000L))
     }
+    @Test
+    fun playCountDoesNotOverflowAtMaximumValue() {
+        assertEquals(Int.MAX_VALUE, nextPlaybackCount(Int.MAX_VALUE, markPlayed = true))
+    }
+
+    @Test
+    fun playCountNeverBecomesNegativeForLegacyCorruptValues() {
+        assertEquals(0, nextPlaybackCount(-1, markPlayed = false))
+        assertEquals(1, nextPlaybackCount(-1, markPlayed = true))
+    }
+
+    @Test
+    fun playCountIncrementsOnlyForARealPlaybackStart() {
+        assertEquals(7, nextPlaybackCount(7, markPlayed = false))
+        assertEquals(8, nextPlaybackCount(7, markPlayed = true))
+    }
+
 }
