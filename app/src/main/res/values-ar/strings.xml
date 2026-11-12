@@ -378,4 +378,9 @@
     <string name="player_noise_reduction_unavailable">تقليل الضوضاء: غير متاح في هذا الإصدار</string>
     <string name="player_motion_smoothing_unavailable">تنعيم الحركة: غير متاح (يتطلب توليد إطارات)</string>
     <string name="player_gpu_upscaling_unavailable">تعذر تفعيل تحسين التحجيم لهذا الفيديو؛ قد يكون محمياً أو يبث إلى جهاز خارجي أو لا يحتاج إلى رفع الدقة.</string>
+    <string name="player_noise_reduction_on">تقليل الضوضاء: يعمل (GPU)</string>
+    <string name="player_noise_reduction_off">تقليل الضوضاء: متوقف</string>
+    <string name="player_motion_smoothing_on">تنعيم الحركة: يعمل (دمج زمني خفيف)</string>
+    <string name="player_motion_smoothing_off">تنعيم الحركة: متوقف</string>
+    <string name="player_video_effect_unavailable">هذا التأثير غير متاح للفيديو الحالي أو لطريقة التشغيل الحالية.</string>
 </resources>
