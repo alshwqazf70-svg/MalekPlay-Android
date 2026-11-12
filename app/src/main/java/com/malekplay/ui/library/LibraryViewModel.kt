@@ -55,6 +55,8 @@ class LibraryViewModel @Inject constructor(
     val audio = mediaRepository.observeAudio()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val lastPlayedMediaId = userDataRepository.observeLastPlayedMediaId()
+
     val seenNewMediaIds = settingsRepository.seenNewMediaIds
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
