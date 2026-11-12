@@ -56,7 +56,11 @@ fun ReceiveScreen(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
-            if (state.receiving) "جاري انتظار انضمام الأصدقاء…" else "إنشاء مجموعة",
+            when {
+                state.activePeers.isNotEmpty() -> "الجهاز متصل وجاهز للنقل"
+                state.receiving -> "جاري انتظار انضمام الأصدقاء…"
+                else -> "إنشاء مجموعة"
+            },
             color = Color.White,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
