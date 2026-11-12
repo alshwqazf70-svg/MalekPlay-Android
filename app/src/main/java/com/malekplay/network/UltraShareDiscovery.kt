@@ -61,6 +61,9 @@ internal class NstackxPeerNameCache(
     }
 
     @Synchronized
+    fun clear() = entries.clear()
+
+    @Synchronized
     private fun prune(nowMillis: Long) {
         val iterator = entries.entries.iterator()
         while (iterator.hasNext()) {
