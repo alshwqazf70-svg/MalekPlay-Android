@@ -1745,10 +1745,21 @@ class UltraShareForegroundService : Service() {
             if (connectivity.getNetworkCapabilities(active)
                     ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
             ) {
-                connectivity.getLinkProperties(active)?.linkAddresses.orEmpty()
-                    .mapNotNull { it.address as? Inet4Address }
-                    .filter { !it.isLoopbackAddress && (it.isSiteLocalAddress || it.isLinkLocalAddress) }
-                    .mapNotNull { it.hostAddress }
+                val properties = connectivity.getLinkProperties(active)
+                // A Wi-Fi Direct group may be reported as TRANSPORT_WIFI. Its
+                // 192.168.49.x address is not a LAN fallback unless P2P is joined.
+                if (UltraShareNetworkRouting.isWifiDirectInterfaceName(properties?.interfaceName.orEmpty())) {
+                    emptyList()
+                } else {
+                    properties?.linkAddresses.orEmpty()
+                        .mapNotNull { it.address as? Inet4Address }
+                        .filter {
+                            !it.isLoopbackAddress &&
+                                (it.isSiteLocalAddress || it.isLinkLocalAddress) &&
+                                !UltraShareNetworkRouting.isWifiDirectGroupAddress(it.hostAddress.orEmpty())
+                        }
+                        .mapNotNull { it.hostAddress }
+                }
             } else emptyList()
         }.orEmpty()
 
@@ -1757,12 +1768,16 @@ class UltraShareForegroundService : Service() {
                 val name = network.name.lowercase()
                 network.isUp && !network.isLoopback &&
                     (name.startsWith("wlan") || name.startsWith("swlan") ||
-                        name.startsWith("ap") || name.startsWith("eth") || name.startsWith("p2p"))
+                        name.startsWith("ap") || name.startsWith("eth"))
             }
             .flatMap { network ->
                 network.inetAddresses.toList()
                     .filterIsInstance<Inet4Address>()
-                    .filter { !it.isLoopbackAddress && (it.isSiteLocalAddress || it.isLinkLocalAddress) }
+                    .filter {
+                        !it.isLoopbackAddress &&
+                            (it.isSiteLocalAddress || it.isLinkLocalAddress) &&
+                            !UltraShareNetworkRouting.isWifiDirectGroupAddress(it.hostAddress.orEmpty())
+                    }
                     .map { network.name.lowercase() to it }
             }
             .sortedWith(compareBy<Pair<String, Inet4Address>>(
