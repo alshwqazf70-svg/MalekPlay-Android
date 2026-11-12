@@ -121,14 +121,17 @@ class TemporalMotionSmoothingEffect(
     private val previousFrameWeight: Float = 0.07f
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        TemporalMotionSmoothingProgram(context, useHdr, previousFrameWeight.coerceIn(0.03f, 0.10f))
+        TemporalMotionSmoothingProgram(
+            context, useHdr, previousFrameWeight.coerceIn(0.03f, 0.10f), useHdr
+        )
 }
 
 @UnstableApi
 private class TemporalMotionSmoothingProgram(
     context: Context,
     useHdr: Boolean,
-    private val previousFrameWeight: Float
+    private val previousFrameWeight: Float,
+    private val useHighPrecisionColorComponents: Boolean
 ) : BaseGlShaderProgram(useHdr, 1) {
     private val blendProgram = GlProgram(VERTEX_SHADER, BLEND_FRAGMENT_SHADER)
     private val copyProgram = GlProgram(VERTEX_SHADER, COPY_FRAGMENT_SHADER)
@@ -155,7 +158,9 @@ private class TemporalMotionSmoothingProgram(
     override fun configure(inputWidth: Int, inputHeight: Int): Size {
         if (historyWidth != inputWidth || historyHeight != inputHeight || historyTextureId == 0) {
             releaseHistory()
-            historyTextureId = GlUtil.createTexture(inputWidth, inputHeight, false)
+            historyTextureId = GlUtil.createTexture(
+                inputWidth, inputHeight, useHighPrecisionColorComponents
+            )
             historyFramebufferId = GlUtil.createFboForTexture(historyTextureId)
             historyWidth = inputWidth
             historyHeight = inputHeight
