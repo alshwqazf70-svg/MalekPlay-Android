@@ -140,6 +140,7 @@ private class TemporalMotionSmoothingProgram(
     private var historyWidth = 0
     private var historyHeight = 0
     private var hasPreviousFrame = false
+    private var lastPresentationTimeUs = Long.MIN_VALUE
 
     init {
         listOf(blendProgram, copyProgram).forEach { shader ->
@@ -165,12 +166,20 @@ private class TemporalMotionSmoothingProgram(
             historyWidth = inputWidth
             historyHeight = inputHeight
             hasPreviousFrame = false
+            lastPresentationTimeUs = Long.MIN_VALUE
         }
         return Size(inputWidth, inputHeight)
     }
 
     override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
         try {
+            // Do not blend across a seek, timestamp reset, or a long decoder stall.
+            if (lastPresentationTimeUs == Long.MIN_VALUE ||
+                presentationTimeUs <= lastPresentationTimeUs ||
+                presentationTimeUs - lastPresentationTimeUs > 150_000L
+            ) {
+                hasPreviousFrame = false
+            }
             blendProgram.use()
             blendProgram.setSamplerTexIdUniform("uCurrentFrame", inputTexId, 0)
             blendProgram.setSamplerTexIdUniform("uPreviousFrame", historyTextureId, 1)
@@ -199,6 +208,7 @@ private class TemporalMotionSmoothingProgram(
             )
             GlUtil.checkGlError()
             hasPreviousFrame = true
+            lastPresentationTimeUs = presentationTimeUs
         } catch (error: GlUtil.GlException) {
             throw VideoFrameProcessingException(error, presentationTimeUs)
         }
@@ -207,6 +217,7 @@ private class TemporalMotionSmoothingProgram(
     override fun flush() {
         super.flush()
         hasPreviousFrame = false
+        lastPresentationTimeUs = Long.MIN_VALUE
     }
 
     override fun release() {
@@ -228,6 +239,7 @@ private class TemporalMotionSmoothingProgram(
         historyWidth = 0
         historyHeight = 0
         hasPreviousFrame = false
+        lastPresentationTimeUs = Long.MIN_VALUE
     }
 
     private companion object {
