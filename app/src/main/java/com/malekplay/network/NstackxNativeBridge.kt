@@ -116,6 +116,35 @@ object NstackxNativeBridge {
         }
     }
 
+
+    /**
+     * Start DFile using the key of an already-approved outgoing MPC2 session.
+     * The copied key is zeroed immediately after native session creation.
+     */
+    fun startApprovedDFileClient(remoteIpv4: String, port: Int): Int {
+        val key = UltraShareControlChannel.clientDFileKey(remoteIpv4) ?: return NOT_AUTHENTICATED
+        return try {
+            startDFileClient(remoteIpv4, port, key)
+        } finally {
+            key.fill(0)
+        }
+    }
+
+    /** Start DFile receiver using the key of the matching approved incoming MPC2 peer. */
+    fun startApprovedDFileServer(
+        peerIpv4: String,
+        localIpv4: String,
+        port: Int,
+        destinationDirectory: File
+    ): Int {
+        val key = UltraShareControlChannel.serverDFileKey(peerIpv4) ?: return NOT_AUTHENTICATED
+        return try {
+            startDFileServer(localIpv4, port, key, destinationDirectory)
+        } finally {
+            key.fill(0)
+        }
+    }
+
     /** Queue local files for DFile; blocked Android packages/PDFs remain blocked. */
     fun sendDFileFiles(sessionId: Int, files: List<File>): Int {
         if (!libraryLoaded) return LOAD_ERROR
@@ -198,4 +227,5 @@ object NstackxNativeBridge {
     private const val LOAD_ERROR = -1100
     private const val INVALID_ARGUMENT = -1101
     private const val NOT_INITIALIZED = -1102
+    private const val NOT_AUTHENTICATED = -1103
 }
