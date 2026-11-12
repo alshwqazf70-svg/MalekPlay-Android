@@ -120,14 +120,19 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
       - name: Prepare pinned NSTACKX source trees
         run: bash scripts/prepare_nstackx_sources.sh
-      - name: Assemble optimized Release APKs and AAB in one Gradle invocation
+      - name: Assemble ABI-specific minified Release APKs
         run: |
           ./gradlew --stacktrace --max-workers=2 \
             -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" \
             -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" \
             -PenableNstackxNativeBuild=true \
-            -PenableAbiSplits=true \
-            :app:assembleRelease :app:bundleRelease
+            -PenableAbiSplits=true :app:assembleRelease
+      - name: Assemble Google Play Android App Bundle
+        run: |
+          ./gradlew --stacktrace --max-workers=2 \
+            -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" \
+            -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" \
+            -PenableNstackxNativeBuild=true :app:bundleRelease
       - name: Verify and measure optimized Release outputs
         shell: bash
         run: |
