@@ -22,6 +22,10 @@ extern "C" {
  */
 int NstackxBindSocketToNetwork(int socketFd, uint64_t networkHandle);
 
+/* Set/clear the Android Network used by sockets created by this DFinder instance. */
+void NstackxSetNetworkHandle(uint64_t networkHandle);
+int NstackxBindSocketToCurrentNetwork(int socketFd);
+
 #ifdef __cplusplus
 }
 #endif
