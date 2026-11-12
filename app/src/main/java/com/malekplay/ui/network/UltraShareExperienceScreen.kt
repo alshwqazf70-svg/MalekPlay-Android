@@ -579,10 +579,11 @@ fun UltraShareExperienceScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (!state.receiving) viewModel.startReceiving()
-        if (!state.scanning) viewModel.scanNearbyDevices()
-    }
+    // Discovery is deliberately user-initiated. Opening UltraShare must not
+    // start a background receiver or continuous LAN scan; the explicit
+    // "Create group / Receive files" action starts the receiver and its
+    // discovery advertisement, while "Nearby devices" starts a bounded
+    // sender-side scan only when the user asks for it.
 
     // If secure pairing succeeds through an alternate interface, keep the UI and
     // subsequent file-transfer target aligned with the address that actually paired.
