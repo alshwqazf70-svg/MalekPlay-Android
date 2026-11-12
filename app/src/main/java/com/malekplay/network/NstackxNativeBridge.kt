@@ -1,5 +1,6 @@
 package com.malekplay.network
 
+import java.io.File
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
@@ -21,6 +22,19 @@ object NstackxNativeBridge {
     }
 
     private val listeners = CopyOnWriteArraySet<Listener>()
+    private val dfileListeners = CopyOnWriteArraySet<DFileListener>()
+
+    data class DFileEvent(
+        val sessionId: Int,
+        val eventType: Int,
+        val transferredBytes: Long,
+        val totalBytes: Long,
+        val message: String
+    )
+
+    fun interface DFileListener {
+        fun onEvent(event: DFileEvent)
+    }
     private val libraryLoaded: Boolean = runCatching {
         System.loadLibrary("nstackx_engine")
         true
@@ -61,8 +75,78 @@ object NstackxNativeBridge {
     fun stopDiscovery(): Int =
         if (libraryLoaded) nativeStopDiscovery() else LOAD_ERROR
 
+
+    /**
+     * Start the native DFile receiver. The 16-byte key must be derived from
+     * the authenticated QR/PIN session; never pass the visible PIN directly.
+     * The destination must be an existing app-owned writable directory.
+     */
+    fun startDFileServer(
+        localIpv4: String,
+        port: Int,
+        sessionKey: ByteArray,
+        destinationDirectory: File
+    ): Int {
+        if (!libraryLoaded) return LOAD_ERROR
+        if (NstackxAndroidDiscoverySession.current() == null) return NOT_INITIALIZED
+        require(UltraShareTransport.isValidPrivateLanHost(localIpv4))
+        require(port in 1..65535 && sessionKey.size == 16)
+        require(destinationDirectory.isDirectory && destinationDirectory.canWrite())
+        return nativeDFileStartServer(
+            localIpv4, port, sessionKey.copyOf(), destinationDirectory.canonicalPath
+        )
+    }
+
+    /** Start a native DFile sender to a private IPv4 endpoint. */
+    fun startDFileClient(remoteIpv4: String, port: Int, sessionKey: ByteArray): Int {
+        if (!libraryLoaded) return LOAD_ERROR
+        if (NstackxAndroidDiscoverySession.current() == null) return NOT_INITIALIZED
+        require(UltraShareTransport.isValidPrivateLanHost(remoteIpv4))
+        require(port in 1..65535 && sessionKey.size == 16)
+        return nativeDFileStartClient(remoteIpv4, port, sessionKey.copyOf())
+    }
+
+    /** Queue local files for DFile; blocked Android packages/PDFs remain blocked. */
+    fun sendDFileFiles(sessionId: Int, files: List<File>): Int {
+        if (!libraryLoaded) return LOAD_ERROR
+        require(sessionId > 0 && files.isNotEmpty() && files.size <= 500)
+        val paths = files.map { file ->
+            val canonical = file.canonicalFile
+            require(canonical.isFile && canonical.canRead()) { "تعذر قراءة الملف: " + file.name }
+            require(UltraShareTransport.isAllowedShareFile(canonical.name, "application/octet-stream")) {
+                "لا يمكن مشاركة ملفات APK أو PDF."
+            }
+            canonical.absolutePath
+        }
+        return nativeDFileSendFiles(sessionId, paths.toTypedArray())
+    }
+
+    fun closeDFileSession(sessionId: Int) {
+        if (libraryLoaded && sessionId > 0) nativeDFileCloseSession(sessionId)
+    }
+
+    fun addDFileListener(listener: DFileListener) {
+        dfileListeners += listener
+    }
+
+    fun removeDFileListener(listener: DFileListener) {
+        dfileListeners -= listener
+    }
+
     fun release() {
         if (libraryLoaded) nativeRelease()
+    }
+
+    @JvmStatic
+    private fun onNativeDFileEvent(
+        sessionId: Int,
+        eventType: Int,
+        transferredBytes: Long,
+        totalBytes: Long,
+        message: String
+    ) {
+        val event = DFileEvent(sessionId, eventType, transferredBytes, totalBytes, message)
+        dfileListeners.forEach { listener -> runCatching { listener.onEvent(event) } }
     }
 
     @JvmStatic
@@ -84,8 +168,24 @@ object NstackxNativeBridge {
 
     private external fun nativeStartDiscovery(): Int
     private external fun nativeStopDiscovery(): Int
+    private external fun nativeDFileStartServer(
+        localIpv4: String,
+        port: Int,
+        key: ByteArray,
+        storagePath: String
+    ): Int
+
+    private external fun nativeDFileStartClient(
+        remoteIpv4: String,
+        port: Int,
+        key: ByteArray
+    ): Int
+
+    private external fun nativeDFileSendFiles(sessionId: Int, paths: Array<String>): Int
+    private external fun nativeDFileCloseSession(sessionId: Int)
     private external fun nativeRelease()
 
     private const val LOAD_ERROR = -1100
     private const val INVALID_ARGUMENT = -1101
+    private const val NOT_INITIALIZED = -1102
 }
