@@ -52,6 +52,7 @@ import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.components.EmptyState
 import com.malekplay.ui.components.MediaThumbnail
+import com.malekplay.ui.components.MediaDeleteButton
 
 @Composable
 fun LocalFolderScreen(
@@ -157,6 +158,7 @@ fun LocalFolderScreen(
                     selectionMode = selectionMode,
                     isSelected = item.media.uri in selectedUris,
                     onSelect = { toggleSelection(item.media.uri) },
+                    onDelete = { viewModel.refresh() },
                     onToggleFavourite = { viewModel.toggleFavourite(item.media.id) }
                 )
             }
@@ -173,6 +175,7 @@ private fun FolderItemRow(
     selectionMode: Boolean,
     isSelected: Boolean,
     onSelect: () -> Unit,
+    onDelete: () -> Unit,
     onToggleFavourite: () -> Unit
 ) {
     Row(
@@ -273,6 +276,7 @@ private fun FolderItemRow(
                 )
             }
         }
+        MediaDeleteButton(media = item.media, onDeleted = onDelete)
         IconButton(onClick = onToggleFavourite) {
             Icon(
                 imageVector = if (item.isFavourite) Icons.Filled.Star else Icons.Filled.StarBorder,
