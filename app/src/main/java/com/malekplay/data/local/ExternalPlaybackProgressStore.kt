@@ -35,7 +35,7 @@ class ExternalPlaybackProgressStore @Inject constructor(
         val previous = get(mediaId)
         val safeSpeed = speed.takeIf { it.isFinite() }?.coerceIn(0.25f, 4f) ?: 1f
         val completed = isPlaybackCompleted(positionMs, durationMs)
-        val playCount = Math.addExact(previous?.playCount ?: 0, if (markPlayed) 1 else 0)
+        val playCount = nextPlaybackCount(previous?.playCount ?: 0, markPlayed)
         val safePosition = if (completed) 0L else
             positionMs.coerceAtMost(durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
         val json = JSONObject()
