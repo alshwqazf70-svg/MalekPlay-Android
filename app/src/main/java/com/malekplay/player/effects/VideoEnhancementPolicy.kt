@@ -37,29 +37,40 @@ object VideoEnhancementPolicy {
         sdkInt: Int,
         isLowRamDevice: Boolean,
         memoryClassMb: Int,
-        thermalStatus: Int? = null
+        thermalStatus: Int? = null,
+        performanceCap: VideoEnhancementProfile? = null
     ): VideoEnhancementTuning {
+        var effective = requested
+        var reason: String? = null
+
         val economyOnly = sdkInt < 26 || isLowRamDevice || memoryClassMb < 256
-        if (economyOnly && requested != VideoEnhancementProfile.ECONOMY) {
-            val reason = when {
+        if (economyOnly && effective != VideoEnhancementProfile.ECONOMY) {
+            effective = VideoEnhancementProfile.ECONOMY
+            reason = when {
                 sdkInt < 26 -> "legacy_android"
                 isLowRamDevice -> "low_ram_device"
                 else -> "limited_memory"
             }
-            return VideoEnhancementTuning(requested, VideoEnhancementProfile.ECONOMY, reason)
         }
 
-        // Moderate heat caps GPU work at Balanced; severe or worse uses Economy.
+        // Moderate heat caps Ultra at Balanced; severe heat caps all profiles at Economy.
         if (thermalStatus != null && thermalStatus >= 4 &&
-            requested != VideoEnhancementProfile.ECONOMY
+            effective != VideoEnhancementProfile.ECONOMY
         ) {
-            return VideoEnhancementTuning(requested, VideoEnhancementProfile.ECONOMY, "thermal_severe")
-        }
-        if (thermalStatus != null && thermalStatus >= 2 &&
-            requested == VideoEnhancementProfile.ULTRA
+            effective = VideoEnhancementProfile.ECONOMY
+            reason = "thermal_severe"
+        } else if (thermalStatus != null && thermalStatus >= 2 &&
+            effective == VideoEnhancementProfile.ULTRA
         ) {
-            return VideoEnhancementTuning(requested, VideoEnhancementProfile.BALANCED, "thermal_moderate")
+            effective = VideoEnhancementProfile.BALANCED
+            reason = "thermal_moderate"
         }
-        return VideoEnhancementTuning(requested, requested)
+
+        // A burst of dropped frames imposes a temporary ceiling for this playback item.
+        if (performanceCap != null && performanceCap.ordinal < effective.ordinal) {
+            effective = performanceCap
+            reason = "dropped_frames"
+        }
+        return VideoEnhancementTuning(requested, effective, reason)
     }
 }
