@@ -134,15 +134,15 @@ import sys
 
 path = Path(sys.argv[1])
 source = path.read_text(encoding="utf-8")
-anchor = '#include "coap3/coap_libcoap_build.h"\\n'
+anchor = '#include "coap3/coap_libcoap_build.h"\n'
 if source.count(anchor) != 1:
     raise SystemExit("Unexpected upstream coap_address.c include layout; refusing an unsafe patch")
 adaptation = (
     anchor
-    + '\\n/* MalekPlayer Android API 23 compatibility: getifaddrs is API 24+. */\\n'
-    + '#if defined(__ANDROID__) && defined(HAVE_IFADDRS_H)\\n'
-    + '#undef HAVE_IFADDRS_H\\n'
-    + '#endif\\n'
+    + '\n/* MalekPlayer Android API 23 compatibility: getifaddrs is API 24+. */\n'
+    + '#if defined(__ANDROID__) && defined(HAVE_IFADDRS_H)\n'
+    + '#undef HAVE_IFADDRS_H\n'
+    + '#endif\n'
 )
 source = source.replace(anchor, adaptation, 1)
 path.write_text(source, encoding="utf-8")
