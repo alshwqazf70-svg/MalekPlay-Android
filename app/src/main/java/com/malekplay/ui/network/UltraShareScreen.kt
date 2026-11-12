@@ -249,8 +249,15 @@ class LegacyUltraShareViewModel @Inject constructor(
                             candidateFailure = failure
                             // The receiver service may still be opening its control
                             // listener immediately after its QR becomes visible.
-                            if (failure !is java.net.ConnectException || attempt == 2) break
-                            delay(500L * (attempt + 1))
+                            val retryableNetworkFailure =
+                                failure is java.net.ConnectException ||
+                                    failure is java.net.SocketTimeoutException ||
+                                    failure is java.net.NoRouteToHostException ||
+                                    failure is java.net.SocketException
+                            if (!retryableNetworkFailure || attempt == 2) break
+                            // Android 10–13 devices may bring up Wi-Fi Direct or the
+                            // foreground receiver socket asynchronously after QR scan.
+                            delay(600L * (attempt + 1))
                         }
                     }
                 }
@@ -748,18 +755,25 @@ fun UltraShareScreen(
     }
 
     val invitationId = state.invitationId
-    val qrPayload = if (state.receiving && !invitationId.isNullOrBlank()) {
-        // QR v3 can identify a receiver even before Android publishes its P2P
-        // interface address. LAN hosts remain optional fallbacks.
+    val qrPayload = if (state.receiving && !invitationId.isNullOrBlank() &&
+        state.localAddresses.isNotEmpty()
+    ) {
+        // Do not expose a scannable QR before the receive service has published
+        // at least one usable LAN endpoint. An empty-host v3 QR depends entirely
+        // on DNS-SD, which is not consistently available across Android 10–13
+        // OEM Wi-Fi Direct stacks. The QR refreshes automatically when addresses
+        // arrive; Wi-Fi Direct invitation identity remains included as the fast path.
         UltraShareQrCode.createReceiverPayload(
             state.localAddresses,
             state.pairingSecret,
             invitationId
         )
+    } else if (state.receiving && state.invitationId.isNullOrBlank() &&
+        state.localAddresses.isNotEmpty()
+    ) {
+        UltraShareQrCode.createReceiverPayload(state.localAddresses, state.pairingSecret)
     } else {
-        state.localAddresses.takeIf { state.receiving && it.isNotEmpty() }?.let { addresses ->
-            UltraShareQrCode.createReceiverPayload(addresses, state.pairingSecret)
-        }
+        null
     }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
