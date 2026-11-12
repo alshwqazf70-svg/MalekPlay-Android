@@ -69,6 +69,50 @@ class NetworkModelsTest {
     }
 
     @Test
+    fun dlnaRendererHttpUrlsAreRestrictedToPrivateLanAndRejectEmbeddedCredentials() {
+        assertEquals(
+            "192.168.1.20",
+            validateDlnaRendererMediaUrl("http://192.168.1.20:8080/media/movie.mp4").host
+        )
+        assertEquals(
+            "media.example.test",
+            validateDlnaRendererMediaUrl("https://media.example.test/movie.mp4").host
+        )
+        listOf(
+            "http://8.8.8.8/movie.mp4",
+            "http://user@192.168.1.20/movie.mp4",
+            "http://192.168.1.20/movie.mp4#fragment",
+            "file:///sdcard/movie.mp4",
+            "http://192.168.1.20:70000/movie.mp4"
+        ).forEach { raw ->
+            assertThrows(IllegalArgumentException::class.java) {
+                validateDlnaRendererMediaUrl(raw)
+            }
+        }
+    }
+
+    @Test
+    fun dlnaRendererControlEndpointsMustMatchTheDiscoveredPrivatePeer() {
+        assertEquals(
+            "192.168.1.20",
+            validateDlnaRendererEndpointUrl(
+                "http://192.168.1.20:1400/AVTransport/control", "192.168.1.20"
+            ).host
+        )
+        listOf(
+            "http://192.168.1.99:1400/control",
+            "http://8.8.8.8/control",
+            "http://user@192.168.1.20/control",
+            "http://192.168.1.20/control#fragment",
+            "file:///control"
+        ).forEach { raw ->
+            assertThrows(IllegalArgumentException::class.java) {
+                validateDlnaRendererEndpointUrl(raw, "192.168.1.20")
+            }
+        }
+    }
+
+    @Test
     fun discoveredServiceEndpointsMustMatchTheRespondingLanHost() {
         assertEquals(true, isSameDiscoveryHost("192.168.1.20", "192.168.1.20"))
         assertEquals(false, isSameDiscoveryHost("203.0.113.8", "192.168.1.20"))
