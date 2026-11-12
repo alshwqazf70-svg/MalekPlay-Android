@@ -83,6 +83,8 @@ class PlaybackService : MediaSessionService() {
     private var videoNoiseReductionEnabled = false
     private var videoMotionSmoothingEnabled = false
     private var videoEnhancementProfile = VideoEnhancementProfile.BALANCED
+    private var thermalPowerManager: PowerManager? = null
+    private var thermalStatusListener: PowerManager.OnThermalStatusChangedListener? = null
     private var castMediaHttpServer: CastMediaHttpServer? = null
     private lateinit var profileStore: NetworkProfileStore
     private lateinit var credentialVault: NetworkCredentialVault
@@ -142,6 +144,21 @@ class PlaybackService : MediaSessionService() {
         // The bridge starts lazily only when a local file is handed to a Cast receiver.
         // It exposes tokenized, seekable LAN URLs rather than leaking content:// URIs.
         localExoPlayer = player
+        // Re-evaluate GPU quality whenever Android reports a thermal-state change.
+        // Android 6-9 simply use the static low-RAM / memory-class safeguards.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            getSystemService(PowerManager::class.java)?.let { powerManager ->
+                val listener = PowerManager.OnThermalStatusChangedListener {
+                    if (hasAnyVideoEnhancementEnabled()) applyVideoEnhancements()
+                }
+                thermalPowerManager = powerManager
+                thermalStatusListener = listener
+                powerManager.addThermalStatusListener(
+                    androidx.core.content.ContextCompat.getMainExecutor(this),
+                    listener
+                )
+            }
+        }
         val mediaBridge = CastMediaHttpServer(this, buildDataSourceFactory())
         castMediaHttpServer = mediaBridge
         LocalMediaBridgeRegistry.attach(mediaBridge)
@@ -167,6 +184,11 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         progressJob?.cancel()
+        thermalStatusListener?.let { listener ->
+            runCatching { thermalPowerManager?.removeThermalStatusListener(listener) }
+        }
+        thermalStatusListener = null
+        thermalPowerManager = null
         val finalSave = saveCurrentProgress() ?: lastProgressSaveJob
         mediaSession?.run {
             player.removeListener(progressListener)
