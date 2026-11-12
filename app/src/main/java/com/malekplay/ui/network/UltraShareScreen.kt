@@ -198,6 +198,12 @@ class LegacyUltraShareViewModel @Inject constructor(
     private fun completeInvitationConnection(host: String, message: String) {
         val callback = pendingInvitationReady ?: return
         val pairing = pendingInvitation ?: return
+        // Claim this invitation synchronously before launching IO. Wi-Fi P2P can
+        // emit multiple connection broadcasts for the same group; without clearing
+        // the pending callback here, each broadcast could start a competing MPC2
+        // handshake and replace the just-approved client session.
+        pendingInvitationReady = null
+        pendingInvitation = null
         // Every terminal path releases DNS-SD discovery before authenticated TCP
         // negotiation. QR possession alone is not treated as a connected session.
         wifiDirectSession?.stopInvitationDiscovery()
@@ -257,8 +263,6 @@ class LegacyUltraShareViewModel @Inject constructor(
                     candidateFailure.message?.contains("رفض جهاز الاستقبال") == true
                 ) break
             }
-            pendingInvitationReady = null
-            pendingInvitation = null
             if (connectedHost != null) {
                 val remotePeerId = UltraShareControlChannel.sessionPeerId(connectedHost)
                 val remotePeerName = UltraShareControlChannel.sessionPeerName(connectedHost)
