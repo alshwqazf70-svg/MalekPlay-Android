@@ -197,7 +197,7 @@ class UltraShareControlChannelTest {
 
         assertTrue("Cancelled DFile setup must not be reported as TCP success", requestFailure != null)
         withTimeout(2_000L) { sessionClosed.await() }
-        withTimeout(2_000L) { server.join() }
+        server.cancelAndJoin()
         assertTrue(server.isCancelled)
         assertFalse(UltraShareControlChannel.isServerSessionActive("127.0.0.1"))
         assertEquals(null, UltraShareControlChannel.serverDFileKey("127.0.0.1"))
