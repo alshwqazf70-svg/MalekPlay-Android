@@ -197,6 +197,56 @@ class UltraShareDiscoveryTest {
     }
 
     @Test
+    fun repeatedPeerOffersMergeRoutesInsteadOfReplacingEarlierWorkingPaths() {
+        val wifi = UltraShareNegotiation.Candidate(
+            UltraShareNegotiation.Transport.WLAN,
+            "192.168.1.20",
+            UltraShareBatchTransport.DEFAULT_PORT,
+            reachable = true,
+            priority = 20
+        )
+        val p2p = UltraShareNegotiation.Candidate(
+            UltraShareNegotiation.Transport.WIFI_DIRECT,
+            "192.168.49.2",
+            UltraShareBatchTransport.DEFAULT_PORT,
+            reachable = true,
+            priority = 30
+        )
+        val first = UltraShareDiscovery.Peer(
+            host = wifi.host, port = wifi.port, name = "Receiver",
+            peerId = "123e4567-e89b-12d3-a456-426614174000",
+            candidates = listOf(wifi)
+        )
+        val second = first.copy(
+            host = p2p.host,
+            name = "Receiver updated",
+            peerId = "123E4567-E89B-12D3-A456-426614174000",
+            candidates = listOf(p2p)
+        )
+
+        val merged = UltraShareDiscovery.mergePeerSightings(first, second)
+
+        assertEquals(2, merged.candidates.size)
+        assertEquals(p2p.host, merged.host)
+        assertEquals("Receiver updated", merged.name)
+        assertEquals(first.peerId, merged.peerId)
+    }
+
+    @Test
+    fun stableIdentityDeduplicatesPeerIdsRegardlessOfLetterCase() {
+        val lower = UltraShareDiscovery.Peer(
+            "192.168.1.10", UltraShareBatchTransport.DEFAULT_PORT, "Receiver",
+            "123e4567-e89b-12d3-a456-426614174000"
+        )
+        val upper = lower.copy(peerId = "123E4567-E89B-12D3-A456-426614174000")
+
+        assertEquals(
+            UltraShareDiscovery.identityKey(lower),
+            UltraShareDiscovery.identityKey(upper)
+        )
+    }
+
+    @Test
     fun legacyPeersFallBackToTheirLanAddress() {
         val peer = UltraShareDiscovery.Peer(
             host = "192.168.1.15",
