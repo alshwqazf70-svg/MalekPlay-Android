@@ -288,7 +288,9 @@ class PlaybackService : MediaSessionService() {
         ) {
             if (!hasAnyVideoEnhancementEnabled() || droppedFrames <= 0) return
             // Ignore isolated frame drops; react only to a sustained/burst regression.
-            if (droppedFrames >= 5 || (droppedFrames >= 3 && elapsedMs <= 1_500L)) {
+            if ((droppedFrames >= 3 && elapsedMs <= 1_500L) ||
+                (droppedFrames >= 8 && elapsedMs <= 5_000L)
+            ) {
                 val suggestedCap = if (droppedFrames >= 8) {
                     VideoEnhancementProfile.ECONOMY
                 } else {
