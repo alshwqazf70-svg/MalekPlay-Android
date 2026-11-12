@@ -5,6 +5,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.IOException
@@ -116,6 +117,57 @@ class DlnaRendererClientTest {
 
         assertTrue(failure is IOException)
         assertEquals("response too large", failure?.message)
+    }
+
+
+    @Test
+    fun privateLanHttpEndpointsAreAcceptedOnlyForNumericHosts() {
+        assertEquals(
+            "http://192.168.1.20:8200/movie.mp4",
+            validateDlnaRendererMediaUrl("http://192.168.1.20:8200/movie.mp4").toString()
+        )
+        assertEquals(
+            "https://media.example.com/movie.mp4",
+            validateDlnaRendererMediaUrl("https://media.example.com/movie.mp4").toString()
+        )
+        listOf(
+            "http://8.8.8.8/movie.mp4",
+            "http://media.example.com/movie.mp4",
+            "http://user:password@192.168.1.20/movie.mp4",
+            "http://192.168.1.20/movie.mp4#secret",
+            "file:///sdcard/movie.mp4"
+        ).forEach { raw ->
+            assertThrows(IllegalArgumentException::class.java) {
+                validateDlnaRendererMediaUrl(raw)
+            }
+        }
+    }
+
+    @Test
+    fun dlnaControlEndpointsMustMatchTheDiscoveredPrivatePeerExactly() {
+        assertEquals(
+            "http://192.168.1.20:1400/control",
+            validateDlnaRendererEndpointUrl(
+                "http://192.168.1.20:1400/control",
+                "192.168.1.20"
+            ).toString()
+        )
+        listOf(
+            "http://192.168.1.21:1400/control",
+            "http://8.8.8.8/control",
+            "http://192.168.1.20@8.8.8.8/control",
+            "https://192.168.1.20/control#fragment"
+        ).forEach { raw ->
+            assertThrows(IllegalArgumentException::class.java) {
+                validateDlnaRendererEndpointUrl(raw, "192.168.1.20")
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            validateDlnaRendererEndpointUrl(
+                "http://192.168.1.20/control",
+                "8.8.8.8"
+            )
+        }
     }
 
 }
