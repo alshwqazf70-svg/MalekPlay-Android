@@ -479,7 +479,9 @@ class UltraShareViewModel @Inject constructor(
                     }
                     val visible = found.values.map { sighting ->
                         val peer = sighting.first
-                        val nativeName = peer.peerId?.let(nstackxPeerNames::get)
+                        val nativeName = peer.peerId
+                            ?.lowercase(java.util.Locale.ROOT)
+                            ?.let(nstackxPeerNames::get)
                         if (nativeName.isNullOrBlank()) peer
                         else UltraShareDiscovery.mergeNativePeerName(
                             peer,
@@ -516,12 +518,13 @@ class UltraShareViewModel @Inject constructor(
      * address mapping is validated on real Android devices.
      */
     private fun onNstackxPeerFound(peer: NstackxNativeBridge.Peer) {
-        nstackxPeerNames[peer.deviceId] = peer.deviceName
+        nstackxPeerNames[peer.deviceId.lowercase(java.util.Locale.ROOT)] = peer.deviceName
         val current = _state.value
         _state.value = current.copy(
             discoveredPeers = current.discoveredPeers.map { sighting ->
-                if (sighting.peerId == peer.deviceId) sighting.copy(name = peer.deviceName)
-                else sighting
+                if (sighting.peerId?.equals(peer.deviceId, ignoreCase = true) == true) {
+                    sighting.copy(name = peer.deviceName)
+                } else sighting
             }
         )
     }
