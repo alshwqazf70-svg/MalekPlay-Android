@@ -367,6 +367,9 @@ class PlaybackService : MediaSessionService() {
 
     private fun setVideoMotionSmoothing(enabled: Boolean): Boolean {
         if (enabled && !isLocalClearVideoSession()) return false
+        // Temporal history blending is intentionally omitted on the Economy tier
+        // to protect legacy/low-memory devices; it is not true frame interpolation.
+        if (enabled && resolveVideoEnhancementTuning().effective.previousFrameWeight <= 0f) return false
         val previous = videoMotionSmoothingEnabled
         videoMotionSmoothingEnabled = enabled
         if (applyVideoEnhancements()) return true
