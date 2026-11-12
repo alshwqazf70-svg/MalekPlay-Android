@@ -23,6 +23,8 @@ import com.malekplay.network.UltraShareMultiRecipientCoordinator
 import com.malekplay.network.UltraShareWifiDirect
 import com.malekplay.network.UltraShareBluetoothDiscovery
 import com.malekplay.network.UltraShareBleDiscovery
+import com.malekplay.network.NstackxAndroidDiscoverySession
+import com.malekplay.network.NstackxNativeBridge
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -92,6 +94,8 @@ class UltraShareViewModel @Inject constructor(
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
     private var bluetoothSession: UltraShareBluetoothDiscovery.Session? = null
     private var bleSession: UltraShareBleDiscovery.Session? = null
+    private var nstackxStartJob: Job? = null
+    private val nstackxPeerNames = java.util.concurrent.ConcurrentHashMap<String, String>()
     private data class PendingQrPairing(val secret: String, val hosts: List<String>)
     private var pendingQrPairing: PendingQrPairing? = null
     private var qrP2pConnectStarted = false
@@ -177,6 +181,7 @@ class UltraShareViewModel @Inject constructor(
             status = context.getString(R.string.ultra_share_waiting)
         )
         runCatching { UltraShareForegroundService.startReceiving(context, secret) }
+            .onSuccess { ensureNstackxDiscovery() }
             .onFailure {
                 _state.value = _state.value.copy(
                     receiving = false,
@@ -416,6 +421,7 @@ class UltraShareViewModel @Inject constructor(
 
     fun stopReceiving() {
         UltraShareForegroundService.stopReceiving(context)
+        stopNstackxIfIdle()
         runCatching { wifiDirectSession?.stopInvitationAdvertisement() }
         runCatching { wifiDirectSession?.removeGroup() }
         _state.value = _state.value.copy(
@@ -438,6 +444,7 @@ class UltraShareViewModel @Inject constructor(
             scanning = true, discoveredPeers = emptyList(), error = null,
             status = "جارٍ البحث المستمر عن أجهزة MalekPlay على الشبكة..."
         )
+        ensureNstackxDiscovery()
         scanJob = viewModelScope.launch {
             // Keep the latest sighting time per stable peer identity. A device that
             // leaves Wi-Fi must disappear from the radar instead of remaining selectable.
@@ -454,7 +461,11 @@ class UltraShareViewModel @Inject constructor(
                     found.entries.removeAll { (_, sighting) ->
                         !UltraShareDiscovery.isSightingFresh(sighting.second, now, PEER_SIGHTING_TTL_MS)
                     }
-                    val visible = found.values.map { it.first }
+                    val visible = found.values.map { sighting ->
+                        val peer = sighting.first
+                        val nativeName = peer.peerId?.let(nstackxPeerNames::get)
+                        if (nativeName.isNullOrBlank()) peer else peer.copy(name = nativeName)
+                    }
                     _state.value = _state.value.copy(
                         discoveredPeers = visible,
                         status = if (visible.isEmpty()) "نبحث باستمرار عن أجهزة MalekPlay القريبة..."
@@ -472,8 +483,47 @@ class UltraShareViewModel @Inject constructor(
             } finally {
                 scanJob = null
                 _state.value = _state.value.copy(scanning = false)
+                stopNstackxIfIdle()
             }
         }
+    }
+
+
+    /**
+     * Starts NSTACKX as an additional discovery signal. Existing UDP/QR
+     * endpoint discovery remains authoritative until native peer-to-peer
+     * address mapping is validated on real Android devices.
+     */
+    private fun ensureNstackxDiscovery() {
+        if (!NstackxNativeBridge.isAvailable ||
+            NstackxAndroidDiscoverySession.current() != null ||
+            nstackxStartJob?.isActive == true
+        ) return
+
+        nstackxStartJob = viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                NstackxAndroidDiscoverySession.start(context) { peer ->
+                    nstackxPeerNames[peer.deviceId] = peer.deviceName
+                    val current = _state.value
+                    _state.value = current.copy(
+                        discoveredPeers = current.discoveredPeers.map { sighting ->
+                            if (sighting.peerId == peer.deviceId) {
+                                sighting.copy(name = peer.deviceName)
+                            } else sighting
+                        }
+                    )
+                }
+            }
+            if (!_state.value.receiving && !_state.value.scanning) {
+                NstackxAndroidDiscoverySession.stop()
+            }
+        }
+    }
+
+    private fun stopNstackxIfIdle() {
+        if (_state.value.receiving || _state.value.scanning) return
+        if (nstackxStartJob?.isActive == true) nstackxStartJob?.cancel()
+        NstackxAndroidDiscoverySession.stop()
     }
 
     private fun ensureWifiDirectSession(): UltraShareWifiDirect.Session {
@@ -1067,6 +1117,9 @@ class UltraShareViewModel @Inject constructor(
         bluetoothSession = null
         bleSession?.close()
         bleSession = null
+        nstackxStartJob?.cancel()
+        NstackxAndroidDiscoverySession.stop()
+        nstackxPeerNames.clear()
         // Transfer jobs belong to the foreground service and deliberately outlive this ViewModel.
         super.onCleared()
     }
