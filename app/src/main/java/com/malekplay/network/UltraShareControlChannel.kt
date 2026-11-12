@@ -375,7 +375,8 @@ object UltraShareControlChannel {
         val stableLocalPeerId = localPeerId?.replace("-", "")?.lowercase()
             ?.takeIf(::isStablePeerId)
         val payload = if (decision == Decision.ACCEPTED) {
-            val identity = stableLocalPeerId?.let { "|$it" }.orEmpty()
+            val identity = stableLocalPeerId?.let { "|$it" }
+                ?: if (negotiatedDFilePort != null) "|" else ""
             val dfileEndpoint = negotiatedDFilePort?.let { "|$it" }.orEmpty()
             "ACCEPT|$requestId|$encodedLocalName$identity$dfileEndpoint"
         } else "REJECT|$requestId"
