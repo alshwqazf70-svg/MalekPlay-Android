@@ -292,6 +292,9 @@ class PlayerViewModel @Inject constructor(
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // GPU upscaling is an explicit per-video action, never an implicit
+            // background setting carried into the next item.
+            _videoUpscalingEnabled.value = false
             // The player already points at the new item here. Do not save its
             // position under the previous item's id.
             val nextMediaId = mediaItem?.mediaId
