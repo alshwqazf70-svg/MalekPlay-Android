@@ -87,7 +87,7 @@ set(NSTACKX_UTIL_SOURCES
     "${NSTACKX_UTIL}/platform/unix/sys_epoll.c"
     "${NSTACKX_UTIL}/platform/unix/sys_event.c"
     "${CMAKE_CURRENT_LIST_DIR}/android/sys_log.c"
-    "${NSTACKX_UTIL}/platform/unix/sys_socket.c"
+    "${CMAKE_CURRENT_LIST_DIR}/android/sys_socket.c"
     "${NSTACKX_UTIL}/platform/unix/sys_timer.c"
     "${CMAKE_CURRENT_LIST_DIR}/android/sys_util.c")
 
