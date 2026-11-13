@@ -90,7 +90,7 @@ object ExternalWifiDirectQr {
     }
 
     private fun decode(value: String): String = try {
-        URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+        URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8.name())
     } catch (failure: IllegalArgumentException) {
         throw IllegalArgumentException("ترميز أحد حقول QR غير صالح.", failure)
     }
