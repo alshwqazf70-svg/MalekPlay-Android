@@ -745,6 +745,8 @@ class LegacyUltraShareViewModel @Inject constructor(
      */
     fun scanNearbyGroups() {
         if (_state.value.sending || _state.value.receiving || scanJob != null) return
+        // Do not keep stale LAN sightings visible as if they belonged to this scan.
+        _state.value = _state.value.copy(discoveredPeers = emptyList(), error = null)
         scanWifiDirectPeers()
         scanJob = viewModelScope.launch {
             try {
@@ -754,6 +756,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                 )
                 _state.value = _state.value.copy(
                     discoveredPeers = peers,
+                    error = null,
                     status = when {
                         peers.isNotEmpty() && _state.value.wifiDirectPeers.isNotEmpty() ->
                             "اكتُشفت أجهزة عبر الشبكة المحلية وWi-Fi Direct. اختر طريقة الاقتران الآمنة."
@@ -767,9 +770,18 @@ class LegacyUltraShareViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
+                val p2pPeersAvailable = _state.value.wifiDirectPeers.isNotEmpty()
                 _state.value = _state.value.copy(
-                    error = failure.localizedMessage
-                        ?: "تعذر إكمال البحث الموحد عن الأجهزة القريبة."
+                    // A failure in UDP/LAN discovery must not hide successful P2P
+                    // results or make the complete nearby scan look unsuccessful.
+                    error = if (p2pPeersAvailable) null else (
+                        failure.localizedMessage ?: "تعذر إكمال البحث عبر الشبكة المحلية."
+                    ),
+                    status = if (p2pPeersAvailable) {
+                        "تعذر البحث عبر الشبكة المحلية، لكن أجهزة Wi-Fi Direct المكتشفة ما زالت متاحة."
+                    } else {
+                        _state.value.status
+                    }
                 )
             } finally {
                 scanJob = null
