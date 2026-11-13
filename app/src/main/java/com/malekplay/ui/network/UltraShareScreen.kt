@@ -505,7 +505,7 @@ class LegacyUltraShareViewModel @Inject constructor(
         _state.value = _state.value.copy(scanning = true, error = null, status = null)
         scanJob = viewModelScope.launch {
             try {
-                val peers = UltraShareDiscovery.discoverPeers()
+                val peers = UltraShareDiscovery.discoverPeers(context = context)
                 _state.value = _state.value.copy(
                     discoveredPeers = peers,
                     status = if (peers.isEmpty()) context.getString(R.string.ultra_share_no_devices)
