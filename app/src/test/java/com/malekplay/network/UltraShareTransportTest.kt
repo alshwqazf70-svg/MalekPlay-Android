@@ -31,12 +31,23 @@ class UltraShareTransportTest {
     }
 
     @Test
+    fun legacyTwelveDigitPairingQrKeepsItsOriginalKeyDerivation() {
+        val challenge = ByteArray(32) { it.toByte() }
+        val derived = UltraShareTransport.derivePairingKey("004219837615", challenge)
+        val actual = derived.joinToString("") { "%02x".format(it) }
+        assertEquals(
+            "556b0f717d241f6ef78a6cc439154edfbb1e2d23e05b91f40494d5b56a375182",
+            actual
+        )
+    }
+
+    @Test
     fun pairingSecretRejectsMalformedValues() {
         assertFalse(UltraShareTransport.isValidPairingSecret(""))
         assertFalse(UltraShareTransport.isValidPairingSecret("123456"))
         assertTrue(UltraShareTransport.isValidPairingSecret("123456789"))
         assertFalse(UltraShareTransport.isValidPairingSecret("1234567890"))
-        assertFalse(UltraShareTransport.isValidPairingSecret("123456789012"))
+        assertTrue(UltraShareTransport.isValidPairingSecret("123456789012"))
         assertFalse(UltraShareTransport.isValidPairingSecret("1234567890123"))
         assertFalse(UltraShareTransport.isValidPairingSecret("12345678A"))
         assertFalse(UltraShareTransport.isValidPairingSecret("z".repeat(64)))
