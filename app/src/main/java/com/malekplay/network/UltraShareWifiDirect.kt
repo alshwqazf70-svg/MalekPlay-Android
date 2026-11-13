@@ -545,6 +545,9 @@ object UltraShareWifiDirect {
 
         private fun legacyDiscoveryPrerequisite(): Boolean {
             if (!requiresWifiDirectLocationService(Build.VERSION.SDK_INT)) return true
+            // The legacy Wi-Fi Direct location prerequisite is only checked on API 29–32.
+            // Keep an explicit API 28 guard so lint can verify the framework property access.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false
             val location = appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
             return location?.isLocationEnabled == true
         }
