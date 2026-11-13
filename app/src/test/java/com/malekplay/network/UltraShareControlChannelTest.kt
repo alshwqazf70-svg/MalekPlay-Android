@@ -123,6 +123,53 @@ class UltraShareControlChannelTest {
     }
 
     @Test
+    fun newPairingSecretCannotReuseAnAlreadyAuthenticatedSession() = runBlocking {
+        val port = ServerSocket(0).use { it.localPort }
+        val correctSecret = "135791357"
+        val peerId = "1234567890abcdef1234567890abcdef"
+        val oldSessionClosed = CompletableDeferred<Unit>()
+        val server = async {
+            UltraShareControlChannel.serveOnce(
+                pairingSecret = correctSecret,
+                port = port,
+                onSessionClosed = { oldSessionClosed.complete(Unit) }
+            ) {
+                UltraShareControlChannel.Decision.ACCEPTED
+            }
+        }
+        delay(150)
+
+        assertEquals(
+            UltraShareControlChannel.Decision.ACCEPTED,
+            UltraShareControlChannel.request(
+                host = "127.0.0.1",
+                pairingSecret = correctSecret,
+                peerName = "Known Phone",
+                port = port,
+                peerId = peerId
+            )
+        )
+        assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
+
+        // A fresh QR carries a different secret. The old authenticated socket must
+        // be retired, and the new attempt must fail rather than inherit old approval.
+        val failure = runCatching {
+            UltraShareControlChannel.request(
+                host = "127.0.0.1",
+                pairingSecret = "246802468",
+                peerName = "Known Phone",
+                port = port,
+                peerId = peerId
+            )
+        }.exceptionOrNull()
+
+        assertTrue("A different invitation secret must fail authentication", failure != null)
+        assertFalse(UltraShareControlChannel.isSessionActive("127.0.0.1"))
+        withTimeout(2_000L) { oldSessionClosed.await() }
+        server.cancelAndJoin()
+    }
+
+    @Test
     fun fallsBackToControlSessionAndWipesDFileKeyWhenReceiverStartupFails() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
         val secret = "135792468"
