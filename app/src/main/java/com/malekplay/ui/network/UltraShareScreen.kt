@@ -362,6 +362,18 @@ class LegacyUltraShareViewModel @Inject constructor(
                 val fallback = pendingInvitation?.hosts?.firstOrNull()
                 if (pendingInvitationReady != null && !fallback.isNullOrBlank()) {
                     completeInvitationConnection(fallback, "تعذر Wi-Fi Direct؛ تم اختيار مسار Wi-Fi العادي تلقائياً.")
+                } else if (pendingInvitationReady != null) {
+                    // The QR invitation has no LAN fallback. Retire its callback and
+                    // timeout so a later, unrelated P2P broadcast cannot complete it.
+                    pendingInvitationReady = null
+                    pendingInvitation = null
+                    invitationTimeout?.cancel()
+                    invitationTimeout = null
+                    _state.value = _state.value.copy(
+                        scanning = false,
+                        wifiDirectHost = null,
+                        error = message
+                    )
                 } else if (_state.value.receiving) {
                     // Wi-Fi Direct ERROR(0) is non-fatal: the authenticated TCP
                     // receiver remains available on the advertised WLAN addresses.
@@ -479,7 +491,15 @@ class LegacyUltraShareViewModel @Inject constructor(
                         if (!fallback.isNullOrBlank()) {
                             completeInvitationConnection(fallback, "تعذر إنشاء اتصال Wi-Fi Direct؛ تم التحويل إلى شبكة Wi-Fi العادية.")
                         } else {
-                            _state.value = _state.value.copy(scanning = false, error = it.localizedMessage)
+                            pendingInvitationReady = null
+                            pendingInvitation = null
+                            invitationTimeout?.cancel()
+                            invitationTimeout = null
+                            _state.value = _state.value.copy(
+                                scanning = false,
+                                wifiDirectHost = null,
+                                error = it.localizedMessage ?: "تعذر إنشاء اتصال Wi-Fi Direct."
+                            )
                         }
                     }
                 }
