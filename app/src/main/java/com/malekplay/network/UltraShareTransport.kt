@@ -221,8 +221,16 @@ object UltraShareTransport {
     internal fun isCompletedFileValid(file: File, expectedSize: Long, expectedDigest: ByteArray): Boolean {
         if (!file.isFile || expectedSize !in 0..MAX_FILE_BYTES || expectedDigest.size != 32 || file.length() != expectedSize) return false
         return runCatching {
-            val actual = FileInputStream(file).use { digestStreamRaw(it) }
-            MessageDigest.isEqual(expectedDigest, actual)
+            val digest = MessageDigest.getInstance("SHA-256")
+            FileInputStream(file).use { input ->
+                val buffer = ByteArray(DIGEST_BUFFER_BYTES)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (count > 0) digest.update(buffer, 0, count)
+                }
+            }
+            MessageDigest.isEqual(expectedDigest, digest.digest())
         }.getOrDefault(false)
     }
     internal fun completedReceiptFileName(
