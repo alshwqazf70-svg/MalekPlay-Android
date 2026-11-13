@@ -14,30 +14,33 @@ import java.net.InetAddress
  * interface addresses can miss that route and silently send sockets over WLAN.
  */
 internal object UltraShareNetworkRouting {
-    fun findNetworkForHost(context: Context, host: String): Network? = runCatching {
-        val remote = InetAddress.getByName(host) as? Inet4Address ?: return@runCatching null
+    /**
+     * Returns every Android network with a peer-specific route, best candidates first.
+     * Some OEMs publish a P2P route on more than one Network or report stale link
+     * properties during group negotiation; trying a small ordered set is more robust
+     * than binding the only socket to one guessed interface.
+     */
+    fun findNetworksForHost(context: Context, host: String): List<Network> = runCatching {
+        val remote = InetAddress.getByName(host) as? Inet4Address ?: return@runCatching emptyList()
         val manager = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE)
-            as? ConnectivityManager ?: return@runCatching null
+            as? ConnectivityManager ?: return@runCatching emptyList()
+        val active = if (android.os.Build.VERSION.SDK_INT >= 23) {
+            runCatching { manager.activeNetwork }.getOrNull()
+        } else null
 
         manager.allNetworks.mapNotNull { network ->
             val properties = manager.getLinkProperties(network) ?: return@mapNotNull null
-            val interfaceName = properties.interfaceName.orEmpty()
-            val p2pInterface = isWifiDirectInterfaceName(interfaceName)
+            val p2pInterface = isWifiDirectInterfaceName(properties.interfaceName.orEmpty())
             val matchingLinkPrefix = properties.linkAddresses.mapNotNull { link ->
                 val local = link.address as? Inet4Address ?: return@mapNotNull null
                 link.prefixLength.takeIf { isInPrefix(remote, local, it) }
             }.maxOrNull()
             val matchingRoutePrefix = properties.routes.mapNotNull { route ->
-                val destination = route.destination
-                val routeAddress = destination.address as? Inet4Address ?: return@mapNotNull null
-                val prefix = destination.prefixLength
-                // Ignore the default route: it says nothing about which local
-                // interface owns a peer-specific path.
+                val routeAddress = route.destination.address as? Inet4Address ?: return@mapNotNull null
+                val prefix = route.destination.prefixLength
                 prefix.takeIf { it in 1..32 && isInPrefix(remote, routeAddress, it) }
             }.maxOrNull()
-
-            val p2pGroupOwnerRoute = p2pInterface &&
-                isAndroidWifiDirectGroupAddress(remote)
+            val p2pGroupOwnerRoute = p2pInterface && isAndroidWifiDirectGroupAddress(remote)
             if (matchingLinkPrefix == null && matchingRoutePrefix == null && !p2pGroupOwnerRoute) {
                 return@mapNotNull null
             }
@@ -56,11 +59,18 @@ internal object UltraShareNetworkRouting {
                 matchingRoutePrefix != null -> 2
                 else -> 1
             }
-            Triple(network, matchRank * 100 + transportRank * 10 + prefixRank, prefixRank)
-        }.maxWithOrNull(
-            compareBy<Triple<Network, Int, Int>> { it.second }.thenBy { it.third }
-        )?.first
-    }.getOrNull()
+            val score = matchRank * 100 + transportRank * 10 + prefixRank
+            Triple(network, score, prefixRank)
+        }.sortedWith(
+            compareByDescending<Triple<Network, Int, Int>> { it.second }
+                .thenByDescending { it.third }
+                .thenBy { if (it.first == active) 0 else 1 }
+        ).take(4).map { it.first }
+    }.getOrDefault(emptyList())
+
+    /** Compatibility helper for call sites that need only the best matching route. */
+    fun findNetworkForHost(context: Context, host: String): Network? =
+        findNetworksForHost(context, host).firstOrNull()
 
     /** True when the host belongs to Android's conventional Wi-Fi Direct group subnet. */
     fun isWifiDirectGroupHost(host: String): Boolean = runCatching {
