@@ -524,7 +524,8 @@ class LegacyUltraShareViewModel @Inject constructor(
             },
             onError = { message ->
                 val fallback = pendingInvitation?.hosts?.firstOrNull()
-                if (pendingInvitationReady != null && !fallback.isNullOrBlank()) {
+                val requiresP2pBeforeLanFallback = pendingInvitation?.invitationId != null
+                if (pendingInvitationReady != null && !requiresP2pBeforeLanFallback && !fallback.isNullOrBlank()) {
                     completeInvitationConnection(fallback, "تعذر Wi-Fi Direct؛ تم اختيار مسار Wi-Fi العادي تلقائياً.")
                 } else if (pendingInvitationReady != null) {
                     // The QR invitation has no LAN fallback. Stop the DNS-SD request,
@@ -673,9 +674,10 @@ class LegacyUltraShareViewModel @Inject constructor(
                         session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
                     }.onFailure {
                         val fallback = pairing.hosts.firstOrNull()
-                        if (!fallback.isNullOrBlank()) {
+                        if (pairing.invitationId.isNullOrBlank() && !fallback.isNullOrBlank()) {
                             completeInvitationConnection(fallback, "تعذر إنشاء اتصال Wi-Fi Direct؛ تم التحويل إلى شبكة Wi-Fi العادية.")
                         } else {
+                            session.stopInvitationDiscovery()
                             pendingInvitationReady = null
                             pendingInvitation = null
                             invitationTimeout?.cancel()
@@ -683,7 +685,11 @@ class LegacyUltraShareViewModel @Inject constructor(
                             _state.value = _state.value.copy(
                                 scanning = false,
                                 wifiDirectHost = null,
-                                error = it.localizedMessage ?: "تعذر إنشاء اتصال Wi-Fi Direct."
+                                error = if (pairing.invitationId != null) {
+                                    "تعذر إنشاء اتصال Wi-Fi Direct. لم نحاول الاتصال بعنوان IP قبل انضمام الهاتف إلى الشبكة."
+                                } else {
+                                    it.localizedMessage ?: "تعذر إنشاء اتصال Wi-Fi Direct."
+                                }
                             )
                         }
                     }
@@ -695,14 +701,19 @@ class LegacyUltraShareViewModel @Inject constructor(
                 if (pendingInvitationReady != null) {
                     session.stopInvitationDiscovery()
                     val fallback = pairing.hosts.firstOrNull()
-                    if (!fallback.isNullOrBlank()) {
+                    if (pairing.invitationId.isNullOrBlank() && !fallback.isNullOrBlank()) {
                         completeInvitationConnection(fallback, "لم يظهر الجهاز عبر Wi-Fi Direct؛ جارٍ استخدام شبكة Wi-Fi العادية.")
                     } else {
                         pendingInvitationReady = null
                         pendingInvitation = null
                         _state.value = _state.value.copy(
                             scanning = false,
-                            error = "لم يتم العثور على الجهاز. تأكد من تشغيل الاستقبال وابقاء رمز QR مفتوحاً."
+                            wifiDirectHost = null,
+                            error = if (pairing.invitationId != null) {
+                                "لم يكتمل اكتشاف دعوة Wi-Fi Direct خلال 15 ثانية. لم نبدأ اتصال TCP قبل اتصال الهاتف بالشبكة؛ أعد المحاولة مع إبقاء شاشة QR مفتوحة."
+                            } else {
+                                "لم يتم العثور على الجهاز. تأكد من تشغيل الاستقبال وابقاء رمز QR مفتوحاً."
+                            }
                         )
                     }
                 }
