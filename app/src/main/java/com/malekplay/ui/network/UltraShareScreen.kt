@@ -384,7 +384,7 @@ class UltraShareViewModel @Inject constructor(
     fun pairWithCode(secret: String) {
         val pin = secret.trim()
         if (!UltraShareTransport.isValidPairingSecret(pin)) {
-            _state.value = _state.value.copy(error = "أدخل رمز الاقتران المكوّن من 12 رقماً.")
+            _state.value = _state.value.copy(error = "أدخل رمز الاقتران المكوّن من 9 أرقام.")
             return
         }
         if (scanJob != null) return
@@ -1082,11 +1082,11 @@ fun UltraShareScreen(
                 OutlinedTextField(
                     value = secret,
                     onValueChange = {
-                        secret = it.filter { char -> char in '0'..'9' }.take(12)
-                        if (secret.length == 12) viewModel.pairWithCode(secret)
+                        secret = it.filter { char -> char in '0'..'9' }.take(9)
+                        if (secret.length == 9) viewModel.pairWithCode(secret)
                     },
                     modifier = Modifier.widthIn(max = 220.dp),
-                    label = { Text("رمز الاقتران (12 رقماً)") },
+                    label = { Text("رمز الاقتران (9 أرقام)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
