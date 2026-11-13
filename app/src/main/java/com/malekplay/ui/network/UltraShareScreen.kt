@@ -772,7 +772,8 @@ fun UltraShareScreen(
                 val connectionLabel = when {
                     state.sending -> "جارٍ إرسال الوسائط"
                     state.receiving -> "الهاتف جاهز للاستقبال"
-                    state.scanning -> "البحث عن الأجهزة القريبة"
+                    state.pairing || state.scanning -> "جارٍ التحقق والاقتران"
+                    state.pairedHost != null -> "تم الاقتران والتحقق"
                     host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret) -> "بيانات الاقتران جاهزة"
                     else -> "بانتظار ربط جهاز"
                 }
