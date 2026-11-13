@@ -161,23 +161,38 @@ object UltraShareControlChannel {
             "رمز الاقتران غير صالح."
         }
         require(port in 1..65535)
-        if (network == null && host != "127.0.0.1") {
-            throw java.io.IOException(
-                "لم يتم العثور على مسار شبكة محلية يصل إلى الجهاز الآخر. تأكد من اتصال الهاتفين بنفس شبكة Wi-Fi أو نقطة الاتصال، أو أعد الاقتران عبر Wi-Fi Direct."
-            )
-        }
         val nameBytes = peerName.trim().toByteArray(Charsets.UTF_8)
         require(nameBytes.isNotEmpty() && nameBytes.size <= MAX_NAME_BYTES) {
             "اسم الجهاز طويل أو فارغ."
         }
         closeSession(host)
-        val socket = Socket()
+        val endpoint = InetSocketAddress(InetAddress.getByName(host), port)
+        var socket = Socket()
         var retained = false
         try {
-            // Bind before connect so the control approval uses the same Android
-            // network that advertised this candidate, not whichever route is default.
-            network?.bindSocket(socket)
-            socket.connect(InetSocketAddress(InetAddress.getByName(host), port), HANDSHAKE_TIMEOUT_MS)
+            // Prefer the Android Network selected for this peer (especially the P2P
+            // interface), but do not make that lookup a hard prerequisite. Older
+            // Android/OEM Wi-Fi Direct stacks may route the group-owner address
+            // through the system route table without exposing a matching Network.
+            try {
+                network?.bindSocket(socket)
+                socket.connect(endpoint, HANDSHAKE_TIMEOUT_MS)
+            } catch (boundFailure: java.io.IOException) {
+                if (network == null) throw boundFailure
+                runCatching { socket.close() }
+                socket = Socket()
+                try {
+                    // Retry once using Android's normal route selection. Authentication
+                    // still happens below before a peer session can be approved.
+                    socket.connect(endpoint, HANDSHAKE_TIMEOUT_MS)
+                } catch (fallbackFailure: java.io.IOException) {
+                    fallbackFailure.addSuppressed(boundFailure)
+                    throw java.io.IOException(
+                        "تعذر الوصول إلى الجهاز عبر مسار Wi-Fi Direct أو مسار الشبكة الافتراضي. تحقق من اتصال الهاتفين ثم أعد المحاولة.",
+                        fallbackFailure
+                    )
+                }
+            }
             socket.soTimeout = HANDSHAKE_TIMEOUT_MS
             socket.tcpNoDelay = true
             socket.keepAlive = true
