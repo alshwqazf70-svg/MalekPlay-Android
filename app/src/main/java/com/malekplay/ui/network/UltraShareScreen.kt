@@ -345,11 +345,36 @@ class LegacyUltraShareViewModel @Inject constructor(
                         val fallback = pendingInvitation?.hosts?.firstOrNull()
                         if (!fallback.isNullOrBlank()) {
                             completeInvitationConnection(fallback, "تعذر تحديد مسار Wi-Fi Direct؛ سيتم استخدام شبكة Wi-Fi العادية.")
+                        } else if (pendingInvitationReady != null) {
+                            // The QR scanner unexpectedly became the group owner.
+                            // In that topology the receiver is a P2P client and its
+                            // client IP is not groupOwnerAddress. Never try to connect
+                            // to our own GO address or mark the peer as authenticated.
+                            pendingInvitationReady = null
+                            pendingInvitation = null
+                            invitationTimeout?.cancel()
+                            invitationTimeout = null
+                            wifiDirectSession?.removeGroup()
+                            _state.value = _state.value.copy(
+                                wifiDirectHost = null,
+                                scanning = false,
+                                error = "عكس Android دور الجهازين في Wi-Fi Direct؛ لا يمكن تحديد عنوان جهاز الاستقبال بأمان. أعد إنشاء رمز QR وحاول الاقتران مجدداً."
+                            )
                         }
                     }
                 } else if (!remoteHost.isNullOrBlank()) {
                     if (pendingInvitationReady != null) {
                         completeInvitationConnection(remoteHost, "تم الاتصال تلقائياً عبر Wi-Fi Direct؛ الجهاز جاهز للإرسال.")
+                    } else if (_state.value.receiving) {
+                        // The QR receiver became a P2P client. remoteHost is the
+                        // remote group owner, not this receiver's client address;
+                        // exposing it as a connected peer would be a false success.
+                        wifiDirectSession?.removeGroup()
+                        _state.value = _state.value.copy(
+                            wifiDirectHost = null,
+                            scanning = false,
+                            error = "لم يحتفظ جهاز الاستقبال بدور مالك مجموعة Wi-Fi Direct. لم يكتمل الاقتران؛ أعد إنشاء رمز QR ثم حاول مرة أخرى."
+                        )
                     } else {
                         _state.value = _state.value.copy(
                             wifiDirectHost = remoteHost,
