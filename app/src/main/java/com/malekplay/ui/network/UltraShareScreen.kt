@@ -438,6 +438,14 @@ class UltraShareViewModel @Inject constructor(
             _state.value = _state.value.copy(error = "أدخل رمز الاقتران المكوّن من 9 أرقام.")
             return
         }
+        // A successful Wi-Fi Direct group connection already gives us the
+        // group-owner endpoint. Probe it directly instead of searching only
+        // the ordinary LAN interfaces (which may not include the P2P route).
+        val directHost = _state.value.wifiDirectHost
+        if (!directHost.isNullOrBlank()) {
+            pairWithHost(directHost, pin)
+            return
+        }
         if (scanJob != null) return
         _state.value = _state.value.copy(pairedHost = null, scanning = true, error = null, status = "جارٍ البحث عن جهاز الاستقبال والتحقق من الرمز...")
         scanJob = viewModelScope.launch {
