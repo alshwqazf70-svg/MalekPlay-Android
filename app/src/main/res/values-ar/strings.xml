@@ -367,9 +367,8 @@
     <string name="kids_refresh_library">تحديث مكتبة الوسائط</string>
     <string name="player_gpu_upscaling_on">تحسين التحجيم عبر GPU: يعمل (Lanczos)</string>
     <string name="player_gpu_upscaling_off">تحسين التحجيم عبر GPU: متوقف</string>
-    <string name="player_noise_reduction_on">تقليل ضوضاء الصوت: يعمل</string>
-    <string name="player_noise_reduction_off">تقليل ضوضاء الصوت: متوقف</string>
-    <string name="player_noise_reduction_unsupported">تقليل ضوضاء الصوت: غير مدعوم في هذا الجهاز</string>
+    <string name="player_noise_reduction_on">تقليل ضوضاء الصورة: يعمل (معالجة GPU تحافظ على الحواف)</string>
+    <string name="player_noise_reduction_off">تقليل ضوضاء الصورة: متوقف</string>
     <string name="player_motion_smoothing_on">مزامنة إطارات الحركة مع الشاشة: تعمل</string>
     <string name="player_motion_smoothing_off">مزامنة إطارات الحركة مع الشاشة: متوقفة</string>
     <string name="player_motion_smoothing_unsupported">مزامنة الحركة غير متاحة (تتطلب Android 11 ومعدل إطارات معروفاً)</string>
