@@ -300,6 +300,10 @@ class PlayerViewModel @Inject constructor(
             refreshVideoUpscalingState()
         }
 
+        override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+            refreshVideoUpscalingState()
+        }
+
         override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
             _speed.value = playbackParameters.speed
         }
