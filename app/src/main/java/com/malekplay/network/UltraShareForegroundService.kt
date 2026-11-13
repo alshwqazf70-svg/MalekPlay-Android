@@ -49,6 +49,8 @@ data class UltraShareServiceState(
     val pairingSecret: String = "",
     val localAddresses: List<String> = emptyList(),
     val receiving: Boolean = false,
+    val controlChannelReady: Boolean = false,
+    val controlChannelError: String? = null,
     val sending: Boolean = false,
     val progress: UltraShareTransport.Progress? = null,
     val sendProgress: UltraShareTransport.Progress? = null,
@@ -264,6 +266,8 @@ class UltraShareForegroundService : Service() {
                         pairingSecret = secret,
                         localAddresses = addresses,
                         receiving = true,
+                        controlChannelReady = false,
+                        controlChannelError = null,
                         pendingConnection = null,
                         status = current.activePeers.lastOrNull()?.name?.let { peerName ->
                             "متصل مع $peerName؛ الإرسال والاستقبال متاحان."
@@ -508,6 +512,14 @@ class UltraShareForegroundService : Service() {
                                 pairingSecret = secret,
                                 localPeerName = Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
                                 localPeerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
+                                onListening = { actualPort ->
+                                    if (actualPort == UltraShareControlChannel.DEFAULT_PORT) {
+                                        updateState { current -> current.copy(
+                                            controlChannelReady = true,
+                                            controlChannelError = null
+                                        ) }
+                                    }
+                                },
                                 onSessionClosed = { request ->
                                     closeDFileServerForPeer(request.peerAddress)
                                     disconnectApprovedPeer(request.peerAddress)
@@ -550,7 +562,11 @@ class UltraShareForegroundService : Service() {
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
-                            updateState { current -> current.copy(error = failure.localizedMessage ?: "تعذر تشغيل قناة طلبات الاتصال.") }
+                            updateState { current -> current.copy(
+                                controlChannelReady = false,
+                                controlChannelError = failure.localizedMessage ?: "تعذر فتح منفذ الاتصال الآمن 38744.",
+                                error = failure.localizedMessage ?: "تعذر تشغيل قناة طلبات الاتصال."
+                            ) }
                             kotlinx.coroutines.delay(1_000)
                         }
                     }
