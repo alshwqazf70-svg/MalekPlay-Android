@@ -341,7 +341,10 @@ class LegacyUltraShareViewModel @Inject constructor(
             var connectedHost: String? = null
             var lastFailure: Exception? = null
             for (candidate in candidates) {
-                var candidateAccepted = UltraShareControlChannel.isSessionActive(candidate)
+                // Never reuse an existing socket as proof for a newly scanned QR.
+                // Its pairing secret may belong to an older invitation; every new
+                // invitation must complete MPC2 with the secret carried by this QR.
+                var candidateAccepted = false
                 var candidateFailure: Exception? = null
                 if (!candidateAccepted) {
                     // Try every Android Network with a route to this exact peer,
