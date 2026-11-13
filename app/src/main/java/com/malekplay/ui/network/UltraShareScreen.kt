@@ -125,7 +125,8 @@ data class LegacyUltraShareUiState(
     val receivedHistory: List<UltraShareReceivedEntry> = emptyList(),
     val wifiDirectPeers: List<UltraShareWifiDirect.Peer> = emptyList(),
     val wifiDirectHost: String? = null,
-    val invitationId: String? = null
+    val invitationId: String? = null,
+    val wifiDirectInvitationReady: Boolean = false
 )
 
 @HiltViewModel
@@ -361,6 +362,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                     // receiver remains available on the advertised WLAN addresses.
                     _state.value = _state.value.copy(
                         scanning = false,
+                        wifiDirectInvitationReady = false,
                         error = null,
                         status = "تعذر Wi-Fi Direct على هذا الهاتف؛ الاستقبال مستمر عبر Wi-Fi العادية. $message"
                     )
@@ -376,17 +378,22 @@ class LegacyUltraShareViewModel @Inject constructor(
 
     private fun activateReceiverInvitation(invitationId: String) {
         if (!invitationId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) return
-        _state.value = _state.value.copy(invitationId = invitationId)
+        _state.value = _state.value.copy(
+            invitationId = invitationId,
+            wifiDirectInvitationReady = false
+        )
         runCatching {
             ensureWifiDirectSession().createGroup {
                 runCatching {
                     ensureWifiDirectSession().advertiseInvitation(invitationId) {
                         _state.value = _state.value.copy(
+                            wifiDirectInvitationReady = true,
                             status = "الجهاز جاهز. امسح رمز QR للاتصال التلقائي."
                         )
                     }
                 }.onFailure { failure ->
                     _state.value = _state.value.copy(
+                        wifiDirectInvitationReady = false,
                         status = "الاستقبال جاهز عبر Wi-Fi العادية؛ تعذر إعلان Wi-Fi Direct.",
                         error = failure.localizedMessage
                     )
@@ -394,6 +401,7 @@ class LegacyUltraShareViewModel @Inject constructor(
             }
         }.onFailure { failure ->
             _state.value = _state.value.copy(
+                wifiDirectInvitationReady = false,
                 status = "الاستقبال جاهز عبر Wi-Fi العادية؛ تعذر إنشاء مجموعة Wi-Fi Direct.",
                 error = failure.localizedMessage
             )
@@ -407,6 +415,7 @@ class LegacyUltraShareViewModel @Inject constructor(
         _state.value = _state.value.copy(
             pairingSecret = secret,
             invitationId = invitationId,
+            wifiDirectInvitationReady = false,
             receiving = true,
             sending = false,
             progress = null,
@@ -419,6 +428,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                     receiving = false,
                     pairingSecret = "",
                     invitationId = null,
+                    wifiDirectInvitationReady = false,
                     error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
                 )
                 return
@@ -502,7 +512,10 @@ class LegacyUltraShareViewModel @Inject constructor(
         wifiDirectSession?.stopInvitationAdvertisement()
         wifiDirectSession?.removeGroup()
         invitationPreferences.edit().remove("active_invitation_id").apply()
-        _state.value = _state.value.copy(invitationId = null)
+        _state.value = _state.value.copy(
+            invitationId = null,
+            wifiDirectInvitationReady = false
+        )
         UltraShareForegroundService.cancel(context)
         _state.value = _state.value.copy(
             receiving = false,
@@ -769,13 +782,12 @@ fun UltraShareScreen(
 
     val invitationId = state.invitationId
     val qrPayload = if (state.receiving && !invitationId.isNullOrBlank() &&
-        state.localAddresses.isNotEmpty()
+        (state.localAddresses.isNotEmpty() || state.wifiDirectInvitationReady)
     ) {
-        // Do not expose a scannable QR before the receive service has published
-        // at least one usable LAN endpoint. An empty-host v3 QR depends entirely
-        // on DNS-SD, which is not consistently available across Android 10–13
-        // OEM Wi-Fi Direct stacks. The QR refreshes automatically when addresses
-        // arrive; Wi-Fi Direct invitation identity remains included as the fast path.
+        // A v3 QR may contain no LAN fallback when this phone is reachable only
+        // through its formed Wi-Fi Direct group. In that case, advertise the QR
+        // only after DNS-SD registration succeeds; otherwise wait for a usable
+        // WLAN endpoint or a confirmed P2P invitation advertisement.
         UltraShareQrCode.createReceiverPayload(
             state.localAddresses,
             state.pairingSecret,
