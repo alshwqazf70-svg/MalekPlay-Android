@@ -229,6 +229,25 @@ class SmartRecommendationPolicyTest {
         assertTrue(groups.any { it.title == "Collection X" })
     }
 
+    @Test
+    fun recommendationsDiversifyArtistsWhenEquivalentAlternativesExist() {
+        val anchor = item("anchor", genre = "Drama", artist = "Studio A").copy(isCompleted = true)
+        val first = item("first", genre = "Drama", artist = "Studio A")
+        val second = item("second", genre = "Drama", artist = "Studio A")
+        val third = item("third", genre = "Drama", artist = "Studio A")
+        val alternative = item("alternative", genre = "Comedy", artist = "Studio B")
+
+        val result = SmartRecommendationPolicy.analyze(
+            listOf(anchor, first, second, third, alternative),
+            lastPlayedMediaId = "anchor",
+            limit = 4
+        )
+
+        assertEquals(4, result.size)
+        assertEquals(2, result.count { it.item.media.artist == "Studio A" })
+        assertTrue(result.any { it.item.media.id == "alternative" })
+    }
+
     private fun item(
         id: String,
         genre: String? = null,
