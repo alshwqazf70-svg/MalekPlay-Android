@@ -98,6 +98,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.Inet4Address
@@ -559,31 +561,49 @@ class LegacyUltraShareViewModel @Inject constructor(
         if (!invitationId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) return
         _state.value = _state.value.copy(
             invitationId = invitationId,
-            wifiDirectInvitationReady = false
+            wifiDirectInvitationReady = false,
+            status = "جارٍ تشغيل قناة الاتصال الآمنة قبل إظهار رمز QR..."
         )
-        runCatching {
-            ensureWifiDirectSession().createGroup {
-                runCatching {
-                    ensureWifiDirectSession().advertiseInvitation(invitationId) {
-                        _state.value = _state.value.copy(
-                            wifiDirectInvitationReady = true,
-                            status = "الجهاز جاهز. امسح رمز QR للاتصال التلقائي."
-                        )
-                    }
-                }.onFailure { failure ->
-                    _state.value = _state.value.copy(
-                        wifiDirectInvitationReady = false,
-                        status = "الاستقبال جاهز عبر Wi-Fi العادية؛ تعذر إعلان Wi-Fi Direct.",
-                        error = failure.localizedMessage
-                    )
+        viewModelScope.launch {
+            val readiness = withTimeoutOrNull(15_000L) {
+                UltraShareForegroundService.state.first { service ->
+                    service.controlChannelReady || service.controlChannelError != null || !service.receiving
                 }
             }
-        }.onFailure { failure ->
-            _state.value = _state.value.copy(
-                wifiDirectInvitationReady = false,
-                status = "الاستقبال جاهز عبر Wi-Fi العادية؛ تعذر إنشاء مجموعة Wi-Fi Direct.",
-                error = failure.localizedMessage
-            )
+            if (readiness == null || !readiness.controlChannelReady) {
+                val reason = readiness?.controlChannelError
+                    ?: "لم يبدأ خادم الاتصال الآمن على المنفذ 38744 خلال 15 ثانية."
+                _state.value = _state.value.copy(
+                    wifiDirectInvitationReady = false,
+                    error = reason,
+                    status = "لم يُعرض رمز QR لأن قناة الاتصال لم تصبح جاهزة. أعد تشغيل الاستقبال."
+                )
+                return@launch
+            }
+            runCatching {
+                ensureWifiDirectSession().createGroup {
+                    runCatching {
+                        ensureWifiDirectSession().advertiseInvitation(invitationId) {
+                            _state.value = _state.value.copy(
+                                wifiDirectInvitationReady = true,
+                                status = "الجهاز جاهز. امسح رمز QR للاتصال التلقائي."
+                            )
+                        }
+                    }.onFailure { failure ->
+                        _state.value = _state.value.copy(
+                            wifiDirectInvitationReady = false,
+                            status = "قناة الاتصال جاهزة؛ تعذر إعلان Wi-Fi Direct.",
+                            error = failure.localizedMessage
+                        )
+                    }
+                }
+            }.onFailure { failure ->
+                _state.value = _state.value.copy(
+                    wifiDirectInvitationReady = false,
+                    status = "قناة الاتصال جاهزة؛ تعذر إنشاء مجموعة Wi-Fi Direct.",
+                    error = failure.localizedMessage
+                )
+            }
         }
     }
 
@@ -1027,7 +1047,8 @@ fun UltraShareScreen(
     }
 
     val invitationId = state.invitationId
-    val qrPayload = if (state.receiving && !state.pairedSession && !invitationId.isNullOrBlank() &&
+    val qrPayload = if (state.receiving && UltraShareForegroundService.state.value.controlChannelReady &&
+        !state.pairedSession && !invitationId.isNullOrBlank() &&
         (state.localAddresses.isNotEmpty() || state.wifiDirectInvitationReady)
     ) {
         // A v3 QR may contain no LAN fallback when this phone is reachable only
@@ -1039,8 +1060,8 @@ fun UltraShareScreen(
             state.pairingSecret,
             invitationId
         )
-    } else if (state.receiving && !state.pairedSession && state.invitationId.isNullOrBlank() &&
-        state.localAddresses.isNotEmpty()
+    } else if (state.receiving && UltraShareForegroundService.state.value.controlChannelReady &&
+        !state.pairedSession && state.invitationId.isNullOrBlank() && state.localAddresses.isNotEmpty()
     ) {
         UltraShareQrCode.createReceiverPayload(state.localAddresses, state.pairingSecret)
     } else {
