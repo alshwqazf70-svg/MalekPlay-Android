@@ -224,8 +224,7 @@ fun VideoPlayerScreen(
     val eqAvailable by viewModel.audioEffects.available.collectAsStateWithLifecycle()
     val bandCount by viewModel.audioEffects.bandCount.collectAsStateWithLifecycle()
     val levelRange by viewModel.audioEffects.levelRange.collectAsStateWithLifecycle()
-    val noiseReductionAvailable by viewModel.audioEffects.noiseReductionAvailable.collectAsStateWithLifecycle()
-    val noiseReductionEnabled by viewModel.audioEffects.noiseReductionEnabled.collectAsStateWithLifecycle()
+    val videoDenoiseEnabled by viewModel.videoDenoiseEnabled.collectAsStateWithLifecycle()
     var motionCadenceEnabled by remember { mutableStateOf(false) }
 
     // ------------------------------------------------------------ media load
@@ -908,13 +907,15 @@ fun VideoPlayerScreen(
                 DropdownMenuItem(
                     text = {
                         Text(stringResource(
-                            if (noiseReductionEnabled) R.string.player_noise_reduction_on
-                            else if (noiseReductionAvailable) R.string.player_noise_reduction_off
-                            else R.string.player_noise_reduction_unsupported
+                            if (videoDenoiseEnabled) R.string.player_noise_reduction_on
+                            else R.string.player_noise_reduction_off
                         ))
                     },
-                    enabled = noiseReductionAvailable,
-                    onClick = { viewModel.audioEffects.setNoiseReductionEnabled(!noiseReductionEnabled) }
+                    enabled = stats.width > 0 && stats.height > 0 &&
+                        maxOf(stats.width, stats.height) <= 1920 &&
+                        minOf(stats.width, stats.height) <= 1080 &&
+                        (stats.frameRate <= 0f || stats.frameRate <= 60f),
+                    onClick = { viewModel.setVideoDenoiseEnabled(!videoDenoiseEnabled) }
                 )
                 DropdownMenuItem(
                     text = {
