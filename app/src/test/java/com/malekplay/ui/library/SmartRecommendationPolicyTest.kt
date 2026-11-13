@@ -240,10 +240,10 @@ class SmartRecommendationPolicyTest {
         val result = SmartRecommendationPolicy.analyze(
             listOf(anchor, first, second, third, alternative),
             lastPlayedMediaId = "anchor",
-            limit = 4
+            limit = 3
         )
 
-        assertEquals(4, result.size)
+        assertEquals(3, result.size)
         assertEquals(2, result.count { it.item.media.artist == "Studio A" })
         assertTrue(result.any { it.item.media.id == "alternative" })
     }
