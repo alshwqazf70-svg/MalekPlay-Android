@@ -7,10 +7,14 @@ import androidx.media3.session.SessionCommand
 object PlaybackVideoEffects {
     const val ACTION_UPSCALING = "com.malekplay.action.SET_VIDEO_UPSCALING"
     const val ACTION_GET_STATE = "com.malekplay.action.GET_VIDEO_EFFECT_STATE"
+    const val ACTION_DENOISE = "com.malekplay.action.SET_VIDEO_DENOISE"
     const val KEY_ENABLED = "enabled"
     const val KEY_STATE_ENABLED = "state_enabled"
+    const val KEY_STATE_DENOISE = "state_denoise"
     val COMMAND: SessionCommand
         get() = SessionCommand(ACTION_UPSCALING, Bundle.EMPTY)
     val STATE_COMMAND: SessionCommand
         get() = SessionCommand(ACTION_GET_STATE, Bundle.EMPTY)
+    val DENOISE_COMMAND: SessionCommand
+        get() = SessionCommand(ACTION_DENOISE, Bundle.EMPTY)
 }
