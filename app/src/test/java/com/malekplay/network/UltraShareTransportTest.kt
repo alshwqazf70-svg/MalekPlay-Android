@@ -20,7 +20,7 @@ class UltraShareTransportTest {
     }
 
     @Test
-    fun pairingPinDerivationMatchesDesktopProtocolVector() {
+    fun nineDigitPairingPinDerivationMatchesProtocolVector() {
         val challenge = ByteArray(32) { it.toByte() }
         val derived = UltraShareTransport.derivePairingKey("004219837", challenge)
         val actual = derived.joinToString("") { "%02x".format(it) }
