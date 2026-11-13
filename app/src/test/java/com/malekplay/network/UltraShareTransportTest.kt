@@ -36,7 +36,7 @@ class UltraShareTransportTest {
         assertFalse(UltraShareTransport.isValidPairingSecret("123456"))
         assertTrue(UltraShareTransport.isValidPairingSecret("123456789"))
         assertFalse(UltraShareTransport.isValidPairingSecret("1234567890"))
-        assertFalse(UltraShareTransport.isValidPairingSecret("1234567890"))
+        assertFalse(UltraShareTransport.isValidPairingSecret("123456789012"))
         assertFalse(UltraShareTransport.isValidPairingSecret("1234567890123"))
         assertFalse(UltraShareTransport.isValidPairingSecret("12345678A"))
         assertFalse(UltraShareTransport.isValidPairingSecret("z".repeat(64)))
