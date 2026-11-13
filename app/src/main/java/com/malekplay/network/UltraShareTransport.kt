@@ -333,6 +333,64 @@ object UltraShareTransport {
         }
     }
 
+    private data class AuthenticatedClient(
+        val socket: Socket,
+        val input: DataInputStream,
+        val output: DataOutputStream,
+        val challenge: ByteArray,
+        val secret: ByteArray
+    )
+
+    /**
+     * Keeps the receiver listening after invalid or incomplete handshakes.
+     * A nearby device without the one-session secret must not be able to
+     * consume the receiver's only transfer slot.
+     */
+    private suspend fun acceptAuthenticatedClient(
+        server: ServerSocket,
+        pairingSecret: String
+    ): AuthenticatedClient {
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val candidate = try {
+                server.accept()
+            } catch (_: SocketTimeoutException) {
+                continue
+            }
+            if (!isPrivateLanAddress(candidate.inetAddress)) {
+                candidate.close()
+                continue
+            }
+            try {
+                candidate.soTimeout = HANDSHAKE_TIMEOUT_MS
+                candidate.receiveBufferSize = SOCKET_BUFFER_BYTES
+                candidate.sendBufferSize = SOCKET_BUFFER_BYTES
+                candidate.tcpNoDelay = true
+                candidate.keepAlive = true
+                val input = DataInputStream(BufferedInputStream(candidate.getInputStream(), SOCKET_BUFFER_BYTES))
+                val output = DataOutputStream(BufferedOutputStream(candidate.getOutputStream(), SOCKET_BUFFER_BYTES))
+                output.writeInt(MAGIC)
+                val challenge = ByteArray(CHALLENGE_BYTES).also(SecureRandom()::nextBytes)
+                val secret = derivePairingKey(pairingSecret, challenge)
+                output.write(challenge)
+                output.flush()
+                val suppliedProof = ByteArray(32).also(input::readFully)
+                val authenticated = MessageDigest.isEqual(suppliedProof, hmac(secret, challenge))
+                output.writeBoolean(authenticated)
+                output.flush()
+                if (!authenticated) {
+                    candidate.close()
+                    continue
+                }
+                return AuthenticatedClient(candidate, input, output, challenge, secret)
+            } catch (failure: Exception) {
+                runCatching { candidate.close() }
+                // Malformed, timed-out and unauthenticated peers are isolated;
+                // the receiver remains available for the legitimate sender.
+            }
+        }
+    }
+
     suspend fun receiveOnce(
         port: Int = DEFAULT_PORT,
         pairingSecret: String,
@@ -349,41 +407,13 @@ object UltraShareTransport {
             server.reuseAddress = true
             server.bind(InetSocketAddress(port), 1)
             server.soTimeout = 1_000
-            var accepted: Socket? = null
-            while (accepted == null) {
-                currentCoroutineContext().ensureActive()
-                try {
-                    val candidate = server.accept()
-                    if (isPrivateLanAddress(candidate.inetAddress)) accepted = candidate
-                    else candidate.close()
-                } catch (_: SocketTimeoutException) {
-                    // Poll cancellation while keeping the receiver available for the user.
-                }
-            }
-            val clientSocket = requireNotNull(accepted)
-            clientSocket.use { socket ->
-                // Do not let an unauthenticated LAN peer hold the single receiver
-                // socket indefinitely while slowly sending the pairing proof.
-                socket.soTimeout = HANDSHAKE_TIMEOUT_MS
-                socket.receiveBufferSize = SOCKET_BUFFER_BYTES
-                socket.sendBufferSize = SOCKET_BUFFER_BYTES
-                socket.tcpNoDelay = true
-                socket.keepAlive = true
-                val input = DataInputStream(BufferedInputStream(socket.getInputStream(), SOCKET_BUFFER_BYTES))
-                val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), SOCKET_BUFFER_BYTES))
-
-                output.writeInt(MAGIC)
-                val challenge = ByteArray(CHALLENGE_BYTES).also(SecureRandom()::nextBytes)
-                val secret = derivePairingKey(pairingSecret, challenge)
-                output.write(challenge)
-                output.flush()
-
-                val suppliedProof = ByteArray(32).also(input::readFully)
-                val authenticated = MessageDigest.isEqual(suppliedProof, hmac(secret, challenge))
-                output.writeBoolean(authenticated)
-                output.flush()
-                check(authenticated) { "فشل التحقق من رمز الاقتران." }
+            val authenticatedClient = acceptAuthenticatedClient(server, pairingSecret)
+            authenticatedClient.socket.use { socket ->
                 socket.soTimeout = SOCKET_TIMEOUT_MS
+                val input = authenticatedClient.input
+                val output = authenticatedClient.output
+                val challenge = authenticatedClient.challenge
+                val secret = authenticatedClient.secret
 
                 val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(SecureRandom()::nextBytes)
                 output.write(noncePrefix)
