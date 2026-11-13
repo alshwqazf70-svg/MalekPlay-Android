@@ -125,6 +125,9 @@ data class UltraShareUiState(
     val receivedHistory: List<UltraShareReceivedEntry> = emptyList(),
     val wifiDirectPeers: List<UltraShareWifiDirect.Peer> = emptyList(),
     val wifiDirectHost: String? = null,
+    val externalQrHost: String? = null,
+    val externalQrSessionId: String? = null,
+    val externalQrFrequencyMhz: Int? = null,
     val pairedHost: String? = null,
     val pairing: Boolean = false,
     val hotspotSsid: String? = null,
@@ -243,6 +246,10 @@ class UltraShareViewModel @Inject constructor(
             .getOrElse { return false }
         val frequency = details.frequencyMhz?.let { "، التردد $it MHz" }.orEmpty()
         _state.value = _state.value.copy(
+            externalQrHost = details.hostAddress,
+            externalQrSessionId = details.sessionId,
+            externalQrFrequencyMhz = details.frequencyMhz,
+            wifiDirectHost = null,
             error = null,
             status = "تم التعرف على رمز Kuaiya/Zapya: عنوان المضيف " +
                 details.hostAddress + frequency +
@@ -301,10 +308,21 @@ class UltraShareViewModel @Inject constructor(
                             )
                         }
                     } else if (!remoteHost.isNullOrBlank()) {
-                        _state.value = _state.value.copy(
-                            wifiDirectHost = remoteHost,
-                            status = "تم اتصال Wi-Fi Direct. أدخل رمز الاقتران الظاهر على جهاز الاستقبال."
-                        )
+                        val expectedQrHost = _state.value.externalQrHost
+                        if (expectedQrHost != null && expectedQrHost != remoteHost) {
+                            _state.value = _state.value.copy(
+                                wifiDirectHost = null,
+                                status = null,
+                                error = "اتصل الهاتف بمجموعة Wi-Fi Direct، لكن عنوان المضيف ($remoteHost) لا يطابق عنوان QR ($expectedQrHost). لم نعتبر الجهاز هو الهدف."
+                            )
+                        } else {
+                            _state.value = _state.value.copy(
+                                wifiDirectHost = remoteHost,
+                                status = if (expectedQrHost != null)
+                                    "تم الاتصال والتحقق من تطابق عنوان المضيف مع QR ($remoteHost). يلزم الآن رمز MalekPlay لإتمام المصادقة."
+                                else "تم اتصال Wi-Fi Direct. أدخل رمز الاقتران الظاهر على جهاز الاستقبال."
+                            )
+                        }
                     }
                 },
                 onError = { message ->
@@ -367,6 +385,15 @@ class UltraShareViewModel @Inject constructor(
 
     fun clearPairing() {
         _state.value = _state.value.copy(pairedHost = null, pairing = false)
+    }
+
+    fun clearExternalQr() {
+        _state.value = _state.value.copy(
+            externalQrHost = null,
+            externalQrSessionId = null,
+            externalQrFrequencyMhz = null,
+            wifiDirectHost = null
+        )
     }
 
     fun pairWithHost(host: String, secret: String) = pairWithHosts(listOf(host), secret)
