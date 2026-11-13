@@ -367,7 +367,11 @@
     <string name="kids_refresh_library">Refresh library</string>
     <string name="player_gpu_upscaling_on">GPU upscaling: ON (Lanczos)</string>
     <string name="player_gpu_upscaling_off">GPU upscaling: OFF</string>
-    <string name="player_noise_reduction_unavailable">Noise reduction: unavailable on this build</string>
-    <string name="player_motion_smoothing_unavailable">Motion smoothing: unavailable (frame interpolation required)</string>
+    <string name="player_noise_reduction_on">Audio noise suppression: ON</string>
+    <string name="player_noise_reduction_off">Audio noise suppression: OFF</string>
+    <string name="player_noise_reduction_unsupported">Audio noise suppression: not supported by this device</string>
+    <string name="player_motion_smoothing_on">Motion cadence matching: ON</string>
+    <string name="player_motion_smoothing_off">Motion cadence matching: OFF</string>
+    <string name="player_motion_smoothing_unsupported">Motion cadence matching: unavailable (Android 11+ and known frame rate required)</string>
     <string name="player_gpu_upscaling_unavailable">GPU upscaling is unavailable for this video, protected content, remote playback, or when no upscaling is needed.</string>
 </resources>
