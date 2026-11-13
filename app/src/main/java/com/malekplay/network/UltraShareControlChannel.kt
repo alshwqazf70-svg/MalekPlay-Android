@@ -100,6 +100,7 @@ object UltraShareControlChannel {
         localPeerId: String? = null,
         onSessionClosed: suspend (Request) -> Unit = {},
         onDFileServerReady: suspend (Request, ByteArray) -> Int? = { _, _ -> null },
+        onListening: (Int) -> Unit = {},
         onRequest: suspend (Request) -> Decision
     ) = withContext(Dispatchers.IO) {
         require(UltraShareTransport.isValidPairingSecret(pairingSecret))
@@ -108,6 +109,7 @@ object UltraShareControlChannel {
         ServerSocket().use { server ->
             server.reuseAddress = true
             server.bind(InetSocketAddress(port), 8)
+            onListening(server.localPort)
             server.soTimeout = 750
             coroutineScope {
                 while (true) {
