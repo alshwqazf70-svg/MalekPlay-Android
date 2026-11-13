@@ -76,6 +76,7 @@ import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareTransport
 import com.malekplay.data.repository.MediaRepository
 import com.malekplay.network.UltraShareDiscovery
+import com.malekplay.network.UltraSharePairing
 import com.malekplay.network.UltraShareQueueEntry
 import com.malekplay.network.UltraShareReceivedEntry
 import com.malekplay.network.UltraShareReceivedHistoryStore
