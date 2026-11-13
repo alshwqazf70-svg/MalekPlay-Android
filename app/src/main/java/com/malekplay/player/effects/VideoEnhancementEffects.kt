@@ -113,10 +113,16 @@ private class SpatialNoiseReductionProgram(
                 // edges contribute less, preserving text, faces and fine contours.
                 float centerLuma = luma(center.rgb);
                 float rangeScale = mix(18.0, 9.0, uStrength);
-                float wN = exp(-abs(luma(north) - centerLuma) * rangeScale);
-                float wS = exp(-abs(luma(south) - centerLuma) * rangeScale);
-                float wE = exp(-abs(luma(east) - centerLuma) * rangeScale);
-                float wW = exp(-abs(luma(west) - centerLuma) * rangeScale);
+                // Combine luminance and RGB distance so chroma edges (subtitles,
+                // animation outlines and colored objects) are not washed together.
+                float wN = exp(-(abs(luma(north) - centerLuma) * 0.65 +
+                    length(north - center.rgb) * 0.35) * rangeScale);
+                float wS = exp(-(abs(luma(south) - centerLuma) * 0.65 +
+                    length(south - center.rgb) * 0.35) * rangeScale);
+                float wE = exp(-(abs(luma(east) - centerLuma) * 0.65 +
+                    length(east - center.rgb) * 0.35) * rangeScale);
+                float wW = exp(-(abs(luma(west) - centerLuma) * 0.65 +
+                    length(west - center.rgb) * 0.35) * rangeScale);
 
                 vec3 weighted = center.rgb + north * wN + south * wS + east * wE + west * wW;
                 float weightSum = 1.0 + wN + wS + wE + wW;
@@ -302,7 +308,17 @@ private class TemporalMotionSmoothingProgram(
                     gl_FragColor = current;
                 } else {
                     vec4 previous = texture2D(uPreviousFrame, vTexSamplingCoord);
-                    gl_FragColor = mix(current, previous, uPreviousWeight);
+                    // Reduce history contribution at moving edges to avoid double
+                    // contours/ghost trails. Static regions retain a small temporal
+                    // blend to soften compression flicker and cadence judder.
+                    float lumaDelta = abs(
+                        dot(current.rgb - previous.rgb, vec3(0.2126, 0.7152, 0.0722))
+                    );
+                    float colorDelta = length(current.rgb - previous.rgb);
+                    float motionMagnitude = max(lumaDelta, colorDelta * 0.55);
+                    float historyGate = 1.0 - smoothstep(0.018, 0.105, motionMagnitude);
+                    float adaptiveWeight = uPreviousWeight * historyGate;
+                    gl_FragColor = mix(current, previous, adaptiveWeight);
                 }
             }
         """
