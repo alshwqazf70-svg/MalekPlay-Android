@@ -400,9 +400,15 @@ class UltraShareViewModel @Inject constructor(
                 var pairedHost: String? = null
                 var pairedName: String? = null
                 val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-                // Repeat discovery briefly to tolerate receiver startup and transient Wi-Fi broadcasts.
-                for (attempt in 0 until 3) {
+                // Keep discovery alive long enough for delayed Wi-Fi/hotspot broadcasts and receiver startup.
+                // Each scan is bounded; cancellation remains immediate when the user leaves the flow.
+                for (attempt in 0 until 6) {
                     if (pairedHost != null) break
+                    _state.value = _state.value.copy(
+                        status = if (attempt == 0)
+                            "جارٍ البحث عن جهاز الاستقبال..."
+                        else "لم يظهر الجهاز بعد؛ أعيد البحث تلقائياً (" + (attempt + 1) + "/6)..."
+                    )
                     val peers = UltraShareDiscovery.discoverPeers()
                     for (peer in peers) {
                         try {
@@ -414,7 +420,7 @@ class UltraShareViewModel @Inject constructor(
                             lastFailure = failure
                         }
                     }
-                    if (pairedHost == null && attempt < 2) kotlinx.coroutines.delay(700)
+                    if (pairedHost == null && attempt < 5) kotlinx.coroutines.delay(900)
                 }
                 if (pairedHost != null) {
                     _state.value = _state.value.copy(
