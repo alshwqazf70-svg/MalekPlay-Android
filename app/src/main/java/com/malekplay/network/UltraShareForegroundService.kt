@@ -11,6 +11,7 @@ import android.content.Context
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
+import android.net.ConnectivityManager
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
@@ -263,6 +264,7 @@ class UltraShareForegroundService : Service() {
                             fileName = metadata.first,
                             mimeType = metadata.second,
                             sizeBytes = metadata.third,
+                            connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager,
                             onProgress = { progress ->
                                 beginTransfer(isReceiving = false)
                                 updateState { current -> current.copy(progress = progress, sendProgress = progress) }
@@ -745,7 +747,8 @@ class UltraShareForegroundService : Service() {
                     fileName = metadata.first,
                     mimeType = metadata.second,
                     sizeBytes = metadata.third,
-                    onProgress = onProgress
+                    onProgress = onProgress,
+                    connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
                 )
                 return
             } catch (cancelled: CancellationException) {
