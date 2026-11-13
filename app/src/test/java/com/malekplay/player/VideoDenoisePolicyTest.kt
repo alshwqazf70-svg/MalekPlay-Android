@@ -23,4 +23,12 @@ class VideoDenoisePolicyTest {
         assertFalse(VideoDenoisePolicy.isEligible(3840, 2160, 30f, 0x30000))
         assertFalse(VideoDenoisePolicy.isEligible(1920, 1080, 120f, 0x30000))
     }
+
+    @Test
+    fun rejectsInvalidInfiniteFrameRateButAllowsUnknownRate() {
+        assertTrue(VideoDenoisePolicy.isEligible(1280, 720, -1f, 0x20000))
+        assertFalse(VideoDenoisePolicy.isEligible(1280, 720, Float.POSITIVE_INFINITY, 0x20000))
+        assertFalse(VideoDenoisePolicy.isEligible(1280, 720, Float.NEGATIVE_INFINITY, 0x20000))
+        assertFalse(VideoDenoisePolicy.isEligible(1280, 720, Float.NaN, 0x20000))
+    }
 }
