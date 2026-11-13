@@ -234,8 +234,9 @@ class LegacyUltraShareViewModel @Inject constructor(
                     val routeCandidates: List<android.net.Network?> =
                         UltraShareNetworkRouting.findNetworksForHost(context, candidate)
                             .map { it as android.net.Network? } + listOf(null)
+                    var routeAuthenticationOrProtocolFailure = false
                     for ((routeIndex, route) in routeCandidates.withIndex()) {
-                        if (candidateAccepted) break
+                        if (candidateAccepted || routeAuthenticationOrProtocolFailure) break
                         for (attempt in 0..1) {
                             try {
                                 val decision = withContext(Dispatchers.IO) {
@@ -261,7 +262,11 @@ class LegacyUltraShareViewModel @Inject constructor(
                                 // A rejected credential/protocol response is not a
                                 // route failure; do not retry it on another interface.
                                 val retryableNetworkFailure = failure is java.io.IOException
-                                if (!retryableNetworkFailure || attempt == 1) break
+                                if (!retryableNetworkFailure) {
+                                    routeAuthenticationOrProtocolFailure = true
+                                    break
+                                }
+                                if (attempt == 1) break
                                 delay(500L * (attempt + 1))
                             }
                         }
