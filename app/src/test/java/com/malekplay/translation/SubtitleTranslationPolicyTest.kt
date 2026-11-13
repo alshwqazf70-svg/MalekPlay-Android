@@ -53,8 +53,8 @@ class SubtitleTranslationPolicyTest {
             SubtitleTranslationPolicy.separator(0, 0),
             SubtitleTranslationPolicy.separator(0, 1)
         )
-        val translated = "مرحبا\\n" + separators[0] + "\\nكيف حالك؟\\n" +
-            separators[1] + "\\nوداعاً"
+        val translated = "مرحبا\n" + separators[0] + "\nكيف حالك؟\n" +
+            separators[1] + "\nوداعاً"
         assertEquals(
             listOf("مرحبا", "كيف حالك؟", "وداعاً"),
             SubtitleTranslationPolicy.splitBatchTranslation(translated, separators)
@@ -65,6 +65,6 @@ class SubtitleTranslationPolicyTest {
     fun rejectsAlteredOrMissingBatchSeparatorsForSafeFallback() {
         val separator = SubtitleTranslationPolicy.separator(0, 0)
         assertNull(SubtitleTranslationPolicy.splitBatchTranslation("مرحبا وداعاً", listOf(separator)))
-        assertNull(SubtitleTranslationPolicy.splitBatchTranslation("مرحبا\\n" + separator + "\\n\\n", listOf(separator)))
+        assertNull(SubtitleTranslationPolicy.splitBatchTranslation("مرحبا\n" + separator + "\n\n", listOf(separator)))
     }
 }
