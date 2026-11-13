@@ -40,11 +40,11 @@ object ExternalWifiDirectQr {
         val uri = runCatching { URI(payload) }
             .getOrElse { throw IllegalArgumentException("رابط QR الخارجي غير صالح.", it) }
 
-        require(uri.scheme.equals("http", ignoreCase = true) ||
-            uri.scheme.equals("https", ignoreCase = true)) {
+        require(uri.scheme?.equals("http", ignoreCase = true) == true ||
+            uri.scheme?.equals("https", ignoreCase = true) == true) {
             "صيغة رابط QR الخارجي غير مدعومة."
         }
-        require(uri.host.equals(EXPECTED_HOST, ignoreCase = true) &&
+        require(uri.host?.equals(EXPECTED_HOST, ignoreCase = true) == true &&
             uri.path == EXPECTED_PATH && uri.userInfo == null && uri.port == -1 &&
             uri.fragment == null) {
             "الرابط ليس رمز QR معروفاً من Kuaiya."
