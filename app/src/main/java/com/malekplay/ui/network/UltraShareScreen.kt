@@ -345,6 +345,10 @@ class UltraShareViewModel @Inject constructor(
             }
     }
 
+    fun clearPairing() {
+        _state.value = _state.value.copy(pairedHost = null, pairing = false)
+    }
+
     fun pairWithHost(host: String, secret: String) = pairWithHosts(listOf(host), secret)
 
     fun pairWithHosts(hosts: List<String>, secret: String) {
@@ -356,7 +360,7 @@ class UltraShareViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            _state.value = _state.value.copy(pairing = true, error = null, status = "جارٍ تجربة مسارات الشبكة والتحقق من رمز الاقتران...")
+            _state.value = _state.value.copy(pairedHost = null, pairing = true, error = null, status = "جارٍ تجربة مسارات الشبكة والتحقق من رمز الاقتران...")
             var lastFailure: Exception? = null
             val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
             for (candidate in candidates) {
@@ -388,27 +392,33 @@ class UltraShareViewModel @Inject constructor(
             return
         }
         if (scanJob != null) return
-        _state.value = _state.value.copy(scanning = true, error = null, status = "جارٍ البحث عن جهاز الاستقبال والتحقق من الرمز...")
+        _state.value = _state.value.copy(pairedHost = null, scanning = true, error = null, status = "جارٍ البحث عن جهاز الاستقبال والتحقق من الرمز...")
         scanJob = viewModelScope.launch {
             try {
-                val peers = UltraShareDiscovery.discoverPeers()
                 var lastFailure: Exception? = null
                 var pairedHost: String? = null
+                var pairedName: String? = null
                 val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-                for (peer in peers) {
-                    try {
-                        UltraSharePairing.connect(peer.host, pin, manager)
-                        pairedHost = peer.host
-                        break
-                    } catch (failure: Exception) {
-                        lastFailure = failure
+                // Repeat discovery briefly to tolerate receiver startup and transient Wi-Fi broadcasts.
+                repeat(3) { attempt ->
+                    val peers = UltraShareDiscovery.discoverPeers()
+                    for (peer in peers) {
+                        try {
+                            UltraSharePairing.connect(peer.host, pin, manager)
+                            pairedHost = peer.host
+                            pairedName = peer.name
+                            break
+                        } catch (failure: Exception) {
+                            lastFailure = failure
+                        }
                     }
+                    if (pairedHost != null) return@repeat
+                    if (attempt < 2) kotlinx.coroutines.delay(700)
                 }
                 if (pairedHost != null) {
-                    val peerName = peers.firstOrNull { it.host == pairedHost }?.name ?: pairedHost
                     _state.value = _state.value.copy(
                         pairedHost = pairedHost,
-                        status = "تم الاقتران تلقائياً مع " + peerName + ". أصبح الجهاز جاهزاً للإرسال.",
+                        status = "تم الاقتران تلقائياً مع " + (pairedName ?: pairedHost) + ". أصبح الجهاز جاهزاً للإرسال.",
                         error = null
                     )
                 } else {
@@ -1074,7 +1084,7 @@ fun UltraShareScreen(
                 )
                 OutlinedTextField(
                     value = host,
-                    onValueChange = { host = it },
+                    onValueChange = { host = it; viewModel.clearPairing() },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(stringResource(R.string.ultra_share_host)) },
                     singleLine = true
@@ -1083,6 +1093,7 @@ fun UltraShareScreen(
                     value = secret,
                     onValueChange = {
                         secret = it.filter { char -> char in '0'..'9' }.take(9)
+                        viewModel.clearPairing()
                         if (secret.length == 9) viewModel.pairWithCode(secret)
                     },
                     modifier = Modifier.widthIn(max = 220.dp),
