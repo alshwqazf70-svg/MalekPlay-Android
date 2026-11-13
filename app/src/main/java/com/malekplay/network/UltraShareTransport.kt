@@ -1,6 +1,8 @@
 package com.malekplay.network
 
 import android.content.ContentResolver
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.Uri
 import android.os.Environment
 import kotlinx.coroutines.Dispatchers
@@ -216,7 +218,8 @@ object UltraShareTransport {
         fileName: String,
         mimeType: String = "application/octet-stream",
         sizeBytes: Long,
-        onProgress: (Progress) -> Unit = {}
+        onProgress: (Progress) -> Unit = {},
+        connectivityManager: ConnectivityManager? = null
     ) = withContext(Dispatchers.IO) {
         require(host.isNotBlank()) { "أدخل عنوان الجهاز المستقبل." }
         val targetAddress = resolvePrivateLanAddress(host)
@@ -227,8 +230,7 @@ object UltraShareTransport {
             digestStream(stream, sizeBytes)
         } ?: error("تعذر فتح الملف المحدد.")
 
-        Socket().use { socket ->
-            socket.connect(InetSocketAddress(targetAddress, port), SOCKET_TIMEOUT_MS)
+        connectUsingAvailableNetworks(targetAddress, port, connectivityManager).use { socket ->
             socket.soTimeout = SOCKET_TIMEOUT_MS
             socket.sendBufferSize = SOCKET_BUFFER_BYTES
             socket.receiveBufferSize = SOCKET_BUFFER_BYTES
@@ -508,6 +510,77 @@ object UltraShareTransport {
             ?: File(context.filesDir, "downloads")
         return File(base, "MalekPlay/Received")
     }
+
+    /**
+     * Connects through the Android network that actually has a route to the receiver.
+     * This matters when Wi-Fi, a phone hotspot and Wi-Fi Direct coexist: the process
+     * default route may not be the interface that owns the entered private address.
+     * Network.bindSocket is available from API 21 (Android 5), so this path covers
+     * the project's Android 6+ support without changing the wire protocol.
+     */
+    private fun connectUsingAvailableNetworks(
+        address: InetAddress,
+        port: Int,
+        connectivityManager: ConnectivityManager?
+    ): Socket {
+        val endpoint = InetSocketAddress(address, port)
+        val manager = connectivityManager
+        if (manager == null) {
+            return Socket().apply {
+                try { connect(endpoint, CONNECT_TIMEOUT_MS) } catch (failure: Exception) {
+                    runCatching { close() }
+                    throw IOException("تعذر الوصول إلى جهاز الاستقبال. تحقق من الشبكة وعنوان IP وأن الاستقبال يعمل.", failure)
+                }
+            }
+        }
+
+        val active = if (android.os.Build.VERSION.SDK_INT >= 23) runCatching { manager.activeNetwork }.getOrNull() else null
+        val networks = runCatching { manager.allNetworks.toList() }.getOrDefault(emptyList())
+            .distinct()
+            .sortedWith(compareBy<Network>(
+                { network ->
+                    runCatching { manager.getLinkProperties(network)?.routes?.any { it.matches(address) } == true }
+                        .getOrDefault(false).let { if (it) 0 else 1 }
+                },
+                { network -> if (network == active) 0 else 1 },
+                { network ->
+                    runCatching {
+                        val caps = manager.getNetworkCapabilities(network)
+                        if (caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true) 0 else 1
+                    }.getOrDefault(1)
+                }
+            )).take(4)
+
+        var lastFailure: Exception? = null
+        for (network in networks) {
+            val socket = Socket()
+            try {
+                network.bindSocket(socket)
+                socket.connect(endpoint, CONNECT_TIMEOUT_MS)
+                return socket
+            } catch (failure: Exception) {
+                lastFailure = failure
+                runCatching { socket.close() }
+            }
+        }
+
+        // Some OEM Wi-Fi Direct implementations expose a route without publishing
+        // a Network object. Keep a bounded default-route fallback for those devices.
+        val fallback = Socket()
+        try {
+            fallback.connect(endpoint, CONNECT_TIMEOUT_MS)
+            return fallback
+        } catch (failure: Exception) {
+            runCatching { fallback.close() }
+            val cause = lastFailure ?: failure
+            throw IOException(
+                "تعذر الاتصال بعنوان $address:$port عبر شبكات Wi-Fi المتاحة. تأكد من اتصال الهاتفين بالشبكة نفسها، أو استخدم Wi-Fi Direct، وتحقق من أن جهاز الاستقبال يعرض رمز الاقتران.",
+                cause
+            )
+        }
+    }
+
+    private const val CONNECT_TIMEOUT_MS = 3_500
 
     private fun resolvePrivateLanAddress(host: String): InetAddress {
         require(host.matches(Regex("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}"))) {
