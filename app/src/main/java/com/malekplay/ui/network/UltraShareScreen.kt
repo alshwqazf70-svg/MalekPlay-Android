@@ -363,8 +363,10 @@ class LegacyUltraShareViewModel @Inject constructor(
                 if (pendingInvitationReady != null && !fallback.isNullOrBlank()) {
                     completeInvitationConnection(fallback, "تعذر Wi-Fi Direct؛ تم اختيار مسار Wi-Fi العادي تلقائياً.")
                 } else if (pendingInvitationReady != null) {
-                    // The QR invitation has no LAN fallback. Retire its callback and
-                    // timeout so a later, unrelated P2P broadcast cannot complete it.
+                    // The QR invitation has no LAN fallback. Stop the DNS-SD request,
+                    // then retire its callback and timeout so later P2P broadcasts
+                    // cannot complete this failed attempt.
+                    wifiDirectSession?.stopInvitationDiscovery()
                     pendingInvitationReady = null
                     pendingInvitation = null
                     invitationTimeout?.cancel()
