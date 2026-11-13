@@ -403,6 +403,11 @@ class LegacyUltraShareViewModel @Inject constructor(
                 ) break
             }
             if (connectedHost != null) {
+                // A QR scan initially authenticates the scanner as a sender. Start
+                // its receiver endpoint as well so the QR creator can send back over
+                // the same temporary pairing session. The service preserves the
+                // already-approved client session while opening its control listener.
+                UltraShareForegroundService.startReceiving(context, pairing.pairingSecret)
                 val remotePeerId = UltraShareControlChannel.sessionPeerId(connectedHost)
                 val remotePeerName = UltraShareControlChannel.sessionPeerName(connectedHost)
                     ?: "جهاز MalekPlay"
