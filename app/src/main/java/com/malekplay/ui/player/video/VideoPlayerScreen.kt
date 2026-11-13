@@ -17,6 +17,7 @@ import android.provider.MediaStore
 import android.util.TypedValue
 import android.view.PixelCopy
 import android.view.SurfaceView
+import android.view.Surface
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -223,6 +224,9 @@ fun VideoPlayerScreen(
     val eqAvailable by viewModel.audioEffects.available.collectAsStateWithLifecycle()
     val bandCount by viewModel.audioEffects.bandCount.collectAsStateWithLifecycle()
     val levelRange by viewModel.audioEffects.levelRange.collectAsStateWithLifecycle()
+    val noiseReductionAvailable by viewModel.audioEffects.noiseReductionAvailable.collectAsStateWithLifecycle()
+    val noiseReductionEnabled by viewModel.audioEffects.noiseReductionEnabled.collectAsStateWithLifecycle()
+    var motionCadenceEnabled by remember { mutableStateOf(false) }
 
     // ------------------------------------------------------------ media load
     var media by remember { mutableStateOf<DomainMedia?>(null) }
@@ -618,9 +622,11 @@ fun VideoPlayerScreen(
                 view.scaleX = videoZoom
                 view.scaleY = videoZoom
                 applySubtitleStyle(view, settings)
+                applyMotionCadence(view, stats.frameRate, motionCadenceEnabled)
                 playerView = view
             },
             onRelease = { view ->
+                applyMotionCadence(view, 0f, false)
                 view.player = null
                 playerView = null
             }
@@ -900,14 +906,27 @@ fun VideoPlayerScreen(
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text(stringResource(R.string.player_noise_reduction_unavailable)) },
-                    enabled = false,
-                    onClick = {}
+                    text = {
+                        Text(stringResource(
+                            if (noiseReductionEnabled) R.string.player_noise_reduction_on
+                            else if (noiseReductionAvailable) R.string.player_noise_reduction_off
+                            else R.string.player_noise_reduction_unsupported
+                        ))
+                    },
+                    enabled = noiseReductionAvailable,
+                    onClick = { viewModel.audioEffects.setNoiseReductionEnabled(!noiseReductionEnabled) }
                 )
                 DropdownMenuItem(
-                    text = { Text(stringResource(R.string.player_motion_smoothing_unavailable)) },
-                    enabled = false,
-                    onClick = {}
+                    text = {
+                        Text(stringResource(
+                            if (motionCadenceEnabled) R.string.player_motion_smoothing_on
+                            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && stats.frameRate in 20f..120f)
+                                R.string.player_motion_smoothing_off
+                            else R.string.player_motion_smoothing_unsupported
+                        ))
+                    },
+                    enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && stats.frameRate in 20f..120f,
+                    onClick = { motionCadenceEnabled = !motionCadenceEnabled }
                 )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.player_bookmarks)) },
@@ -1239,6 +1258,23 @@ fun VideoPlayerScreen(
 
 /** Pushes the saved subtitle look onto the platform SubtitleView. */
 @UnstableApi
+private fun applyMotionCadence(view: PlayerView, sourceFrameRate: Float, enabled: Boolean) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+    val surfaceView = view.videoSurfaceView as? SurfaceView ?: return
+    val surface = surfaceView.holder.surface
+    if (!surface.isValid) return
+    val targetRate = if (enabled && sourceFrameRate.isFinite() && sourceFrameRate in 20f..120f) {
+        sourceFrameRate
+    } else 0f
+    runCatching {
+        surface.setFrameRate(
+            targetRate,
+            if (targetRate > 0f) Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
+            else Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
+        )
+    }
+}
+
 private fun applySubtitleStyle(view: PlayerView, settings: com.malekplay.domain.model.PlayerSettings) {
     val subtitles = view.subtitleView ?: return
     subtitles.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, settings.subtitleSizeSp.toFloat())
