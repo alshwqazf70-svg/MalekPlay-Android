@@ -91,8 +91,8 @@ internal object SmartRecommendationPolicy {
                     .thenByDescending { it.item.media.addedAtMs }
                     .thenBy { it.item.media.title.lowercase(Locale.ROOT) }
             )
-            .take(limit)
             .toList()
+            .let { diversifyRecommendations(it, limit) }
     }
 
     /** Find related local media using metadata affinity and a bounded duration signal. */
@@ -240,6 +240,41 @@ internal object SmartRecommendationPolicy {
             .toList()
     }
 
+    /**
+     * Re-rank the already-scored local recommendations to avoid a feed dominated
+     * by one artist or genre when useful alternatives exist. If the library is
+     * narrow, deferred items are appended so the user still gets a full result set.
+     */
+    private fun diversifyRecommendations(
+        ranked: List<SmartMediaRecommendation>,
+        limit: Int
+    ): List<SmartMediaRecommendation> {
+        if (limit <= 0 || ranked.size <= 1) return ranked.take(limit)
+        val selected = ArrayList<SmartMediaRecommendation>(minOf(limit, ranked.size))
+        val deferred = ArrayList<SmartMediaRecommendation>()
+        val artistCounts = HashMap<String, Int>()
+        val genreCounts = HashMap<String, Int>()
+
+        ranked.forEach { candidate ->
+            if (selected.size >= limit) return@forEach
+            val artist = candidate.item.media.artist.normalized()
+            val genre = candidate.item.media.genre.normalized()
+            val artistAllowed = artist == null || (artistCounts[artist] ?: 0) < MAX_RECOMMENDATIONS_PER_ARTIST
+            val genreAllowed = genre == null || (genreCounts[genre] ?: 0) < MAX_RECOMMENDATIONS_PER_GENRE
+            if (artistAllowed && genreAllowed) {
+                selected += candidate
+                artist?.let { artistCounts[it] = (artistCounts[it] ?: 0) + 1 }
+                genre?.let { genreCounts[it] = (genreCounts[it] ?: 0) + 1 }
+            } else {
+                deferred += candidate
+            }
+        }
+        if (selected.size < limit) {
+            selected += deferred.take(limit - selected.size)
+        }
+        return selected
+    }
+
     private fun MutableMap<String, Double>.addWeight(key: String, weight: Double) {
         this[key] = (this[key] ?: 0.0) + weight
     }
@@ -264,6 +299,8 @@ internal object SmartRecommendationPolicy {
         return normalized.takeIf { it.isNotEmpty() }
     }
 
+    private const val MAX_RECOMMENDATIONS_PER_ARTIST = 2
+    private const val MAX_RECOMMENDATIONS_PER_GENRE = 3
     private const val DEFAULT_LIMIT = 12
     private const val LAST_PLAYED_WEIGHT = 5.0
     private const val COMPLETED_WEIGHT = 4.0
