@@ -1,6 +1,7 @@
 package com.malekplay.player
 
 import android.app.PendingIntent
+import android.app.ActivityManager
 import android.os.Bundle
 import android.content.Intent
 import android.util.Log
@@ -72,6 +73,7 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var localExoPlayer: ExoPlayer? = null
     private var videoUpscalingEnabled = false
+    private var videoDenoiseEnabled = false
     private var castMediaHttpServer: CastMediaHttpServer? = null
     private lateinit var profileStore: NetworkProfileStore
     private lateinit var credentialVault: NetworkCredentialVault
@@ -168,6 +170,7 @@ class PlaybackService : MediaSessionService() {
         mediaSession = null
         localExoPlayer = null
         videoUpscalingEnabled = false
+        videoDenoiseEnabled = false
         castMediaHttpServer?.let { bridge ->
             LocalMediaBridgeRegistry.detach(bridge)
             bridge.close()
@@ -193,6 +196,7 @@ class PlaybackService : MediaSessionService() {
                 if (controller.isTrusted) {
                     add(PlaybackVideoEffects.COMMAND)
                     add(PlaybackVideoEffects.STATE_COMMAND)
+                    add(PlaybackVideoEffects.DENOISE_COMMAND)
                 }
             }.build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -212,16 +216,19 @@ class PlaybackService : MediaSessionService() {
             if (customCommand.customAction == PlaybackVideoEffects.ACTION_GET_STATE) {
                 val state = Bundle().apply {
                     putBoolean(PlaybackVideoEffects.KEY_STATE_ENABLED, videoUpscalingEnabled)
+                    putBoolean(PlaybackVideoEffects.KEY_STATE_DENOISE, videoDenoiseEnabled)
                 }
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, state))
             }
-            if (customCommand.customAction != PlaybackVideoEffects.ACTION_UPSCALING) {
-                return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
-            }
             val requested = args.getBoolean(PlaybackVideoEffects.KEY_ENABLED, false)
-            val accepted = setVideoUpscaling(requested)
+            val accepted = when (customCommand.customAction) {
+                PlaybackVideoEffects.ACTION_UPSCALING -> setVideoUpscaling(requested)
+                PlaybackVideoEffects.ACTION_DENOISE -> setVideoDenoise(requested)
+                else -> return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+            }
             val state = Bundle().apply {
                 putBoolean(PlaybackVideoEffects.KEY_STATE_ENABLED, videoUpscalingEnabled)
+                putBoolean(PlaybackVideoEffects.KEY_STATE_DENOISE, videoDenoiseEnabled)
             }
             return Futures.immediateFuture(
                 SessionResult(
@@ -237,7 +244,8 @@ class PlaybackService : MediaSessionService() {
         override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) {
             if (deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                 videoUpscalingEnabled = false
-                localExoPlayer?.let { AssVideoEffectRegistry.setAdditionalEffects(it, emptyList()) }
+                videoDenoiseEnabled = false
+                applyVideoEffects()
             }
         }
     }
@@ -247,64 +255,95 @@ class PlaybackService : MediaSessionService() {
             val hasVideo = tracks.groups.any { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }
             if (!hasVideo) {
                 videoUpscalingEnabled = false
-                localExoPlayer?.let { AssVideoEffectRegistry.setAdditionalEffects(it, emptyList()) }
-            } else if (videoUpscalingEnabled) {
-                applyVideoUpscaling()
+                videoDenoiseEnabled = false
+                applyVideoEffects()
+            } else if (videoUpscalingEnabled || videoDenoiseEnabled) {
+                applyVideoEffects()
             }
         }
 
         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-            if (videoUpscalingEnabled) applyVideoUpscaling()
+            if (videoUpscalingEnabled || videoDenoiseEnabled) applyVideoEffects()
         }
     }
 
-    /** Enable only on local, clear, video playback. The GPU pipeline is never kept active for audio or Cast. */
+    /** Enables Lanczos only for eligible local video whose source is below display resolution. */
     private fun setVideoUpscaling(enabled: Boolean): Boolean {
-        val player = localExoPlayer ?: return false
-        val sessionPlayer = mediaSession?.player ?: return false
-        if (enabled) {
-            if (sessionPlayer.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) return false
-            if (player.currentMediaItem?.localConfiguration?.drmConfiguration != null) return false
-            if (player.currentTracks.groups.none { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }) return false
-            val size = player.videoSize
-            if (size.width <= 0 || size.height <= 0) return false
-        }
         videoUpscalingEnabled = enabled
-        return applyVideoUpscaling()
+        val applied = applyVideoEffects()
+        return applied && (!enabled || videoUpscalingEnabled)
     }
 
-    private fun applyVideoUpscaling(): Boolean {
+    /** Enables the edge-preserving GPU denoiser only on modest, clear local video. */
+    private fun setVideoDenoise(enabled: Boolean): Boolean {
+        videoDenoiseEnabled = enabled
+        val applied = applyVideoEffects()
+        return applied && (!enabled || videoDenoiseEnabled)
+    }
+
+    private fun isVideoDenoiseEligible(player: ExoPlayer): Boolean {
+        val size = player.videoSize
+        if (size.width <= 0 || size.height <= 0) return false
+        val longSide = maxOf(size.width, size.height)
+        val shortSide = minOf(size.width, size.height)
+        if (longSide > 1920 || shortSide > 1080) return false
+        val frameRate = player.videoFormat?.frameRate ?: -1f
+        if (frameRate.isFinite() && frameRate > 60f) return false
+        val activityManager = getSystemService(ACTIVITY_SERVICE) as? ActivityManager ?: return false
+        return activityManager.deviceConfigurationInfo.reqGlEsVersion >= 0x20000
+    }
+
+    /** Rebuilds the complete ordered GPU chain so toggles never erase each other or ASS overlays. */
+    private fun applyVideoEffects(): Boolean {
         val player = localExoPlayer ?: return false
-        if (!videoUpscalingEnabled) {
+        if (!videoUpscalingEnabled && !videoDenoiseEnabled) {
             AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
             return true
         }
         val sessionPlayer = mediaSession?.player ?: return false
         val videoSize = player.videoSize
+        val hasVideo = player.currentTracks.groups.any {
+            it.isSelected && it.type == C.TRACK_TYPE_VIDEO
+        }
         if (sessionPlayer.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE ||
             player.currentMediaItem?.localConfiguration?.drmConfiguration != null ||
-            player.currentTracks.groups.none { it.isSelected && it.type == C.TRACK_TYPE_VIDEO } ||
-            videoSize.width <= 0 || videoSize.height <= 0
+            !hasVideo || videoSize.width <= 0 || videoSize.height <= 0
         ) {
             videoUpscalingEnabled = false
+            videoDenoiseEnabled = false
             AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
             return false
         }
+
+        if (videoDenoiseEnabled && !isVideoDenoiseEligible(player)) {
+            videoDenoiseEnabled = false
+        }
+
         val metrics = resources.displayMetrics
         val targetLong = maxOf(metrics.widthPixels, metrics.heightPixels)
         val targetShort = minOf(metrics.widthPixels, metrics.heightPixels)
         val sourceLong = maxOf(videoSize.width, videoSize.height)
         val sourceShort = minOf(videoSize.width, videoSize.height)
-        // Do not turn this into a downscaler: Lanczos is only enabled when both
-        // source dimensions are below the display target.
-        if (sourceLong >= targetLong || sourceShort >= targetShort) {
+        if (videoUpscalingEnabled && (sourceLong >= targetLong || sourceShort >= targetShort)) {
             videoUpscalingEnabled = false
-            AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
-            return false
         }
-        val effect: Effect = LanczosResample.scaleToFitWithFlexibleOrientation(targetLong, targetShort)
-        AssVideoEffectRegistry.setAdditionalEffects(player, listOf(effect))
-        return true
+
+        val effects = mutableListOf<Effect>()
+        // Denoise at source resolution before optional resampling to avoid magnifying grain.
+        if (videoDenoiseEnabled) effects += BilateralDenoiseEffect()
+        if (videoUpscalingEnabled) {
+            effects += LanczosResample.scaleToFitWithFlexibleOrientation(targetLong, targetShort)
+        }
+        return try {
+            AssVideoEffectRegistry.setAdditionalEffects(player, effects)
+            true
+        } catch (error: RuntimeException) {
+            videoUpscalingEnabled = false
+            videoDenoiseEnabled = false
+            AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
+            Log.w("PlaybackService", "Video effects pipeline unavailable", error)
+            false
+        }
     }
 
     /** Progress belongs to the playback service, so it continues after player UI closes. */
