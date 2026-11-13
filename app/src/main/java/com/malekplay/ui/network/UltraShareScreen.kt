@@ -142,6 +142,7 @@ class LegacyUltraShareViewModel @Inject constructor(
     private var invitationTimeout: Job? = null
     private var pendingInvitation: UltraShareQrCode.PairingDetails? = null
     private var pendingInvitationReady: ((String) -> Unit)? = null
+    private var reverseInvitationConnectionInProgress = false
     private val invitationPreferences by lazy {
         context.getSharedPreferences("ultra_share_invitation", Context.MODE_PRIVATE)
     }
@@ -193,6 +194,118 @@ class LegacyUltraShareViewModel @Inject constructor(
                     invitationPreferences.getString("active_invitation_id", null)
                         ?.let(::activateReceiverInvitation)
                 }
+            }
+        }
+    }
+
+    private fun completeReversedInvitationConnection(host: String) {
+        if (!_state.value.receiving || reverseInvitationConnectionInProgress) return
+        val secret = _state.value.pairingSecret
+        if (!UltraShareTransport.isValidPairingSecret(secret) ||
+            !UltraShareTransport.isValidPrivateLanHost(host)
+        ) {
+            _state.value = _state.value.copy(
+                wifiDirectHost = null,
+                scanning = false,
+                error = "تعذر بدء الاقتران العكسي: بيانات الجلسة أو عنوان الجهاز غير صالح."
+            )
+            return
+        }
+        reverseInvitationConnectionInProgress = true
+        wifiDirectSession?.stopInvitationDiscovery()
+        invitationTimeout?.cancel()
+        invitationTimeout = null
+        _state.value = _state.value.copy(
+            wifiDirectHost = null,
+            scanning = false,
+            error = null,
+            status = "انعكس دور Wi-Fi Direct؛ جارٍ إنشاء اقتران آمن عبر مالك المجموعة..."
+        )
+        viewModelScope.launch {
+            var accepted = false
+            var lastFailure: Exception? = null
+            try {
+                // The QR creator is now a P2P client. Connect to the remote group
+                // owner, which has started a temporary receiver with the same QR secret.
+                delay(500)
+                val candidates = listOf(host).distinct()
+                for (candidate in candidates) {
+                    val routes: List<android.net.Network?> =
+                        UltraShareNetworkRouting.findNetworksForHost(context, candidate)
+                            .map { it as android.net.Network? } + listOf(null)
+                    var stopOnProtocolFailure = false
+                    for (route in routes) {
+                        if (accepted || stopOnProtocolFailure) break
+                        for (attempt in 0..2) {
+                            try {
+                                val decision = withContext(Dispatchers.IO) {
+                                    UltraShareControlChannel.request(
+                                        host = candidate,
+                                        pairingSecret = secret,
+                                        peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" }
+                                            ?: "MalekPlay Android",
+                                        network = route,
+                                        peerId = UltraShareDiscovery.localPeerId(context)
+                                    )
+                                }
+                                if (decision == UltraShareControlChannel.Decision.REJECTED) {
+                                    stopOnProtocolFailure = true
+                                    lastFailure = IllegalStateException("رفض الجهاز الآخر طلب الاقتران الآمن.")
+                                } else {
+                                    accepted = true
+                                }
+                                break
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                lastFailure = failure
+                                if (failure !is java.io.IOException) {
+                                    stopOnProtocolFailure = true
+                                    break
+                                }
+                                if (attempt < 2) delay(500L * (attempt + 1))
+                            }
+                        }
+                    }
+                    if (accepted || stopOnProtocolFailure) break
+                }
+                if (accepted) {
+                    val remotePeerId = UltraShareControlChannel.sessionPeerId(host)
+                    val remotePeerName = UltraShareControlChannel.sessionPeerName(host)
+                        ?: "جهاز MalekPlay"
+                    val sessionId = remotePeerId?.takeIf { it.isNotBlank() }
+                        ?: java.util.UUID.randomUUID().toString()
+                    UltraShareForegroundService.registerApprovedPeer(
+                        name = remotePeerName,
+                        host = host,
+                        role = "اقتران عكسي آمن عبر Wi-Fi Direct",
+                        sessionId = sessionId
+                    )
+                    if (!remotePeerId.isNullOrBlank()) {
+                        UltraShareForegroundService.registerApprovedSendTarget(
+                            UltraShareApprovedSendTarget(
+                                sessionId = remotePeerId,
+                                host = host,
+                                secret = secret
+                            )
+                        )
+                    }
+                    _state.value = _state.value.copy(
+                        wifiDirectHost = host,
+                        scanning = false,
+                        error = null,
+                        status = "اكتمل الاقتران العكسي بأمان مع $remotePeerName؛ الإرسال والاستقبال متاحان."
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        wifiDirectHost = null,
+                        scanning = false,
+                        error = lastFailure?.localizedMessage
+                            ?: "تعذر إكمال الاقتران العكسي. أبقِ الجهازين متصلين وأعد المحاولة."
+                    )
+                }
+            } finally {
+                reverseInvitationConnectionInProgress = false
             }
         }
     }
@@ -346,35 +459,41 @@ class LegacyUltraShareViewModel @Inject constructor(
                         if (!fallback.isNullOrBlank()) {
                             completeInvitationConnection(fallback, "تعذر تحديد مسار Wi-Fi Direct؛ سيتم استخدام شبكة Wi-Fi العادية.")
                         } else if (pendingInvitationReady != null) {
-                            // The QR scanner unexpectedly became the group owner.
-                            // In that topology the receiver is a P2P client and its
-                            // client IP is not groupOwnerAddress. Never try to connect
-                            // to our own GO address or mark the peer as authenticated.
+                            // Android selected the QR scanner as group owner. Turn it
+                            // into a temporary receiver with the same one-session secret;
+                            // the QR creator will authenticate back to this GO address.
+                            val pairing = pendingInvitation
                             pendingInvitationReady = null
                             pendingInvitation = null
                             invitationTimeout?.cancel()
                             invitationTimeout = null
-                            wifiDirectSession?.removeGroup()
-                            _state.value = _state.value.copy(
-                                wifiDirectHost = null,
-                                scanning = false,
-                                error = "عكس Android دور الجهازين في Wi-Fi Direct؛ لا يمكن تحديد عنوان جهاز الاستقبال بأمان. أعد إنشاء رمز QR وحاول الاقتران مجدداً."
-                            )
+                            wifiDirectSession?.stopInvitationDiscovery()
+                            if (pairing != null && UltraShareTransport.isValidPairingSecret(pairing.pairingSecret)) {
+                                UltraShareForegroundService.startReceiving(context, pairing.pairingSecret)
+                                _state.value = _state.value.copy(
+                                    wifiDirectHost = null,
+                                    scanning = false,
+                                    error = null,
+                                    status = "انعكس دور Wi-Fi Direct؛ أصبح هذا الجهاز مستقبلاً مؤقتاً وننتظر مصادقة الجهاز الآخر..."
+                                )
+                            } else {
+                                _state.value = _state.value.copy(
+                                    wifiDirectHost = null,
+                                    scanning = false,
+                                    error = "تعذر استعادة سر جلسة QR للاقتران العكسي. أنشئ رمزاً جديداً."
+                                )
+                            }
                         }
                     }
                 } else if (!remoteHost.isNullOrBlank()) {
                     if (pendingInvitationReady != null) {
                         completeInvitationConnection(remoteHost, "تم الاتصال تلقائياً عبر Wi-Fi Direct؛ الجهاز جاهز للإرسال.")
                     } else if (_state.value.receiving) {
-                        // The QR receiver became a P2P client. remoteHost is the
-                        // remote group owner, not this receiver's client address.
-                        // Keep the authenticated TCP receiver alive for the sender's
-                        // LAN fallback, but never publish this address as a peer.
-                        _state.value = _state.value.copy(
-                            wifiDirectHost = null,
-                            scanning = false,
-                            status = "تغيّر دور الجهازين في Wi-Fi Direct؛ الاستقبال مستمر وننتظر الاقتران عبر مسار الشبكة البديل."
-                        )
+                        // This is the QR creator. The remote group owner is now the
+                        // scanner; authenticate to its temporary receiver with our
+                        // existing one-session secret instead of treating its address
+                        // as an unauthenticated peer.
+                        completeReversedInvitationConnection(remoteHost)
                     } else {
                         _state.value = _state.value.copy(
                             wifiDirectHost = remoteHost,
