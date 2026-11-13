@@ -70,6 +70,7 @@ class UltraShareForegroundService : Service() {
     @Volatile private var sendJob: Job? = null
     @Volatile private var pauseRequested = false
     private var advertisementJob: Job? = null
+    private var pairingJob: Job? = null
     private var hotspotReservation: AutoCloseable? = null
     private var hotspotCallback: Any? = null
     private lateinit var notificationManager: NotificationManager
@@ -117,6 +118,7 @@ class UltraShareForegroundService : Service() {
             ACTION_STOP_RECEIVING -> {
                 receiveJob?.cancel()
                 advertisementJob?.cancel()
+                pairingJob?.cancel()
                 return START_NOT_STICKY
             }
             ACTION_START_HOTSPOT -> {
@@ -133,6 +135,7 @@ class UltraShareForegroundService : Service() {
                 sendJob?.cancel()
                 receiveJob?.cancel()
                 advertisementJob?.cancel()
+                pairingJob?.cancel()
                 stopLocalHotspot()
                 if (sendJob == null && receiveJob == null) finishService()
                 return START_NOT_STICKY
@@ -165,6 +168,23 @@ class UltraShareForegroundService : Service() {
                             updateState { current -> current.copy(
                                 status = "الاستقبال يعمل، لكن الاكتشاف التلقائي غير متاح. استخدم عنوان IP الظاهر يدوياً.",
                                 error = failure.localizedMessage ?: "تعذر تشغيل الاكتشاف التلقائي للأجهزة."
+                            ) }
+                        }
+                    }
+                    pairingJob = launch {
+                        try {
+                            UltraSharePairing.serveWhileActive(secret) { peer ->
+                                updateState { current -> current.copy(
+                                    status = "تم الاقتران والتحقق من الجهاز $peer. أصبح جاهزاً لاستقبال الملفات.",
+                                    error = null
+                                ) }
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            updateState { current -> current.copy(
+                                status = "الاستقبال يعمل، لكن خدمة الاقتران التلقائي غير متاحة؛ يمكنك استخدام الإرسال المباشر.",
+                                error = failure.localizedMessage ?: "تعذر تشغيل خدمة الاقتران."
                             ) }
                         }
                     }
@@ -233,6 +253,8 @@ class UltraShareForegroundService : Service() {
                     } finally {
                         advertisementJob?.cancel()
                         advertisementJob = null
+                        pairingJob?.cancel()
+                        pairingJob = null
                         receiveJob = null
                         updateState { current -> current.copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (current.sending) current.sendProgress else null, receiveProgress = null) }
                         finishService()
@@ -336,6 +358,7 @@ class UltraShareForegroundService : Service() {
         sendJob?.cancel()
         receiveJob?.cancel()
         advertisementJob?.cancel()
+        pairingJob?.cancel()
         releaseTransferLocks()
         runCatching { hotspotReservation?.close() }
         hotspotReservation = null
