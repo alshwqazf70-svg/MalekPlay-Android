@@ -5,7 +5,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -51,10 +51,14 @@ class UltraSharePairingIntegrationTest {
             val pairedHost = withTimeout(20_000) {
                 UltraSharePairing.connect(host, correctPin)
             }
-            assertEquals(host, pairedHost)
+            assertTrue("The client must complete pairing with the requested receiver address", pairedHost == host)
 
             withTimeout(10_000) { receiver.await() }
-            assertEquals(host, pairedPeer)
+            assertNotNull("The receiver must report the authenticated peer", pairedPeer)
+            assertTrue(
+                "The authenticated peer must be a private LAN address",
+                UltraShareTransport.isValidPrivateLanHost(pairedPeer.orEmpty())
+            )
             assertTrue("A successful pairing consumes the one-time receiver session", receiver.isCompleted)
         } finally {
             receiver.cancelAndJoin()
