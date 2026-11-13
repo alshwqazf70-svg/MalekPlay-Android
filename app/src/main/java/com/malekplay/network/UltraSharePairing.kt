@@ -107,6 +107,9 @@ object UltraSharePairing {
                             output.flush()
                             if (accepted) {
                                 onPaired(peer.inetAddress.hostAddress ?: "جهاز قريب")
+                                // Pairing authorization is single-use; the file-transfer
+                                // listener remains available on its separate port.
+                                return@withContext
                             }
                         }
                     } catch (_: Exception) {
