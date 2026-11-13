@@ -56,8 +56,8 @@ class SubtitleTranslationPolicyTest {
             SubtitleTranslationPolicy.separator(0, 0),
             SubtitleTranslationPolicy.separator(0, 1)
         )
-        val translated = "مرحبا\\n" + separators[0] + "\\nكيف حالك؟\\n" +
-            separators[1] + "\\nوداعاً"
+        val translated = "مرحبا\n" + separators[0] + "\nكيف حالك؟\n" +
+            separators[1] + "\nوداعاً"
         assertEquals(
             listOf("مرحبا", "كيف حالك؟", "وداعاً"),
             SubtitleTranslationPolicy.splitBatchTranslation(translated, separators)
@@ -70,7 +70,7 @@ class SubtitleTranslationPolicyTest {
         assertNull(SubtitleTranslationPolicy.splitBatchTranslation("مرحبا وداعاً", listOf(separator)))
         assertNull(
             SubtitleTranslationPolicy.splitBatchTranslation(
-                "مرحبا\\n" + separator + "\\n\\n",
+                "مرحبا\n" + separator + "\n\n",
                 listOf(separator)
             )
         )
