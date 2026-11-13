@@ -3,6 +3,7 @@ package com.malekplay.player.audio
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
+import android.media.audiofx.NoiseSuppressor
 import android.media.audiofx.Visualizer
 import android.media.audiofx.Virtualizer
 import android.util.Log
@@ -25,6 +26,8 @@ class AudioEffectsController {
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
     private var loudness: LoudnessEnhancer? = null
+    private var noiseSuppressor: NoiseSuppressor? = null
+    private var noiseReductionRequested = false
     private var visualizer: Visualizer? = null
 
     private var currentSessionId = 0
@@ -36,6 +39,12 @@ class AudioEffectsController {
 
     private val _available = MutableStateFlow(false)
     val available: StateFlow<Boolean> = _available.asStateFlow()
+
+    private val _noiseReductionAvailable = MutableStateFlow(false)
+    val noiseReductionAvailable: StateFlow<Boolean> = _noiseReductionAvailable.asStateFlow()
+
+    private val _noiseReductionEnabled = MutableStateFlow(false)
+    val noiseReductionEnabled: StateFlow<Boolean> = _noiseReductionEnabled.asStateFlow()
 
     private val _bandCount = MutableStateFlow(0)
     val bandCount: StateFlow<Int> = _bandCount.asStateFlow()
@@ -115,6 +124,16 @@ class AudioEffectsController {
             }
         }.onFailure { Log.w(TAG, "LoudnessEnhancer unavailable", it) }.getOrNull()
 
+        noiseSuppressor = runCatching {
+            if (NoiseSuppressor.isAvailable()) {
+                NoiseSuppressor.create(audioSessionId)?.apply {
+                    enabled = noiseReductionRequested
+                }
+            } else null
+        }.onFailure { Log.w(TAG, "NoiseSuppressor unavailable", it) }.getOrNull()
+        _noiseReductionAvailable.value = noiseSuppressor != null
+        _noiseReductionEnabled.value = noiseSuppressor?.enabled == true
+
         _available.value = equalizer != null || bassBoost != null ||
             virtualizer != null || loudness != null
     }
@@ -181,6 +200,24 @@ class AudioEffectsController {
         }.onFailure { Log.w(TAG, "Virtualizer set failed", it) }
     }
 
+    /** Enables the platform DSP noise suppressor only when the active audio session supports it. */
+    @Synchronized
+    fun setNoiseReductionEnabled(enabled: Boolean) {
+        noiseReductionRequested = enabled
+        val effect = noiseSuppressor
+        if (effect == null) {
+            _noiseReductionEnabled.value = false
+            return
+        }
+        runCatching {
+            effect.enabled = enabled
+            _noiseReductionEnabled.value = effect.enabled
+        }.onFailure {
+            _noiseReductionEnabled.value = false
+            Log.w(TAG, "Noise suppression toggle failed", it)
+        }
+    }
+
     @Synchronized
     fun setLoudness(gainDb: Int) {
         loudnessGain = gainDb.coerceIn(0, 30)
@@ -235,11 +272,15 @@ class AudioEffectsController {
         runCatching { bassBoost?.release() }
         runCatching { virtualizer?.release() }
         runCatching { loudness?.release() }
+        runCatching { noiseSuppressor?.release() }
         stopVisualizer()
         equalizer = null
         bassBoost = null
         virtualizer = null
         loudness = null
+        noiseSuppressor = null
+        _noiseReductionAvailable.value = false
+        _noiseReductionEnabled.value = false
         currentSessionId = 0
         _available.value = false
         _bandCount.value = 0
