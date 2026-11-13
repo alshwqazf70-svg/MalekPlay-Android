@@ -88,26 +88,52 @@ class SubtitleTranslationEngine @Inject constructor(
         val translator = Translation.getClient(options)
         return try {
             translator.downloadModelIfNeeded(DownloadConditions.Builder().build()).awaitResult()
-            val translatedCues = mutableListOf<String>()
-            for (cue in SrtSubtitleParser.splitBlocks(sourceText)) {
-                currentCoroutineContext().ensureActive()
+            data class CueToTranslate(
+                val originalIndex: Int,
+                val lines: List<String>,
+                val textStart: Int,
+                val maskedText: String,
+                val markup: List<String>
+            )
+            val translatedCues = SrtSubtitleParser.splitBlocks(sourceText).toMutableList()
+            val pending = translatedCues.mapIndexedNotNull { index, cue ->
                 val lines = cue.split('\n')
                 val timeIndex = SrtSubtitleParser.timingLineIndex(lines)
-                if (timeIndex < 0 || timeIndex + 1 >= lines.size) {
-                    translatedCues += cue
-                    continue
-                }
+                if (timeIndex < 0 || timeIndex + 1 >= lines.size) return@mapIndexedNotNull null
                 val textStart = timeIndex + 1
                 val subtitleText = lines.drop(textStart).joinToString("\n")
-                if (subtitleText.isBlank()) {
-                    translatedCues += cue
-                    continue
-                }
+                if (subtitleText.isBlank()) return@mapIndexedNotNull null
                 val (maskedText, markup) = SrtSubtitleParser.maskMarkup(subtitleText)
-                val translatedText = translator.translate(maskedText).awaitResult()
+                CueToTranslate(index, lines, textStart, maskedText, markup)
+            }
+
+            // Translate small neighbouring groups together for better dialogue context.
+            // If the model changes a boundary token, safely fall back to cue-by-cue translation.
+            for (chunk in SubtitleTranslationPolicy.chunkCueTexts(pending.map { it.maskedText })) {
                 currentCoroutineContext().ensureActive()
-                val restoredText = SrtSubtitleParser.restoreMarkup(translatedText, markup)
-                translatedCues += (lines.take(textStart) + restoredText.split('\n')).joinToString("\n")
+                val batch = chunk.map(pending::get)
+                val separators = (0 until (batch.size - 1)).map { position ->
+                    SubtitleTranslationPolicy.separator(chunk.first(), position)
+                }
+                val request = buildString {
+                    batch.forEachIndexed { index, cue ->
+                        if (index > 0) append("\n").append(separators[index - 1]).append("\n")
+                        append(cue.maskedText)
+                    }
+                }
+                val batchResult = if (batch.size == 1) {
+                    listOf(translator.translate(request).awaitResult())
+                } else {
+                    val translatedBatch = translator.translate(request).awaitResult()
+                    SubtitleTranslationPolicy.splitBatchTranslation(translatedBatch, separators)
+                        ?: batch.map { cue -> translator.translate(cue.maskedText).awaitResult() }
+                }
+                batch.forEachIndexed { index, cue ->
+                    currentCoroutineContext().ensureActive()
+                    val restoredText = SrtSubtitleParser.restoreMarkup(batchResult[index], cue.markup)
+                    translatedCues[cue.originalIndex] =
+                        (cue.lines.take(cue.textStart) + restoredText.split('\n')).joinToString("\n")
+                }
             }
             val translated = translatedCues.joinToString("\n\n")
             val output = withContext(Dispatchers.IO) {
