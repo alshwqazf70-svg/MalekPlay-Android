@@ -24,6 +24,35 @@ class ExternalWifiDirectQrTest {
     }
 
     @Test
+    fun parsesObservedAndroid6QrWithoutOptionalWifiDirectFields() {
+        val android6Payload =
+            "http://kuaiya.cn/q?sid=d2B03U00tSjMyN1A&ip=192.168.43.1&t=2&k=4f65"
+
+        val details = ExternalWifiDirectQr.parse(android6Payload)
+
+        assertEquals("d2B03U00tSjMyN1A", details.sessionId)
+        assertEquals("192.168.43.1", details.hostAddress)
+        assertEquals(null, details.frequencyMhz)
+        assertEquals(null, details.opaquePasswordToken)
+        assertEquals("2", details.connectionType)
+        assertEquals("4f65", details.opaqueVerificationToken)
+        assertFalse(details.supportsAutomaticJoin)
+    }
+
+    @Test
+    fun parsesObservedAndroid10QrMetadata() {
+        val android10Payload =
+            "http://kuaiya.cn/q?sid=DIRECT-z8-rxAAABBU00tTjk2MFU&freq=5240" +
+                "&ip=192.168.49.1&ps=RX0r13HAG1Fa7gaShLTcvw%3D%3D&t=2&k=d0de"
+
+        val details = ExternalWifiDirectQr.parse(android10Payload)
+
+        assertEquals("192.168.49.1", details.hostAddress)
+        assertEquals(5240, details.frequencyMhz)
+        assertEquals("RX0r13HAG1Fa7gaShLTcvw==", details.opaquePasswordToken)
+    }
+
+    @Test
     fun redactsOpaqueTokensFromDiagnosticText() {
         val details = ExternalWifiDirectQr.parse(payload)
         val diagnostic = details.toString()
