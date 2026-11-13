@@ -1416,7 +1416,7 @@ fun UltraShareScreen(
                     ) { Text("ملفات") }
                 }
                 OutlinedButton(
-                    onClick = viewModel::scanNearbyDevices,
+                    onClick = { requestWifiDirectAction { viewModel.scanNearbyGroups() } },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.sending && !state.receiving && !state.scanning
                 ) {
