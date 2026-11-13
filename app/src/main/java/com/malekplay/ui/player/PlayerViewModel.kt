@@ -146,6 +146,8 @@ class PlayerViewModel @Inject constructor(
     private val _stats = MutableStateFlow(PlaybackStats())
     private val _videoUpscalingEnabled = MutableStateFlow(false)
     val videoUpscalingEnabled: StateFlow<Boolean> = _videoUpscalingEnabled.asStateFlow()
+    private val _videoDenoiseEnabled = MutableStateFlow(false)
+    val videoDenoiseEnabled: StateFlow<Boolean> = _videoDenoiseEnabled.asStateFlow()
     private val _videoUpscalingError = MutableStateFlow<String?>(null)
     val videoUpscalingError: StateFlow<String?> = _videoUpscalingError.asStateFlow()
     val stats: StateFlow<PlaybackStats> = _stats.asStateFlow()
@@ -364,6 +366,8 @@ class PlayerViewModel @Inject constructor(
                 if (result.resultCode == SessionResult.RESULT_SUCCESS) {
                     _videoUpscalingEnabled.value =
                         result.extras.getBoolean(PlaybackVideoEffects.KEY_STATE_ENABLED, false)
+                    _videoDenoiseEnabled.value =
+                        result.extras.getBoolean(PlaybackVideoEffects.KEY_STATE_DENOISE, false)
                 }
             },
             ContextCompat.getMainExecutor(app)
@@ -391,6 +395,9 @@ class PlayerViewModel @Inject constructor(
                 _videoUpscalingEnabled.value = if (success) {
                     result?.extras?.getBoolean(PlaybackVideoEffects.KEY_STATE_ENABLED, enabled) ?: enabled
                 } else false
+                _videoDenoiseEnabled.value = result?.extras?.getBoolean(
+                    PlaybackVideoEffects.KEY_STATE_DENOISE, _videoDenoiseEnabled.value
+                ) ?: _videoDenoiseEnabled.value
                 if (!success) {
                     _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_gpu_upscaling_unavailable)
                 }
@@ -401,6 +408,28 @@ class PlayerViewModel @Inject constructor(
 
     fun clearVideoUpscalingError() {
         _videoUpscalingError.value = null
+    }
+
+    /** Requests the real local GPU denoiser from the playback service. */
+    fun setVideoDenoiseEnabled(enabled: Boolean) {
+        val player = _controller.value ?: return
+        val args = Bundle().apply { putBoolean(PlaybackVideoEffects.KEY_ENABLED, enabled) }
+        val future = runCatching {
+            player.sendCustomCommand(PlaybackVideoEffects.DENOISE_COMMAND, args)
+        }.getOrNull() ?: return
+        future.addListener(
+            {
+                val result = runCatching { future.get() }.getOrNull()
+                val success = result?.resultCode == SessionResult.RESULT_SUCCESS
+                _videoDenoiseEnabled.value = if (success) {
+                    result?.extras?.getBoolean(PlaybackVideoEffects.KEY_STATE_DENOISE, enabled) ?: enabled
+                } else false
+                _videoUpscalingEnabled.value = result?.extras?.getBoolean(
+                    PlaybackVideoEffects.KEY_STATE_ENABLED, _videoUpscalingEnabled.value
+                ) ?: _videoUpscalingEnabled.value
+            },
+            ContextCompat.getMainExecutor(app)
+        )
     }
 
     // ------------------------------------------------------------ playback
