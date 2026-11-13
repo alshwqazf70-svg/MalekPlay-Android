@@ -83,4 +83,12 @@ class UltraShareNetworkRoutingTest {
         assertFalse(requiresWifiDirectLocationService(35)) // Android 15
     }
 
+    @Test
+    fun rejectsStaleWifiDirectConnectionCallbacks() {
+        assertTrue(isCurrentWifiDirectConnectionAttempt(false, true, 7, 7))
+        assertFalse(isCurrentWifiDirectConnectionAttempt(true, true, 7, 7))
+        assertFalse(isCurrentWifiDirectConnectionAttempt(false, false, 7, 7))
+        assertFalse(isCurrentWifiDirectConnectionAttempt(false, true, 8, 7))
+    }
+
 }

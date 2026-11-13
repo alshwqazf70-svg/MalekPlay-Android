@@ -421,8 +421,11 @@ object UltraShareWifiDirect {
             // permanently stuck in connectionInProgress.
             connectionTimeout?.let(mainHandler::removeCallbacks)
             val peerRefreshTimeout = Runnable {
-                if (!closed && connectionInProgress && token == connectionAttemptToken) {
+                if (isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) {
                     connectionInProgress = false
+                    connectionTimeout = null
+                    // Invalidate any requestPeers callback that arrives after this timeout.
+                    connectionAttemptToken++
                     onError("لم يستجب Android لتحديث قائمة أجهزة Wi-Fi Direct. أعد البحث ثم حاول الاتصال مجدداً.")
                 }
             }
@@ -432,7 +435,7 @@ object UltraShareWifiDirect {
                 // Refresh the peer list immediately before connecting; old peer entries
                 // can remain visible after an invitation has already failed.
                 manager.requestPeers(channel) { peers ->
-                    if (closed || token != connectionAttemptToken) return@requestPeers
+                    if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return@requestPeers
                     connectionTimeout?.let(mainHandler::removeCallbacks)
                     connectionTimeout = null
                     val currentPeer = peers.deviceList.firstOrNull {
@@ -445,6 +448,9 @@ object UltraShareWifiDirect {
                 }
             } catch (failure: SecurityException) {
                 connectionInProgress = false
+                connectionTimeout?.let(mainHandler::removeCallbacks)
+                connectionTimeout = null
+                connectionAttemptToken++
                 onError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
             }
         }
@@ -456,7 +462,7 @@ object UltraShareWifiDirect {
             token: Int,
             attempt: Int
         ) {
-            if (closed || token != connectionAttemptToken) return
+            if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
             val config = WifiP2pConfig().apply {
                 this.deviceAddress = deviceAddress
                 // Receiver owns the group; sender explicitly prefers the remote receiver.
@@ -466,15 +472,16 @@ object UltraShareWifiDirect {
             try {
                 manager.connect(channel, config, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        if (closed || token != connectionAttemptToken) return
+                        if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
                         connectionTimeout?.let(mainHandler::removeCallbacks)
                         val timeout = Runnable {
-                            if (!closed && connectionInProgress && token == connectionAttemptToken) {
+                            if (isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) {
                                 connectionInProgress = false
+                                connectionTimeout = null
                                 runCatching { manager.cancelConnect(channel, null) }
                                 if (attempt < 2) {
                                     mainHandler.postDelayed({
-                                        if (!closed && token == connectionAttemptToken) {
+                                        if (!closed && !connectionInProgress && token == connectionAttemptToken) {
                                             connectionInProgress = true
                                             connectAttempt(
                                                 deviceAddress,
@@ -485,6 +492,7 @@ object UltraShareWifiDirect {
                                         }
                                     }, 800L * (attempt + 1))
                                 } else {
+                                    connectionAttemptToken++
                                     onError("انتهت مهلة اتصال Wi-Fi Direct بعد محاولات متعددة. تأكد من بقاء الجهازين قريبين ثم أعد المحاولة.")
                                 }
                             }
@@ -494,7 +502,7 @@ object UltraShareWifiDirect {
                     }
 
                     override fun onFailure(reason: Int) {
-                        if (closed || token != connectionAttemptToken) return
+                        if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
                         if ((reason == WifiP2pManager.BUSY || reason == WifiP2pManager.ERROR) && attempt < 2) {
                             runCatching { manager.cancelConnect(channel, null) }
                             mainHandler.postDelayed({
@@ -504,12 +512,18 @@ object UltraShareWifiDirect {
                             }, 900L * (attempt + 1))
                         } else {
                             connectionInProgress = false
+                            connectionTimeout?.let(mainHandler::removeCallbacks)
+                            connectionTimeout = null
+                            connectionAttemptToken++
                             onError(connectFailureMessage(reason))
                         }
                     }
                 })
             } catch (failure: SecurityException) {
                 connectionInProgress = false
+                connectionTimeout?.let(mainHandler::removeCallbacks)
+                connectionTimeout = null
+                connectionAttemptToken++
                 onError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
             }
         }
@@ -636,3 +650,11 @@ object UltraShareWifiDirect {
 
 /** Android 10 through 12L require Location services enabled for Wi-Fi Direct discovery. */
 internal fun requiresWifiDirectLocationService(sdkInt: Int): Boolean = sdkInt in 29..32
+
+/** Rejects delayed callbacks after timeout, completion, closure, or a newer attempt. */
+internal fun isCurrentWifiDirectConnectionAttempt(
+    sessionClosed: Boolean,
+    connectionInProgress: Boolean,
+    currentToken: Int,
+    callbackToken: Int
+): Boolean = !sessionClosed && connectionInProgress && currentToken == callbackToken
