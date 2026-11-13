@@ -10,7 +10,8 @@ internal object VideoDenoisePolicy {
     fun isEligible(width: Int, height: Int, frameRate: Float, glEsVersion: Int): Boolean {
         if (width <= 0 || height <= 0 || glEsVersion < MIN_OPENGL_ES_VERSION) return false
         if (maxOf(width, height) > MAX_LONG_SIDE || minOf(width, height) > MAX_SHORT_SIDE) return false
-        if (frameRate.isFinite() && frameRate > MAX_FRAME_RATE) return false
+        if (!frameRate.isFinite() && frameRate != -1f) return false
+        if (frameRate > MAX_FRAME_RATE) return false
         return true
     }
 }
