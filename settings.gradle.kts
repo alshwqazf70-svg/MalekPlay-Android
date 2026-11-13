@@ -1,4 +1,15 @@
 pluginManagement {
+    // Keep the stable AGP version while using the R8 release required
+    // to parse Kotlin 2.2 metadata correctly.
+    buildscript {
+        repositories {
+            google()
+            mavenCentral()
+        }
+        dependencies {
+            classpath("com.android.tools:r8:8.10.21")
+        }
+    }
     repositories {
         google()
         mavenCentral()
