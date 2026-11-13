@@ -20,13 +20,18 @@ import java.util.EnumMap
 object UltraShareQrCode {
     private const val SCHEMA = "malekplay"
     private const val AUTHORITY = "ultra-share"
-    private const val VERSION = "1"
+    private const val VERSION = "2"
     private const val MAX_DECODE_DIMENSION = 2048
 
-    fun createPayload(host: String, port: Int, pairingSecret: String): String {
+    fun createPayload(host: String, port: Int, pairingSecret: String): String =
+        createPayload(listOf(host), port, pairingSecret)
+
+    fun createPayload(hosts: List<String>, port: Int, pairingSecret: String): String {
         require(port in 1..65535) { "منفذ الاقتران غير صالح." }
-        require(UltraShareTransport.isValidPrivateLanHost(host)) {
-            "عنوان QR يجب أن يكون IPv4 خاصاً بالشبكة المحلية."
+        require(hosts.isNotEmpty() && hosts.size <= 6) { "عدد عناوين الأجهزة في QR غير صالح." }
+        val validHosts = hosts.map { it.trim() }.distinct()
+        require(validHosts.all(UltraShareTransport::isValidPrivateLanHost)) {
+            "عناوين QR يجب أن تكون IPv4 خاصة بالشبكة المحلية."
         }
         require(UltraShareTransport.isValidPairingSecret(pairingSecret)) {
             "رمز الاقتران غير صالح."
@@ -35,7 +40,7 @@ object UltraShareQrCode {
             .scheme(SCHEMA)
             .authority(AUTHORITY)
             .appendQueryParameter("v", VERSION)
-            .appendQueryParameter("host", host)
+            .appendQueryParameter("hosts", validHosts.joinToString(","))
             .appendQueryParameter("port", port.toString())
             .appendQueryParameter("secret", pairingSecret)
             .build()
@@ -45,7 +50,8 @@ object UltraShareQrCode {
     data class PairingDetails(
         val host: String,
         val port: Int,
-        val pairingSecret: String
+        val pairingSecret: String,
+        val hosts: List<String> = listOf(host)
     )
 
     fun parsePayload(payload: String): PairingDetails {
@@ -53,19 +59,25 @@ object UltraShareQrCode {
         require(uri.scheme == SCHEMA && uri.authority == AUTHORITY) {
             "رمز QR ليس رمز اقتران MalekPlay Ultra Share."
         }
-        require(uri.getQueryParameter("v") == VERSION) {
+        val version = uri.getQueryParameter("v")
+        require(version == "1" || version == VERSION) {
             "إصدار رمز الاقتران غير مدعوم."
         }
-        val host = requireNotNull(uri.getQueryParameter("host")) { "عنوان الجهاز غير موجود في رمز QR." }
-        require(UltraShareTransport.isValidPrivateLanHost(host)) {
-            "عنوان الجهاز في QR ليس عنوان IPv4 محلياً صالحاً."
+        val hosts = if (version == "1") {
+            listOfNotNull(uri.getQueryParameter("host"))
+        } else {
+            uri.getQueryParameter("hosts").orEmpty().split(',').map { it.trim() }.filter { it.isNotBlank() }
+        }.distinct()
+        require(hosts.isNotEmpty() && hosts.size <= 6) { "عناوين الأجهزة غير موجودة أو تتجاوز الحد المسموح." }
+        require(hosts.all(UltraShareTransport::isValidPrivateLanHost)) {
+            "أحد عناوين الجهاز في QR ليس عنوان IPv4 محلياً صالحاً."
         }
         val port = requireNotNull(uri.getQueryParameter("port")) { "منفذ الجهاز غير موجود في رمز QR." }
             .toIntOrNull() ?: throw IllegalArgumentException("منفذ الاقتران غير صالح.")
         val secret = requireNotNull(uri.getQueryParameter("secret")) { "رمز الاقتران غير موجود في رمز QR." }
         require(UltraShareTransport.isValidPairingSecret(secret)) { "رمز الاقتران في QR غير صالح." }
         require(port == UltraShareTransport.DEFAULT_PORT) { "منفذ MalekPlay Ultra Share غير متوافق." }
-        return PairingDetails(host, port, secret)
+        return PairingDetails(hosts.first(), port, secret, hosts)
     }
 
     fun createBitmap(payload: String, dimension: Int = 640): Bitmap {
