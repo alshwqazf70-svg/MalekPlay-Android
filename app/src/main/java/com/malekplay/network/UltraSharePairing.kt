@@ -6,10 +6,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import java.io.DataInputStream
 import java.io.DataOutputStream
-import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
-import java.net.Socket
 import java.net.SocketTimeoutException
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -82,35 +80,34 @@ object UltraSharePairing {
                 }
                 socket.use { peer ->
                     try {
-                        if (!peer.inetAddress.isSiteLocalAddress && !peer.inetAddress.isLinkLocalAddress) {
-                            return@use
-                        }
-                        peer.soTimeout = TIMEOUT_MS
-                        peer.tcpNoDelay = true
-                        val input = DataInputStream(peer.getInputStream())
-                        val output = DataOutputStream(peer.getOutputStream())
-                        val challenge = ByteArray(CHALLENGE_BYTES).also(SecureRandom()::nextBytes)
-                        val key = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
-                        output.writeInt(MAGIC)
-                        output.write(challenge)
-                        output.flush()
-                        val supplied = ByteArray(32).also(input::readFully)
-                        val expected = UltraShareTransport.hmac(
-                            key,
-                            "MalekPlay Ultra Share pairing/client/v1".toByteArray(Charsets.UTF_8) + challenge
-                        )
-                        val accepted = MessageDigest.isEqual(supplied, expected)
-                        output.writeBoolean(accepted)
-                        if (accepted) {
-                            val proof = UltraShareTransport.hmac(
+                        if (peer.inetAddress.isSiteLocalAddress || peer.inetAddress.isLinkLocalAddress) {
+                            peer.soTimeout = TIMEOUT_MS
+                            peer.tcpNoDelay = true
+                            val input = DataInputStream(peer.getInputStream())
+                            val output = DataOutputStream(peer.getOutputStream())
+                            val challenge = ByteArray(CHALLENGE_BYTES).also(SecureRandom()::nextBytes)
+                            val key = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
+                            output.writeInt(MAGIC)
+                            output.write(challenge)
+                            output.flush()
+                            val supplied = ByteArray(32).also(input::readFully)
+                            val expected = UltraShareTransport.hmac(
                                 key,
-                                "MalekPlay Ultra Share pairing/server/v1".toByteArray(Charsets.UTF_8) + challenge
+                                "MalekPlay Ultra Share pairing/client/v1".toByteArray(Charsets.UTF_8) + challenge
                             )
-                            output.write(proof)
-                        }
-                        output.flush()
-                        if (accepted) {
-                            onPaired(peer.inetAddress.hostAddress ?: "جهاز قريب")
+                            val accepted = MessageDigest.isEqual(supplied, expected)
+                            output.writeBoolean(accepted)
+                            if (accepted) {
+                                val proof = UltraShareTransport.hmac(
+                                    key,
+                                    "MalekPlay Ultra Share pairing/server/v1".toByteArray(Charsets.UTF_8) + challenge
+                                )
+                                output.write(proof)
+                            }
+                            output.flush()
+                            if (accepted) {
+                                onPaired(peer.inetAddress.hostAddress ?: "جهاز قريب")
+                            }
                         }
                     } catch (_: Exception) {
                         // Invalid or interrupted pairing attempts do not stop the receiver.
