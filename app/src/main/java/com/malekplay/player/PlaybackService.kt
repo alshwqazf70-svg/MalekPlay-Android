@@ -254,6 +254,11 @@ class PlaybackService : MediaSessionService() {
             if (!isTrustedAppController(controller)) {
                 return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
             }
+            if (customCommand.customAction == PlaybackVideoEffects.ACTION_GET_STATE) {
+                return Futures.immediateFuture(
+                    SessionResult(SessionResult.RESULT_SUCCESS, videoEffectStateBundle())
+                )
+            }
             val requested = args.getBoolean(PlaybackVideoEffects.KEY_ENABLED, false)
             val accepted = when (customCommand.customAction) {
                 PlaybackVideoEffects.ACTION_UPSCALING -> setVideoUpscaling(requested)
@@ -267,10 +272,18 @@ class PlaybackService : MediaSessionService() {
             return Futures.immediateFuture(
                 SessionResult(
                     if (accepted) SessionResult.RESULT_SUCCESS
-                    else SessionError.ERROR_NOT_SUPPORTED
+                    else SessionError.ERROR_NOT_SUPPORTED,
+                    videoEffectStateBundle()
                 )
             )
         }
+    }
+
+    private fun videoEffectStateBundle(): Bundle = Bundle().apply {
+        putBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, videoUpscalingEnabled)
+        putBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, videoNoiseReductionEnabled)
+        putBoolean(PlaybackVideoEffects.KEY_STATE_MOTION_SMOOTHING, videoMotionSmoothingEnabled)
+        putString(PlaybackVideoEffects.KEY_STATE_PROFILE, videoEnhancementProfile.wireValue)
     }
 
     private val videoEffectRouteListener = object : Player.Listener {
