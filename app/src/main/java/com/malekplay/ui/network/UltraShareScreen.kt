@@ -126,7 +126,8 @@ data class LegacyUltraShareUiState(
     val wifiDirectPeers: List<UltraShareWifiDirect.Peer> = emptyList(),
     val wifiDirectHost: String? = null,
     val invitationId: String? = null,
-    val wifiDirectInvitationReady: Boolean = false
+    val wifiDirectInvitationReady: Boolean = false,
+    val pairedSession: Boolean = false
 )
 
 @HiltViewModel
@@ -181,6 +182,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                     progress = serviceState.progress,
                     receivedFile = serviceState.receivedFile ?: current.receivedFile,
                     status = serviceState.status ?: current.status,
+                    pairedSession = current.pairedSession || serviceState.activePeers.isNotEmpty(),
                     error = serviceState.error,
                     queueCompleted = serviceState.queueCompleted,
                     queueTotal = serviceState.queueTotal,
@@ -297,6 +299,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         wifiDirectHost = host,
                         scanning = false,
+                        pairedSession = true,
                         error = null,
                         status = "اكتمل الاقتران العكسي بأمان مع $remotePeerName؛ الإرسال والاستقبال متاحان."
                     )
@@ -437,6 +440,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     wifiDirectHost = connectedHost,
                     scanning = false,
+                    pairedSession = true,
                     error = null,
                     status = "$message تم إنشاء اتصال آمن وجاهز للإرسال والاستقبال."
                 )
@@ -590,6 +594,7 @@ class LegacyUltraShareViewModel @Inject constructor(
             pairingSecret = secret,
             invitationId = invitationId,
             wifiDirectInvitationReady = false,
+            pairedSession = false,
             receiving = true,
             sending = false,
             progress = null,
@@ -696,7 +701,8 @@ class LegacyUltraShareViewModel @Inject constructor(
         invitationPreferences.edit().remove("active_invitation_id").apply()
         _state.value = _state.value.copy(
             invitationId = null,
-            wifiDirectInvitationReady = false
+            wifiDirectInvitationReady = false,
+            pairedSession = false
         )
         UltraShareForegroundService.cancel(context)
         _state.value = _state.value.copy(
@@ -963,7 +969,7 @@ fun UltraShareScreen(
     }
 
     val invitationId = state.invitationId
-    val qrPayload = if (state.receiving && !invitationId.isNullOrBlank() &&
+    val qrPayload = if (state.receiving && !state.pairedSession && !invitationId.isNullOrBlank() &&
         (state.localAddresses.isNotEmpty() || state.wifiDirectInvitationReady)
     ) {
         // A v3 QR may contain no LAN fallback when this phone is reachable only
@@ -975,7 +981,7 @@ fun UltraShareScreen(
             state.pairingSecret,
             invitationId
         )
-    } else if (state.receiving && state.invitationId.isNullOrBlank() &&
+    } else if (state.receiving && !state.pairedSession && state.invitationId.isNullOrBlank() &&
         state.localAddresses.isNotEmpty()
     ) {
         UltraShareQrCode.createReceiverPayload(state.localAddresses, state.pairingSecret)
@@ -1282,7 +1288,7 @@ fun UltraShareScreen(
                     Text(stringResource(R.string.ultra_share_pairing_code), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                     Text(state.pairingSecret.chunked(3).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(stringResource(R.string.ultra_share_code_warning), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                    if (state.receiving && qrBitmap == null) {
+                    if (state.receiving && !state.pairedSession && qrBitmap == null) {
                         Text(
                             "جارٍ تجهيز رمز QR الآمن والتحقق من عنوان الاتصال. سيظهر الرمز تلقائياً بعد جاهزية خدمة الاستقبال؛ لا تمسح رمزاً قديماً أو فارغاً.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
