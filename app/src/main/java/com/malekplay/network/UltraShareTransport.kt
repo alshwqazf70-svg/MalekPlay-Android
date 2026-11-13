@@ -519,7 +519,7 @@ object UltraShareTransport {
      * Network.bindSocket is available from API 21 (Android 5), so this path covers
      * the project's Android 6+ support without changing the wire protocol.
      */
-    private fun connectUsingAvailableNetworks(
+    internal fun connectUsingAvailableNetworks(
         address: InetAddress,
         port: Int,
         connectivityManager: ConnectivityManager?
@@ -657,7 +657,7 @@ object UltraShareTransport {
         return digest.digest()
     }
 
-    private fun hmac(secret: ByteArray, message: ByteArray): ByteArray =
+    internal fun hmac(secret: ByteArray, message: ByteArray): ByteArray =
         Mac.getInstance("HmacSHA256").run {
             init(SecretKeySpec(secret, "HmacSHA256"))
             doFinal(message)
