@@ -34,8 +34,8 @@ class UltraShareFileTransferIntegrationTest {
         val host = findPrivateIpv4Address()
         val pin = "004219837"
         val payload = ByteArray(128 * 1024 + 37) { index -> ((index * 31) xor (index ushr 3)).toByte() }
-        val sourceDirectory = createTempDirectory("ultrashare-source").toFile()
-        val destinationDirectory = createTempDirectory("ultrashare-destination").toFile()
+        val sourceDirectory = java.nio.file.Files.createTempDirectory("ultrashare-source").toFile()
+        val destinationDirectory = java.nio.file.Files.createTempDirectory("ultrashare-destination").toFile()
         val source = File(sourceDirectory, "اختبار-نقل.bin").apply { writeBytes(payload) }
         val port = ServerSocket(0).use { it.localPort }
         var receivedProgress = 0L
