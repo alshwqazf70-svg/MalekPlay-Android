@@ -347,6 +347,9 @@ object UltraShareDiscovery {
 
     private fun probeCandidate(candidate: UltraShareNegotiation.Candidate, context: Context?): Boolean {
         val network = context?.let { UltraShareNetworkRouting.findNetworkForHost(it, candidate.host) }
+        // Do not probe a private peer through the process default network when
+        // Android has no route for it; that can falsely select an unreachable peer.
+        if (context != null && network == null) return false
         if (!probeEndpoint(candidate.host, UltraShareControlChannel.DEFAULT_PORT, network)) return false
         // Candidate.port is the V2 batch-data port. Complete its explicit probe
         // preamble so the receiver can distinguish discovery from a broken transfer.

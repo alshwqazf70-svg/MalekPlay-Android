@@ -161,6 +161,11 @@ object UltraShareControlChannel {
             "رمز الاقتران غير صالح."
         }
         require(port in 1..65535)
+        if (network == null && host != "127.0.0.1") {
+            throw java.io.IOException(
+                "لم يتم العثور على مسار شبكة محلية يصل إلى الجهاز الآخر. تأكد من اتصال الهاتفين بنفس شبكة Wi-Fi أو نقطة الاتصال، أو أعد الاقتران عبر Wi-Fi Direct."
+            )
+        }
         val nameBytes = peerName.trim().toByteArray(Charsets.UTF_8)
         require(nameBytes.isNotEmpty() && nameBytes.size <= MAX_NAME_BYTES) {
             "اسم الجهاز طويل أو فارغ."
