@@ -1140,7 +1140,8 @@ fun UltraShareScreen(
                                 }
                                 Button(
                                     onClick = {
-                                        if (viewModel.sendBatch(pendingMediaUris, host.trim(), secret.trim())) {
+                                        val receiverAddress = host.trim().ifBlank { state.pairedHost.orEmpty() }
+                                        if (viewModel.sendBatch(pendingMediaUris, receiverAddress, secret.trim())) {
                                             pendingMediaUris = emptyList()
                                         }
                                     },
