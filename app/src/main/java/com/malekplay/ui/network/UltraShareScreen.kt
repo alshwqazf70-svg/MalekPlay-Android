@@ -124,6 +124,7 @@ data class UltraShareUiState(
     val wifiDirectPeers: List<UltraShareWifiDirect.Peer> = emptyList(),
     val wifiDirectHost: String? = null,
     val pairedHost: String? = null,
+    val pairing: Boolean = false,
     val hotspotSsid: String? = null,
     val hotspotPassword: String? = null,
     val hotspotStarting: Boolean = false,
@@ -355,7 +356,7 @@ class UltraShareViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            _state.value = _state.value.copy(error = null, status = "جارٍ تجربة مسارات الشبكة والتحقق من رمز الاقتران...")
+            _state.value = _state.value.copy(pairing = true, error = null, status = "جارٍ تجربة مسارات الشبكة والتحقق من رمز الاقتران...")
             var lastFailure: Exception? = null
             val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
             for (candidate in candidates) {
@@ -363,6 +364,7 @@ class UltraShareViewModel @Inject constructor(
                     UltraSharePairing.connect(candidate, pin, manager)
                     _state.value = _state.value.copy(
                         pairedHost = candidate,
+                        pairing = false,
                         status = "تم الاقتران والتحقق من الجهاز عبر " + candidate + ". أصبح جاهزاً للإرسال.",
                         error = null
                     )
@@ -372,6 +374,7 @@ class UltraShareViewModel @Inject constructor(
                 }
             }
             _state.value = _state.value.copy(
+                pairing = false,
                 status = "تعذر إكمال الاقتران عبر عناوين الشبكة المتاحة. تحقق من اتصال الهاتفين وبدء الاستقبال.",
                 error = lastFailure?.localizedMessage ?: "فشل الاتصال بخدمة الاقتران."
             )
@@ -774,8 +777,8 @@ fun UltraShareScreen(
                     else -> "بانتظار ربط جهاز"
                 }
                 val connectionColor = when {
-                    state.sending || state.receiving -> Color(0xFF65D6A2)
-                    state.scanning -> Color(0xFFFFC66D)
+                    state.sending || state.receiving || state.pairedHost != null -> Color(0xFF65D6A2)
+                    state.scanning || state.pairing -> Color(0xFFFFC66D)
                     else -> MalekPlayColors.PurpleBright
                 }
                 Row(
@@ -784,7 +787,7 @@ fun UltraShareScreen(
                 ) {
                     Box(Modifier.size(9.dp).background(connectionColor, androidx.compose.foundation.shape.CircleShape))
                     Text(connectionLabel, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 9.dp).weight(1f))
-                    Text(when { state.sending -> "LIVE"; state.receiving -> "ONLINE"; state.scanning -> "SCAN"; else -> "READY" }, color = connectionColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
+                    Text(when { state.sending -> "LIVE"; state.receiving -> "ONLINE"; state.pairedHost != null -> "PAIRED"; state.scanning || state.pairing -> "PAIR"; else -> "READY" }, color = connectionColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.weight(1f)) {
