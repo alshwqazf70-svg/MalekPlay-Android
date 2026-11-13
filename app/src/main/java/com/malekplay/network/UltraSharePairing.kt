@@ -31,10 +31,10 @@ object UltraSharePairing {
         require(UltraShareTransport.isValidPairingSecret(pairingSecret)) {
             "رمز الاقتران يجب أن يتكون من 12 رقماً."
         }
-        val address = InetAddress.getByName(host)
         require(UltraShareTransport.isValidPrivateLanHost(host)) {
             "عنوان الجهاز ليس عنواناً محلياً صالحاً."
         }
+        val address = InetAddress.getByName(host)
         UltraShareTransport.connectUsingAvailableNetworks(address, PORT, connectivityManager).use { socket ->
             socket.soTimeout = TIMEOUT_MS
             socket.tcpNoDelay = true
