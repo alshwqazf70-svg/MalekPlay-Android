@@ -83,6 +83,61 @@ class UltraShareFileTransferIntegrationTest {
         }
     }
 
+    @Test
+    fun resumesFromPersistedPartialFileAfterTcpDisconnect() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val host = findPrivateIpv4Address()
+        val pin = "004219837"
+        val payload = ByteArray(UltraShareTransport.CHUNK_BYTES * 3 + 113) { index ->
+            ((index * 17) xor (index ushr 5)).toByte()
+        }
+        val sourceDirectory = java.nio.file.Files.createTempDirectory("ultrashare-resume-source").toFile()
+        val destinationDirectory = java.nio.file.Files.createTempDirectory("ultrashare-resume-destination").toFile()
+        val source = File(sourceDirectory, "resume-test.bin").apply { writeBytes(payload) }
+        val port = ServerSocket(0).use { it.localPort }
+        try {
+            val firstReceiver = async {
+                runCatching {
+                    UltraShareTransport.receiveOnce(port, pin, destinationDirectory)
+                }
+            }
+            delay(400)
+            val interrupted = runCatching {
+                UltraShareTransport.send(
+                    resolver = context.contentResolver, uri = Uri.fromFile(source), host = host,
+                    port = port, pairingSecret = pin, fileName = source.name,
+                    mimeType = "application/octet-stream", sizeBytes = payload.size.toLong(),
+                    onProgress = { progress ->
+                        if (progress.transferredBytes >= UltraShareTransport.CHUNK_BYTES) {
+                            throw java.io.IOException("Simulated TCP interruption after first chunk")
+                        }
+                    }
+                )
+            }
+            assertTrue("The first transfer must be interrupted", interrupted.isFailure)
+            assertTrue("The receiver must observe the dropped TCP stream", firstReceiver.await().isFailure)
+            val partial = destinationDirectory.listFiles().orEmpty().firstOrNull { it.name.endsWith(".part") }
+            assertTrue("A non-empty partial file must be retained for resume", partial != null && partial.length() > 0L)
+            assertTrue("The partial file must not exceed the original size", partial!!.length() < payload.size.toLong())
+
+            val secondReceiver = async {
+                UltraShareTransport.receiveOnce(port, pin, destinationDirectory)
+            }
+            delay(400)
+            UltraShareTransport.send(
+                resolver = context.contentResolver, uri = Uri.fromFile(source), host = host,
+                port = port, pairingSecret = pin, fileName = source.name,
+                mimeType = "application/octet-stream", sizeBytes = payload.size.toLong()
+            )
+            val received = withTimeout(30_000) { secondReceiver.await() }
+            assertEquals(payload.size.toLong(), received.sizeBytes)
+            assertArrayEquals("Resumed transfer must exactly match the original bytes", payload, received.file.readBytes())
+        } finally {
+            sourceDirectory.deleteRecursively()
+            destinationDirectory.deleteRecursively()
+        }
+    }
+
     private fun findPrivateIpv4Address(): String {
         val interfaces = NetworkInterface.getNetworkInterfaces() ?: error("CI runner has no network interfaces")
         val address = interfaces.toList()
