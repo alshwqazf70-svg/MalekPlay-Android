@@ -1123,6 +1123,35 @@ fun UltraShareScreen(
                         )
                     }
                 }
+                if (state.externalQrHost != null) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(
+                                "هدف QR الخارجي: " + state.externalQrHost,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                "معرّف الجلسة: " + (state.externalQrSessionId ?: "غير متاح") +
+                                    (state.externalQrFrequencyMhz?.let { " • $it MHz" } ?: ""),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Text(
+                                "اختر جهاز Wi-Fi Direct المطابق. سيقارن التطبيق عنوان مالك المجموعة بعنوان QR قبل اعتماد المضيف.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            TextButton(onClick = viewModel::clearExternalQr) {
+                                Text("مسح بيانات QR")
+                            }
+                        }
+                    }
+                }
                 OutlinedButton(
                     onClick = ::requestWifiDirectScan,
                     modifier = Modifier.fillMaxWidth(),
