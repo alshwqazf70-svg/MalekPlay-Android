@@ -400,7 +400,8 @@ class UltraShareViewModel @Inject constructor(
                 var pairedName: String? = null
                 val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
                 // Repeat discovery briefly to tolerate receiver startup and transient Wi-Fi broadcasts.
-                repeat(3) { attempt ->
+                for (attempt in 0 until 3) {
+                    if (pairedHost != null) break
                     val peers = UltraShareDiscovery.discoverPeers()
                     for (peer in peers) {
                         try {
@@ -412,8 +413,7 @@ class UltraShareViewModel @Inject constructor(
                             lastFailure = failure
                         }
                     }
-                    if (pairedHost != null) return@repeat
-                    if (attempt < 2) kotlinx.coroutines.delay(700)
+                    if (pairedHost == null && attempt < 2) kotlinx.coroutines.delay(700)
                 }
                 if (pairedHost != null) {
                     _state.value = _state.value.copy(
