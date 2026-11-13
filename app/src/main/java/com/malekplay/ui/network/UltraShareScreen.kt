@@ -83,6 +83,7 @@ import com.malekplay.network.UltraShareReceivedHistoryStore
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.UltraShareQrCode
+import com.malekplay.network.ExternalWifiDirectQr
 import com.malekplay.network.UltraShareWifiDirect
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
@@ -230,6 +231,24 @@ class UltraShareViewModel @Inject constructor(
             progress = if (_state.value.sending) UltraShareForegroundService.state.value.sendProgress else null,
             status = context.getString(R.string.ultra_share_stopped)
         )
+    }
+
+    /**
+     * Recognizes a Kuaiya/Zapya QR without pretending its proprietary token is
+     * a MalekPlay pairing secret. The user can then use the explicit Wi-Fi Direct
+     * discovery action to select the peer Android actually exposes.
+     */
+    fun inspectExternalQr(payload: String): Boolean {
+        val details = runCatching { ExternalWifiDirectQr.parse(payload) }
+            .getOrElse { return false }
+        val frequency = details.frequencyMhz?.let { "، التردد $it MHz" }.orEmpty()
+        _state.value = _state.value.copy(
+            error = null,
+            status = "تم التعرف على رمز Kuaiya/Zapya: عنوان المضيف " +
+                details.hostAddress + frequency +
+                ". لا يمكن استخدام رمز Zapya لمصادقة MalekPlay مباشرة؛ ابدأ البحث عبر Wi-Fi Direct واختر الجهاز المطابق."
+        )
+        return true
     }
 
     fun scanNearbyDevices() {
@@ -668,16 +687,22 @@ fun UltraShareScreen(
     val scanQrLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         val raw = result.contents
         if (!raw.isNullOrBlank()) {
-            runCatching { UltraShareQrCode.parsePayload(raw) }
-                .onSuccess { pairing ->
-                    host = pairing.host
-                    secret = pairing.pairingSecret
-                    viewModel.pairWithHosts(pairing.hosts, pairing.pairingSecret)
-                    Toast.makeText(context, "تمت قراءة QR؛ جارٍ الاقتران والتحقق من الجهاز...", Toast.LENGTH_SHORT).show()
-                }
-                .onFailure {
-                    Toast.makeText(context, R.string.ultra_share_scan_failed, Toast.LENGTH_LONG).show()
-                }
+            val malekPairing = runCatching { UltraShareQrCode.parsePayload(raw) }
+            if (malekPairing.isSuccess) {
+                val pairing = malekPairing.getOrThrow()
+                host = pairing.host
+                secret = pairing.pairingSecret
+                viewModel.pairWithHosts(pairing.hosts, pairing.pairingSecret)
+                Toast.makeText(context, "تمت قراءة QR الخاص بـ MalekPlay؛ جارٍ الاقتران...", Toast.LENGTH_SHORT).show()
+            } else if (viewModel.inspectExternalQr(raw)) {
+                Toast.makeText(
+                    context,
+                    "تمت قراءة رمز Zapya. راجع معلومات الاتصال ثم استخدم خيار Wi-Fi Direct للبحث عن الجهاز.",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                Toast.makeText(context, R.string.ultra_share_scan_failed, Toast.LENGTH_LONG).show()
+            }
         }
     }
     val wifiDirectPermissionLauncher = rememberLauncherForActivityResult(
@@ -741,18 +766,28 @@ fun UltraShareScreen(
     val scanQrImage = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             scope.launch {
-                val result = runCatching {
+                val decoded = runCatching {
                     withContext(Dispatchers.IO) {
-                        UltraShareQrCode.parsePayload(
-                            UltraShareQrCode.decodeImage(context.contentResolver, uri)
-                        )
+                        UltraShareQrCode.decodeImage(context.contentResolver, uri)
                     }
                 }
-                result.onSuccess { pairing ->
-                    host = pairing.host
-                    secret = pairing.pairingSecret
-                    viewModel.pairWithHost(pairing.host, pairing.pairingSecret)
-                    Toast.makeText(context, "تمت قراءة QR؛ جارٍ الاقتران والتحقق من الجهاز...", Toast.LENGTH_SHORT).show()
+                decoded.onSuccess { raw ->
+                    val malekPairing = runCatching { UltraShareQrCode.parsePayload(raw) }
+                    if (malekPairing.isSuccess) {
+                        val pairing = malekPairing.getOrThrow()
+                        host = pairing.host
+                        secret = pairing.pairingSecret
+                        viewModel.pairWithHost(pairing.host, pairing.pairingSecret)
+                        Toast.makeText(context, "تمت قراءة QR الخاص بـ MalekPlay؛ جارٍ الاقتران...", Toast.LENGTH_SHORT).show()
+                    } else if (viewModel.inspectExternalQr(raw)) {
+                        Toast.makeText(
+                            context,
+                            "تمت قراءة رمز Zapya. راجع معلومات الاتصال ثم استخدم خيار Wi-Fi Direct للبحث عن الجهاز.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        Toast.makeText(context, R.string.ultra_share_scan_failed, Toast.LENGTH_LONG).show()
+                    }
                 }.onFailure {
                     Toast.makeText(
                         context,
