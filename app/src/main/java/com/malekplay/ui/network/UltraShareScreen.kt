@@ -111,6 +111,7 @@ data class LegacyUltraShareUiState(
     val pairingSecret: String = "",
     val localAddresses: List<String> = emptyList(),
     val receiving: Boolean = false,
+    val controlChannelReady: Boolean = false,
     val sending: Boolean = false,
     val scanning: Boolean = false,
     val discoveredPeers: List<UltraShareDiscovery.Peer> = emptyList(),
@@ -180,6 +181,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                     pairingSecret = serviceState.pairingSecret,
                     localAddresses = serviceState.localAddresses,
                     receiving = serviceState.receiving,
+                    controlChannelReady = serviceState.controlChannelReady,
                     sending = serviceState.sending,
                     progress = serviceState.progress,
                     receivedFile = serviceState.receivedFile ?: current.receivedFile,
@@ -567,7 +569,7 @@ class LegacyUltraShareViewModel @Inject constructor(
         viewModelScope.launch {
             val readiness = withTimeoutOrNull(15_000L) {
                 UltraShareForegroundService.state.first { service ->
-                    service.controlChannelReady || service.controlChannelError != null || !service.receiving
+                    service.controlChannelReady || service.controlChannelError != null
                 }
             }
             if (readiness == null || !readiness.controlChannelReady) {
@@ -1047,7 +1049,7 @@ fun UltraShareScreen(
     }
 
     val invitationId = state.invitationId
-    val qrPayload = if (state.receiving && UltraShareForegroundService.state.value.controlChannelReady &&
+    val qrPayload = if (state.receiving && state.controlChannelReady &&
         !state.pairedSession && !invitationId.isNullOrBlank() &&
         (state.localAddresses.isNotEmpty() || state.wifiDirectInvitationReady)
     ) {
@@ -1060,7 +1062,7 @@ fun UltraShareScreen(
             state.pairingSecret,
             invitationId
         )
-    } else if (state.receiving && UltraShareForegroundService.state.value.controlChannelReady &&
+    } else if (state.receiving && state.controlChannelReady &&
         !state.pairedSession && state.invitationId.isNullOrBlank() && state.localAddresses.isNotEmpty()
     ) {
         UltraShareQrCode.createReceiverPayload(state.localAddresses, state.pairingSecret)
