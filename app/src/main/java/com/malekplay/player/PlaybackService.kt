@@ -287,7 +287,16 @@ class PlaybackService : MediaSessionService() {
         val longSide = maxOf(size.width, size.height)
         val shortSide = minOf(size.width, size.height)
         if (longSide > 1920 || shortSide > 1080) return false
-        val frameRate = player.videoFormat?.frameRate ?: -1f
+        val frameRate = player.currentTracks.groups
+            .asSequence()
+            .filter { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }
+            .flatMap { group ->
+                (0 until group.length).asSequence()
+                    .filter { group.isTrackSelected(it) }
+                    .map { index -> group.getTrackFormat(index) }
+            }
+            .firstOrNull()
+            ?.frameRate ?: -1f
         if (frameRate.isFinite() && frameRate > 60f) return false
         val activityManager = getSystemService(ACTIVITY_SERVICE) as? ActivityManager ?: return false
         return activityManager.deviceConfigurationInfo.reqGlEsVersion >= 0x20000
