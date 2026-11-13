@@ -19,6 +19,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.io.IOException
 import java.net.InetAddress
 import java.net.Inet4Address
 import java.net.InetSocketAddress
@@ -537,21 +538,28 @@ object UltraShareTransport {
         val active = if (android.os.Build.VERSION.SDK_INT >= 23) runCatching { manager.activeNetwork }.getOrNull() else null
         val networks = runCatching { manager.allNetworks.toList() }.getOrDefault(emptyList())
             .distinct()
-            .sortedWith(compareByDescending<Network>(
-                { network ->
-                    runCatching {
-                        manager.getLinkProperties(network)?.routes
-                            ?.filter { it.matches(address) }
-                            ?.maxOfOrNull { it.destination.prefixLength } ?: -1
-                    }.getOrDefault(-1)
-                }
-            ).thenBy { network -> if (network == active) 0 else 1 }
-                .thenBy { network ->
-                    runCatching {
-                        val caps = manager.getNetworkCapabilities(network)
-                        if (caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true) 0 else 1
-                    }.getOrDefault(1)
-                }).take(4)
+            // Never spend a connection timeout on a network that cannot route
+            // packets to this receiver. Keep the most-specific matching route first.
+            .mapNotNull { network ->
+                val prefix = runCatching {
+                    manager.getLinkProperties(network)?.routes
+                        ?.filter { it.matches(address) }
+                        ?.maxOfOrNull { it.destination.prefixLength }
+                }.getOrNull() ?: return@mapNotNull null
+                network to prefix
+            }
+            .sortedWith(
+                compareByDescending<Pair<Network, Int>> { it.second }
+                    .thenBy { if (it.first == active) 0 else 1 }
+                    .thenBy {
+                        runCatching {
+                            val caps = manager.getNetworkCapabilities(it.first)
+                            if (caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true) 0 else 1
+                        }.getOrDefault(1)
+                    }
+            )
+            .take(4)
+            .map { it.first }
 
         var lastFailure: Exception? = null
         for (network in networks) {
