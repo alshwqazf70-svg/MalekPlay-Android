@@ -1263,8 +1263,8 @@ fun VideoPlayerScreen(
     }
 }
 
-/** Pushes the saved subtitle look onto the platform SubtitleView. */
-@OptIn(UnstableApi::class)
+/** Applies display cadence matching through the Media3 video surface. */
+@UnstableApi
 private fun applyMotionCadence(view: PlayerView, sourceFrameRate: Float, enabled: Boolean) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
     val surfaceView = view.videoSurfaceView as? SurfaceView ?: return
@@ -1282,6 +1282,7 @@ private fun applyMotionCadence(view: PlayerView, sourceFrameRate: Float, enabled
     }
 }
 
+@UnstableApi
 private fun applySubtitleStyle(view: PlayerView, settings: com.malekplay.domain.model.PlayerSettings) {
     val subtitles = view.subtitleView ?: return
     subtitles.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, settings.subtitleSizeSp.toFloat())
