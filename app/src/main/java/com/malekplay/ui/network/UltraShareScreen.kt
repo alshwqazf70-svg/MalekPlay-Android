@@ -655,7 +655,7 @@ fun UltraShareScreen(
                 .onSuccess { pairing ->
                     host = pairing.host
                     secret = pairing.pairingSecret
-                    viewModel.pairWithHost(pairing.host, pairing.pairingSecret)
+                    viewModel.pairWithHosts(pairing.hosts, pairing.pairingSecret)
                     Toast.makeText(context, "تمت قراءة QR؛ جارٍ الاقتران والتحقق من الجهاز...", Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
@@ -1145,7 +1145,9 @@ fun UltraShareScreen(
                                         }
                                     },
                                     modifier = Modifier.weight(1f),
-                                    enabled = !state.sending && host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
+                                    enabled = !state.sending &&
+                                        (state.pairedHost?.isNotBlank() == true || host.isNotBlank()) &&
+                                        UltraShareTransport.isValidPairingSecret(secret)
                                 ) {
                                     Icon(Icons.Filled.Send, contentDescription = null)
                                     Text("إرسال الآن", modifier = Modifier.padding(start = 6.dp))
