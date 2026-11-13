@@ -190,7 +190,10 @@ class PlaybackService : MediaSessionService() {
             // Start from the supported default session commands for every controller.
             // The custom GPU effect command is exposed only to trusted app controllers.
             val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().apply {
-                if (controller.isTrusted) add(PlaybackVideoEffects.COMMAND)
+                if (controller.isTrusted) {
+                    add(PlaybackVideoEffects.COMMAND)
+                    add(PlaybackVideoEffects.STATE_COMMAND)
+                }
             }.build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(commands)
@@ -203,18 +206,28 @@ class PlaybackService : MediaSessionService() {
             customCommand: SessionCommand,
             args: Bundle
         ): ListenableFuture<SessionResult> {
-            if (customCommand.customAction != PlaybackVideoEffects.ACTION_UPSCALING) {
-                return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
-            }
             if (!controller.isTrusted) {
                 return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
             }
+            if (customCommand.customAction == PlaybackVideoEffects.ACTION_GET_STATE) {
+                val state = Bundle().apply {
+                    putBoolean(PlaybackVideoEffects.KEY_STATE_ENABLED, videoUpscalingEnabled)
+                }
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, state))
+            }
+            if (customCommand.customAction != PlaybackVideoEffects.ACTION_UPSCALING) {
+                return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+            }
             val requested = args.getBoolean(PlaybackVideoEffects.KEY_ENABLED, false)
             val accepted = setVideoUpscaling(requested)
+            val state = Bundle().apply {
+                putBoolean(PlaybackVideoEffects.KEY_STATE_ENABLED, videoUpscalingEnabled)
+            }
             return Futures.immediateFuture(
                 SessionResult(
                     if (accepted) SessionResult.RESULT_SUCCESS
-                    else SessionError.ERROR_NOT_SUPPORTED
+                    else SessionError.ERROR_NOT_SUPPORTED,
+                    state
                 )
             )
         }
