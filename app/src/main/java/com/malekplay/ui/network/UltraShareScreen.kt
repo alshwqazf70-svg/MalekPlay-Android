@@ -343,6 +343,78 @@ class UltraShareViewModel @Inject constructor(
             }
     }
 
+    fun pairWithHost(host: String, secret: String) {
+        val target = host.trim()
+        val pin = secret.trim()
+        if (target.isBlank() || !UltraShareTransport.isValidPrivateLanHost(target) ||
+            !UltraShareTransport.isValidPairingSecret(pin)
+        ) {
+            _state.value = _state.value.copy(error = "أدخل عنوان الجهاز ورمز الاقتران الصحيحين.")
+            return
+        }
+        viewModelScope.launch {
+            _state.value = _state.value.copy(error = null, status = "جارٍ التحقق من رمز الاقتران والاتصال بالجهاز...")
+            try {
+                val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                val peer = UltraSharePairing.connect(target, pin, manager)
+                _state.value = _state.value.copy(status = "تم الاقتران والتحقق من الجهاز " + peer + ". أصبح جاهزاً للإرسال.", error = null)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _state.value = _state.value.copy(
+                    status = "تعذر إكمال الاقتران. تحقق من أن الجهاز الآخر بدأ الاستقبال وأن الهاتفين على الشبكة نفسها.",
+                    error = failure.localizedMessage ?: "فشل الاتصال بخدمة الاقتران."
+                )
+            }
+        }
+    }
+
+    fun pairWithCode(secret: String) {
+        val pin = secret.trim()
+        if (!UltraShareTransport.isValidPairingSecret(pin)) {
+            _state.value = _state.value.copy(error = "أدخل رمز الاقتران المكوّن من 12 رقماً.")
+            return
+        }
+        if (scanJob != null) return
+        _state.value = _state.value.copy(scanning = true, error = null, status = "جارٍ البحث عن جهاز الاستقبال والتحقق من الرمز...")
+        scanJob = viewModelScope.launch {
+            try {
+                val peers = UltraShareDiscovery.discoverPeers()
+                var lastFailure: Exception? = null
+                var pairedHost: String? = null
+                val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                for (peer in peers) {
+                    try {
+                        UltraSharePairing.connect(peer.host, pin, manager)
+                        pairedHost = peer.host
+                        break
+                    } catch (failure: Exception) {
+                        lastFailure = failure
+                    }
+                }
+                if (pairedHost != null) {
+                    val peerName = peers.firstOrNull { it.host == pairedHost }?.name ?: pairedHost
+                    _state.value = _state.value.copy(
+                        status = "تم الاقتران تلقائياً مع " + peerName + ". أصبح الجهاز جاهزاً للإرسال.",
+                        error = null
+                    )
+                } else {
+                    throw lastFailure ?: IllegalStateException("لم يتم العثور على جهاز استقبال نشط. تأكد من بدء الاستقبال على الهاتف الآخر.")
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _state.value = _state.value.copy(
+                    status = "لم يكتمل الاقتران التلقائي. تأكد من اتصال الهاتفين بالشبكة نفسها.",
+                    error = failure.localizedMessage ?: "تعذر العثور على جهاز يطابق رمز الاقتران."
+                )
+            } finally {
+                scanJob = null
+                _state.value = _state.value.copy(scanning = false)
+            }
+        }
+    }
+
     fun send(uri: Uri, host: String, secret: String) {
         if (_state.value.sending) return
         runCatching {
@@ -507,7 +579,8 @@ fun UltraShareScreen(
                 .onSuccess { pairing ->
                     host = pairing.host
                     secret = pairing.pairingSecret
-                    Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
+                    viewModel.pairWithHost(pairing.host, pairing.pairingSecret)
+                    Toast.makeText(context, "تمت قراءة QR؛ جارٍ الاقتران والتحقق من الجهاز...", Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
                     Toast.makeText(context, R.string.ultra_share_clipboard_invalid, Toast.LENGTH_LONG).show()
@@ -569,7 +642,8 @@ fun UltraShareScreen(
                 .onSuccess { pairing ->
                     host = pairing.host
                     secret = pairing.pairingSecret
-                    Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
+                    viewModel.pairWithHost(pairing.host, pairing.pairingSecret)
+                    Toast.makeText(context, "تمت قراءة QR؛ جارٍ الاقتران والتحقق من الجهاز...", Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
                     Toast.makeText(context, R.string.ultra_share_scan_failed, Toast.LENGTH_LONG).show()
@@ -644,7 +718,8 @@ fun UltraShareScreen(
                 result.onSuccess { pairing ->
                     host = pairing.host
                     secret = pairing.pairingSecret
-                    Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
+                    viewModel.pairWithHost(pairing.host, pairing.pairingSecret)
+                    Toast.makeText(context, "تمت قراءة QR؛ جارٍ الاقتران والتحقق من الجهاز...", Toast.LENGTH_SHORT).show()
                 }.onFailure {
                     Toast.makeText(
                         context,
@@ -995,6 +1070,13 @@ fun UltraShareScreen(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
+                OutlinedButton(
+                    onClick = { viewModel.pairWithCode(secret) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.scanning && !state.sending && UltraShareTransport.isValidPairingSecret(secret)
+                ) {
+                    Text(if (state.scanning) "جارٍ البحث والاقتران..." else "اقتران تلقائي بالرمز")
+                }
                 OutlinedButton(
                     onClick = ::scanQrWithCamera,
                     modifier = Modifier.fillMaxWidth(),
