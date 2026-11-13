@@ -367,13 +367,13 @@ class LegacyUltraShareViewModel @Inject constructor(
                         completeInvitationConnection(remoteHost, "تم الاتصال تلقائياً عبر Wi-Fi Direct؛ الجهاز جاهز للإرسال.")
                     } else if (_state.value.receiving) {
                         // The QR receiver became a P2P client. remoteHost is the
-                        // remote group owner, not this receiver's client address;
-                        // exposing it as a connected peer would be a false success.
-                        wifiDirectSession?.removeGroup()
+                        // remote group owner, not this receiver's client address.
+                        // Keep the authenticated TCP receiver alive for the sender's
+                        // LAN fallback, but never publish this address as a peer.
                         _state.value = _state.value.copy(
                             wifiDirectHost = null,
                             scanning = false,
-                            error = "لم يحتفظ جهاز الاستقبال بدور مالك مجموعة Wi-Fi Direct. لم يكتمل الاقتران؛ أعد إنشاء رمز QR ثم حاول مرة أخرى."
+                            status = "تغيّر دور الجهازين في Wi-Fi Direct؛ الاستقبال مستمر وننتظر الاقتران عبر مسار الشبكة البديل."
                         )
                     } else {
                         _state.value = _state.value.copy(
