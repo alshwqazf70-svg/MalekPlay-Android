@@ -522,11 +522,22 @@ class UltraShareForegroundService : Service() {
                                 // A valid QR/PIN is the user's pairing authorization.
                                 // Accept the authenticated session immediately; do not ask
                                 // the receiver for a second approval or persist device trust.
+                                val authenticatedPeerId = request.peerId ?: request.requestId
                                 registerApprovedPeer(
                                     name = request.peerName,
                                     host = request.peerAddress,
                                     role = "اتصال تلقائي مؤقت عبر QR/الرمز",
-                                    sessionId = request.peerId ?: request.requestId
+                                    sessionId = authenticatedPeerId
+                                )
+                                // The authenticated receiver must also be able to send
+                                // back to the requester. Store only this in-memory,
+                                // session-scoped target after MPC2 has accepted it.
+                                registerApprovedSendTarget(
+                                    UltraShareApprovedSendTarget(
+                                        sessionId = authenticatedPeerId,
+                                        host = request.peerAddress,
+                                        secret = secret
+                                    )
                                 )
                                 updateState { current -> current.copy(
                                     pendingConnection = null,
