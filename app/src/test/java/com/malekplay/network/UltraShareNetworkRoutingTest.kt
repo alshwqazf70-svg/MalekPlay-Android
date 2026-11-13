@@ -73,4 +73,14 @@ class UltraShareNetworkRoutingTest {
         val second = InetAddress.getByName("192.168.1.1") as Inet4Address
         assertTrue(UltraShareNetworkRouting.isInPrefix(first, second, 0))
     }
+    @Test
+    fun requiresLocationServicesOnlyForAndroid10Through12L() {
+        assertFalse(requiresWifiDirectLocationService(28)) // Android 9
+        assertTrue(requiresWifiDirectLocationService(29))  // Android 10
+        assertTrue(requiresWifiDirectLocationService(31))  // Android 12
+        assertTrue(requiresWifiDirectLocationService(32))  // Android 12L
+        assertFalse(requiresWifiDirectLocationService(33)) // Android 13
+        assertFalse(requiresWifiDirectLocationService(35)) // Android 15
+    }
+
 }

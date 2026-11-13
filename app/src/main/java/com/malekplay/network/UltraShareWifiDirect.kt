@@ -530,7 +530,7 @@ object UltraShareWifiDirect {
         }
 
         private fun legacyDiscoveryPrerequisite(): Boolean {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || Build.VERSION.SDK_INT > Build.VERSION_CODES.S) return true
+            if (!requiresWifiDirectLocationService(Build.VERSION.SDK_INT)) return true
             val location = appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
             return location?.isLocationEnabled == true
         }
@@ -633,3 +633,6 @@ object UltraShareWifiDirect {
         return Session(context, manager, channel, onPeers, onConnected, onError)
     }
 }
+
+/** Android 10 through 12L require Location services enabled for Wi-Fi Direct discovery. */
+internal fun requiresWifiDirectLocationService(sdkInt: Int): Boolean = sdkInt in 29..32
