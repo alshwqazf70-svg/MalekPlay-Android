@@ -2330,6 +2330,12 @@ class UltraShareForegroundService : Service() {
         }
 
         fun startReceiving(context: Context, secret: String) {
+            // Clear a previous session's readiness before the asynchronous service
+            // start, so a newly generated QR can never reuse stale "ready" state.
+            mutableState.update { current -> current.copy(
+                controlChannelReady = false,
+                controlChannelError = null
+            ) }
             val intent = Intent(context, UltraShareForegroundService::class.java)
                 .setAction(ACTION_RECEIVE)
                 .putExtra(EXTRA_SECRET, secret)
