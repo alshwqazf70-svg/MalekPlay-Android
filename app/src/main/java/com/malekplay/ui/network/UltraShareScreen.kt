@@ -343,29 +343,36 @@ class UltraShareViewModel @Inject constructor(
             }
     }
 
-    fun pairWithHost(host: String, secret: String) {
-        val target = host.trim()
+    fun pairWithHost(host: String, secret: String) = pairWithHosts(listOf(host), secret)
+
+    fun pairWithHosts(hosts: List<String>, secret: String) {
+        val candidates = hosts.map { it.trim() }.distinct()
+            .filter { UltraShareTransport.isValidPrivateLanHost(it) }
         val pin = secret.trim()
-        if (target.isBlank() || !UltraShareTransport.isValidPrivateLanHost(target) ||
-            !UltraShareTransport.isValidPairingSecret(pin)
-        ) {
-            _state.value = _state.value.copy(error = "أدخل عنوان الجهاز ورمز الاقتران الصحيحين.")
+        if (candidates.isEmpty() || !UltraShareTransport.isValidPairingSecret(pin)) {
+            _state.value = _state.value.copy(error = "عناوين الجهاز أو رمز الاقتران غير صالحة.")
             return
         }
         viewModelScope.launch {
-            _state.value = _state.value.copy(error = null, status = "جارٍ التحقق من رمز الاقتران والاتصال بالجهاز...")
-            try {
-                val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-                val peer = UltraSharePairing.connect(target, pin, manager)
-                _state.value = _state.value.copy(status = "تم الاقتران والتحقق من الجهاز " + peer + ". أصبح جاهزاً للإرسال.", error = null)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                _state.value = _state.value.copy(
-                    status = "تعذر إكمال الاقتران. تحقق من أن الجهاز الآخر بدأ الاستقبال وأن الهاتفين على الشبكة نفسها.",
-                    error = failure.localizedMessage ?: "فشل الاتصال بخدمة الاقتران."
-                )
+            _state.value = _state.value.copy(error = null, status = "جارٍ تجربة مسارات الشبكة والتحقق من رمز الاقتران...")
+            var lastFailure: Exception? = null
+            val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            for (candidate in candidates) {
+                try {
+                    UltraSharePairing.connect(candidate, pin, manager)
+                    _state.value = _state.value.copy(
+                        status = "تم الاقتران والتحقق من الجهاز عبر " + candidate + ". أصبح جاهزاً للإرسال.",
+                        error = null
+                    )
+                    return@launch
+                } catch (failure: Exception) {
+                    lastFailure = failure
+                }
             }
+            _state.value = _state.value.copy(
+                status = "تعذر إكمال الاقتران عبر عناوين الشبكة المتاحة. تحقق من اتصال الهاتفين وبدء الاستقبال.",
+                error = lastFailure?.localizedMessage ?: "فشل الاتصال بخدمة الاقتران."
+            )
         }
     }
 
@@ -579,7 +586,7 @@ fun UltraShareScreen(
                 .onSuccess { pairing ->
                     host = pairing.host
                     secret = pairing.pairingSecret
-                    viewModel.pairWithHost(pairing.host, pairing.pairingSecret)
+                    viewModel.pairWithHosts(pairing.hosts, pairing.pairingSecret)
                     Toast.makeText(context, "تمت قراءة QR؛ جارٍ الاقتران والتحقق من الجهاز...", Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
@@ -588,7 +595,7 @@ fun UltraShareScreen(
         }
     }
     val qrPayload = state.localAddresses.firstOrNull()?.takeIf { state.receiving }?.let { address ->
-        UltraShareQrCode.createPayload(address, UltraShareTransport.DEFAULT_PORT, state.pairingSecret)
+        UltraShareQrCode.createPayload(state.localAddresses.take(6), UltraShareTransport.DEFAULT_PORT, state.pairingSecret)
     }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
