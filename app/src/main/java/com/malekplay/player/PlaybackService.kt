@@ -283,10 +283,6 @@ class PlaybackService : MediaSessionService() {
 
     private fun isVideoDenoiseEligible(player: ExoPlayer): Boolean {
         val size = player.videoSize
-        if (size.width <= 0 || size.height <= 0) return false
-        val longSide = maxOf(size.width, size.height)
-        val shortSide = minOf(size.width, size.height)
-        if (longSide > 1920 || shortSide > 1080) return false
         val frameRate = player.currentTracks.groups
             .asSequence()
             .filter { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }
@@ -297,9 +293,13 @@ class PlaybackService : MediaSessionService() {
             }
             .firstOrNull()
             ?.frameRate ?: -1f
-        if (frameRate.isFinite() && frameRate > 60f) return false
         val activityManager = getSystemService(ACTIVITY_SERVICE) as? ActivityManager ?: return false
-        return activityManager.deviceConfigurationInfo.reqGlEsVersion >= 0x20000
+        return VideoDenoisePolicy.isEligible(
+            size.width,
+            size.height,
+            frameRate,
+            activityManager.deviceConfigurationInfo.reqGlEsVersion
+        )
     }
 
     /** Rebuilds the complete ordered GPU chain so toggles never erase each other or ASS overlays. */
