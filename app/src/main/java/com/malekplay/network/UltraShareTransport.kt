@@ -537,19 +537,21 @@ object UltraShareTransport {
         val active = if (android.os.Build.VERSION.SDK_INT >= 23) runCatching { manager.activeNetwork }.getOrNull() else null
         val networks = runCatching { manager.allNetworks.toList() }.getOrDefault(emptyList())
             .distinct()
-            .sortedWith(compareBy<Network>(
+            .sortedWith(compareByDescending<Network>(
                 { network ->
-                    runCatching { manager.getLinkProperties(network)?.routes?.any { it.matches(address) } == true }
-                        .getOrDefault(false).let { if (it) 0 else 1 }
-                },
-                { network -> if (network == active) 0 else 1 },
-                { network ->
+                    runCatching {
+                        manager.getLinkProperties(network)?.routes
+                            ?.filter { it.matches(address) }
+                            ?.maxOfOrNull { it.destination.prefixLength } ?: -1
+                    }.getOrDefault(-1)
+                }
+            ).thenBy { network -> if (network == active) 0 else 1 }
+                .thenBy { network ->
                     runCatching {
                         val caps = manager.getNetworkCapabilities(network)
                         if (caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true) 0 else 1
                     }.getOrDefault(1)
-                }
-            )).take(4)
+                }).take(4)
 
         var lastFailure: Exception? = null
         for (network in networks) {
