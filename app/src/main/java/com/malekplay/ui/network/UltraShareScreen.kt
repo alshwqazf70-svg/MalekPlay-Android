@@ -1077,7 +1077,10 @@ fun UltraShareScreen(
                 )
                 OutlinedTextField(
                     value = secret,
-                    onValueChange = { secret = it.filter { char -> char in '0'..'9' }.take(12) },
+                    onValueChange = {
+                        secret = it.filter { char -> char in '0'..'9' }.take(12)
+                        if (secret.length == 12) viewModel.pairWithCode(secret)
+                    },
                     modifier = Modifier.widthIn(max = 220.dp),
                     label = { Text("رمز الاقتران (12 رقماً)") },
                     singleLine = true,
