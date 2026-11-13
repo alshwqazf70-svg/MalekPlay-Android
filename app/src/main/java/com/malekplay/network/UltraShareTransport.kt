@@ -213,6 +213,18 @@ object UltraShareTransport {
             .joinToString("") { "%02x".format(it) }
     }
 
+    /** Rejects impossible resume positions before either side seeks or appends. */
+    internal fun isValidResumeOffset(offset: Long, expectedSize: Long): Boolean =
+        expectedSize in 0..MAX_FILE_BYTES && offset in 0..expectedSize
+
+    /** A completed destination is reusable only when its length and SHA-256 match. */
+    internal fun isCompletedFileValid(file: File, expectedSize: Long, expectedDigest: ByteArray): Boolean {
+        if (!file.isFile || expectedSize !in 0..MAX_FILE_BYTES || expectedDigest.size != 32 || file.length() != expectedSize) return false
+        return runCatching {
+            val actual = FileInputStream(file).use { digestStreamRaw(it) }
+            MessageDigest.isEqual(expectedDigest, actual)
+        }.getOrDefault(false)
+    }
     internal fun completedReceiptFileName(
         markerContent: String,
         expectedSize: Long,
@@ -280,7 +292,7 @@ object UltraShareTransport {
 
             val offsetPayload = readEncryptedFrame(input, receiveKey, noncePrefix, 0L, 64)
             val offset = DataInputStream(ByteArrayInputStream(offsetPayload)).use { it.readLong() }
-            require(offset in 0..sizeBytes) { "موضع الاستئناف الذي أرسله المستقبل غير صالح." }
+            require(isValidResumeOffset(offset, sizeBytes)) { "موضع الاستئناف الذي أرسله المستقبل غير صالح." }
 
             var startedAt = System.nanoTime()
             var transferred = offset
@@ -395,11 +407,7 @@ object UltraShareTransport {
                             expectedDigestHex
                         )?.let { safeName ->
                             val completedFile = File(destinationDirectory, safeName)
-                            if (!completedFile.isFile || completedFile.length() != size) null
-                            else {
-                                val actual = FileInputStream(completedFile).use { digestStreamRaw(it) }
-                                completedFile.takeIf { MessageDigest.isEqual(expectedDigest, actual) }
-                            }
+                            completedFile.takeIf { isCompletedFileValid(it, size, expectedDigest) }
                         }
                     }.getOrNull()
                 }
