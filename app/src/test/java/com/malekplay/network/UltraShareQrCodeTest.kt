@@ -11,9 +11,9 @@ import org.robolectric.RobolectricTestRunner
 class UltraShareQrCodeTest {
 
     @Test
-    fun generatedPairingCodeIsExactlyTwelveNumericDigits() {
+    fun generatedPairingCodeIsExactlyNineNumericDigits() {
         val code = UltraShareTransport.createPairingSecret()
-        assertEquals(12, code.length)
+        assertEquals(9, code.length)
         assertTrue(code.all { it in '0'..'9' })
         assertTrue(UltraShareTransport.isValidPairingSecret(code))
     }
@@ -71,8 +71,8 @@ class UltraShareQrCodeTest {
     }
 
     @Test
-    fun pairingParserContinuesToAcceptVersionOneQrCodes() {
-        val secret = UltraShareTransport.createPairingSecret()
+    fun pairingParserContinuesToAcceptLegacyTwelveDigitQrCodes() {
+        val secret = "004219837615"
         val decoded = UltraShareQrCode.parsePayload(
             "malekplay://ultra-share?v=1&host=192.168.1.25&port=${UltraShareTransport.DEFAULT_PORT}&secret=$secret"
         )
