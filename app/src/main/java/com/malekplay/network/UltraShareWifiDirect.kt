@@ -34,6 +34,7 @@ object UltraShareWifiDirect {
     ) : Closeable {
         private val appContext = context.applicationContext
         private var closed = false
+        private var connectionWasFormed = false
 
         private val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -130,9 +131,16 @@ object UltraShareWifiDirect {
                 manager.requestConnectionInfo(channel) { info ->
                     if (closed) return@requestConnectionInfo
                     if (!info.groupFormed) {
-                        onError("انقطع اتصال Wi-Fi Direct.")
+                        // Android may broadcast CONNECTION_CHANGED while discovery
+                        // starts or before a peer has connected. Only report a loss
+                        // after this session previously observed a formed group.
+                        if (connectionWasFormed) {
+                            connectionWasFormed = false
+                            onError("انقطع اتصال Wi-Fi Direct. يمكنك إعادة البحث والاتصال.")
+                        }
                         return@requestConnectionInfo
                     }
+                    connectionWasFormed = true
                     if (info.isGroupOwner) {
                         onConnected(null, true)
                     } else {
