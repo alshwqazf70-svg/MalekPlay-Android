@@ -226,39 +226,51 @@ class LegacyUltraShareViewModel @Inject constructor(
                 var candidateAccepted = UltraShareControlChannel.isSessionActive(candidate)
                 var candidateFailure: Exception? = null
                 if (!candidateAccepted) {
-                    for (attempt in 0..2) {
-                        try {
-                            val decision = withContext(Dispatchers.IO) {
-                                UltraShareControlChannel.request(
-                                    host = candidate,
-                                    pairingSecret = pairing.pairingSecret,
-                                    peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" }
-                                        ?: "MalekPlay Android",
-                                    network = UltraShareNetworkRouting.findNetworkForHost(context, candidate),
-                                    peerId = UltraShareDiscovery.localPeerId(context)
-                                )
-                            }
-                            if (decision == UltraShareControlChannel.Decision.REJECTED) {
-                                candidateFailure = IllegalStateException("رفض جهاز الاستقبال طلب الاقتران.")
+                    // Try every Android Network with a route to this exact peer,
+                    // prioritizing Wi-Fi Direct, then the remaining local links.
+                    // Finally try Android's default route for OEM P2P stacks that
+                    // do not expose a bindable Network object.
+                    val routeCandidates: List<android.net.Network?> =
+                        UltraShareNetworkRouting.findNetworksForHost(context, candidate)
+                            .map { it as android.net.Network? } + listOf(null)
+                    for ((routeIndex, route) in routeCandidates.withIndex()) {
+                        if (candidateAccepted) break
+                        for (attempt in 0..1) {
+                            try {
+                                val decision = withContext(Dispatchers.IO) {
+                                    UltraShareControlChannel.request(
+                                        host = candidate,
+                                        pairingSecret = pairing.pairingSecret,
+                                        peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" }
+                                            ?: "MalekPlay Android",
+                                        network = route,
+                                        peerId = UltraShareDiscovery.localPeerId(context)
+                                    )
+                                }
+                                if (decision == UltraShareControlChannel.Decision.REJECTED) {
+                                    candidateFailure = IllegalStateException("رفض جهاز الاستقبال طلب الاقتران.")
+                                    break
+                                }
+                                candidateAccepted = true
                                 break
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                candidateFailure = failure
+                                // A rejected credential/protocol response is not a
+                                // route failure; do not retry it on another interface.
+                                val retryableNetworkFailure = failure is java.io.IOException
+                                if (!retryableNetworkFailure || attempt == 1) break
+                                delay(500L * (attempt + 1))
                             }
-                            candidateAccepted = true
-                            break
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (failure: Exception) {
-                            candidateFailure = failure
-                            // The receiver service may still be opening its control
-                            // listener immediately after its QR becomes visible.
-                            val retryableNetworkFailure =
-                                failure is java.net.ConnectException ||
-                                    failure is java.net.SocketTimeoutException ||
-                                    failure is java.net.NoRouteToHostException ||
-                                    failure is java.net.SocketException
-                            if (!retryableNetworkFailure || attempt == 2) break
-                            // Android 10–13 devices may bring up Wi-Fi Direct or the
-                            // foreground receiver socket asynchronously after QR scan.
-                            delay(600L * (attempt + 1))
+                        }
+                        if (candidateFailure is IllegalStateException &&
+                            candidateFailure.message?.contains("رفض جهاز الاستقبال") == true
+                        ) break
+                        if (!candidateAccepted && routeIndex < routeCandidates.lastIndex) {
+                            _state.value = _state.value.copy(
+                                status = "تعذر الوصول عبر مسار الشبكة الحالي؛ تجربة مسار اتصال آخر..."
+                            )
                         }
                     }
                 }
