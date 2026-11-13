@@ -138,6 +138,53 @@ class UltraShareFileTransferIntegrationTest {
         }
     }
 
+    @Test
+    fun rejectsUnauthenticatedPeerAndStillReceivesLegitimateFile() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val host = findPrivateIpv4Address()
+        val pin = "004219837"
+        val payload = "authenticated sender survives rejected peer".toByteArray(Charsets.UTF_8)
+        val sourceDirectory = java.nio.file.Files.createTempDirectory("ultrashare-auth-source").toFile()
+        val destinationDirectory = java.nio.file.Files.createTempDirectory("ultrashare-auth-destination").toFile()
+        val source = File(sourceDirectory, "authenticated.bin").apply { writeBytes(payload) }
+        val port = ServerSocket(0).use { it.localPort }
+        val receiver = async {
+            UltraShareTransport.receiveOnce(port, pin, destinationDirectory)
+        }
+
+        try {
+            delay(400)
+            java.net.Socket(host, port).use { attacker ->
+                attacker.soTimeout = 5_000
+                val input = java.io.DataInputStream(attacker.getInputStream())
+                val output = java.io.DataOutputStream(attacker.getOutputStream())
+                assertEquals("The receiver must speak the Ultra Share protocol", 0x4D505531, input.readInt())
+                input.readFully(ByteArray(32)) // Fresh challenge; the unauthenticated peer cannot derive its proof.
+                output.write(ByteArray(32))
+                output.flush()
+                assertFalse("The invalid handshake must be rejected", input.readBoolean())
+            }
+            assertFalse("A rejected peer must not consume the receiver session", receiver.isCompleted)
+
+            UltraShareTransport.send(
+                resolver = context.contentResolver,
+                uri = Uri.fromFile(source),
+                host = host,
+                port = port,
+                pairingSecret = pin,
+                fileName = source.name,
+                mimeType = "application/octet-stream",
+                sizeBytes = payload.size.toLong()
+            )
+            val received = withTimeout(30_000) { receiver.await() }
+            assertArrayEquals("The legitimate file must arrive after the invalid attempt", payload, received.file.readBytes())
+        } finally {
+            receiver.cancelAndJoin()
+            sourceDirectory.deleteRecursively()
+            destinationDirectory.deleteRecursively()
+        }
+    }
+
     private fun findPrivateIpv4Address(): String {
         val interfaces = NetworkInterface.getNetworkInterfaces() ?: error("CI runner has no network interfaces")
         val address = interfaces.toList()
