@@ -411,17 +411,31 @@ class UltraShareViewModel @Inject constructor(
             var lastFailure: Exception? = null
             val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
             for (candidate in candidates) {
-                try {
-                    UltraSharePairing.connect(candidate, pin, manager)
-                    _state.value = _state.value.copy(
-                        pairedHost = candidate,
-                        pairing = false,
-                        status = "تم الاقتران والتحقق من الجهاز عبر " + candidate + ". أصبح جاهزاً للإرسال.",
-                        error = null
-                    )
-                    return@launch
-                } catch (failure: Exception) {
-                    lastFailure = failure
+                var attempt = 0
+                while (attempt < 3) {
+                    try {
+                        UltraSharePairing.connect(candidate, pin, manager)
+                        _state.value = _state.value.copy(
+                            pairedHost = candidate,
+                            pairing = false,
+                            status = "تم الاقتران والتحقق من الجهاز عبر " + candidate + ". أصبح جاهزاً للإرسال.",
+                            error = null
+                        )
+                        return@launch
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        lastFailure = failure
+                        // Retry transient socket/listener startup failures, but do
+                        // not repeat a rejected PIN or a protocol/authentication error.
+                        if (failure !is java.io.IOException || attempt >= 2) break
+                        attempt++
+                        _state.value = _state.value.copy(
+                            status = "تعذر الوصول إلى خدمة الاقتران مؤقتاً؛ إعادة المحاولة " +
+                                (attempt + 1) + " من 3..."
+                        )
+                        delay(attempt * 700L)
+                    }
                 }
             }
             _state.value = _state.value.copy(
