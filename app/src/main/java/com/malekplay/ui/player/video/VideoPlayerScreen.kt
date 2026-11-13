@@ -1264,7 +1264,7 @@ fun VideoPlayerScreen(
 }
 
 /** Pushes the saved subtitle look onto the platform SubtitleView. */
-@UnstableApi
+@OptIn(UnstableApi::class)
 private fun applyMotionCadence(view: PlayerView, sourceFrameRate: Float, enabled: Boolean) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
     val surfaceView = view.videoSurfaceView as? SurfaceView ?: return
