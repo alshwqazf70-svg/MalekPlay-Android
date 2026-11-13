@@ -30,6 +30,14 @@ class ExternalWifiDirectQrTest {
         assertFalse(details.toString().contains("d0de"))
     }
 
+    @Test
+    fun preservesLiteralPlusInOpaqueQueryToken() {
+        val details = ExternalWifiDirectQr.parse(
+            "https://kuaiya.cn/q?sid=direct&ip=192.168.49.1&ps=AA+BB%3D%3D"
+        )
+        assertEquals("AA+BB==", details.opaquePasswordToken)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun rejectsUnknownHosts() {
         ExternalWifiDirectQr.parse("http://example.com/q?sid=test&ip=192.168.49.1")
