@@ -30,7 +30,7 @@ object UltraSharePairing {
         connectivityManager: android.net.ConnectivityManager? = null
     ): String = withContext(Dispatchers.IO) {
         require(UltraShareTransport.isValidPairingSecret(pairingSecret)) {
-            "رمز الاقتران يجب أن يتكون من 12 رقماً."
+            "رمز الاقتران يجب أن يتكون من 9 أرقام."
         }
         require(UltraShareTransport.isValidPrivateLanHost(host)) {
             "عنوان الجهاز ليس عنواناً محلياً صالحاً."
