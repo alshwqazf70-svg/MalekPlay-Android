@@ -72,6 +72,7 @@ object UltraShareTransport {
     private const val VERSION = 1
     private const val SECRET_BYTES = 32
     private const val PIN_LENGTH = 9
+    private const val LEGACY_PIN_LENGTH = 12
     private const val PIN_KDF_ITERATIONS = 210_000
     private const val PIN_SALT_BYTES = 16
     private const val CHALLENGE_BYTES = 32
@@ -108,7 +109,8 @@ object UltraShareTransport {
     }
 
     fun isValidPairingSecret(value: String): Boolean =
-        (value.length == PIN_LENGTH && value.all { it in '0'..'9' }) ||
+        ((value.length == PIN_LENGTH || value.length == LEGACY_PIN_LENGTH) &&
+            value.all { it in '0'..'9' }) ||
             (value.length == SECRET_BYTES * 2 && value.all { it in "0123456789abcdefABCDEF" })
 
     /** Accepts only literal private/link-local IPv4 endpoints; never resolves hostnames. */
@@ -121,7 +123,7 @@ object UltraShareTransport {
     internal fun derivePairingKey(value: String, challenge: ByteArray): ByteArray {
         require(isValidPairingSecret(value)) { "رمز الاقتران غير صالح." }
         require(challenge.size == CHALLENGE_BYTES) { "تحدي الاقتران غير صالح." }
-        if (value.length == PIN_LENGTH) {
+        if (value.length == PIN_LENGTH || value.length == LEGACY_PIN_LENGTH) {
             // Implement PBKDF2-HMAC-SHA256 with the platform Mac primitive.
             // Some Android 10 provider builds fail to expose the matching
             // SecretKeyFactory even though HmacSHA256 itself is available.
