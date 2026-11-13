@@ -57,18 +57,27 @@ object NstackxAndroidDiscoverySession {
             .mapNotNull { network ->
                 val properties = connectivity.getLinkProperties(network) ?: return@mapNotNull null
                 val iface = properties.interfaceName ?: return@mapNotNull null
+                // Android vendors expose Wi-Fi Direct and SoftAP interfaces under
+                // several names (for example p2p-wlan0-0, swlan0 and ap0).
+                // Restrict by the actual interface family first; transport flags
+                // are not consistently reported for local-only P2P/SoftAP networks.
                 val rank = when {
-                    iface.startsWith("p2p", ignoreCase = true) -> 3
-                    iface.startsWith("wlan", ignoreCase = true) -> 2
+                    iface.startsWith("p2p", ignoreCase = true) -> 4
+                    iface.startsWith("wlan", ignoreCase = true) ||
+                        iface.startsWith("swlan", ignoreCase = true) ||
+                        iface.startsWith("wifi", ignoreCase = true) -> 3
+                    iface.startsWith("ap", ignoreCase = true) ||
+                        iface.startsWith("softap", ignoreCase = true) -> 2
                     iface.startsWith("eth", ignoreCase = true) ||
                         iface.startsWith("rndis", ignoreCase = true) -> 1
                     else -> return@mapNotNull null
                 }
                 val capabilities = connectivity.getNetworkCapabilities(network)
                     ?: return@mapNotNull null
-                if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
-                    !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
-                ) return@mapNotNull null
+                val hasExpectedTransport =
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+                if (!hasExpectedTransport && rank < 2) return@mapNotNull null
                 val ipv4 = properties.linkAddresses.asSequence()
                     .mapNotNull { it.address as? Inet4Address }
                     .firstOrNull { !it.isAnyLocalAddress && !it.isLoopbackAddress }
