@@ -226,6 +226,7 @@ class PlayerViewModel @Inject constructor(
                     _connectionError.value = false
                     _isPlaying.value = connected.isPlaying
                     publishPlayerSnapshot(connected)
+                    refreshVideoUpscalingState()
                     if (connected.isPlaying) startTicker()
                 } else {
                     // Clear so a later connect() can retry instead of returning early.
@@ -283,21 +284,18 @@ class PlayerViewModel @Inject constructor(
             _currentItemId.value = nextMediaId
             _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
             _queueSize.value = _controller.value?.mediaItemCount ?: 0
+            refreshVideoUpscalingState()
             // Favourite state is already observed as a single StateFlow above;
             // querying the repository on every queue transition was unused work.
         }
 
         override fun onTracksChanged(tracks: Tracks) {
             refreshTracks(tracks)
-            if (tracks.groups.none { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }) {
-                _videoUpscalingEnabled.value = false
-            }
+            refreshVideoUpscalingState()
         }
 
         override fun onDeviceInfoChanged(deviceInfo: androidx.media3.common.DeviceInfo) {
-            if (deviceInfo.playbackType == androidx.media3.common.DeviceInfo.PLAYBACK_TYPE_REMOTE) {
-                _videoUpscalingEnabled.value = false
-            }
+            refreshVideoUpscalingState()
         }
 
         override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
@@ -354,6 +352,24 @@ class PlayerViewModel @Inject constructor(
     }
 
 
+    /** Reads the authoritative effect state from the service after track, item, or route changes. */
+    private fun refreshVideoUpscalingState() {
+        val player = _controller.value ?: return
+        val future = runCatching {
+            player.sendCustomCommand(PlaybackVideoEffects.STATE_COMMAND, Bundle.EMPTY)
+        }.getOrNull() ?: return
+        future.addListener(
+            {
+                val result = runCatching { future.get() }.getOrNull() ?: return@addListener
+                if (result.resultCode == SessionResult.RESULT_SUCCESS) {
+                    _videoUpscalingEnabled.value =
+                        result.extras.getBoolean(PlaybackVideoEffects.KEY_STATE_ENABLED, false)
+                }
+            },
+            ContextCompat.getMainExecutor(app)
+        )
+    }
+
     /** Requests GPU Lanczos resampling from the playback service, which owns the real ExoPlayer. */
     fun setVideoUpscalingEnabled(enabled: Boolean) {
         val player = _controller.value ?: return
@@ -372,7 +388,9 @@ class PlayerViewModel @Inject constructor(
             {
                 val result = runCatching { future.get() }.getOrNull()
                 val success = result?.resultCode == SessionResult.RESULT_SUCCESS
-                _videoUpscalingEnabled.value = enabled && success
+                _videoUpscalingEnabled.value = if (success) {
+                    result?.extras?.getBoolean(PlaybackVideoEffects.KEY_STATE_ENABLED, enabled) ?: enabled
+                } else false
                 if (!success) {
                     _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_gpu_upscaling_unavailable)
                 }
