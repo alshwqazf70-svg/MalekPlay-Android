@@ -220,6 +220,7 @@ class PlayerViewModel @Inject constructor(
     private var dlnaSessionGeneration = 0L
     private var lastGroups: List<Tracks.Group> = emptyList()
     private var currentMediaId: String? = null
+    private var videoEffectStateGeneration = 0L
     private val restoredTrackPreferenceIds = mutableSetOf<String>()
     private val trackPreferenceRestoreInFlight = mutableSetOf<String>()
     private val trackPreferencesByMediaId = mutableMapOf<String, TrackPreferenceEntity?>()
@@ -253,6 +254,7 @@ class PlayerViewModel @Inject constructor(
                     _connectionError.value = false
                     _isPlaying.value = connected.isPlaying
                     publishPlayerSnapshot(connected)
+                    refreshVideoEffectState()
                     if (connected.isPlaying) startTicker()
                 } else {
                     // Clear so a later connect() can retry instead of returning early.
@@ -316,6 +318,7 @@ class PlayerViewModel @Inject constructor(
             _currentItemId.value = nextMediaId
             _currentIndex.value = _controller.value?.currentMediaItemIndex ?: 0
             _queueSize.value = _controller.value?.mediaItemCount ?: 0
+            refreshVideoEffectState()
             // Favourite state is already observed as a single StateFlow above;
             // querying the repository on every queue transition was unused work.
         }
@@ -324,13 +327,19 @@ class PlayerViewModel @Inject constructor(
             refreshTracks(tracks)
             if (tracks.groups.none { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }) {
                 _videoUpscalingEnabled.value = false
+                _videoNoiseReductionEnabled.value = false
+                _videoMotionSmoothingEnabled.value = false
             }
+            refreshVideoEffectState()
         }
 
         override fun onDeviceInfoChanged(deviceInfo: androidx.media3.common.DeviceInfo) {
             if (deviceInfo.playbackType == androidx.media3.common.DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                 _videoUpscalingEnabled.value = false
+                _videoNoiseReductionEnabled.value = false
+                _videoMotionSmoothingEnabled.value = false
             }
+            refreshVideoEffectState()
         }
 
         override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
@@ -393,6 +402,36 @@ class PlayerViewModel @Inject constructor(
     }
 
 
+    /**
+     * The playback service owns the real effect state. Re-read it after route, track,
+     * item, and command changes so automatic safety shutdowns cannot leave stale UI toggles.
+     */
+    private fun refreshVideoEffectState() {
+        val player = _controller.value ?: return
+        val generation = ++videoEffectStateGeneration
+        val future = runCatching {
+            player.sendCustomCommand(PlaybackVideoEffects.STATE_COMMAND, Bundle.EMPTY)
+        }.getOrNull() ?: return
+        future.addListener(
+            {
+                if (generation != videoEffectStateGeneration) return@addListener
+                val result = runCatching { future.get() }.getOrNull() ?: return@addListener
+                if (result.resultCode != SessionResult.RESULT_SUCCESS) return@addListener
+                val state = result.extras
+                _videoUpscalingEnabled.value =
+                    state.getBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, false)
+                _videoNoiseReductionEnabled.value =
+                    state.getBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, false)
+                _videoMotionSmoothingEnabled.value =
+                    state.getBoolean(PlaybackVideoEffects.KEY_STATE_MOTION_SMOOTHING, false)
+                _videoEnhancementProfile.value = VideoEnhancementProfile.fromWireValue(
+                    state.getString(PlaybackVideoEffects.KEY_STATE_PROFILE)
+                )
+            },
+            ContextCompat.getMainExecutor(app)
+        )
+    }
+
     /** Sends an explicit per-video effect toggle to the service that owns ExoPlayer. */
     fun setVideoUpscalingEnabled(enabled: Boolean) =
         setVideoEffectEnabled(PlaybackVideoEffects.ACTION_UPSCALING, enabled) { _videoUpscalingEnabled.value = it }
@@ -423,6 +462,7 @@ class PlayerViewModel @Inject constructor(
                     .getOrDefault(false)
                 if (success) _videoEnhancementProfile.value = profile
                 else _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_video_effect_unavailable)
+                refreshVideoEffectState()
             },
             ContextCompat.getMainExecutor(app)
         )
@@ -447,6 +487,7 @@ class PlayerViewModel @Inject constructor(
                 val result = runCatching { future.get() }.getOrNull()
                 val success = result?.resultCode == SessionResult.RESULT_SUCCESS
                 publishState(enabled && success)
+                refreshVideoEffectState()
                 if (!success) {
                     _videoUpscalingError.value = app.getString(com.malekplay.R.string.player_video_effect_unavailable)
                 }
