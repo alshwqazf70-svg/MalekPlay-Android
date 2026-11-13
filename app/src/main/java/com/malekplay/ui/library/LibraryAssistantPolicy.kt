@@ -3,7 +3,7 @@ package com.malekplay.ui.library
 import com.malekplay.domain.model.LibraryItem
 import java.util.Locale
 
-internal data class LibraryAssistantResponse(val message: String, val items: List<LibraryItem>)
+data class LibraryAssistantResponse(val message: String, val items: List<LibraryItem>)
 
 private data class LibraryAssistantFilters(
     val videoOnly: Boolean = false,

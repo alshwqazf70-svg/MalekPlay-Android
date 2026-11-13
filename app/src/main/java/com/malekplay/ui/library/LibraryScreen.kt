@@ -253,7 +253,7 @@ fun LibraryScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(smartRecommendations, key = { "smart-" + it.media.id }) { recommendation ->
+                        items(smartRecommendations, key = { "smart-" + it.item.media.id }) { recommendation ->
                             SmartRecommendationTile(recommendation) { onVideoClick(recommendation.item) }
                         }
                     }

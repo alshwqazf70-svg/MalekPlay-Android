@@ -10,20 +10,20 @@ import java.util.Locale
  * present in the library. It performs deterministic ranking only: no network,
  * model download, analytics, generated files, or additional database tables.
  */
-internal data class SmartMediaRecommendation(
+data class SmartMediaRecommendation(
     val item: LibraryItem,
     val reason: String,
     val score: Double
 )
 
-internal data class SmartMediaCollection(
+data class SmartMediaCollection(
     val title: String,
     val query: String,
     val itemCount: Int,
     val kind: String
 )
 
-internal data class SmartSimilarMedia(
+data class SmartSimilarMedia(
     val item: LibraryItem,
     val reason: String,
     val score: Double
