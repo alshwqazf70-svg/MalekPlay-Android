@@ -54,6 +54,32 @@ class UltraShareQrCodeTest {
         assertEquals(secret, decoded.pairingSecret)
     }
 
+    @Test
+    fun pairingPayloadRoundTripsMultipleNetworkAddresses() {
+        val secret = UltraShareTransport.createPairingSecret()
+        val payload = UltraShareQrCode.createPayload(
+            hosts = listOf("192.168.1.25", "192.168.43.1", "10.0.0.4"),
+            port = UltraShareTransport.DEFAULT_PORT,
+            pairingSecret = secret
+        )
+
+        val decoded = UltraShareQrCode.parsePayload(payload)
+
+        assertEquals("192.168.1.25", decoded.host)
+        assertEquals(listOf("192.168.1.25", "192.168.43.1", "10.0.0.4"), decoded.hosts)
+        assertEquals(secret, decoded.pairingSecret)
+    }
+
+    @Test
+    fun pairingParserContinuesToAcceptVersionOneQrCodes() {
+        val secret = UltraShareTransport.createPairingSecret()
+        val decoded = UltraShareQrCode.parsePayload(
+            "malekplay://ultra-share?v=1&host=192.168.1.25&port=${UltraShareTransport.DEFAULT_PORT}&secret=$secret"
+        )
+        assertEquals("192.168.1.25", decoded.host)
+        assertEquals(listOf("192.168.1.25"), decoded.hosts)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun pairingParserRejectsForeignSchemes() {
         UltraShareQrCode.parsePayload("https://example.com/?secret=anything")
