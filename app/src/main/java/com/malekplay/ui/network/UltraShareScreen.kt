@@ -200,6 +200,10 @@ class LegacyUltraShareViewModel @Inject constructor(
 
     private fun completeReversedInvitationConnection(host: String) {
         if (!_state.value.receiving || reverseInvitationConnectionInProgress) return
+        // Wi-Fi P2P may report the same formed group more than once. Once MPC2
+        // has approved this host, a duplicate broadcast must not replace its
+        // authenticated socket or restart the one-session pairing handshake.
+        if (UltraShareControlChannel.isSessionActive(host)) return
         val secret = _state.value.pairingSecret
         if (!UltraShareTransport.isValidPairingSecret(secret) ||
             !UltraShareTransport.isValidPrivateLanHost(host)
