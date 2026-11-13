@@ -265,11 +265,9 @@ class UltraShareForegroundService : Service() {
                         localAddresses = addresses,
                         receiving = true,
                         pendingConnection = null,
-                        status = if (current.activePeers.isEmpty()) {
-                            getString(R.string.ultra_share_waiting)
-                        } else {
-                            "قناة الاستقبال جاهزة؛ الاتصال الآمن مع الجهاز المقترن ما زال نشطاً."
-                        }
+                        status = current.activePeers.lastOrNull()?.name?.let { peerName ->
+                            "متصل مع $peerName؛ الإرسال والاستقبال متاحان."
+                        } ?: getString(R.string.ultra_share_waiting)
                     ) }
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                     advertisementJob = launch {
