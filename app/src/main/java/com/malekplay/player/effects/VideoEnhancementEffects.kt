@@ -425,7 +425,13 @@ private class VideoDetailEnhancementProgram(
                 vec3 detail = center.rgb - localAverage;
                 float edgeMagnitude = length(detail);
                 float edgeGate = smoothstep(0.006, 0.055, edgeMagnitude);
-                vec3 enhanced = center.rgb + detail * uStrength * edgeGate;
+                vec3 sharpened = center.rgb + detail * uStrength * edgeGate;
+                // Constrain sharpening to the local 5-tap neighborhood. This limits
+                // bright/dark halos around subtitles and high-contrast edges after
+                // Lanczos upscaling without clipping legitimate HDR values.
+                vec3 localMin = min(center.rgb, min(min(north, south), min(east, west)));
+                vec3 localMax = max(center.rgb, max(max(north, south), max(east, west)));
+                vec3 enhanced = clamp(sharpened, localMin, localMax);
                 // Preserve HDR values above 1.0; only prevent invalid negative light.
                 gl_FragColor = vec4(max(enhanced, vec3(0.0)), center.a);
             }
