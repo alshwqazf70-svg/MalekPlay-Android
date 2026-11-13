@@ -123,6 +123,7 @@ data class UltraShareUiState(
     val receivedHistory: List<UltraShareReceivedEntry> = emptyList(),
     val wifiDirectPeers: List<UltraShareWifiDirect.Peer> = emptyList(),
     val wifiDirectHost: String? = null,
+    val pairedHost: String? = null,
     val hotspotSsid: String? = null,
     val hotspotPassword: String? = null,
     val hotspotStarting: Boolean = false,
@@ -361,6 +362,7 @@ class UltraShareViewModel @Inject constructor(
                 try {
                     UltraSharePairing.connect(candidate, pin, manager)
                     _state.value = _state.value.copy(
+                        pairedHost = candidate,
                         status = "تم الاقتران والتحقق من الجهاز عبر " + candidate + ". أصبح جاهزاً للإرسال.",
                         error = null
                     )
@@ -402,6 +404,7 @@ class UltraShareViewModel @Inject constructor(
                 if (pairedHost != null) {
                     val peerName = peers.firstOrNull { it.host == pairedHost }?.name ?: pairedHost
                     _state.value = _state.value.copy(
+                        pairedHost = pairedHost,
                         status = "تم الاقتران تلقائياً مع " + peerName + ". أصبح الجهاز جاهزاً للإرسال.",
                         error = null
                     )
@@ -701,6 +704,9 @@ fun UltraShareScreen(
     }
     LaunchedEffect(state.wifiDirectHost) {
         host = state.wifiDirectHost.orEmpty()
+    }
+    LaunchedEffect(state.pairedHost) {
+        state.pairedHost?.let { host = it }
     }
     fun scanQrWithCamera() {
         val options = ScanOptions().apply {
