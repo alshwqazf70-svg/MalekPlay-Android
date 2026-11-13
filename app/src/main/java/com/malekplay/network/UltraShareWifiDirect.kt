@@ -153,12 +153,19 @@ object UltraShareWifiDirect {
                     WifiP2pManager.DnsSdServiceResponseListener { _, _, _ -> },
                     WifiP2pManager.DnsSdTxtRecordListener { _, records, device ->
                         if (closed || records["peer"] != peerId) return@DnsSdTxtRecordListener
+                        val callback = invitationMatch ?: return@DnsSdTxtRecordListener
                         val peer = Peer(
                             name = device.deviceName?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay",
                             deviceAddress = device.deviceAddress.orEmpty(),
                             status = statusLabel(device.status)
                         )
-                        if (peer.deviceAddress.isNotBlank()) invitationMatch?.invoke(peer)
+                        if (peer.deviceAddress.isNotBlank()) {
+                            // DNS-SD may report the same TXT record more than once.
+                            // Consume the invitation match before invoking UI code so
+                            // duplicate callbacks cannot start competing P2P connects.
+                            invitationMatch = null
+                            callback(peer)
+                        }
                     }
                 )
                 val request = WifiP2pDnsSdServiceRequest.newInstance()
