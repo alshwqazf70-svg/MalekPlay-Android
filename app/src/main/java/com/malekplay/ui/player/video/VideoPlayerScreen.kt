@@ -440,6 +440,12 @@ fun VideoPlayerScreen(
         if (inPip) chromeVisible = false
     }
 
+    LaunchedEffect(stats.frameRate) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || stats.frameRate !in 20f..120f) {
+            motionCadenceEnabled = false
+        }
+    }
+
     // ------------------------------------------------- brightness and volume
     val audioManager = remember(context) { context.getSystemService(AudioManager::class.java) }
     val maxVolume = remember(audioManager) {
