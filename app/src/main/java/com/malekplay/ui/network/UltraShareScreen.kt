@@ -738,6 +738,50 @@ class LegacyUltraShareViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Unified nearby scan: query Wi-Fi Direct peers and authenticated LAN offers
+     * during the same user action. Discovery results are hints only; selecting a
+     * device still requires the existing MPC2 invitation handshake.
+     */
+    fun scanNearbyGroups() {
+        if (_state.value.sending || _state.value.receiving || scanJob != null) return
+        scanWifiDirectPeers()
+        scanJob = viewModelScope.launch {
+            try {
+                val peers = UltraShareDiscovery.discoverPeers(
+                    scanWindowMs = 4_000L,
+                    context = context
+                )
+                _state.value = _state.value.copy(
+                    discoveredPeers = peers,
+                    status = when {
+                        peers.isNotEmpty() && _state.value.wifiDirectPeers.isNotEmpty() ->
+                            "اكتُشفت أجهزة عبر الشبكة المحلية وWi-Fi Direct. اختر طريقة الاقتران الآمنة."
+                        peers.isNotEmpty() ->
+                            "اكتُشفت " + peers.size + " أجهزة عبر الشبكة المحلية. يلزم إكمال مصادقة الاقتران."
+                        _state.value.wifiDirectPeers.isNotEmpty() ->
+                            "اكتُشفت أجهزة Wi-Fi Direct. يلزم إكمال مصادقة الاقتران."
+                        else -> "لم تُكتشف أجهزة قريبة. تأكد من تشغيل Wi-Fi وأن الجهاز الآخر ينشئ مجموعة أو يعلن الاستقبال."
+                    }
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _state.value = _state.value.copy(
+                    error = failure.localizedMessage
+                        ?: "تعذر إكمال البحث الموحد عن الأجهزة القريبة."
+                )
+            } finally {
+                scanJob = null
+                // Wi-Fi Direct owns the shared scan indicator until its bounded
+                // 15-second radio-discovery window stops.
+                if (wifiDirectScanTimeout == null) {
+                    _state.value = _state.value.copy(scanning = false)
+                }
+            }
+        }
+    }
+
     fun scanWifiDirectPeers() {
         try {
             val session = ensureWifiDirectSession()
@@ -1238,7 +1282,7 @@ fun UltraShareScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedButton(
-                onClick = viewModel::scanNearbyDevices,
+                onClick = { requestWifiDirectAction { viewModel.scanNearbyGroups() } },
                 modifier = Modifier.weight(1f),
                 enabled = !state.sending && !state.receiving && !state.scanning
             ) {
