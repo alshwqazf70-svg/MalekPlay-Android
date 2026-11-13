@@ -800,6 +800,7 @@ class LegacyUltraShareViewModel @Inject constructor(
             val session = ensureWifiDirectSession()
             _state.value = _state.value.copy(
                 scanning = true,
+                wifiDirectPeers = emptyList(),
                 wifiDirectHost = null,
                 error = null,
                 status = "جارٍ البحث عن أجهزة Wi-Fi Direct..."
