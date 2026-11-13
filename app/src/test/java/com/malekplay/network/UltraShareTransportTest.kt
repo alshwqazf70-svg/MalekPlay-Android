@@ -156,6 +156,33 @@ class UltraShareTransportTest {
     }
 
     @Test
+    fun resumeOffsetRejectsNegativeAndBeyondEndPositions() {
+        assertTrue(UltraShareTransport.isValidResumeOffset(0L, 100L))
+        assertTrue(UltraShareTransport.isValidResumeOffset(100L, 100L))
+        assertFalse(UltraShareTransport.isValidResumeOffset(-1L, 100L))
+        assertFalse(UltraShareTransport.isValidResumeOffset(101L, 100L))
+        assertFalse(UltraShareTransport.isValidResumeOffset(0L, -1L))
+    }
+
+    @Test
+    fun completedFileIntegrityRejectsCorruptionAndWrongLength() {
+        val directory = java.nio.file.Files.createTempDirectory("ultrashare-integrity").toFile()
+        try {
+            val expected = "verified media payload".toByteArray(Charsets.UTF_8)
+            val digest = java.security.MessageDigest.getInstance("SHA-256").digest(expected)
+            val file = java.io.File(directory, "received.bin")
+            file.writeBytes(expected)
+            assertTrue(UltraShareTransport.isCompletedFileValid(file, expected.size.toLong(), digest))
+            file.writeBytes("corrupted media payload".toByteArray(Charsets.UTF_8))
+            assertFalse(UltraShareTransport.isCompletedFileValid(file, expected.size.toLong(), digest))
+            file.writeBytes(expected.copyOf(expected.size - 1))
+            assertFalse(UltraShareTransport.isCompletedFileValid(file, expected.size.toLong(), digest))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun privateLanHostValidationRejectsNonLocalTargets() {
         assertTrue(UltraShareTransport.isValidPrivateLanHost("192.168.1.25"))
         assertTrue(UltraShareTransport.isValidPrivateLanHost("10.0.0.8"))
