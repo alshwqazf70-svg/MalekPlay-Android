@@ -80,6 +80,7 @@ import com.malekplay.network.UltraShareReceivedEntry
 import com.malekplay.network.UltraShareReceivedHistoryStore
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareForegroundService
+import com.malekplay.network.ExternalWifiDirectQr
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraShareWifiDirect
 import com.malekplay.network.UltraShareControlChannel
@@ -860,7 +861,16 @@ fun UltraShareScreen(
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
-                    Toast.makeText(context, R.string.ultra_share_scan_failed, Toast.LENGTH_LONG).show()
+                    val externalQr = runCatching { ExternalWifiDirectQr.parse(raw) }.getOrNull()
+                    if (externalQr != null) {
+                        Toast.makeText(
+                            context,
+                            "تم التعرف على رمز Zapya/Kuaiya، لكن بياناته لا تكفي لمصادقة MalekPlayer أو الانضمام التلقائي. استخدم رمز MalekPlayer للاتصال الآمن.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        Toast.makeText(context, R.string.ultra_share_scan_failed, Toast.LENGTH_LONG).show()
+                    }
                 }
         }
     }
