@@ -289,8 +289,7 @@ class UltraShareViewModel @Inject constructor(
                 onPeers = { peers ->
                     _state.value = _state.value.copy(
                         wifiDirectPeers = peers,
-                        scanning = false,
-                        status = if (peers.isEmpty()) "لم يتم العثور على أجهزة Wi-Fi Direct."
+                        status = if (peers.isEmpty()) "جارٍ البحث عن أجهزة Wi-Fi Direct..."
                         else "تم العثور على " + peers.size + " أجهزة عبر Wi-Fi Direct."
                     )
                 },
@@ -342,6 +341,7 @@ class UltraShareViewModel @Inject constructor(
             session.discover()
             viewModelScope.launch {
                 delay(15_000)
+                session.stopDiscovery()
                 if (_state.value.scanning) {
                     _state.value = _state.value.copy(
                         scanning = false,
@@ -368,7 +368,9 @@ class UltraShareViewModel @Inject constructor(
             _state.value = _state.value.copy(error = "تعذر تهيئة اتصال Wi-Fi Direct.")
             return
         }
+        session.stopDiscovery()
         _state.value = _state.value.copy(
+            scanning = false,
             error = null,
             status = "جارٍ الاتصال بـ " + peer.name + " عبر Wi-Fi Direct..."
         )
