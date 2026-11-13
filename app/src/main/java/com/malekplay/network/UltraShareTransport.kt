@@ -32,8 +32,6 @@ import java.util.Locale
 import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
@@ -125,12 +123,28 @@ object UltraShareTransport {
         require(isValidPairingSecret(value)) { "رمز الاقتران غير صالح." }
         require(challenge.size == CHALLENGE_BYTES) { "تحدي الاقتران غير صالح." }
         if (value.length == PIN_LENGTH) {
-            val spec = PBEKeySpec(value.toCharArray(), challenge.copyOfRange(0, PIN_SALT_BYTES), PIN_KDF_ITERATIONS, SECRET_BYTES * 8)
-            return try {
-                SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
-            } finally {
-                spec.clearPassword()
+            // Implement PBKDF2-HMAC-SHA256 with the platform Mac primitive.
+            // Some Android 10 provider builds fail to expose the matching
+            // SecretKeyFactory even though HmacSHA256 itself is available.
+            // The manual RFC 8018 implementation keeps the wire key identical
+            // across Android 6-15 and avoids provider-specific PBKDF2 failures.
+            val password = value.toByteArray(Charsets.UTF_8)
+            val salt = challenge.copyOfRange(0, PIN_SALT_BYTES)
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(password, "HmacSHA256"))
+            val blockInput = ByteArray(salt.size + 4)
+            salt.copyInto(blockInput)
+            blockInput[blockInput.lastIndex - 3] = 0
+            blockInput[blockInput.lastIndex - 2] = 0
+            blockInput[blockInput.lastIndex - 1] = 0
+            blockInput[blockInput.lastIndex] = 1
+            var u = mac.doFinal(blockInput)
+            val result = u.copyOf()
+            repeat(PIN_KDF_ITERATIONS - 1) {
+                u = mac.doFinal(u)
+                for (index in result.indices) result[index] = (result[index].toInt() xor u[index].toInt()).toByte()
             }
+            return result.copyOf(SECRET_BYTES)
         }
         return ByteArray(SECRET_BYTES) { index ->
             value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
