@@ -267,8 +267,8 @@ jobs:
             set -euo pipefail
             adb wait-for-device
             for attempt in $(seq 1 30); do
-              sdk="$(adb shell getprop ro.build.version.sdk | tr -d '\\r')"
-              boot="$(adb shell getprop sys.boot_completed | tr -d '\\r')"
+              sdk="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+              boot="$(adb shell getprop sys.boot_completed | tr -d '\r')"
               if [ "$sdk" = "${{ matrix.api-level }}" ] && [ "$boot" = "1" ]; then
                 echo "Emulator is stable: API $sdk"
                 break
