@@ -137,7 +137,7 @@ object UltraShareDiagnostics {
         val peer = contextMessage?.let {
             Regex("(?i)(?:peerHost|host)\\s*=\\s*([^;,\\s]+)").find(it)?.groupValues?.getOrNull(1)
         }
-        val key = peer?.let { normalizeSessionKey("peer:" + it) } ?: "process"
+        val key = peer?.let(::diagnosticPeerSessionKey) ?: "process"
         val session = sessionFor(key, if (key == "process") "SERVICE" else "PEER") ?: return
         val root = rootCause(failure)
         val frame = sequenceOf(failure, root)
