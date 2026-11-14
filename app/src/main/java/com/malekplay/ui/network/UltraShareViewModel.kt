@@ -588,6 +588,7 @@ class UltraShareViewModel @Inject constructor(
         val owner = java.lang.ref.WeakReference(this)
         val callback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: android.net.Network) {
+                UltraShareDiagnostics.event("WIFI_NETWORK", "AVAILABLE", mapOf("networkHandle" to network.networkHandle))
                 if (!connectionStarted.compareAndSet(false, true)) return
                 val viewModel = owner.get() ?: run {
                     runCatching { connectivity.unregisterNetworkCallback(this) }
@@ -628,6 +629,7 @@ class UltraShareViewModel @Inject constructor(
             }
 
             override fun onUnavailable() {
+                UltraShareDiagnostics.event("WIFI_NETWORK", "UNAVAILABLE", mapOf("requestedHost" to pairing.host))
                 networkLost.set(true)
                 val viewModel = owner.get()
                 if (retainedHotspotNetworkCallback === this) {
@@ -646,6 +648,7 @@ class UltraShareViewModel @Inject constructor(
             }
 
             override fun onLost(network: android.net.Network) {
+                UltraShareDiagnostics.event("WIFI_NETWORK", "LOST", mapOf("networkHandle" to network.networkHandle, "paired" to paired.get()))
                 networkLost.set(true)
                 val viewModel = owner.get()
                 val isCurrent = retainedHotspotNetworkCallback === this
@@ -678,8 +681,10 @@ class UltraShareViewModel @Inject constructor(
         }
         hotspotNetworkCallback = callback
         try {
+            UltraShareDiagnostics.event("WIFI_NETWORK", "REQUESTED", mapOf("host" to pairing.host, "timeoutMs" to 30_000))
             connectivity.requestNetwork(request, callback, 30_000)
         } catch (failure: Exception) {
+            UltraShareDiagnostics.failure("WIFI_NETWORK_REQUEST", failure)
             runCatching { connectivity.unregisterNetworkCallback(callback) }
             hotspotNetworkCallback = null
             hotspotNetworkPaired = false
