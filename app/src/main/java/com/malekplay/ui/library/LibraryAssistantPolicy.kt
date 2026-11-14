@@ -67,7 +67,7 @@ internal object LibraryAssistantPolicy {
                         (!filters.inProgressOnly || item.isInProgress) &&
                         (!filters.completedOnly || item.isCompleted) &&
                         (!filters.favouritesOnly || item.isFavourite) &&
-                        (filters.genre == null || normalize(media.genre) == normalize(filters.genre)) &&
+                        (filters.genre == null || normalizeGenre(media.genre) == normalizeGenre(filters.genre)) &&
                         (filters.artist == null || normalize(media.artist) == normalize(filters.artist)) &&
                         (filters.minDurationMs == null || media.durationMs >= filters.minDurationMs) &&
                         (filters.maxDurationMs == null || media.durationMs <= filters.maxDurationMs)
@@ -105,7 +105,7 @@ internal object LibraryAssistantPolicy {
     private fun parseFilters(items: List<LibraryItem>, query: String): LibraryAssistantFilters {
         val genre = items.asSequence().mapNotNull { it.media.genre?.trim()?.takeIf(String::isNotEmpty) }
             .distinctBy(::normalize).sortedByDescending { normalize(it).length }
-            .firstOrNull { query.contains(normalize(it)) }
+            .firstOrNull { containsGenre(query, it) }
         val artist = items.asSequence().mapNotNull { it.media.artist?.trim()?.takeIf(String::isNotEmpty) }
             .distinctBy(::normalize).sortedByDescending { normalize(it).length }
             .firstOrNull { query.contains(normalize(it)) }
@@ -123,6 +123,19 @@ internal object LibraryAssistantPolicy {
             maxDurationMs = duration.second
         )
     }
+
+    private fun normalizeGenre(value: String?): String = normalize(value)
+        .split(" ").joinToString(" ") { stripDefiniteArticle(it) }
+
+    private fun containsGenre(query: String, genre: String): Boolean {
+        val queryWords = normalize(query).split(" ").map(::stripDefiniteArticle).filter(String::isNotBlank)
+        val genreWords = normalize(genre).split(" ").map(::stripDefiniteArticle).filter(String::isNotBlank)
+        return genreWords.isNotEmpty() && queryWords.windowed(genreWords.size)
+            .any { it == genreWords }
+    }
+
+    private fun stripDefiniteArticle(word: String): String =
+        if (word.startsWith("ال") && word.length > 3) word.drop(2) else word
 
     /** Returns inclusive lower/upper duration bounds in milliseconds. */
     private fun parseDurationConstraint(query: String): Pair<Long?, Long?> {
@@ -167,6 +180,7 @@ internal object LibraryAssistantPolicy {
                     character in '\u064B'..'\u065F' || character == '\u0670' -> Unit
                     character in "أإآٱ" -> append('ا')
                     character == 'ى' -> append('ي')
+                    character == 'ة' -> append('ه')
                     character in '٠'..'٩' -> append(('0'.code + character.code - '٠'.code).toChar())
                     character in '۰'..'۹' -> append(('0'.code + character.code - '۰'.code).toChar())
                     else -> append(character)
