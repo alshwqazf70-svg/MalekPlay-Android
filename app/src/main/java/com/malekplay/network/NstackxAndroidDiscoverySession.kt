@@ -116,6 +116,7 @@ object NstackxAndroidDiscoverySession {
         }
 
         val handle = candidate.network.networkHandle
+        UltraShareDiagnostics.event("NETWORK_SELECTION", "NSTACKX_NETWORK_SELECTED", mapOf("interface" to candidate.interfaceName, "localIp" to candidate.localIpv4, "networkHandle" to handle))
         check(handle > 0L) { "معرّف شبكة Android غير صالح." }
         val peerId = UltraShareDiscovery.localPeerId(appContext)
         val initResult = NstackxNativeBridge.initialize(
@@ -125,6 +126,7 @@ object NstackxAndroidDiscoverySession {
             ipv4Address = candidate.localIpv4,
             networkHandle = handle
         )
+        UltraShareDiagnostics.event("NSTACKX", if (initResult == 0) "ENGINE_INITIALIZED" else "ENGINE_INITIALIZE_FAILED", mapOf("resultCode" to initResult))
         check(initResult == 0) { "فشل تهيئة NSTACKX أو تسجيل الجهاز (رمز $initResult)." }
 
         setPeerListener(onPeerFound)
@@ -158,7 +160,10 @@ object NstackxAndroidDiscoverySession {
         // than leaving stale sockets alive; the authenticated TCP path is separate.
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onLost(network: Network) {
-                if (network == active.network && current() == active) stop()
+                if (network == active.network && current() == active) {
+                    UltraShareDiagnostics.event("NETWORK", "NSTACKX_NETWORK_LOST", mapOf("networkHandle" to active.networkHandle, "interface" to active.interfaceName))
+                    stop()
+                }
             }
 
             override fun onLinkPropertiesChanged(
