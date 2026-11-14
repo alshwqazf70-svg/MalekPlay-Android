@@ -47,6 +47,7 @@ data class UltraShareUiState(
     val localAddresses: List<String> = emptyList(),
     val receiving: Boolean = false,
     val controlChannelReady: Boolean = false,
+    val dataChannelReady: Boolean = false,
     val sending: Boolean = false,
     val scanning: Boolean = false,
     val discoveredPeers: List<UltraShareDiscovery.Peer> = emptyList(),
@@ -146,6 +147,10 @@ class UltraShareViewModel @Inject constructor(
                     localAddresses = serviceState.localAddresses,
                     receiving = serviceState.receiving,
                     controlChannelReady = serviceState.controlChannelReady,
+                    dataChannelReady = serviceState.dataChannelReady ||
+                        (current.dataChannelReady && current.approvedPeerHost?.let { host ->
+                            serviceState.activePeers.any { it.host == host }
+                        } == true),
                     sending = serviceState.sending,
                     progress = serviceState.progress,
                     sendProgress = serviceState.sendProgress,
@@ -184,6 +189,7 @@ class UltraShareViewModel @Inject constructor(
             invitationId = "",
             receiving = true,
             controlChannelReady = false,
+            dataChannelReady = false,
             progress = null,
             error = null,
             status = context.getString(R.string.ultra_share_waiting)
@@ -221,6 +227,7 @@ class UltraShareViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = _state.value.copy(
                 requestingConnection = true,
+                dataChannelReady = false,
                 error = null,
                 status = "جارٍ الاتصال تلقائياً بالجهاز؛ نختبر أفضل مسارات الشبكة..."
             )
@@ -296,31 +303,71 @@ class UltraShareViewModel @Inject constructor(
                             retainedPeerSessions.distinctBy { it.first },
                             java.util.UUID.randomUUID().toString()
                         )
+                    // MPC2 authenticates the peer, but file transfer has a separate
+                    // listener. Probe the actual V2 data endpoint on every QR/discovery
+                    // host and every Android Network that routes to that host.
+                    val dataRoutes = ArrayList<UltraShareNegotiation.Candidate>()
+                    val dataHosts = (
+                        listOf(connectedHost) + alternateHosts + orderedRoutes.map { it.host }
+                    ).filter { UltraShareTransport.isValidPrivateLanHost(it) }
+                        .distinct()
+                        .take(8)
+                    for (dataHost in dataHosts) {
+                        val networks = (
+                            listOfNotNull(preferredNetwork) +
+                                UltraShareNetworkRouting.findNetworksForHost(context, dataHost)
+                        ).distinct()
+                        if (UltraShareDiscovery.probeDataEndpoint(
+                                dataHost,
+                                com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT,
+                                networks
+                            )
+                        ) {
+                            val transport = when {
+                                UltraShareNetworkRouting.isWifiDirectGroupHost(dataHost) ->
+                                    UltraShareNegotiation.Transport.WIFI_DIRECT
+                                preferredNetwork != null ->
+                                    UltraShareNegotiation.Transport.HOTSPOT
+                                else -> UltraShareNegotiation.Transport.WLAN
+                            }
+                            dataRoutes += UltraShareNegotiation.Candidate(
+                                transport = transport,
+                                host = dataHost,
+                                port = com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT,
+                                connected = true,
+                                reachable = true,
+                                priority = if (dataHost == connectedHost) 100 else 50
+                            )
+                        }
+                    }
+                    val verifiedRoutes = UltraShareNegotiation.orderedCandidates(dataRoutes)
+                    val dataReady = verifiedRoutes.isNotEmpty()
                     val approvedTarget = UltraShareApprovedSendTarget(
                         sessionId = sessionId,
                         host = connectedHost,
                         secret = secret.trim(),
-                        candidates = orderedRoutes
+                        candidates = verifiedRoutes
                     )
                     UltraShareForegroundService.registerApprovedSendTarget(approvedTarget)
                     UltraShareForegroundService.registerApprovedPeer(
                         name = peerName,
                         host = connectedHost,
                         role = "أرسل طلب الاتصال",
-                        routeCandidates = orderedRoutes,
+                        routeCandidates = verifiedRoutes,
                         sessionId = sessionId
                     )
                     _state.value = _state.value.copy(
                         approvedPeerHost = connectedHost,
+                        dataChannelReady = dataReady,
                         approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
                         approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host },
-                        status = if (connectedHost != host.trim())
-                            "تم الاتصال تلقائياً عبر مسار بديل. جُهزت ${orderedRoutes.size} مسارات احتياطية للنقل."
-                        else if (orderedRoutes.size > 1)
-                            "تم الاتصال تلقائياً. جُهزت ${orderedRoutes.size} مسارات للنقل."
-                        else "تم الاتصال تلقائياً بالجهاز الآخر. يمكنك الآن بدء نقل الملفات.",
+                        status = if (dataReady)
+                            "تم الاقتران والتحقق من منفذ نقل الملفات فعلياً عبر ${verifiedRoutes.size} مسار."
+                        else
+                            "تم توثيق الاقتران، لكن منفذ نقل الملفات لم يستجب بعد. لن يبدأ إرسال أي ملف حتى يصبح مسار البيانات جاهزاً.",
                         requestingConnection = false,
-                        error = null
+                        error = if (dataReady) null else
+                            "قناة التحكم متصلة، لكن منفذ نقل الملفات غير متاح على عناوين الجهاز المكتشفة. تأكد من بقاء شاشة الاستقبال مفتوحة ثم أعد الاتصال."
                     )
                     onConnectionEstablished?.invoke(connectedHost)
                 } else {
@@ -357,6 +404,7 @@ class UltraShareViewModel @Inject constructor(
         val next = UltraShareForegroundService.approvedSendTargets().lastOrNull()
         _state.value = _state.value.copy(
             approvedPeerHost = next?.host,
+            dataChannelReady = next?.candidates?.any { it.reachable } == true,
             approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
             approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host }
         )
@@ -415,6 +463,7 @@ class UltraShareViewModel @Inject constructor(
         val next = UltraShareForegroundService.approvedSendTargets().lastOrNull()
         _state.value = _state.value.copy(
             approvedPeerHost = next?.host,
+            dataChannelReady = next?.candidates?.any { it.reachable } == true,
             approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
             approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host },
             reconnectablePeers = _state.value.reconnectablePeers.filterNot { it.host == host }
