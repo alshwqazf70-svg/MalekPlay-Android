@@ -346,14 +346,20 @@ object UltraShareDiscovery {
     }
 
     private fun probeCandidate(candidate: UltraShareNegotiation.Candidate, context: Context?): Boolean {
-        val network = context?.let { UltraShareNetworkRouting.findNetworkForHost(it, candidate.host) }
-        // Do not probe a private peer through the process default network when
-        // Android has no route for it; that can falsely select an unreachable peer.
-        if (context != null && network == null) return false
-        if (!probeEndpoint(candidate.host, UltraShareControlChannel.DEFAULT_PORT, network)) return false
-        // Candidate.port is the V2 batch-data port. Complete its explicit probe
-        // preamble so the receiver can distinguish discovery from a broken transfer.
-        return probeV2DataEndpoint(candidate.host, candidate.port, network)
+        val routes = context?.let {
+            UltraShareNetworkRouting.findNetworksForHost(it, candidate.host)
+        } ?: emptyList()
+        // When a Context is supplied, never probe through an unrelated process-default route.
+        if (context != null && routes.isEmpty()) return false
+        val attempts: List<android.net.Network?> = if (context == null) listOf(null) else routes
+        return attempts.any { network ->
+            if (!probeEndpoint(candidate.host, UltraShareControlChannel.DEFAULT_PORT, network)) {
+                false
+            } else {
+                // Verify the actual V2 data listener on the same route as control.
+                probeV2DataEndpoint(candidate.host, candidate.port, network)
+            }
+        }
     }
 
     private fun probeEndpoint(host: String, port: Int, network: android.net.Network?): Boolean = runCatching {
@@ -386,8 +392,8 @@ object UltraShareDiscovery {
             .filter { network ->
                 val name = network.name.lowercase()
                 network.isUp && !network.isLoopback &&
-                    (name.startsWith("wlan") || name.startsWith("swlan") ||
-                        name.startsWith("ap") || name.startsWith("eth") || name.startsWith("p2p"))
+                    (name.startsWith("wlan") || UltraShareNetworkRouting.isHotspotInterfaceName(name) ||
+                        name.startsWith("eth") || name.startsWith("p2p"))
             }
             .flatMap { it.interfaceAddresses }
             .mapNotNull { it.broadcast }
