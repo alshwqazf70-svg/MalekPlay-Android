@@ -1148,15 +1148,6 @@ class LegacyUltraShareViewModel @Inject constructor(
         _state.value = _state.value.copy(error = null, status = null)
     }
 
-    override fun onCleared() {
-        scanJob?.cancel()
-        wifiDirectScanTimeout?.cancel()
-        invitationTimeout?.cancel()
-        wifiDirectSession?.close()
-        wifiDirectSession = null
-        // Transfer jobs belong to the foreground service and deliberately outlive this ViewModel.
-        super.onCleared()
-    }
 }
 
 @Composable
@@ -1191,16 +1182,19 @@ fun UltraShareScreen(
     }
 
     val invitationId = state.invitationId
+    // Capture delegated Compose state in stable locals so Kotlin can smart-cast it.
+    val hotspotSsid = state.hotspotSsid
+    val hotspotPassword = state.hotspotPassword
     val qrPayload = if (
         state.receiving && state.controlChannelReady && state.hotspotActive &&
-        !state.pairedSession && !state.hotspotSsid.isNullOrBlank() &&
-        !state.hotspotPassword.isNullOrBlank() && state.localAddresses.isNotEmpty()
+        !state.pairedSession && !hotspotSsid.isNullOrBlank() &&
+        !hotspotPassword.isNullOrBlank() && state.localAddresses.isNotEmpty()
     ) {
         UltraShareQrCode.createHotspotReceiverPayload(
             state.localAddresses,
             state.pairingSecret,
-            state.hotspotSsid,
-            state.hotspotPassword
+            hotspotSsid,
+            hotspotPassword
         )
     } else null
     val qrBitmap = remember(qrPayload) {
