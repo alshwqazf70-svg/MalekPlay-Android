@@ -136,8 +136,7 @@ class UltraShareForegroundService : Service() {
     private data class ActiveDFileServer(
         val sessionId: Int,
         val listener: NstackxNativeBridge.DFileListener,
-        val activeTransferIds: MutableSet<Int>,
-        val stagingDirectory: File
+        val activeTransferIds: MutableSet<Int>
     )
     private val dfileServerSessions = java.util.concurrent.ConcurrentHashMap<String, ActiveDFileServer>()
     @Volatile private var receiveJob: Job? = null
@@ -676,11 +675,11 @@ class UltraShareForegroundService : Service() {
         }
         NstackxNativeBridge.addDFileListener(listener)
         var sessionId = -1
-        repeat(5) {
-            if (sessionId > 0) return@repeat
+        for (attempt in 0 until 5) {
+            if (sessionId > 0) break
             port = runCatching { ServerSocket(0).use { it.localPort } }
                 .getOrNull()?.takeIf { it in 1..65535 } ?: 0
-            if (port !in 1..65535) return@repeat
+            if (port !in 1..65535) continue
             sessionId = try {
                 NstackxNativeBridge.startApprovedDFileServer(
                     peerIpv4 = peerAddress,
@@ -698,7 +697,7 @@ class UltraShareForegroundService : Service() {
             return null
         }
         sessionIdRef.set(sessionId)
-        dfileServerSessions[peerAddress] = ActiveDFileServer(sessionId, listener, activeTransferIds, safeStaging)
+        dfileServerSessions[peerAddress] = ActiveDFileServer(sessionId, listener, activeTransferIds)
         while (true) {
             val event = earlyEvents.poll() ?: break
             if (event.sessionId == sessionId) {
