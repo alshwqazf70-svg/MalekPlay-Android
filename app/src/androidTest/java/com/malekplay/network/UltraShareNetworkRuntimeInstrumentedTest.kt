@@ -12,6 +12,8 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.io.DataInputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertArrayEquals
@@ -96,6 +98,59 @@ class UltraShareNetworkRuntimeInstrumentedTest {
             assertNotNull("Android reported Wi-Fi available without a Network", selected)
         } finally {
             runCatching { manager.unregisterNetworkCallback(callback) }
+        }
+    }
+
+    @Test
+    fun interruptedSocketCanResumeFromDurablePartialFileAfterReconnect() {
+        val firstPart = ByteArray(48 * 1024) { index -> (index * 13).toByte() }
+        val secondPart = ByteArray(32 * 1024) { index -> (index * 7 + 5).toByte() }
+        val expected = firstPart + secondPart
+        val partial = File(context.cacheDir, "ultrashare-resume-runtime-${System.nanoTime()}.part")
+
+        try {
+            ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
+                server.soTimeout = 8_000
+                Socket().use { firstClient ->
+                    firstClient.connect(InetSocketAddress("127.0.0.1", server.localPort), 5_000)
+                    firstClient.getOutputStream().write(firstPart)
+                    firstClient.getOutputStream().flush()
+                    firstClient.shutdownOutput()
+                    server.accept().use { accepted ->
+                        val received = ByteArray(firstPart.size)
+                        DataInputStream(accepted.getInputStream()).readFully(received)
+                        FileOutputStream(partial, false).use { output ->
+                            output.write(received)
+                            output.fd.sync()
+                        }
+                    }
+                }
+
+                assertTrue(partial.length() == firstPart.size.toLong())
+                assertTrue(
+                    UltraShareBatchTransport.resumableFileOffset(partial, expected.size.toLong()) ==
+                        firstPart.size.toLong()
+                )
+
+                Socket().use { resumedClient ->
+                    resumedClient.connect(InetSocketAddress("127.0.0.1", server.localPort), 5_000)
+                    resumedClient.getOutputStream().write(secondPart)
+                    resumedClient.getOutputStream().flush()
+                    resumedClient.shutdownOutput()
+                    server.accept().use { accepted ->
+                        val resumed = ByteArray(secondPart.size)
+                        DataInputStream(accepted.getInputStream()).readFully(resumed)
+                        FileOutputStream(partial, true).use { output ->
+                            output.write(resumed)
+                            output.fd.sync()
+                        }
+                    }
+                }
+            }
+
+            assertArrayEquals(expected, partial.readBytes())
+        } finally {
+            partial.delete()
         }
     }
 }
