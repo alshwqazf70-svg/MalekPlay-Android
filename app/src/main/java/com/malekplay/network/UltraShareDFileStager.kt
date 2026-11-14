@@ -143,6 +143,22 @@ internal object UltraShareDFileStager {
             canonicalTarget.length() == expectedBytes
     }.getOrDefault(false)
 
+    /** Validates a native DFile receive result before publishing it outside staging. */
+    internal fun isSafeReceivedFile(
+        file: File,
+        stagingDirectory: File,
+        reportedBytes: Long,
+        maximumBytes: Long = UltraShareTransport.MAX_FILE_BYTES
+    ): Boolean = runCatching {
+        val canonicalDirectory = stagingDirectory.canonicalFile
+        val canonicalFile = file.canonicalFile
+        val actualBytes = canonicalFile.length()
+        canonicalFile.parentFile == canonicalDirectory &&
+            canonicalFile.isFile &&
+            actualBytes in 0..maximumBytes &&
+            (reportedBytes <= 0L || reportedBytes == actualBytes)
+    }.getOrDefault(false)
+
     /** Re-checks the staged source bytes before declaring native DFile send complete. */
     internal fun verifyStagedDigest(staged: StagedFile): Boolean = runCatching {
         val digest = MessageDigest.getInstance("SHA-256")
