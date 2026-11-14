@@ -182,6 +182,7 @@ object UltraShareControlChannel {
         peerName: String,
         port: Int = DEFAULT_PORT,
         network: Network? = null,
+        networks: List<Network> = emptyList(),
         peerId: String? = null,
         onSessionClosed: (String) -> Unit = {}
     ): Decision = withContext(Dispatchers.IO) {
@@ -204,42 +205,57 @@ object UltraShareControlChannel {
         diagnostic("CLIENT begin target=" + host + ":" + port +
             " route=" + (network?.toString() ?: "Android-default"))
         try {
-            // Prefer the Android Network selected for this peer (especially the P2P
-            // interface), but do not make that lookup a hard prerequisite. Older
-            // Android/OEM Wi-Fi Direct stacks may route the group-owner address
-            // through the system route table without exposing a matching Network.
-            try {
-                diagnosticStage = "network-bind"
-                if (network != null) {
-                    network.bindSocket(socket)
-                    diagnostic("CLIENT network bind succeeded: " + network)
-                } else {
-                    diagnostic("CLIENT using Android default route")
-                }
-                diagnosticStage = "tcp-connect"
-                socket.connect(endpoint, HANDSHAKE_TIMEOUT_MS)
-                diagnostic("CLIENT TCP connected local=" + socket.localAddress?.hostAddress +
-                    ":" + socket.localPort + " remote=" + socket.inetAddress?.hostAddress +
-                    ":" + socket.port)
-            } catch (boundFailure: java.io.IOException) {
-                diagnostic("CLIENT route attempt failed at " + diagnosticStage + ": " +
-                    boundFailure.javaClass.simpleName + (boundFailure.message?.take(100)?.let { " - " + it } ?: ""))
-                if (network == null) throw boundFailure
+            // A peer can be reachable through more than one Android Network
+            // (WLAN, SoftAP or Wi-Fi Direct). Never assume the first matching
+            // route is usable: try each route with a fresh, unbound socket.
+            val routeCandidates = (listOfNotNull(network) + networks).distinct()
+            var connected = false
+            var lastRouteFailure: java.io.IOException? = null
+            for ((index, candidateNetwork) in routeCandidates.withIndex()) {
                 runCatching { socket.close() }
                 socket = Socket()
                 try {
-                    // Retry once using Android's normal route selection. Authentication
-                    // still happens below before a peer session can be approved.
-                    diagnosticStage = "default-route-connect"
+                    diagnosticStage = "network-bind-$index"
+                    candidateNetwork.bindSocket(socket)
+                    diagnostic("CLIENT network bind succeeded: " + candidateNetwork)
+                    diagnosticStage = "tcp-connect-$index"
                     socket.connect(endpoint, HANDSHAKE_TIMEOUT_MS)
+                    connected = true
+                    diagnostic("CLIENT TCP connected via Android Network local=" +
+                        socket.localAddress?.hostAddress + ":" + socket.localPort +
+                        " remote=" + socket.inetAddress?.hostAddress + ":" + socket.port)
+                    break
+                } catch (routeFailure: java.io.IOException) {
+                    lastRouteFailure = routeFailure
+                    diagnostic("CLIENT Android Network attempt failed at " + diagnosticStage + ": " +
+                        routeFailure.javaClass.simpleName +
+                        (routeFailure.message?.take(100)?.let { " - " + it } ?: ""))
+                }
+            }
+            if (!connected) {
+                runCatching { socket.close() }
+                socket = Socket()
+                try {
+                    // Some OEM P2P implementations do not publish a matching
+                    // Network object. Preserve the system-route fallback, but only
+                    // after every peer-specific Android Network has been attempted.
+                    diagnosticStage = "default-route-connect"
+                    if (routeCandidates.isEmpty()) {
+                        diagnostic("CLIENT no peer-specific Android Network; trying default route")
+                    } else {
+                        diagnostic("CLIENT all " + routeCandidates.size +
+                            " peer-specific routes failed; trying default route")
+                    }
+                    socket.connect(endpoint, HANDSHAKE_TIMEOUT_MS)
+                    connected = true
                     diagnostic("CLIENT default-route TCP connected local=" +
                         socket.localAddress?.hostAddress + ":" + socket.localPort)
                 } catch (fallbackFailure: java.io.IOException) {
                     diagnostic("CLIENT default-route failed: " + fallbackFailure.javaClass.simpleName +
                         (fallbackFailure.message?.take(100)?.let { " - " + it } ?: ""))
-                    fallbackFailure.addSuppressed(boundFailure)
+                    lastRouteFailure?.let(fallbackFailure::addSuppressed)
                     throw java.io.IOException(
-                        "تعذر الوصول إلى الجهاز عبر مسار Wi-Fi Direct أو مسار الشبكة الافتراضي. تحقق من اتصال الهاتفين ثم أعد المحاولة.",
+                        "تعذر الوصول إلى الجهاز عبر شبكات Wi-Fi المتاحة. تحقق من اتصال الهاتفين ثم أعد المحاولة.",
                         fallbackFailure
                     )
                 }
