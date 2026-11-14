@@ -15,13 +15,13 @@ class UltraShareDiagnosticsTest {
     fun jsonEncoderEscapesControlCharactersAndPreservesPrimitiveTypes() {
         val encoded = UltraShareDiagnostics.jsonObject(
             linkedMapOf(
-                "message" to "first line\\nsecond line",
+                "message" to "first line\nsecond line",
                 "count" to 3,
                 "enabled" to true
             )
         )
         assertEquals(
-            """{"message":"first line\\nsecond line","count":3,"enabled":true}""",
+            """{"message":"first line\nsecond line","count":3,"enabled":true}""",
             encoded
         )
     }
