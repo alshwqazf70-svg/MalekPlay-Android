@@ -180,7 +180,7 @@ object UltraShareBatchTransport {
         require(sources.isNotEmpty() && sources.size <= UltraShareBatchProtocol.MAX_FILES)
         require(UltraShareTransport.isValidPrivateLanHost(host))
         require(UltraShareTransport.isValidPairingSecret(pairingSecret))
-        if (!UltraShareControlChannel.isSessionActive(host)) {
+        if (!UltraShareControlChannel.hasAnyActiveSession(host)) {
             throw IOException("انتهت قناة الموافقة؛ يجب إعادة الاتصال قبل بدء نقل V2.")
         }
         val prepared = sources.map { source ->
@@ -345,7 +345,7 @@ object UltraShareBatchTransport {
         // independent control-channel approval for this peer has also been verified.
         val approved = isPeerSessionAuthorized(
             authenticated = authenticated,
-            sessionActive = authenticated && UltraShareControlChannel.isServerSessionActive(peerHost)
+            sessionActive = authenticated && UltraShareControlChannel.hasAnyActiveSession(peerHost)
         )
         output.writeBoolean(approved)
         output.flush()
