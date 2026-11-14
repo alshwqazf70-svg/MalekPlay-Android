@@ -77,7 +77,7 @@ object UltraShareWifiDirect {
                 appContext,
                 receiver,
                 filter,
-                ContextCompat.RECEIVER_NOT_EXPORTED
+                ContextCompat.RECEIVER_EXPORTED
             )
         }
 
