@@ -124,7 +124,17 @@ fun ReceiveScreen(
                         } else {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 CircularProgressIndicator(color = ShareCyan)
-                                Text("جارٍ تجهيز رمز QR…", color = Color(0xFF59677E))
+                                Text(
+                                    when {
+                                        !state.hotspotActive -> "جارٍ تجهيز شبكة MalekPlay المحلية…"
+                                        !state.dataChannelReady -> "جارٍ تشغيل منفذ نقل الملفات والتحقق من جاهزيته…"
+                                        !state.controlChannelReady -> "جارٍ تشغيل قناة الاقتران…"
+                                        state.localAddresses.isEmpty() -> "جارٍ تحديد عنوان الشبكة…"
+                                        else -> "جارٍ تجهيز رمز QR…"
+                                    },
+                                    color = Color(0xFF59677E),
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
                     }
