@@ -126,7 +126,8 @@ internal object SmartRecommendationPolicy {
                     (if (sameArtist) SIMILAR_ARTIST_WEIGHT else 0.0) +
                     (if (sameAlbum) SIMILAR_ALBUM_WEIGHT else 0.0) +
                     (if (sameFolder) SIMILAR_FOLDER_WEIGHT else 0.0) + durationScore
-                if (score <= 0.0) return@mapNotNull null
+                val metadataScore = score - if (sameFolder) SIMILAR_FOLDER_WEIGHT else 0.0
+                if (metadataScore <= 0.0) return@mapNotNull null
                 val reason = when {
                     sameAlbum -> "من الألبوم نفسه"
                     sameArtist && sameGenre -> "من الفنان والنوع نفسيهما"
@@ -175,7 +176,7 @@ internal object SmartRecommendationPolicy {
             if (mediaIds.size < minimumItems) null
             else SmartMediaCollection(
                 title = title,
-                query = title,
+                query = title.normalized().orEmpty(),
                 itemCount = mediaIds.size,
                 kind = key.substringBefore(':')
             )
@@ -219,7 +220,7 @@ internal object SmartRecommendationPolicy {
                 val matchedTokens = tokens.count { token ->
                     fields.any { (value, _) -> value.contains(token) }
                 }
-                if (matchedTokens == 0) return@mapNotNull null
+                if (matchedTokens != tokens.size) return@mapNotNull null
                 val score = fields.sumOf { (value, weight) ->
                     when {
                         value == searchableQuery -> weight * EXACT_MATCH_MULTIPLIER
