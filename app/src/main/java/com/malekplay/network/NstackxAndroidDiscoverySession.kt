@@ -177,6 +177,10 @@ object NstackxAndroidDiscoverySession {
                 if (linkProperties.interfaceName != active.interfaceName ||
                     active.localIpv4 !in addresses
                 ) {
+                    UltraShareDiagnostics.event(
+                        "NETWORK", "NSTACKX_LINK_PROPERTIES_CHANGED",
+                        mapOf("networkHandle" to active.networkHandle, "interface" to active.interfaceName, "addresses" to addresses.joinToString(","))
+                    )
                     stop()
                 }
             }
