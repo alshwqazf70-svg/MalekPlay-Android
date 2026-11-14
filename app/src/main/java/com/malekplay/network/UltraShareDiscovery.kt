@@ -274,7 +274,7 @@ object UltraShareDiscovery {
                     val name = network.name.lowercase()
                     val transport = when {
                         name.startsWith("p2p") -> UltraShareNegotiation.Transport.WIFI_DIRECT
-                        name.startsWith("ap") || name.startsWith("softap") || name.startsWith("swlan") ->
+                        UltraShareNetworkRouting.isHotspotInterfaceName(name) ->
                             UltraShareNegotiation.Transport.HOTSPOT
                         name.startsWith("wlan") || name.startsWith("eth") ->
                             UltraShareNegotiation.Transport.WLAN
