@@ -160,7 +160,14 @@ object NstackxAndroidDiscoverySession {
         }
         try {
             connectivity.registerNetworkCallback(
-                NetworkRequest.Builder().clearCapabilities().build(),
+                NetworkRequest.Builder()
+                    // clearCapabilities() was added in API 30. Remove the three
+                    // default request constraints explicitly so API 23-29 also
+                    // receive callbacks for local-only Wi-Fi Direct/SoftAP networks.
+                    .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+                    .removeCapability(NetworkCapabilities.NET_CAPABILITY_TRUSTED)
+                    .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                    .build(),
                 callback
             )
             callbackConnectivity = connectivity
