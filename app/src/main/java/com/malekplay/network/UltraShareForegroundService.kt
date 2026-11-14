@@ -1875,16 +1875,29 @@ class UltraShareForegroundService : Service() {
 
         while (true) {
             try {
+                val dataPort = UltraShareNegotiation.dataPortForHost(
+                    activeHost, activeCandidates, UltraShareBatchTransport.DEFAULT_PORT
+                )
+                val dataNetworks = UltraShareNetworkRouting.findNetworksForHost(
+                    this@UltraShareForegroundService, activeHost
+                )
+                val controlReady = UltraShareControlChannel.isSessionActive(activeHost)
+                val dataReady = UltraShareDiscovery.probeDataEndpoint(
+                    activeHost, dataPort, dataNetworks
+                )
+                if (!UltraSharePairingReadiness.canSendData(controlReady, dataReady)) {
+                    throw IOException(
+                        "قناة الاقتران موجودة، لكن منفذ نقل الملفات غير متاح عبر مسارات الشبكة الحالية. لم يبدأ إرسال أي ملف؛ أعد الاتصال أو تحقق من بقاء الهاتفين على شبكة MalekPlay."
+                    )
+                }
                 return UltraShareBatchTransport.sendBatch(
                     resolver = contentResolver,
                     sources = sources,
                     host = activeHost,
-                    port = UltraShareNegotiation.dataPortForHost(
-                        activeHost, activeCandidates, UltraShareBatchTransport.DEFAULT_PORT
-                    ),
+                    port = dataPort,
                     pairingSecret = secret,
-                    network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, activeHost),
-                                networks = UltraShareNetworkRouting.findNetworksForHost(this@UltraShareForegroundService, activeHost),
+                    network = dataNetworks.firstOrNull(),
+                    networks = dataNetworks.drop(1),
                     onProgress = onProgress
                 )
             } catch (cancelled: CancellationException) {
