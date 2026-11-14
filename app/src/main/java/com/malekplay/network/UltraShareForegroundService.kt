@@ -763,7 +763,10 @@ class UltraShareForegroundService : Service() {
                         if (!UltraShareDFileStager.isSafeReceivedFile(
                                 stagedFile,
                                 stagingDirectory,
-                                event.totalBytes
+                                UltraShareDFileStager.reportedSizeForValidation(
+                                    event.fileNames.size,
+                                    event.totalBytes
+                                )
                             )
                         ) {
                             runCatching { stagedFile.delete() }
