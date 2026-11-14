@@ -31,4 +31,23 @@ class UltraShareDiagnosticsTest {
         assertEquals(emptyList<String>(), UltraShareDiagnostics.filesToDelete(listOf("one", "two", "three")))
         assertEquals(emptyList<String>(), UltraShareDiagnostics.filesToDelete(emptyList<String>()))
     }
+
+    @Test
+    fun peerDiagnosticKeysAreStableDistinctAndDoNotExposeHost() {
+        val first = UltraShareDiagnostics.diagnosticPeerSessionKey("192.168.1.10")
+        val samePeer = UltraShareDiagnostics.diagnosticPeerSessionKey("192.168.1.10")
+        val second = UltraShareDiagnostics.diagnosticPeerSessionKey("192.168.1.11")
+
+        assertEquals(first, samePeer)
+        org.junit.Assert.assertNotEquals(first, second)
+        org.junit.Assert.assertFalse(first.contains("192.168.1.10"))
+    }
+
+    @Test
+    fun peerDiagnosticKeysNormalizeHostCaseAndWhitespace() {
+        assertEquals(
+            UltraShareDiagnostics.diagnosticPeerSessionKey("Peer.Example"),
+            UltraShareDiagnostics.diagnosticPeerSessionKey(" peer.example ")
+        )
+    }
 }
