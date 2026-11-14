@@ -163,6 +163,8 @@ object UltraShareDiscovery {
                 }
             }
             .distinctBy { "${it.network}:${it.address.hostAddress}" }
+    }.onFailure { failure ->
+        UltraShareDiagnostics.failure("DISCOVERY_BROADCAST_ROUTE_ENUMERATION", failure)
     }.getOrDefault(emptyList()).ifEmpty {
         listOf(BroadcastRoute(null, InetAddress.getByName("255.255.255.255")))
     }
