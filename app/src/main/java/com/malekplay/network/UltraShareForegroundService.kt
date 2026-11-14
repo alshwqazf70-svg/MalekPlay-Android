@@ -581,7 +581,15 @@ class UltraShareForegroundService : Service() {
                                 },
                                 onDFileServerReady = { request, ephemeralKey ->
                                     try {
-                                        startDFileServerForPeer(request.peerAddress, request.localAddress)
+                                        // DFile currently has no receiver-side per-file SHA-256
+                                        // verification. Do not advertise a native data port until
+                                        // the authenticated manifest/checksum protocol is implemented.
+                                        UltraShareDiagnostics.event(
+                                            "DFILE",
+                                            "DISABLED_UNTIL_RECEIVER_INTEGRITY_MANIFEST",
+                                            mapOf("peerHost" to request.peerAddress)
+                                        )
+                                        null
                                     } finally {
                                         ephemeralKey.fill(0)
                                     }
