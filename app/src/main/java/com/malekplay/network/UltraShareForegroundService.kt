@@ -654,15 +654,8 @@ class UltraShareForegroundService : Service() {
         if (safeStaging.parentFile != safeDestination || !safeStaging.isDirectory || !safeStaging.canWrite()) return null
 
         // The native API accepts a port rather than an already-bound descriptor.
-        // Retry OS-assigned candidates to reduce the short close/rebind race.
+        // Retry both OS-assigned port selection and native bind failures.
         var port = 0
-        repeat(5) {
-            if (port == 0) {
-                port = runCatching { ServerSocket(0).use { it.localPort } }
-                    .getOrNull()?.takeIf { it in 1..65535 } ?: 0
-            }
-        }
-        if (port !in 1..65535) return null
         val sessionIdRef = java.util.concurrent.atomic.AtomicInteger(-1)
         val earlyEvents = java.util.concurrent.ConcurrentLinkedQueue<NstackxNativeBridge.DFileEvent>()
         val activeTransferIds = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Int, Boolean>())
@@ -674,18 +667,26 @@ class UltraShareForegroundService : Service() {
             }
         }
         NstackxNativeBridge.addDFileListener(listener)
-        val sessionId = try {
-            NstackxNativeBridge.startApprovedDFileServer(
-                peerIpv4 = peerAddress,
-                localIpv4 = discovery.localIpv4,
-                port = port,
-                destinationDirectory = safeStaging
-            )
-        } catch (failure: Exception) {
-            -1
+        var sessionId = -1
+        repeat(5) {
+            if (sessionId > 0) return@repeat
+            port = runCatching { ServerSocket(0).use { it.localPort } }
+                .getOrNull()?.takeIf { it in 1..65535 } ?: 0
+            if (port !in 1..65535) return@repeat
+            sessionId = try {
+                NstackxNativeBridge.startApprovedDFileServer(
+                    peerIpv4 = peerAddress,
+                    localIpv4 = discovery.localIpv4,
+                    port = port,
+                    destinationDirectory = safeStaging
+                )
+            } catch (_: Exception) {
+                -1
+            }
         }
         if (sessionId <= 0) {
             NstackxNativeBridge.removeDFileListener(listener)
+            runCatching { safeStaging.deleteRecursively() }
             return null
         }
         sessionIdRef.set(sessionId)
@@ -740,7 +741,7 @@ class UltraShareForegroundService : Service() {
                             !stagedFile.isFile || stagedFile.length() < 0L
                         ) return@launch
                         val mimeType = MimeTypeMap.getSingleton()
-                            .getMimeTypeFromExtension(canonical.extension.lowercase())
+                            .getMimeTypeFromExtension(stagedFile.extension.lowercase())
                             ?: "application/octet-stream"
                         val receivedSize = stagedFile.length()
                         if (receivedSize !in 0..UltraShareTransport.MAX_FILE_BYTES ||
