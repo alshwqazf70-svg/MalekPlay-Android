@@ -824,6 +824,11 @@ class LegacyUltraShareViewModel @Inject constructor(
         }
     }
     fun stopReceiving() {
+        hotspotNetworkCallback?.let { callback ->
+            val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            runCatching { connectivity.unregisterNetworkCallback(callback) }
+        }
+        hotspotNetworkCallback = null
         wifiDirectSession?.stopInvitationAdvertisement()
         wifiDirectSession?.removeGroup()
         invitationPreferences.edit().remove("active_invitation_id").apply()
