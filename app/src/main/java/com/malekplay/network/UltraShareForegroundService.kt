@@ -2317,6 +2317,11 @@ class UltraShareForegroundService : Service() {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: DFilePayloadStartedException) {
+            UltraShareDiagnostics.failure(
+                "DFILE_CLIENT_INCOMPLETE_AFTER_PAYLOAD",
+                failure,
+                "peerHost=" + host + ";files=" + sources.size
+            )
             throw failure
         } catch (failure: Exception) {
             UltraShareDiagnostics.failure(
