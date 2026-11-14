@@ -214,6 +214,10 @@ object UltraShareControlChannel {
         var diagnosticStage = "socket-create"
         diagnostic("CLIENT begin target=" + host + ":" + port +
             " route=" + (network?.toString() ?: "Android-default"))
+        UltraShareDiagnostics.event(
+            "CONTROL_CHANNEL", "CLIENT_REQUEST_STARTED",
+            mapOf("peerHost" to host, "port" to port, "networkHandle" to (network?.networkHandle ?: 0L))
+        )
         try {
             // A peer can be reachable through more than one Android Network
             // (WLAN, SoftAP or Wi-Fi Direct). Never assume the first matching
@@ -401,14 +405,26 @@ object UltraShareControlChannel {
                     }
                 }
                 retained = true
+                UltraShareDiagnostics.event(
+                    "CONTROL_CHANNEL", "CLIENT_SESSION_APPROVED",
+                    mapOf("peerHost" to host, "peerName" to remoteName, "peerIdPresent" to (remotePeerId != null))
+                )
                 Decision.ACCEPTED
             } else {
+                UltraShareDiagnostics.event(
+                    "CONTROL_CHANNEL", "CLIENT_SESSION_REJECTED",
+                    mapOf("peerHost" to host)
+                )
                 Decision.REJECTED
             }
             } finally {
                 key.fill(0)
             }
         } catch (cancelled: CancellationException) {
+            UltraShareDiagnostics.event(
+                "CONTROL_CHANNEL", "CLIENT_REQUEST_CANCELLED",
+                mapOf("peerHost" to host, "stage" to diagnosticStage)
+            )
             diagnostic("CLIENT cancelled at " + diagnosticStage)
             throw cancelled
         } catch (failure: Exception) {
