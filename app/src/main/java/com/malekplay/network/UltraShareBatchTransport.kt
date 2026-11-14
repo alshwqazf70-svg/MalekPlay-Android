@@ -208,31 +208,24 @@ object UltraShareBatchTransport {
             java.util.UUID.randomUUID().toString(), prepared.map { it.second }
         )
         val target = java.net.InetAddress.getByName(host)
-        val routeCandidates = (networks + listOfNotNull(network)).distinct().take(4)
+        // Keep the preferred Network first, exhaust all distinct Android routes,
+        // then try the process-default route exactly as the preflight probe does.
+        val routeCandidates = UltraShareNetworkRouting.orderedRoutesWithDefaultFallback(
+            (listOfNotNull(network) + networks).distinct().take(4)
+        )
         var connectedSocket: Socket? = null
         var connectFailure: IOException? = null
-        if (routeCandidates.isEmpty()) {
+        for (route in routeCandidates) {
+            currentCoroutineContext().ensureActive()
             val candidate = Socket()
             try {
+                route?.bindSocket(candidate)
                 candidate.connect(InetSocketAddress(target, port), HANDSHAKE_TIMEOUT_MS)
                 connectedSocket = candidate
+                break
             } catch (failure: IOException) {
                 runCatching { candidate.close() }
                 connectFailure = failure
-            }
-        } else {
-            for (route in routeCandidates) {
-                currentCoroutineContext().ensureActive()
-                val candidate = Socket()
-                try {
-                    route.bindSocket(candidate)
-                    candidate.connect(InetSocketAddress(target, port), HANDSHAKE_TIMEOUT_MS)
-                    connectedSocket = candidate
-                    break
-                } catch (failure: IOException) {
-                    runCatching { candidate.close() }
-                    connectFailure = failure
-                }
             }
         }
         val socket = connectedSocket ?: throw (connectFailure
