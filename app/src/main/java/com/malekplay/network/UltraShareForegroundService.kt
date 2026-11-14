@@ -2115,7 +2115,8 @@ class UltraShareForegroundService : Service() {
                     fileName = metadata.first,
                     mimeType = metadata.second,
                     sizeBytes = metadata.third,
-                    network = UltraShareNetworkRouter.networkForHost(this@UltraShareForegroundService, host),
+                    network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, host),
+                    networks = UltraShareNetworkRouting.findNetworksForHost(this@UltraShareForegroundService, host),
                     onProgress = onProgress
                 )
                 return
