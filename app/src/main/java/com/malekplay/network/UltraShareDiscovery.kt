@@ -411,8 +411,12 @@ object UltraShareDiscovery {
         networks: List<android.net.Network>
     ): Boolean {
         if (!UltraShareTransport.isValidPrivateLanHost(host) || port !in 1..65535) return false
-        val routes: List<android.net.Network?> = networks.distinct().ifEmpty { listOf(null) }
-        return routes.any { network -> probeV2DataEndpoint(host, port, network) }
+        // Exhaust every peer-specific Android Network first, then retain the
+        // system default route as a final compatibility fallback (some OEMs do
+        // not expose the P2P/SoftAP Network object to ConnectivityManager).
+        val routes: List<android.net.Network?> =
+            networks.distinct().map { it } + listOf(null)
+        return routes.distinct().any { network -> probeV2DataEndpoint(host, port, network) }
     }
 
     private fun probeEndpoint(host: String, port: Int, network: android.net.Network?): Boolean = runCatching {
