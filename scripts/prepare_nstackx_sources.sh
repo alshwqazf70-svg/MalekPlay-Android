@@ -55,6 +55,7 @@ checkout_pinned() {
 }
 
 checkout_pinned nstackx "$NSTACKX_REPOSITORY" "$NSTACKX_COMMIT"
+patch_nstackx_android_network_binding
 # NSTACKX's CoAP adapter accesses libcoap socket internals (flags/fd), but the
 # pinned libcoap public coap.h intentionally exposes only forward declarations.
 # Include the matching private header in this upstream integration translation
@@ -90,6 +91,136 @@ patch_nstackx_coap_private_api
 # This pinned upstream translation unit uses securec APIs but omits its public
 # declaration header. Keep the source revision immutable and apply a guarded,
 # reproducible Android-only include adaptation after checkout.
+# Bind every NSTACKX TCP/UDP socket to the Android Network selected by
+# NstackxAndroidDiscoverySession. The upstream interface-name binding uses
+# SO_BINDTODEVICE, which is unavailable to ordinary Android applications.
+# android_setsocknetwork is the supported per-socket API on minSdk 23.
+patch_nstackx_android_network_binding() {
+  local source="$DEST/nstackx/nstackx_util/core/nstackx_socket.c"
+  if [[ ! -f "$source" ]]; then
+    echo "Missing NSTACKX socket source: $source" >&2
+    return 10
+  fi
+  if ! grep -qF 'NstackxBindSocketToCurrentNetwork' "$source"; then
+    python3 - "$source" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+
+include_anchor = '#include "nstackx_dev.h"\n'
+if source.count(include_anchor) != 1:
+    raise SystemExit("Unexpected NSTACKX socket include layout; refusing an unsafe patch")
+source = source.replace(include_anchor, include_anchor + '#include "sys_network.h"\n', 1)
+
+replacements = [
+    (
+        '    if (SetTcpSocketBufSize(clientSocket->sockfd, NSTACKX_TCP_SOCKET_BUFFER_SIZE) != NSTACKX_EOK) {',
+        '    if (NstackxBindSocketToCurrentNetwork(clientSocket->sockfd) != 0) {\n'
+        '        LOGE(TAG, "bind TCP client socket to Android Network failed");\n'
+        '        goto FAIL_SOCKET;\n'
+        '    }\n'
+        '    if (SetTcpSocketBufSize(clientSocket->sockfd, NSTACKX_TCP_SOCKET_BUFFER_SIZE) != NSTACKX_EOK) {'
+    ),
+    (
+        '    if (SetSocketNonBlock(clientSocket->sockfd) != NSTACKX_EOK) {\n'
+        '        LOGE(TAG, "set socket nonblock failed");\n'
+        '        goto FAIL_SOCKET;\n'
+        '    }\n\n'
+        '    if (localInterface == NULL) {',
+        '    if (NstackxBindSocketToCurrentNetwork(clientSocket->sockfd) != 0) {\n'
+        '        LOGE(TAG, "bind UDP client socket to Android Network failed");\n'
+        '        goto FAIL_SOCKET;\n'
+        '    }\n'
+        '    if (SetSocketNonBlock(clientSocket->sockfd) != NSTACKX_EOK) {\n'
+        '        LOGE(TAG, "set socket nonblock failed");\n'
+        '        goto FAIL_SOCKET;\n'
+        '    }\n\n'
+        '    if (localInterface == NULL) {'
+    ),
+    (
+        '    if (SetSocketNonBlock(serverSocket->sockfd) != NSTACKX_EOK) {\n'
+        '        LOGE(TAG, "set socket nonblock failed");\n'
+        '        goto FAIL_SOCKET;\n'
+        '    }\n\n'
+        '    if (setsockopt(serverSocket->sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0) {',
+        '    if (NstackxBindSocketToCurrentNetwork(serverSocket->sockfd) != 0) {\n'
+        '        LOGE(TAG, "bind TCP server socket to Android Network failed");\n'
+        '        goto FAIL_SOCKET;\n'
+        '    }\n'
+        '    if (SetSocketNonBlock(serverSocket->sockfd) != NSTACKX_EOK) {\n'
+        '        LOGE(TAG, "set socket nonblock failed");\n'
+        '        goto FAIL_SOCKET;\n'
+        '    }\n\n'
+        '    if (setsockopt(serverSocket->sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0) {'
+    ),
+    (
+        '    if (SetSocketNonBlock(serverSocket->sockfd) != NSTACKX_EOK) {\n'
+        '        LOGE(TAG, "set socket nonblock failed");\n'
+        '        goto FAIL_SOCKET;\n'
+        '    }\n\n'
+        '    if (setsockopt(serverSocket->sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0) {',
+        '    if (NstackxBindSocketToCurrentNetwork(serverSocket->sockfd) != 0) {\n'
+        '        LOGE(TAG, "bind UDP server socket to Android Network failed");\n'
+        '        goto FAIL_SOCKET;\n'
+        '    }\n'
+        '    if (SetSocketNonBlock(serverSocket->sockfd) != NSTACKX_EOK) {\n'
+        '        LOGE(TAG, "set socket nonblock failed");\n'
+        '        goto FAIL_SOCKET;\n'
+        '    }\n\n'
+        '    if (setsockopt(serverSocket->sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0) {'
+    ),
+]
+# The TCP/UDP server setup snippets are structurally similar. Apply the TCP
+# replacement first, then target the remaining UDP occurrence with a distinct
+# function-local anchor so neither constructor is accidentally skipped.
+for index, (old, new) in enumerate(replacements):
+    count = source.count(old)
+    if index == 0 and count != 1:
+        raise SystemExit(f"Unexpected TCP client socket anchor count: {count}")
+    if index == 1 and count != 1:
+        raise SystemExit(f"Unexpected UDP client socket anchor count: {count}")
+    if index == 2:
+        # The TCP server block occurs before CreateUdpServer.
+        if count != 2:
+            raise SystemExit(f"Unexpected server socket anchor count before TCP patch: {count}")
+        source = source.replace(old, new, 1)
+        continue
+    if index == 3:
+        # The UDP server block is the remaining structurally identical block.
+        if count != 1:
+            raise SystemExit(f"Unexpected UDP server socket anchor count after TCP patch: {count}")
+    source = source.replace(old, new, 1)
+
+accept_anchor = (
+    'static int32_t SetAcceptSocket(SocketDesc acceptFd)\n'
+    '{\n'
+    '    struct sockaddr_in localAddr;'
+)
+if source.count(accept_anchor) != 1:
+    raise SystemExit("Unexpected accepted-socket setup; refusing an unsafe patch")
+source = source.replace(
+    accept_anchor,
+    'static int32_t SetAcceptSocket(SocketDesc acceptFd)\n'
+    '{\n'
+    '    struct sockaddr_in localAddr;\n'
+    '    if (NstackxBindSocketToCurrentNetwork(acceptFd) != 0) {\n'
+    '        LOGE(TAG, "bind accepted socket to Android Network failed");\n'
+    '        return NSTACKX_EFAILED;\n'
+    '    }',
+    1
+)
+path.write_text(source, encoding="utf-8")
+PY
+  fi
+  if [[ "$(grep -c 'NstackxBindSocketToCurrentNetwork' "$source")" -lt 6 ]]; then
+    echo "NSTACKX Android Network binding patch is incomplete" >&2
+    return 11
+  fi
+  echo "verified NSTACKX TCP/UDP socket binding to Android Network"
+}
+
 patch_nstackx_securec_header() {
   local source="$DEST/nstackx/nstackx_ctrl/core/nstackx_dfinder_mgt_msg_log.c"
   if [[ ! -f "$source" ]]; then
