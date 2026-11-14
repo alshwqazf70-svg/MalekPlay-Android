@@ -136,6 +136,7 @@ class UltraShareForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private data class ActiveDFileServer(
         val sessionId: Int,
+        val stagingDirectory: File,
         val listener: NstackxNativeBridge.DFileListener,
         val activeTransferIds: MutableSet<Int>,
         val listenerActive: java.util.concurrent.atomic.AtomicBoolean
@@ -772,7 +773,7 @@ class UltraShareForegroundService : Service() {
             return null
         }
         dfileServerSessions[peerAddress] = ActiveDFileServer(
-            sessionId, listener, activeTransferIds, listenerActive
+            sessionId, safeStaging, listener, activeTransferIds, listenerActive
         )
         sessionIdRef.set(sessionId)
         UltraShareDiagnostics.event(
@@ -989,8 +990,13 @@ class UltraShareForegroundService : Service() {
             if (active.activeTransferIds.remove(id)) endTransfer(isReceiving = true)
         }
         NstackxNativeBridge.closeDFileSession(active.sessionId)
-        // Keep the hidden staging folder until age-based cleanup. The session guard
-        // prevents a late callback from publishing after this session is retired.
+        runCatching { active.stagingDirectory.deleteRecursively() }
+            .onFailure { UltraShareDiagnostics.failure("DFILE_STAGING_CLEANUP", it, "peerHost=" + peerAddress) }
+        UltraShareDiagnostics.event(
+            "DFILE", "SERVER_SESSION_CLOSED",
+            mapOf("peerHost" to peerAddress, "nativeSessionId" to active.sessionId)
+        )
+        // The session guard prevents a late callback from publishing after retirement.
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
