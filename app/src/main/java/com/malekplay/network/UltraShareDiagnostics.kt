@@ -109,7 +109,7 @@ object UltraShareDiagnostics {
             ?: details["peerHost"]?.toString()?.takeIf { it.isNotBlank() }
                 ?.let(::diagnosticPeerSessionKey)
             ?: details["host"]?.toString()?.takeIf { it.isNotBlank() }
-                ?.let { normalizeSessionKey("peer:" + it) }
+                ?.let(::diagnosticPeerSessionKey)
             ?: "process"
         val session = sessionFor(key, if (key == "process") "SERVICE" else "PEER") ?: return
         val payload = linkedMapOf<String, Any?>(
