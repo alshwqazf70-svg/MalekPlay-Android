@@ -745,6 +745,7 @@ class UltraShareForegroundService : Service() {
                             ?: "application/octet-stream"
                         val receivedSize = stagedFile.length()
                         if (receivedSize !in 0..UltraShareTransport.MAX_FILE_BYTES ||
+                            (event.totalBytes > 0L && event.totalBytes != receivedSize) ||
                             !UltraShareTransport.isAllowedShareFile(safeName, mimeType)
                         ) {
                             // Enforce the same file policy on the receiving device; never
@@ -766,7 +767,7 @@ class UltraShareForegroundService : Service() {
                             }
                         val received = UltraShareTransport.ReceivedFile(
                             file = canonical,
-                            fileName = safeName,
+                            fileName = canonical.name,
                             sizeBytes = receivedSize,
                             mimeType = mimeType
                         )
@@ -774,7 +775,7 @@ class UltraShareForegroundService : Service() {
                         UltraShareReceivedHistoryStore.record(
                             context = this@UltraShareForegroundService,
                             file = canonical,
-                            fileName = safeName,
+                            fileName = canonical.name,
                             mimeType = mimeType,
                             sizeBytes = receivedSize,
                             publishedUri = publishedUri?.toString()
@@ -784,7 +785,7 @@ class UltraShareForegroundService : Service() {
                             receivedFile = received.copy(publishedUri = publishedUri),
                             receiveProgress = null,
                             progress = if (current.sending) current.sendProgress else null,
-                            status = "تم استلام $safeName عبر DFile من $peerAddress",
+                            status = "تم استلام ${canonical.name} عبر DFile من $peerAddress",
                             error = null
                         ) }
                     }
@@ -816,6 +817,7 @@ class UltraShareForegroundService : Service() {
         }
     }
 
+    @Synchronized
     private fun publishDFileStagedFile(staged: File, destination: File, safeName: String): File? =
         runCatching {
             val safeDestination = destination.canonicalFile
