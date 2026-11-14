@@ -465,6 +465,7 @@ class UltraShareForegroundService : Service() {
                                         } catch (cancelled: CancellationException) {
                                             throw cancelled
                                         } catch (failure: Exception) {
+                                            UltraShareDiagnostics.failure("RECEIVED_FILE_PUBLISH", failure, "peerHost=" + peer + ";file=" + received.fileName)
                                             updateState { current -> current.copy(error = failure.localizedMessage ?: "تعذر حفظ الملف المستلم.") }
                                         }
                                     }
@@ -494,6 +495,7 @@ class UltraShareForegroundService : Service() {
                                     }
                                 },
                                 onPeerError = { peer, failure ->
+                                    UltraShareDiagnostics.failure("BATCH_RECEIVE_PEER", failure, "peerHost=" + peer)
                                     updateState { current ->
                                         val previous = current.peerTransfers.firstOrNull { it.host == peer }
                                         val failed = (previous ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "فشل النقل"))
@@ -503,7 +505,7 @@ class UltraShareForegroundService : Service() {
                                         current.copy(
                                             peerTransfers = updatedTransfers,
                                             receiveProgress = activeProgress,
-                                            progress = if (current.sending) current.sendProgress else activeProgress,
+                                            progress = if (current.sending) null else activeProgress,
                                             error = "جلسة V2 من $peer: ${failure.localizedMessage ?: "فشل النقل"}"
                                         )
                                     }
@@ -524,6 +526,7 @@ class UltraShareForegroundService : Service() {
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
+                            UltraShareDiagnostics.failure("BATCH_RECEIVER_SERVER", failure, "port=" + UltraShareBatchTransport.DEFAULT_PORT)
                             updateState { current -> current.copy(error = "تعذر تشغيل مستقبل V2: ${failure.localizedMessage}") }
                         } finally {
                             activeBatchTransferPort = 0
@@ -863,6 +866,7 @@ class UltraShareForegroundService : Service() {
                         }
                         val canonical = publishDFileStagedFile(stagedFile, destination, safeName)
                             ?: run {
+                                UltraShareDiagnostics.event("DFILE", "RECEIVED_FILE_PUBLICATION_REJECTED", mapOf("peerHost" to peerAddress, "fileName" to safeName))
                                 updateState { current -> current.copy(
                                     error = "تعذر تثبيت الملف المستلم بأمان: $safeName",
                                     status = "لم يُضف الملف إلى سجل الاستلام."
@@ -896,6 +900,7 @@ class UltraShareForegroundService : Service() {
                 }
             }
             NstackxNativeBridge.DFILE_ON_FILE_RECEIVE_FAIL -> {
+                UltraShareDiagnostics.event("DFILE", "FILE_RECEIVE_FAILED", mapOf("peerHost" to peerAddress, "message" to event.message))
                 if (event.transferId > 0 && activeTransferIds.remove(event.transferId)) {
                     endTransfer(isReceiving = true)
                 }
@@ -907,6 +912,7 @@ class UltraShareForegroundService : Service() {
                 ) }
             }
             NstackxNativeBridge.DFILE_ON_FATAL_ERROR -> {
+                UltraShareDiagnostics.event("DFILE", "FATAL_NATIVE_ERROR", mapOf("peerHost" to peerAddress, "message" to event.message))
                 activeTransferIds.toList().forEach { id ->
                     if (activeTransferIds.remove(id)) endTransfer(isReceiving = true)
                 }
