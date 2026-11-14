@@ -86,7 +86,7 @@ fun ReceiveScreen(
                     verticalArrangement = Arrangement.spacedBy(11.dp)
                 ) {
                     Text(
-                        "اطلب من صديقك مسح رمز QR؛ سيحاول MalekPlay إنشاء الاتصال المباشر تلقائياً",
+                        "اطلب من صديقك مسح رمز QR؛ سينضم هاتفه إلى شبكة MalekPlay ثم يتحقق من الاقتران تلقائياً",
                         color = Color(0xFF30394C),
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.titleMedium,
@@ -118,7 +118,7 @@ fun ReceiveScreen(
                         if (qrBitmap != null) {
                             Image(
                                 bitmap = qrBitmap.asImageBitmap(),
-                                contentDescription = "رمز QR للانضمام إلى مجموعة MalekPlay",
+                                contentDescription = "رمز QR للانضمام إلى شبكة MalekPlay",
                                 modifier = Modifier.size(290.dp)
                             )
                         } else {
@@ -129,7 +129,7 @@ fun ReceiveScreen(
                         }
                     }
                     Text(
-                        "شغّل Wi-Fi وفعّل أذونات الأجهزة القريبة/الموقع عند طلبها؛ لا يلزم الانضمام يدوياً إلى شبكة Wi-Fi",
+                        "شغّل Wi-Fi واسمح بطلب الانضمام إلى شبكة MalekPlay الذي يعرضه Android؛ لا تغلق هذه الشاشة أثناء الاقتران",
                         color = Color(0xFF46536A),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
@@ -152,7 +152,7 @@ fun ReceiveScreen(
             ) {
                 Icon(Icons.Filled.Wifi, contentDescription = null, tint = Color(0xFFC084FC), modifier = Modifier.size(26.dp))
                 Text(
-                    "يحاول MalekPlay الاتصال عبر Wi-Fi Direct تلقائياً. إذا لم يدعمه أحد الجهازين، يمكن استخدام شبكة محلية أو نقطة اتصال كمسار بديل.",
+                    "يستخدم MalekPlay نقطة اتصال محلية مؤقتة لتوصيل الهاتفين، ثم يفتح قناة الاقتران الآمنة تلقائياً.",
                     color = Color(0xFFE4E9F5),
                     modifier = Modifier.padding(start = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
