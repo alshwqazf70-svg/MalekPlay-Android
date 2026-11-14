@@ -391,6 +391,11 @@ class UltraShareViewModel @Inject constructor(
                     )
                     onConnectionEstablished?.invoke(connectedHost)
                 } else {
+                    UltraShareDiagnostics.event(
+                        "PAIRING",
+                        "CONNECTION_NOT_ESTABLISHED",
+                        mapOf("rejected" to rejected, "lastFailure" to (lastFailure?.javaClass?.simpleName ?: "none"))
+                    )
                     val previousTarget = UltraShareForegroundService.approvedSendTargets().lastOrNull()
                     _state.value = _state.value.copy(
                         approvedPeerHost = previousTarget?.host,
