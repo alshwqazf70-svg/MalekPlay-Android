@@ -14,6 +14,10 @@ import java.net.InetAddress
  * interface addresses can miss that route and silently send sockets over WLAN.
  */
 internal object UltraShareNetworkRouting {
+    /** Preserve the preferred route first, then try every distinct alternative once. */
+    internal fun <T> orderedDistinctRoutes(preferred: T?, alternatives: List<T>): List<T> =
+        (listOfNotNull(preferred) + alternatives).distinct()
+
     /**
      * Returns every Android network with a peer-specific route, best candidates first.
      * Some OEMs publish a P2P route on more than one Network or report stale link
