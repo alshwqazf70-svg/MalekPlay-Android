@@ -150,6 +150,10 @@ object UltraShareControlChannel {
                         continue
                     }
                     diagnostic("SERVER accepted TCP from " + socket.inetAddress.hostAddress + ":" + socket.port)
+                    UltraShareDiagnostics.event(
+                        "CONTROL_CHANNEL", "SERVER_SOCKET_ACCEPTED",
+                        mapOf("peerHost" to socket.inetAddress.hostAddress, "peerPort" to socket.port)
+                    )
                     launch {
                         try {
                             socket.use { client ->
@@ -165,6 +169,11 @@ object UltraShareControlChannel {
                             diagnostic("SERVER handshake cancelled")
                             throw cancelled
                         } catch (failure: Exception) {
+                            UltraShareDiagnostics.failure(
+                                "CONTROL_CHANNEL_SERVER_HANDSHAKE",
+                                failure,
+                                "peerHost=" + socket.inetAddress.hostAddress
+                            )
                             diagnostic("SERVER handshake failed: " + failure.javaClass.simpleName +
                                 (failure.message?.take(120)?.let { " - " + it } ?: ""))
                             // A malformed or disconnected peer cannot stop other sessions.
@@ -515,6 +524,10 @@ object UltraShareControlChannel {
             error("فشل التحقق من رمز الاقتران.")
         }
         pairingAttemptLimiter.recordSuccess(peerAddress)
+        UltraShareDiagnostics.event(
+            "CONTROL_CHANNEL", "PEER_AUTHENTICATION_SUCCEEDED",
+            mapOf("peerHost" to peerAddress, "peerName" to name)
+        )
 
         val peerId = requestId.takeIf { value ->
             value.length == MAX_ID_BYTES && value.all { it.digitToIntOrNull(16) != null }
@@ -527,6 +540,11 @@ object UltraShareControlChannel {
             localAddress = socket.localAddress?.hostAddress
         )
         val decision = withTimeoutOrNull(120_000L) { onRequest(request) } ?: Decision.REJECTED
+        UltraShareDiagnostics.event(
+            "CONTROL_CHANNEL",
+            if (decision == Decision.ACCEPTED) "PEER_APPROVED" else "PEER_REJECTED",
+            mapOf("peerHost" to peerAddress, "peerName" to name)
+        )
         val dfileKey = if (decision == Decision.ACCEPTED) deriveDFileKey(key) else null
         var negotiatedDFilePort: Int? = null
         if (decision == Decision.ACCEPTED) {
@@ -559,7 +577,12 @@ object UltraShareControlChannel {
                     // Never turn structured cancellation into a successful TCP fallback.
                     // The outer finally will retire the published session and wipe keys.
                     throw cancelled
-                } catch (_: Exception) {
+                } catch (failure: Exception) {
+                    UltraShareDiagnostics.failure(
+                        "CONTROL_CHANNEL_DFILE_SETUP",
+                        failure,
+                        "peerHost=" + peerAddress
+                    )
                     // DFile is an optional fast path; ordinary startup errors retain
                     // the authenticated control session and its compatible TCP fallback.
                     null
@@ -622,6 +645,10 @@ object UltraShareControlChannel {
             ) {
                 serverSessionPeerIds.remove(requestToClose.peerAddress)
                 serverSessionDFileKeys.remove(requestToClose.peerAddress)?.fill(0)
+                UltraShareDiagnostics.event(
+                    "CONTROL_CHANNEL", "SERVER_SESSION_CLOSED",
+                    mapOf("peerHost" to requestToClose.peerAddress, "peerName" to requestToClose.peerName)
+                )
                 withContext(NonCancellable) { onSessionClosed(requestToClose) }
             }
         }
