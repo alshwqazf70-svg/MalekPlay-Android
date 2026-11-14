@@ -50,6 +50,7 @@ data class UltraShareServiceState(
     val localAddresses: List<String> = emptyList(),
     val receiving: Boolean = false,
     val controlChannelReady: Boolean = false,
+    val dataChannelReady: Boolean = false,
     val controlChannelError: String? = null,
     val sending: Boolean = false,
     val progress: UltraShareTransport.Progress? = null,
@@ -268,6 +269,7 @@ class UltraShareForegroundService : Service() {
                         localAddresses = addresses,
                         receiving = true,
                         controlChannelReady = false,
+                        dataChannelReady = false,
                         controlChannelError = null,
                         pendingConnection = null,
                         status = current.activePeers.lastOrNull()?.name?.let { peerName ->
@@ -370,7 +372,9 @@ class UltraShareForegroundService : Service() {
                     batchReceiveJob = serviceScope.launch {
                         try {
                             UltraShareBatchTransport.serveMany(
-                                port = 0,
+                                // QR does not carry a dynamic data port. Keep this endpoint stable
+                                // so the sender can verify it after authenticated pairing.
+                                port = UltraShareBatchTransport.DEFAULT_PORT,
                                 pairingSecret = secret,
                                 destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
                                 maxPeers = UltraShareBatchTransport.DEFAULT_MAX_PEERS,
@@ -491,7 +495,18 @@ class UltraShareForegroundService : Service() {
                                         )
                                     }
                                 },
-                                onListening = { actualPort -> activeBatchTransferPort = actualPort }
+                                onListening = { actualPort ->
+                                    activeBatchTransferPort = actualPort
+                                    val ready = UltraSharePairingReadiness.isDataListenerReady(
+                                        actualPort,
+                                        UltraShareBatchTransport.DEFAULT_PORT
+                                    )
+                                    updateState { current -> current.copy(
+                                        dataChannelReady = ready,
+                                        error = if (ready) current.error else
+                                            "بدأ مستمع نقل الملفات على منفذ غير متوقع؛ لن يظهر رمز QR حتى تتم معالجة ذلك."
+                                    ) }
+                                }
                             )
                         } catch (cancelled: CancellationException) {
                             throw cancelled
@@ -500,6 +515,7 @@ class UltraShareForegroundService : Service() {
                         } finally {
                             activeBatchTransferPort = 0
                             batchReceiveJob = null
+                            updateState { current -> current.copy(dataChannelReady = false) }
                             finishService()
                         }
                     }
