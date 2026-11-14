@@ -255,7 +255,10 @@ object NstackxNativeBridge {
             message = message
         )
         UltraShareDiagnostics.event("DFILE_CALLBACK", dfileEventName(eventType), mapOf("sessionHandle" to sessionId, "transferId" to transferId, "transferredBytes" to event.transferredBytes, "totalBytes" to event.totalBytes, "fileCount" to event.fileNames.size, "nativeMessage" to message.take(240)))
-        dfileListeners.forEach { listener -> runCatching { listener.onEvent(event) } }
+        dfileListeners.forEach { listener ->
+            runCatching { listener.onEvent(event) }
+                .onFailure { UltraShareDiagnostics.failure("DFILE_LISTENER_CALLBACK", it, "eventType=" + eventType) }
+        }
     }
 
     @JvmStatic
@@ -265,6 +268,7 @@ object NstackxNativeBridge {
         val peer = Peer(deviceId, deviceName, networkInterface)
         listeners.forEach { listener ->
             runCatching { listener.onPeerFound(peer) }
+                .onFailure { UltraShareDiagnostics.failure("DISCOVERY_LISTENER_CALLBACK", it) }
         }
     }
 
