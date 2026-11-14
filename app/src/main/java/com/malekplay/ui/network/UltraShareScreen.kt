@@ -112,6 +112,10 @@ data class LegacyUltraShareUiState(
     val localAddresses: List<String> = emptyList(),
     val receiving: Boolean = false,
     val controlChannelReady: Boolean = false,
+    val hotspotSsid: String? = null,
+    val hotspotPassword: String? = null,
+    val hotspotActive: Boolean = false,
+    val hotspotStarting: Boolean = false,
     val sending: Boolean = false,
     val scanning: Boolean = false,
     val discoveredPeers: List<UltraShareDiscovery.Peer> = emptyList(),
@@ -182,6 +186,10 @@ class LegacyUltraShareViewModel @Inject constructor(
                     localAddresses = serviceState.localAddresses,
                     receiving = serviceState.receiving,
                     controlChannelReady = serviceState.controlChannelReady,
+                    hotspotSsid = serviceState.hotspotSsid,
+                    hotspotPassword = serviceState.hotspotPassword,
+                    hotspotActive = serviceState.hotspotActive,
+                    hotspotStarting = serviceState.hotspotStarting,
                     sending = serviceState.sending,
                     progress = serviceState.progress,
                     receivedFile = serviceState.receivedFile ?: current.receivedFile,
@@ -1060,26 +1068,18 @@ fun UltraShareScreen(
     }
 
     val invitationId = state.invitationId
-    val qrPayload = if (state.receiving && state.controlChannelReady &&
-        !state.pairedSession && !invitationId.isNullOrBlank() &&
-        (state.localAddresses.isNotEmpty() || state.wifiDirectInvitationReady)
+    val qrPayload = if (
+        state.receiving && state.controlChannelReady && state.hotspotActive &&
+        !state.pairedSession && !state.hotspotSsid.isNullOrBlank() &&
+        !state.hotspotPassword.isNullOrBlank() && state.localAddresses.isNotEmpty()
     ) {
-        // A v3 QR may contain no LAN fallback when this phone is reachable only
-        // through its formed Wi-Fi Direct group. In that case, advertise the QR
-        // only after DNS-SD registration succeeds; otherwise wait for a usable
-        // WLAN endpoint or a confirmed P2P invitation advertisement.
-        UltraShareQrCode.createReceiverPayload(
-            state.localAddresses,
+        UltraShareQrCode.createHotspotReceiverPayload(
+            state.localAddresses.first(),
             state.pairingSecret,
-            invitationId
+            state.hotspotSsid,
+            state.hotspotPassword
         )
-    } else if (state.receiving && state.controlChannelReady &&
-        !state.pairedSession && state.invitationId.isNullOrBlank() && state.localAddresses.isNotEmpty()
-    ) {
-        UltraShareQrCode.createReceiverPayload(state.localAddresses, state.pairingSecret)
-    } else {
-        null
-    }
+    } else null
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
     }
