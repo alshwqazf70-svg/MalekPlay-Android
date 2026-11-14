@@ -1,12 +1,19 @@
 package com.malekplay
 
 import android.app.Application
+import com.malekplay.network.UltraShareDiagnostics
 import com.malekplay.ui.components.trimMediaThumbnailCache
 import com.malekplay.ui.music.trimMusicArtworkCache
 import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
 class MalekPlayApplication : Application() {
+
+    override fun onCreate() {
+        super.onCreate()
+        UltraShareDiagnostics.initialize(this)
+        UltraShareDiagnostics.event("APPLICATION", "STARTED", mapOf("sdk" to android.os.Build.VERSION.SDK_INT))
+    }
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
