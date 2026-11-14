@@ -82,6 +82,31 @@ object UltraShareControlChannel {
     private val serverSessionPeerIds = ConcurrentHashMap<String, String>()
     private val serverSessionDFileKeys = ConcurrentHashMap<String, ByteArray>()
     private val pairingAttemptLimiter = UltraSharePairingAttemptLimiter()
+    private val diagnosticEvents = java.util.ArrayDeque<String>()
+    private const val MAX_DIAGNOSTIC_EVENTS = 100
+
+    private fun diagnostic(event: String) {
+        val timestamp = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US)
+            .format(java.util.Date())
+        synchronized(diagnosticEvents) {
+            diagnosticEvents.addLast("$timestamp $event")
+            while (diagnosticEvents.size > MAX_DIAGNOSTIC_EVENTS) diagnosticEvents.removeFirst()
+        }
+    }
+
+    /** Bounded, in-memory connection trace. Pairing secrets and authentication bytes are never recorded. */
+    fun diagnosticReport(): String = synchronized(diagnosticEvents) {
+        buildString {
+            appendLine("MalekPlay Ultra Share connection diagnostics")
+            appendLine("Generated: " + java.text.DateFormat.getDateTimeInstance().format(java.util.Date()))
+            if (diagnosticEvents.isEmpty()) appendLine("No connection events recorded.")
+            else diagnosticEvents.forEach(::appendLine)
+        }
+    }
+
+    fun clearDiagnosticReport() {
+        synchronized(diagnosticEvents) { diagnosticEvents.clear() }
+    }
 
     internal fun isPairingAttemptAllowed(peerAddress: String, nowMillis: Long = System.currentTimeMillis()): Boolean =
         pairingAttemptLimiter.isAllowed(peerAddress, nowMillis)
@@ -123,6 +148,7 @@ object UltraShareControlChannel {
                         runCatching { socket.close() }
                         continue
                     }
+                    diagnostic("SERVER accepted TCP from " + socket.inetAddress.hostAddress + ":" + socket.port)
                     launch {
                         try {
                             socket.use { client ->
@@ -135,8 +161,11 @@ object UltraShareControlChannel {
                                 )
                             }
                         } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            diagnostic("SERVER handshake cancelled")
                             throw cancelled
-                        } catch (_: Exception) {
+                        } catch (failure: Exception) {
+                            diagnostic("SERVER handshake failed: " + failure.javaClass.simpleName +
+                                (failure.message?.take(120)?.let { " - " + it } ?: ""))
                             // A malformed or disconnected peer cannot stop other sessions.
                         } finally {
                             permits.release()
@@ -171,23 +200,43 @@ object UltraShareControlChannel {
         val endpoint = InetSocketAddress(InetAddress.getByName(host), port)
         var socket = Socket()
         var retained = false
+        var diagnosticStage = "socket-create"
+        diagnostic("CLIENT begin target=" + host + ":" + port +
+            " route=" + (network?.toString() ?: "Android-default"))
         try {
             // Prefer the Android Network selected for this peer (especially the P2P
             // interface), but do not make that lookup a hard prerequisite. Older
             // Android/OEM Wi-Fi Direct stacks may route the group-owner address
             // through the system route table without exposing a matching Network.
             try {
-                network?.bindSocket(socket)
+                diagnosticStage = "network-bind"
+                if (network != null) {
+                    network.bindSocket(socket)
+                    diagnostic("CLIENT network bind succeeded: " + network)
+                } else {
+                    diagnostic("CLIENT using Android default route")
+                }
+                diagnosticStage = "tcp-connect"
                 socket.connect(endpoint, HANDSHAKE_TIMEOUT_MS)
+                diagnostic("CLIENT TCP connected local=" + socket.localAddress?.hostAddress +
+                    ":" + socket.localPort + " remote=" + socket.inetAddress?.hostAddress +
+                    ":" + socket.port)
             } catch (boundFailure: java.io.IOException) {
+                diagnostic("CLIENT route attempt failed at " + diagnosticStage + ": " +
+                    boundFailure.javaClass.simpleName + (boundFailure.message?.take(100)?.let { " - " + it } ?: ""))
                 if (network == null) throw boundFailure
                 runCatching { socket.close() }
                 socket = Socket()
                 try {
                     // Retry once using Android's normal route selection. Authentication
                     // still happens below before a peer session can be approved.
+                    diagnosticStage = "default-route-connect"
                     socket.connect(endpoint, HANDSHAKE_TIMEOUT_MS)
+                    diagnostic("CLIENT default-route TCP connected local=" +
+                        socket.localAddress?.hostAddress + ":" + socket.localPort)
                 } catch (fallbackFailure: java.io.IOException) {
+                    diagnostic("CLIENT default-route failed: " + fallbackFailure.javaClass.simpleName +
+                        (fallbackFailure.message?.take(100)?.let { " - " + it } ?: ""))
                     fallbackFailure.addSuppressed(boundFailure)
                     throw java.io.IOException(
                         "تعذر الوصول إلى الجهاز عبر مسار Wi-Fi Direct أو مسار الشبكة الافتراضي. تحقق من اتصال الهاتفين ثم أعد المحاولة.",
@@ -200,11 +249,17 @@ object UltraShareControlChannel {
             socket.keepAlive = true
             val input = DataInputStream(socket.getInputStream())
             val output = DataOutputStream(socket.getOutputStream())
-            require(input.readInt() == MAGIC && input.readUnsignedByte() == VERSION) {
+            diagnosticStage = "read-greeting"
+            val receivedMagic = input.readInt()
+            val receivedVersion = input.readUnsignedByte()
+            require(receivedMagic == MAGIC && receivedVersion == VERSION) {
                 "إصدار قناة التحكم غير متوافق."
             }
+            diagnostic("CLIENT MPC2 greeting received; version=" + receivedVersion)
+            diagnosticStage = "read-challenge"
             val challenge = ByteArray(CHALLENGE_BYTES)
             input.readFully(challenge)
+            diagnostic("CLIENT challenge received: " + challenge.size + " bytes")
             val key = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
             try {
             // Append the stable device token to the opaque request ID. This remains
@@ -220,6 +275,8 @@ object UltraShareControlChannel {
             output.write(nameBytes)
             output.write(authenticated)
             output.flush()
+            diagnosticStage = "read-decision"
+            diagnostic("CLIENT authentication frame sent; waiting for receiver decision")
             socket.soTimeout = DECISION_TIMEOUT_MS
 
             val encryptedLength = input.readInt()
@@ -235,6 +292,7 @@ object UltraShareControlChannel {
             require(responseParts.size >= 2 && responseParts[1] == requestId &&
                 (responseParts[0] == "ACCEPT" || responseParts[0] == "REJECT")
             ) { "استجابة قبول الاتصال غير صالحة." }
+            diagnostic("CLIENT authenticated decision received: " + responseParts[0])
             if (responseParts[0] == "ACCEPT") {
                 val remoteName = responseParts.getOrNull(2)?.let {
                     runCatching { String(decodeHex(it), Charsets.UTF_8) }.getOrNull()
@@ -283,6 +341,13 @@ object UltraShareControlChannel {
             } finally {
                 key.fill(0)
             }
+        } catch (cancelled: CancellationException) {
+            diagnostic("CLIENT cancelled at " + diagnosticStage)
+            throw cancelled
+        } catch (failure: Exception) {
+            diagnostic("CLIENT failed at " + diagnosticStage + ": " +
+                failure.javaClass.simpleName + (failure.message?.take(160)?.let { " - " + it } ?: ""))
+            throw failure
         } finally {
             if (!retained) runCatching { socket.close() }
         }
