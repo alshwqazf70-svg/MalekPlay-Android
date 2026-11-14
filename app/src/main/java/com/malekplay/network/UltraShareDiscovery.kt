@@ -426,6 +426,8 @@ object UltraShareDiscovery {
             socket.connect(InetSocketAddress(host, port), 700)
             true
         }
+    }.onFailure { failure ->
+        UltraShareDiagnostics.failure("DISCOVERY_CONTROL_PROBE", failure, "host=" + host + ";port=" + port + ";networkHandle=" + (network?.networkHandle ?: 0L))
     }.getOrDefault(false)
 
     private fun probeV2DataEndpoint(host: String, port: Int, network: android.net.Network?): Boolean = runCatching {
@@ -442,6 +444,8 @@ object UltraShareDiscovery {
             socket.getOutputStream().flush()
             true
         }
+    }.onFailure { failure ->
+        UltraShareDiagnostics.failure("DISCOVERY_DATA_PROBE", failure, "host=" + host + ";port=" + port + ";networkHandle=" + (network?.networkHandle ?: 0L))
     }.getOrDefault(false)
 
     private fun findBroadcastAddresses(): List<InetAddress> = runCatching {
