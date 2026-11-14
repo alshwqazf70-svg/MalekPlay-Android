@@ -321,12 +321,11 @@ jobs:
         with:
           name: android-runtime-diagnostics-api-${{ matrix.api-level }}
           path: |
-            app/build/reports/androidTests/connected/debug/
+            app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
-            ultrashare-emulator-logcat.txt
-            ultrashare-emulator-properties.txt
+            ultrashare-diagnostics/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 30
 
   android-lint:
     name: Android lint
