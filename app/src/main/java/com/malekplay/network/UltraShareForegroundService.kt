@@ -760,17 +760,24 @@ class UltraShareForegroundService : Service() {
                         val safeName = UltraShareTransport.sanitizeFileName(receivedName)
                         val stagedFile = runCatching { File(stagingDirectory, safeName).canonicalFile }.getOrNull()
                             ?: return@launch
-                        if (stagedFile.parentFile != stagingDirectory.canonicalFile ||
-                            !stagedFile.isFile || stagedFile.length() < 0L
-                        ) return@launch
+                        if (!UltraShareDFileStager.isSafeReceivedFile(
+                                stagedFile,
+                                stagingDirectory,
+                                event.totalBytes
+                            )
+                        ) {
+                            runCatching { stagedFile.delete() }
+                            updateState { current -> current.copy(
+                                error = "رُفض ملف DFile لأن مساره أو حجمه لا يطابق بيانات الاستلام: $safeName",
+                                status = "لم يُنشر الملف قبل التحقق من مساره وحجمه."
+                            ) }
+                            return@launch
+                        }
                         val mimeType = MimeTypeMap.getSingleton()
                             .getMimeTypeFromExtension(stagedFile.extension.lowercase())
                             ?: "application/octet-stream"
                         val receivedSize = stagedFile.length()
-                        if (receivedSize !in 0..UltraShareTransport.MAX_FILE_BYTES ||
-                            (event.totalBytes > 0L && event.totalBytes != receivedSize) ||
-                            !UltraShareTransport.isAllowedShareFile(safeName, mimeType)
-                        ) {
+                        if (!UltraShareTransport.isAllowedShareFile(safeName, mimeType)) {
                             // Enforce the same file policy on the receiving device; never
                             // trust a sender-side filter when the native engine is exposed.
                             runCatching { stagedFile.delete() }
