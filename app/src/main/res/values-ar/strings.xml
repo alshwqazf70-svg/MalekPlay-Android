@@ -91,7 +91,7 @@
     <string name="player_previous">السابق</string>
     <string name="player_speed">السرعة</string>
     <string name="player_sleep_timer">مؤقت النوم</string>
-    <string name="player_sleep_off">إيقاف بعد %1$d دقيقة</string>
+    <string name="player_sleep_off">إيقاف</string>
     <string name="player_sleep_minutes">إيقاف بعد %1$d دقيقة</string>
     <string name="player_sleep_end_of_episode">نهاية الحلقة</string>
     <string name="player_sleep_cancel">إلغاء المؤقت</string>
