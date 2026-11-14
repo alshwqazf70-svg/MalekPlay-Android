@@ -18,6 +18,10 @@ internal object UltraShareNetworkRouting {
     internal fun <T> orderedDistinctRoutes(preferred: T?, alternatives: List<T>): List<T> =
         (listOfNotNull(preferred) + alternatives).distinct()
 
+    /** Try explicit Android routes first, then the process-default route as fallback. */
+    internal fun <T> orderedRoutesWithDefaultFallback(networks: List<T>): List<T?> =
+        networks.distinct().map { it } + listOf(null)
+
     /**
      * Returns every Android network with a peer-specific route, best candidates first.
      * Some OEMs publish a P2P route on more than one Network or report stale link
