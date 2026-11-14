@@ -133,8 +133,9 @@ internal object SmartRecommendationPolicy {
                     sameArtist && sameGenre -> "من الفنان والنوع نفسيهما"
                     sameArtist -> "من الفنان نفسه"
                     sameGenre -> "من النوع نفسه"
+                    durationScore > 0.0 -> "مدة تشغيل قريبة"
                     sameFolder -> "من المجلد نفسه"
-                    else -> "مدة تشغيل قريبة"
+                    else -> "اختيار قريب من بيانات مكتبتك"
                 }
                 SmartSimilarMedia(candidate, reason, score)
             }
