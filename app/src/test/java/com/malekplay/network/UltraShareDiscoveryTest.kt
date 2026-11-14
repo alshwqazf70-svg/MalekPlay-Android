@@ -279,4 +279,29 @@ class UltraShareDiscoveryTest {
         )
         assertEquals("host:192.168.1.15", UltraShareDiscovery.identityKey(peer))
     }
+    @Test
+    fun recognizesSoftApInterfaceNamesAcrossAndroidVendors() {
+        assertTrue(UltraShareNetworkRouting.isHotspotInterfaceName("ap0"))
+        assertTrue(UltraShareNetworkRouting.isHotspotInterfaceName("softap0"))
+        assertTrue(UltraShareNetworkRouting.isHotspotInterfaceName("swlan0"))
+        assertFalse(UltraShareNetworkRouting.isHotspotInterfaceName("wlan0"))
+        assertFalse(UltraShareNetworkRouting.isHotspotInterfaceName("p2p-wlan0-0"))
+    }
+
+    @Test
+    fun recognizesWifiDirectInterfaceAndGroupOwnerSubnet() {
+        assertTrue(UltraShareNetworkRouting.isWifiDirectInterfaceName("p2p-wlan0-0"))
+        assertFalse(UltraShareNetworkRouting.isWifiDirectInterfaceName("wlan0"))
+        assertTrue(
+            UltraShareNetworkRouting.isAndroidWifiDirectGroupAddress(
+                java.net.InetAddress.getByName("192.168.49.1") as java.net.Inet4Address
+            )
+        )
+        assertFalse(
+            UltraShareNetworkRouting.isAndroidWifiDirectGroupAddress(
+                java.net.InetAddress.getByName("192.168.43.1") as java.net.Inet4Address
+            )
+        )
+    }
+
 }
