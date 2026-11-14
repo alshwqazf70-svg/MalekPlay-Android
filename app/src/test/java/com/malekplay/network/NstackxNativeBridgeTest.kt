@@ -56,3 +56,35 @@ class NstackxDFileEventMetadataTest {
         assertTrue(event.fileNames == listOf("video.mp4", "subtitle.srt"))
     }
 }
+
+
+class NstackxDiscoveryLifecyclePolicyTest {
+    @Test
+    fun reusesOnlyAnExactlyMatchingAndroidNetwork() {
+        assertTrue(
+            NstackxAndroidDiscoverySession.isSameNetworkSession(
+                "wlan0", "192.168.43.1", 101L,
+                "wlan0", "192.168.43.1", 101L
+            )
+        )
+        assertFalse(
+            NstackxAndroidDiscoverySession.isSameNetworkSession(
+                "wlan0", "192.168.43.1", 101L,
+                "p2p-wlan0-0", "192.168.49.1", 202L
+            )
+        )
+        assertFalse(
+            NstackxAndroidDiscoverySession.isSameNetworkSession(
+                "wlan0", "192.168.43.1", 101L,
+                "wlan0", "192.168.43.2", 101L
+            )
+        )
+    }
+
+    @Test
+    fun defersNativeReleaseUntilEveryDFileSessionIsClosed() {
+        assertTrue(NstackxAndroidDiscoverySession.shouldDeferNativeRelease(1))
+        assertTrue(NstackxAndroidDiscoverySession.shouldDeferNativeRelease(32))
+        assertFalse(NstackxAndroidDiscoverySession.shouldDeferNativeRelease(0))
+    }
+}
