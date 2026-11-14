@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.malekplay.R
+import com.malekplay.network.UltraShareDiagnostics
 import com.malekplay.network.UltraShareTransport
 import com.malekplay.network.UltraShareControlChannel
 import com.malekplay.network.UltraShareTrustedPeerStore
@@ -191,6 +192,8 @@ class UltraShareViewModel @Inject constructor(
 
     fun startReceiving() {
         if (_state.value.receiving) return
+        UltraShareDiagnostics.beginSession("RECEIVER", "start_receiving")
+        UltraShareDiagnostics.event("PAIRING", "RECEIVER_WAITING_FOR_PEER")
         val secret = UltraShareTransport.createPairingSecret()
         _state.value = _state.value.copy(
             pairingSecret = secret,
@@ -206,6 +209,8 @@ class UltraShareViewModel @Inject constructor(
             // The active receiver uses the LocalOnlyHotspot QR path. NSTACKX is
             // initialized only after an authenticated peer selects its actual route.
             .onFailure {
+                UltraShareDiagnostics.failure("RECEIVER_START", it)
+                UltraShareDiagnostics.endSession("receiver_start_failed")
                 _state.value = _state.value.copy(
                     receiving = false,
                     pairingSecret = "",
@@ -223,6 +228,8 @@ class UltraShareViewModel @Inject constructor(
         preferredNetwork: android.net.Network? = null,
         onConnectionEstablished: ((String) -> Unit)? = null
     ) {
+        UltraShareDiagnostics.beginSession("SENDER", "pairing_attempt")
+        UltraShareDiagnostics.event("PAIRING", "CONNECTION_REQUESTED", mapOf("host" to host.trim(), "candidateCount" to candidates.size, "alternateHostCount" to alternateHosts.size))
         if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
             _state.value = _state.value.copy(error = "أدخل عنوان الجهاز ورمز الاقتران الصحيح أولاً.")
             return
@@ -255,6 +262,7 @@ class UltraShareViewModel @Inject constructor(
                 var rejected = false
                 var lastFailure: Exception? = null
                 for (routeHost in routeHosts) {
+                    UltraShareDiagnostics.event("CONTROL_CHANNEL", "ROUTE_ATTEMPT", mapOf("host" to routeHost))
                     try {
                         val routeNetworks = (
                             listOfNotNull(preferredNetwork) +
@@ -283,6 +291,7 @@ class UltraShareViewModel @Inject constructor(
                                 forgetApprovedSenderTarget(disconnectedHost)
                             }
                         )
+                        UltraShareDiagnostics.event("CONTROL_CHANNEL", "DECISION_RECEIVED", mapOf("host" to routeHost, "decision" to decision.name))
                         if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
                             check(UltraShareControlChannel.isSessionActive(routeHost)) {
                                 "انقطعت قناة التحكم قبل اكتمال الاقتران."
@@ -295,10 +304,12 @@ class UltraShareViewModel @Inject constructor(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (failure: Exception) {
+                        UltraShareDiagnostics.failure("CONTROL_CHANNEL_CONNECT", failure, "route=" + routeHost)
                         lastFailure = failure
                     }
                 }
                 if (acceptedHost != null) {
+                    UltraShareDiagnostics.event("PAIRING", "CONTROL_CHANNEL_ESTABLISHED", mapOf("host" to acceptedHost))
                     val connectedHost = acceptedHost
                     val peerName = UltraShareControlChannel.sessionPeerName(connectedHost)
                         ?: "جهاز MalekPlay المستقبل"
@@ -325,12 +336,13 @@ class UltraShareViewModel @Inject constructor(
                             listOfNotNull(preferredNetwork) +
                                 UltraShareNetworkRouting.findNetworksForHost(context, dataHost)
                         ).distinct()
-                        if (UltraShareDiscovery.probeDataEndpoint(
-                                dataHost,
-                                com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT,
-                                networks
-                            )
-                        ) {
+                        val dataReady = UltraShareDiscovery.probeDataEndpoint(
+                            dataHost,
+                            com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT,
+                            networks
+                        )
+                        UltraShareDiagnostics.event("DATA_CHANNEL", if (dataReady) "PROBE_SUCCEEDED" else "PROBE_FAILED", mapOf("host" to dataHost, "port" to com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT, "networkCount" to networks.size))
+                        if (dataReady) {
                             val transport = when {
                                 UltraShareNetworkRouting.isWifiDirectGroupHost(dataHost) ->
                                     UltraShareNegotiation.Transport.WIFI_DIRECT
@@ -1196,6 +1208,7 @@ class UltraShareViewModel @Inject constructor(
 
     fun send(uri: Uri, host: String, secret: String) {
         if (_state.value.sending) return
+        UltraShareDiagnostics.event("TRANSFER", "SEND_REQUESTED", mapOf("host" to host.trim()))
         runCatching {
             UltraShareForegroundService.startSending(context, uri, host, secret)
             _state.value = _state.value.copy(
@@ -1205,6 +1218,7 @@ class UltraShareViewModel @Inject constructor(
                 status = context.getString(R.string.ultra_share_sending)
             )
         }.onFailure {
+            UltraShareDiagnostics.failure("SEND_START", it)
             _state.value = _state.value.copy(
                 sending = false,
                 error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
@@ -1213,6 +1227,7 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun sendBatch(uris: List<Uri>, host: String): Boolean {
+        UltraShareDiagnostics.event("TRANSFER", "BATCH_SEND_REQUESTED", mapOf("host" to host.trim(), "fileCount" to uris.size))
         val target = UltraShareForegroundService.approvedSendTarget(host.trim())
         if (uris.isEmpty() || _state.value.sending || target == null) return false
         return runCatching {
@@ -1224,6 +1239,7 @@ class UltraShareViewModel @Inject constructor(
             )
             true
         }.getOrElse {
+            UltraShareDiagnostics.failure("BATCH_SEND_START", it)
             _state.value = _state.value.copy(
                 sending = false,
                 error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
