@@ -79,6 +79,7 @@ import com.malekplay.network.UltraShareQueueEntry
 import com.malekplay.network.UltraShareReceivedEntry
 import com.malekplay.network.UltraShareReceivedHistoryStore
 import com.malekplay.network.UltraShareQueueStore
+import com.malekplay.network.UltraSharePeerTransfer
 import com.malekplay.network.UltraShareForegroundService
 import com.malekplay.network.ExternalWifiDirectQr
 import com.malekplay.network.UltraShareQrCode
@@ -123,6 +124,9 @@ data class LegacyUltraShareUiState(
     val scanning: Boolean = false,
     val discoveredPeers: List<UltraShareDiscovery.Peer> = emptyList(),
     val progress: UltraShareTransport.Progress? = null,
+    val sendProgress: UltraShareTransport.Progress? = null,
+    val receiveProgress: UltraShareTransport.Progress? = null,
+    val peerTransfers: List<UltraSharePeerTransfer> = emptyList(),
     val receivedFile: UltraShareTransport.ReceivedFile? = null,
     val status: String? = null,
     val error: String? = null,
@@ -201,6 +205,9 @@ class LegacyUltraShareViewModel @Inject constructor(
                     hotspotStarting = serviceState.hotspotStarting,
                     sending = serviceState.sending,
                     progress = serviceState.progress,
+                    sendProgress = serviceState.sendProgress,
+                    receiveProgress = serviceState.receiveProgress,
+                    peerTransfers = serviceState.peerTransfers,
                     receivedFile = serviceState.receivedFile ?: current.receivedFile,
                     status = serviceState.status ?: current.status,
                     pairedSession = serviceState.activePeers.isNotEmpty(),
