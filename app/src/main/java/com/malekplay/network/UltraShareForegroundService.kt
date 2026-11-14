@@ -598,7 +598,7 @@ class UltraShareForegroundService : Service() {
                                 )
                                 updateState { current -> current.copy(
                                     pendingConnection = null,
-                                    status = "تم الاتصال تلقائياً مع " + request.peerName,
+                                    status = "تم الاتصال تلقائياً مع " + request.peerName + "؛ الإرسال والاستقبال متاحان.",
                                     error = null
                                 ) }
                                 UltraShareControlChannel.Decision.ACCEPTED
