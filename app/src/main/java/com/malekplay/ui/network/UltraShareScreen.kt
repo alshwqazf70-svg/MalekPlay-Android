@@ -1420,7 +1420,7 @@ fun UltraShareScreen(
             OutlinedButton(
                 onClick = { if (!state.receiving) requestWifiDirectAction { viewModel.startReceiving() } },
                 modifier = Modifier.weight(1f).height(94.dp),
-                enabled = !state.sending
+                enabled = !state.sending && !state.receiving
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Icon(Icons.Filled.Wifi, contentDescription = null, modifier = Modifier.size(28.dp))
@@ -1431,7 +1431,7 @@ fun UltraShareScreen(
             OutlinedButton(
                 onClick = ::scanQrWithCamera,
                 modifier = Modifier.weight(1f).height(94.dp),
-                enabled = !state.sending
+                enabled = !state.sending && !state.receiving
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Icon(Icons.Filled.QrCode, contentDescription = null, modifier = Modifier.size(28.dp))
