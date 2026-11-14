@@ -1405,6 +1405,8 @@ fun UltraShareScreen(
                     Icon(Icons.Filled.Wifi, contentDescription = null, tint = MalekPlayColors.PurpleBright, modifier = Modifier.size(34.dp))
                 }
                 val connectionLabel = when {
+                    state.sending && state.receiving -> "يرسل ويستقبل في الوقت نفسه"
+                    state.pairedSession -> "متصل؛ الإرسال والاستقبال متاحان"
                     state.sending -> "جارٍ إرسال الوسائط"
                     state.receiving -> "الهاتف جاهز للاستقبال"
                     state.scanning -> "البحث عن الأجهزة القريبة"
@@ -1412,7 +1414,7 @@ fun UltraShareScreen(
                     else -> "بانتظار ربط جهاز"
                 }
                 val connectionColor = when {
-                    state.sending || state.receiving -> Color(0xFF65D6A2)
+                    state.sending || state.receiving || state.pairedSession -> Color(0xFF65D6A2)
                     state.scanning -> Color(0xFFFFC66D)
                     else -> MalekPlayColors.PurpleBright
                 }
@@ -1422,7 +1424,7 @@ fun UltraShareScreen(
                 ) {
                     Box(Modifier.size(9.dp).background(connectionColor, androidx.compose.foundation.shape.CircleShape))
                     Text(connectionLabel, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 9.dp).weight(1f))
-                    Text(when { state.sending -> "LIVE"; state.receiving -> "ONLINE"; state.scanning -> "SCAN"; else -> "READY" }, color = connectionColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
+                    Text(when { state.sending && state.receiving -> "FULL DUPLEX"; state.pairedSession -> "PAIRED"; state.sending -> "LIVE"; state.receiving -> "ONLINE"; state.scanning -> "SCAN"; else -> "READY" }, color = connectionColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.weight(1f)) {
@@ -1434,7 +1436,7 @@ fun UltraShareScreen(
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.weight(1f)) {
                         Column(Modifier.padding(11.dp)) {
                             Text("الاستقبال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
-                            Text(if (state.receiving) "يستقبل الآن" else "متاح", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                            Text(if (state.receiveProgress != null) "يستقبل الآن" else if (state.receiving) "جاهز" else "غير نشط", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                         }
                     }
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.weight(1f)) {
