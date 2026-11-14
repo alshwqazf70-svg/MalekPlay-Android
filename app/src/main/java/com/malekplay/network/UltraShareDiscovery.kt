@@ -186,7 +186,7 @@ object UltraShareDiscovery {
         require(transferPort in 1..65535)
         val peerId = context?.let(::stablePeerId) ?: UUID.randomUUID().toString()
         val safeDisplayName = displayName.trim().take(64).ifBlank { "MalekPlayer Android" }
-        val networks = findBroadcastRoutes(context).mapNotNull { it.network }.distinct()
+        val networks: List<Network?> = findBroadcastRoutes(context).map { it.network }.distinct()
         val sockets = networks.mapNotNull { network ->
             runCatching { createDiscoverySocket(network, DISCOVERY_PORT) }.getOrNull()
         }.ifEmpty { listOf(createDiscoverySocket(null, DISCOVERY_PORT)) }
