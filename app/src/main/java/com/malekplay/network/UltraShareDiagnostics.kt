@@ -23,7 +23,7 @@ object UltraShareDiagnostics {
     private const val FILE_PREFIX = "ultrashare-"
     private const val MAX_SESSIONS = 3
 
-    internal fun filesToDelete(newestFirst: List<Uri>): List<Uri> = newestFirst.drop(MAX_SESSIONS)
+    internal fun <T> filesToDelete(newestFirst: List<T>): List<T> = newestFirst.drop(MAX_SESSIONS)
     private val writer = Executors.newSingleThreadExecutor { task ->
         Thread(task, "MalekPlay-Diagnostics").apply { isDaemon = true }
     }
