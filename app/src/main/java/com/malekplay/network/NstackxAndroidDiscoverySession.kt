@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
 import java.net.Inet4Address
@@ -36,6 +37,8 @@ object NstackxAndroidDiscoverySession {
     private var started: Started? = null
     private var peerListener: NstackxNativeBridge.Listener? = null
     private var multicastLock: WifiManager.MulticastLock? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var callbackConnectivity: ConnectivityManager? = null
 
     @Synchronized
     fun start(
@@ -128,8 +131,45 @@ object NstackxAndroidDiscoverySession {
             error("فشل بدء اكتشاف NSTACKX (رمز $discoveryResult).")
         }
 
-        return Started(candidate.network, candidate.interfaceName, candidate.localIpv4, handle)
-            .also { started = it }
+        val active = Started(candidate.network, candidate.interfaceName, candidate.localIpv4, handle)
+        started = active
+
+        // NSTACKX binds native UDP sockets to one Android Network handle. When
+        // that network disappears or its interface/IP changes, those sockets can
+        // start failing with ENETUNREACH. Retire the optional native engine rather
+        // than leaving stale sockets alive; the authenticated TCP path is separate.
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onLost(network: Network) {
+                if (network == active.network && current() == active) stop()
+            }
+
+            override fun onLinkPropertiesChanged(
+                network: Network,
+                linkProperties: android.net.LinkProperties
+            ) {
+                if (network != active.network || current() != active) return
+                val addresses = linkProperties.linkAddresses
+                    .mapNotNull { it.address as? Inet4Address }
+                    .mapNotNull { it.hostAddress }
+                if (linkProperties.interfaceName != active.interfaceName ||
+                    active.localIpv4 !in addresses
+                ) {
+                    stop()
+                }
+            }
+        }
+        try {
+            connectivity.registerNetworkCallback(
+                NetworkRequest.Builder().clearCapabilities().build(),
+                callback
+            )
+            callbackConnectivity = connectivity
+            networkCallback = callback
+        } catch (failure: Exception) {
+            // Discovery remains usable if an OEM denies callback registration.
+            // Explicit callers can still stop/restart the session normally.
+        }
+        return active
     }
 
     /**
@@ -155,6 +195,11 @@ object NstackxAndroidDiscoverySession {
     @Synchronized
     fun stop() {
         detachPeerListener()
+        networkCallback?.let { callback ->
+            runCatching { callbackConnectivity?.unregisterNetworkCallback(callback) }
+        }
+        networkCallback = null
+        callbackConnectivity = null
         if (started != null) {
             runCatching { NstackxNativeBridge.stopDiscovery() }
             NstackxNativeBridge.release()
