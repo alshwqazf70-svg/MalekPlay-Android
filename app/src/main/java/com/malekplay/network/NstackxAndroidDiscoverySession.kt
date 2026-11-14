@@ -242,7 +242,7 @@ object NstackxAndroidDiscoverySession {
 
     /** Serialize native DFile creation against engine teardown. */
     fun <T> withActiveEngine(block: () -> T): T? = synchronized(this) {
-        if (started == null) null else block()
+        if (started == null || stopWhenDFileIdle) null else block()
     }
 
     private fun stopNow() {
