@@ -272,34 +272,49 @@ jobs:
           profile: pixel_2
           emulator-boot-timeout: 1800
           cores: 2
-          ram-size: 3072
-          heap-size: 768
+          ram-size: 2048
+          heap-size: 512
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -wipe-data
           disable-animations: true
           verbose: true
+          # The action invokes its script through /bin/sh; explicitly start Bash.
           script: |
-            set -euo pipefail
+            bash -euo pipefail <<'ULTRASHARE_BASH'
+            mkdir -p ultrashare-diagnostics
+            capture_diagnostics() {
+              status=$?
+              if [ "$status" -ne 0 ]; then
+                echo "Collecting emulator diagnostics after failure (exit $status)."
+                adb devices -l > ultrashare-diagnostics/adb-devices.txt 2>&1 || true
+                adb logcat -d -v threadtime > ultrashare-diagnostics/logcat.txt 2>&1 || true
+                adb shell getprop > ultrashare-diagnostics/properties.txt 2>&1 || true
+                adb shell dumpsys activity processes > ultrashare-diagnostics/activity-processes.txt 2>&1 || true
+              fi
+              exit "$status"
+            }
+            trap capture_diagnostics EXIT
+
             adb wait-for-device
-            for attempt in $(seq 1 30); do
+            booted=false
+            for attempt in $(seq 1 60); do
               sdk="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
               boot="$(adb shell getprop sys.boot_completed | tr -d '\r')"
               if [ "$sdk" = "${{ matrix.api-level }}" ] && [ "$boot" = "1" ]; then
                 echo "Emulator is stable: API $sdk"
+                booted=true
                 break
-              fi
-              if [ "$attempt" -eq 30 ]; then
-                echo "Emulator did not reach a stable Android boot state."
-                adb devices -l || true
-                adb shell getprop || true
-                exit 1
               fi
               sleep 2
             done
-            ./gradlew --build-cache --stacktrace --max-workers=1 :app:connectedDebugAndroidTest || {
-              adb logcat -d -v threadtime > ultrashare-emulator-logcat.txt || true
-              adb shell getprop > ultrashare-emulator-properties.txt || true
+            if [ "$booted" != true ]; then
+              echo "Emulator did not reach a stable Android boot state."
+              adb devices -l || true
+              adb shell getprop || true
               exit 1
-            }
+            fi
+
+            ./gradlew --build-cache --stacktrace --max-workers=1 :app:connectedDebugAndroidTest
+            ULTRASHARE_BASH
       - name: Upload Android runtime test diagnostics
         if: always()
         uses: actions/upload-artifact@v4
