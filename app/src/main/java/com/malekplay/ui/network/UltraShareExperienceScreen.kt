@@ -625,17 +625,20 @@ fun UltraShareExperienceScreen(
     }
 
     val qrPayload = state.localAddresses
-        // Do not expose a scannable invitation until the control listener and
-        // temporary hotspot credentials are both ready on the active receiver.
+        // Never publish the invitation until the actual batch-data listener,
+        // control listener and hotspot credentials are all ready.
         .takeIf {
-            state.receiving &&
-                state.controlChannelReady &&
-                state.hotspotActive &&
-                state.activePeers.isEmpty() &&
-                state.pairingSecret.isNotBlank() &&
-                !state.hotspotSsid.isNullOrBlank() &&
-                !state.hotspotPassword.isNullOrBlank() &&
-                it.isNotEmpty()
+            com.malekplay.network.UltraSharePairingReadiness.canShowHotspotQr(
+                receiving = state.receiving,
+                controlChannelReady = state.controlChannelReady,
+                dataChannelReady = state.dataChannelReady,
+                hotspotActive = state.hotspotActive,
+                activePeerCount = state.activePeers.size,
+                pairingSecret = state.pairingSecret,
+                hotspotSsid = state.hotspotSsid,
+                hotspotPassword = state.hotspotPassword,
+                localAddresses = it
+            )
         }
         ?.let {
             UltraShareQrCode.createHotspotReceiverPayload(
