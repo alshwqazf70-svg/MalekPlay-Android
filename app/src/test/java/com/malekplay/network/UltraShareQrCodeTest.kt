@@ -183,4 +183,44 @@ class UltraShareQrCodeTest {
         )
     }
 
+
+    @Test
+    fun hotspotQrRoundTripsCredentialsAndMultipleCandidateHosts() {
+        val secret = UltraShareTransport.createPairingSecret()
+        val payload = UltraShareQrCode.createHotspotReceiverPayload(
+            hosts = listOf("192.168.43.1", "192.168.43.1", "10.0.0.1", "8.8.8.8"),
+            pairingSecret = secret,
+            ssid = "MalekPlay-Share",
+            password = "share1234"
+        )
+
+        val decoded = UltraShareQrCode.parsePayload(payload)
+
+        assertEquals("192.168.43.1", decoded.host)
+        assertEquals(listOf("192.168.43.1", "10.0.0.1"), decoded.hosts)
+        assertEquals(secret, decoded.pairingSecret)
+        assertEquals("MalekPlay-Share", decoded.hotspotSsid)
+        assertEquals("share1234", decoded.hotspotPassword)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun hotspotQrRejectsPasswordShorterThanWpa2Minimum() {
+        UltraShareQrCode.createHotspotReceiverPayload(
+            hosts = listOf("192.168.43.1"),
+            pairingSecret = UltraShareTransport.createPairingSecret(),
+            ssid = "MalekPlay-Share",
+            password = "short"
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun hotspotQrRejectsPayloadWithoutUsableLocalHost() {
+        UltraShareQrCode.createHotspotReceiverPayload(
+            hosts = listOf("8.8.8.8", "127.0.0.1"),
+            pairingSecret = UltraShareTransport.createPairingSecret(),
+            ssid = "MalekPlay-Share",
+            password = "share1234"
+        )
+    }
+
 }
