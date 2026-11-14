@@ -174,6 +174,7 @@ object UltraShareBatchTransport {
         port: Int = DEFAULT_PORT,
         pairingSecret: String,
         network: Network? = null,
+        networks: List<Network> = emptyList(),
         onProgress: (FileProgress) -> Unit = {}
     ): BatchOutcome = withContext(Dispatchers.IO) {
         require(sources.isNotEmpty() && sources.size <= UltraShareBatchProtocol.MAX_FILES)
@@ -207,10 +208,38 @@ object UltraShareBatchTransport {
             java.util.UUID.randomUUID().toString(), prepared.map { it.second }
         )
         val target = java.net.InetAddress.getByName(host)
-        Socket().use { socket ->
-            // Use the same Android network selected for this peer's control channel.
-            network?.bindSocket(socket)
-            socket.connect(InetSocketAddress(target, port), HANDSHAKE_TIMEOUT_MS)
+        val routeCandidates = (networks + listOfNotNull(network)).distinct().take(4)
+        var connectedSocket: Socket? = null
+        var connectFailure: IOException? = null
+        if (routeCandidates.isEmpty()) {
+            val candidate = Socket()
+            try {
+                candidate.connect(InetSocketAddress(target, port), HANDSHAKE_TIMEOUT_MS)
+                connectedSocket = candidate
+            } catch (failure: IOException) {
+                runCatching { candidate.close() }
+                connectFailure = failure
+            }
+        } else {
+            for (route in routeCandidates) {
+                currentCoroutineContext().ensureActive()
+                val candidate = Socket()
+                try {
+                    route.bindSocket(candidate)
+                    candidate.connect(InetSocketAddress(target, port), HANDSHAKE_TIMEOUT_MS)
+                    connectedSocket = candidate
+                    break
+                } catch (failure: IOException) {
+                    runCatching { candidate.close() }
+                    connectFailure = failure
+                }
+            }
+        }
+        val socket = connectedSocket ?: throw (connectFailure
+            ?: IOException("تعذر الاتصال بأي مسار شبكة متاح."))
+        socket.use {
+            // A fresh socket is bound to each candidate before connect; failed routes
+            // are closed before the next route is attempted.
             configure(socket)
             val input = DataInputStream(BufferedInputStream(socket.getInputStream(), BUFFER_BYTES))
             val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_BYTES))
