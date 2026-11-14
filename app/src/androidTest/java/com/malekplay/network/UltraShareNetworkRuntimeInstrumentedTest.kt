@@ -11,6 +11,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.io.DataInputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertArrayEquals
@@ -58,8 +59,8 @@ class UltraShareNetworkRuntimeInstrumentedTest {
                     writer.start()
                     peerWriter.start()
 
-                    val receivedByPeer = accepted.getInputStream().readNBytes(outbound.size)
-                    val receivedByClient = connected.getInputStream().readNBytes(inbound.size)
+                    val receivedByPeer = ByteArray(outbound.size).also { DataInputStream(accepted.getInputStream()).readFully(it) }
+                    val receivedByClient = ByteArray(inbound.size).also { DataInputStream(connected.getInputStream()).readFully(it) }
                     writer.join(8_000)
                     peerWriter.join(8_000)
 
