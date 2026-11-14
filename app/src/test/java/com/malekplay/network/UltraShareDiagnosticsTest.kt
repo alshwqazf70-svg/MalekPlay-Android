@@ -14,6 +14,6 @@ class UltraShareDiagnosticsTest {
     @Test
     fun retentionDoesNotDeleteThreeOrFewerSessions() {
         assertEquals(emptyList<String>(), UltraShareDiagnostics.filesToDelete(listOf("one", "two", "three")))
-        assertEquals(emptyList<String>(), UltraShareDiagnostics.filesToDelete(emptyList()))
+        assertEquals(emptyList<String>(), UltraShareDiagnostics.filesToDelete(emptyList<String>()))
     }
 }
