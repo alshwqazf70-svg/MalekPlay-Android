@@ -1936,6 +1936,18 @@ fun UltraShareScreen(
             }
         }
 
+        OutlinedButton(
+            onClick = {
+                val report = UltraShareControlChannel.diagnosticReport()
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("MalekPlay connection diagnostics", report))
+                Toast.makeText(context, "تم نسخ تقرير تشخيص الاتصال. أرسله هنا.", Toast.LENGTH_LONG).show()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.ContentCopy, contentDescription = null)
+            Text("نسخ تقرير تشخيص الاتصال", modifier = Modifier.padding(start = 8.dp))
+        }
         state.status?.let { Text(it, color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.bodySmall) }
         state.error?.let { message ->
             Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
