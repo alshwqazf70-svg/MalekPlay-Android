@@ -2,11 +2,27 @@ package com.malekplay.network
 
 import java.net.InetAddress
 import java.net.Inet4Address
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UltraShareNetworkRoutingTest {
+    @Test
+    fun preservesPreferredNetworkThenAttemptsEveryDistinctAlternative() {
+        assertEquals(
+            listOf("preferred-p2p", "wlan", "hotspot"),
+            UltraShareNetworkRouting.orderedDistinctRoutes(
+                "preferred-p2p",
+                listOf("wlan", "preferred-p2p", "hotspot", "wlan")
+            )
+        )
+        assertEquals(
+            listOf("first", "second"),
+            UltraShareNetworkRouting.orderedDistinctRoutes(null, listOf("first", "second", "first"))
+        )
+    }
+
     @Test
     fun matchesAddressWithinFullAndPartialIpv4Prefixes() {
         val network = InetAddress.getByName("192.168.49.1") as Inet4Address
