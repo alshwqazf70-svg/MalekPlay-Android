@@ -314,7 +314,7 @@ class UltraShareForegroundService : Service() {
                                                 transferLockStarted = true
                                             }
                                             updateState { current ->
-                                                current.copy(progress = progress, receiveProgress = progress, error = null)
+                                                current.copy(progress = if (current.sending) null else progress, receiveProgress = progress, error = null)
                                             }
                                             updateNotification(progress)
                                         }
@@ -488,7 +488,7 @@ class UltraShareForegroundService : Service() {
                                         current.copy(
                                             peerTransfers = updatedTransfers,
                                             receiveProgress = activeProgress,
-                                            progress = if (current.sending) current.sendProgress else activeProgress,
+                                            progress = if (current.sending) null else activeProgress,
                                             status = "اكتملت دفعة V2 من $peer: $completed ملف"
                                         )
                                     }
@@ -1376,16 +1376,15 @@ class UltraShareForegroundService : Service() {
                                     bytesPerSecond = progress.bytesPerSecond,
                                     status = "يرسل الآن"
                                 )
+                                val sendProgress = UltraShareTransport.Progress(
+                                    progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                    progress.bytesPerSecond, false
+                                )
                                 current.copy(
                                     peerTransfers = current.peerTransfers.filterNot { it.host == activeV2Host } + peerTransfer,
-                                    progress = UltraShareTransport.Progress(
-                                        progress.fileName, progress.transferredBytes, progress.totalBytes,
-                                        progress.bytesPerSecond, false
-                                    ),
-                                    sendProgress = UltraShareTransport.Progress(
-                                        progress.fileName, progress.transferredBytes, progress.totalBytes,
-                                        progress.bytesPerSecond, false
-                                    ),
+                                    // A single progress bar cannot truthfully represent both directions.
+                                    progress = if (current.receiving) null else sendProgress,
+                                    sendProgress = sendProgress,
                                     queueCurrentName = progress.fileName,
                                     queueTransferredBytes = minOf(totalBytes, v2ProgressCompletedBytes + progress.transferredBytes),
                                     status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
