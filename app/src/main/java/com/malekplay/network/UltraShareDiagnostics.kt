@@ -188,7 +188,7 @@ object UltraShareDiagnostics {
     }
 
     private fun normalizeSessionKey(value: String): String {
-        if (value == "process") return value
+        if (value == "process" || value.startsWith("key:")) return value
         val digest = java.security.MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(StandardCharsets.UTF_8))
         return "key:" + digest.take(12).joinToString("") { "%02x".format(it) }
