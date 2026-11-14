@@ -2169,9 +2169,10 @@ class UltraShareForegroundService : Service() {
                     "بدأ DFile إرسال البيانات ثم لم يؤكد اكتمال الدفعة؛ أوقفنا التحويل إلى TCP لتجنب تكرار الملفات."
                 )
             }
-            // The native completion callback confirms the remote-side transfer result.
-            // Re-hash each immutable staging file locally before reporting success so
-            // a modified/truncated source cannot be silently marked as delivered.
+            // NSTACKX reports successful file-send callbacks. Re-hash each staged
+            // source locally before reporting success so a modified/truncated source
+            // cannot be silently marked as sent. This is a local source check, not an
+            // independent receiver-side end-to-end checksum.
             check(staged.all(UltraShareDFileStager::verifyStagedDigest)) {
                 "اكتمل إشعار DFile لكن تغيرت بيانات أحد الملفات المجهزة؛ لا يمكن تأكيد سلامة المصدر."
             }
