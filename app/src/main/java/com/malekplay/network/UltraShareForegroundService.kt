@@ -763,6 +763,7 @@ class UltraShareForegroundService : Service() {
                         if (!UltraShareDFileStager.isSafeReceivedFile(
                                 stagedFile,
                                 stagingDirectory,
+                                destination,
                                 UltraShareDFileStager.reportedSizeForValidation(
                                     event.fileNames.size,
                                     event.totalBytes
