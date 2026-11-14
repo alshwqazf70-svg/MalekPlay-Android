@@ -66,8 +66,7 @@ object NstackxAndroidDiscoverySession {
                     iface.startsWith("wlan", ignoreCase = true) ||
                         iface.startsWith("swlan", ignoreCase = true) ||
                         iface.startsWith("wifi", ignoreCase = true) -> 3
-                    iface.startsWith("ap", ignoreCase = true) ||
-                        iface.startsWith("softap", ignoreCase = true) -> 2
+                    UltraShareNetworkRouting.isHotspotInterfaceName(iface) -> 2
                     iface.startsWith("eth", ignoreCase = true) ||
                         iface.startsWith("rndis", ignoreCase = true) -> 1
                     else -> return@mapNotNull null
