@@ -1521,7 +1521,7 @@ fun UltraShareScreen(
                         Text(stringResource(R.string.ultra_share_code_warning), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                         if (state.receiving && qrBitmap == null) {
                             Text(
-                                "جارٍ تجهيز رمز QR الآمن والتحقق من عنوان الاتصال. سيظهر الرمز تلقائياً بعد جاهزية خدمة الاستقبال؛ لا تمسح رمزاً قديماً أو فارغاً.",
+                                "جارٍ تجهيز رمز QR الآمن والتحقق من قناة التحكم ومستمع نقل الملفات الفعلي. سيظهر الرمز تلقائياً بعد جاهزيتهما؛ لا تمسح رمزاً قديماً أو فارغاً.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
                             )
