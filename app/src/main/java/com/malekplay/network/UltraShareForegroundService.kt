@@ -2184,6 +2184,17 @@ class UltraShareForegroundService : Service() {
         sources: List<UltraShareBatchTransport.Source>,
         onProgress: (UltraShareBatchTransport.FileProgress) -> Unit
     ): UltraShareBatchTransport.BatchOutcome? {
+        // The native DFile sender only verifies its local staged source after the
+        // success callback; the receiver cannot compare an authenticated per-file
+        // SHA-256 manifest before publishing. Keep all transfers on V2 TCP until
+        // that end-to-end integrity contract is available on both peers.
+        UltraShareDiagnostics.event(
+            "DFILE",
+            "CLIENT_DISABLED_UNTIL_RECEIVER_INTEGRITY_MANIFEST",
+            mapOf("peerHost" to host, "files" to sources.size)
+        )
+        return null
+
         val port = UltraShareControlChannel.clientDFilePort(host) ?: return null
         if (sources.isEmpty() || sources.size > 500) return null
         if (!UltraShareControlChannel.isSessionActive(host)) return null
