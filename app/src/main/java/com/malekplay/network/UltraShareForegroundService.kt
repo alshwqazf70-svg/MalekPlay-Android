@@ -164,6 +164,8 @@ class UltraShareForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        UltraShareDiagnostics.initialize(this)
+        UltraShareDiagnostics.event("SERVICE", "CREATED")
         // Remove abandoned DFile staging artifacts left by process death or force-stop.
         UltraShareDFileStager.cleanupStale(cacheDir)
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
@@ -287,6 +289,7 @@ class UltraShareForegroundService : Service() {
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
+                            UltraShareDiagnostics.failure("DISCOVERY_ADVERTISEMENT", failure)
                             // Receiving remains available through the displayed local IP
                             // even if another app/process already occupies the discovery port.
                             updateState { current -> current.copy(
@@ -299,6 +302,7 @@ class UltraShareForegroundService : Service() {
                         while (true) {
                             try {
                                 var transferLockStarted = false
+                                UltraShareDiagnostics.event("DATA_CHANNEL", "RECEIVE_WAITING")
                                 val received = try {
                                     UltraShareTransport.receiveOnce(
                                         pairingSecret = secret,
@@ -320,6 +324,7 @@ class UltraShareForegroundService : Service() {
                                     if (transferLockStarted) endTransfer(isReceiving = true)
                                 }
                                 // Publish to the user's public Downloads folder automatically on Android 10+.
+                                UltraShareDiagnostics.event("TRANSFER", "RECEIVE_COMPLETED", mapOf("sizeBytes" to received.sizeBytes, "mimeType" to received.mimeType))
                                 val publishedUri = UltraShareReceivedPublisher.publish(
                                     this@UltraShareForegroundService,
                                     received
@@ -346,6 +351,7 @@ class UltraShareForegroundService : Service() {
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (failure: Exception) {
+                                UltraShareDiagnostics.failure("RECEIVE_TRANSFER", failure)
                                 // Keep the receiver available after failures, but apply a small
                                 // global backoff so repeated bad pairing attempts cost more time.
                                 updateState { current -> current.copy(
@@ -361,6 +367,7 @@ class UltraShareForegroundService : Service() {
                         updateState { current -> current.copy(receiving = false, pairingSecret = "", localAddresses = emptyList(), progress = if (current.sending) current.sendProgress else null, receiveProgress = null, status = getString(R.string.ultra_share_stopped)) }
                         throw cancelled
                     } catch (failure: Exception) {
+                        UltraShareDiagnostics.failure("RECEIVER_LOOP", failure)
                         updateState { current -> current.copy(receiving = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)) }
                     } finally {
                         advertisementJob?.cancel()
@@ -1527,6 +1534,7 @@ class UltraShareForegroundService : Service() {
                     }
     
                 }
+                UltraShareDiagnostics.event("TRANSFER", "SEND_QUEUE_FINISHED", mapOf("sent" to sent, "failed" to failed, "total" to queue.size))
                 updateState { current -> current.copy(sending = false, status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null) }
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) {
@@ -1873,6 +1881,7 @@ class UltraShareForegroundService : Service() {
                 }
                 throw cancelled
             } catch (failure: Exception) {
+                UltraShareDiagnostics.failure("MULTI_PEER_SEND", failure)
                 updateState { current ->
                     current.copy(
                         error = failure.localizedMessage ?: "فشل الإرسال الجماعي.",
