@@ -1,5 +1,6 @@
 package com.malekplay.network
 
+import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
@@ -112,6 +113,8 @@ object UltraShareDiagnostics {
         }.onFailure { Log.e(TAG, "Diagnostic event write failed", it) }
     }
 
+    // The caller checks API 29+ before entering this method; MediaStore Downloads is API 29+.
+    @SuppressLint("NewApi")
     private fun createPublicLog(context: Context, role: String, id: String): Uri {
         check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             "Public Termux-readable diagnostic export requires Android 10 or newer"
@@ -181,5 +184,7 @@ object UltraShareDiagnostics {
     }
 
     private fun timestamp(): String =
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US).format(Date())
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }.format(Date())
 }
