@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
-import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
@@ -49,17 +48,22 @@ object UltraShareDiagnostics {
         val session = SessionLog(UUID.randomUUID().toString(), safeRole)
         currentSession = session
 
-        // The executor serializes creation before every event appended for this session.
+        // The single writer guarantees the file exists before this session's queued events.
         writer.execute {
             runCatching {
                 val context = appContext ?: return@runCatching
                 val uri = createPublicLog(context, safeRole, session.id)
                 session.uri = uri
-                eventNow(
-                    context, uri, "SESSION", "STARTED",
-                    JSONObject().put("role", safeRole)
-                        .put("trigger", safeValue(trigger))
-                        .put("sessionId", session.id)
+                writeLine(
+                    context, uri,
+                    jsonObject(linkedMapOf(
+                        "timestamp" to timestamp(),
+                        "sessionId" to session.id,
+                        "role" to safeRole,
+                        "stage" to "SESSION",
+                        "event" to "STARTED",
+                        "trigger" to safeValue(trigger)
+                    ))
                 )
                 Log.i(TAG, "Diagnostic session started: " + session.id + " (" + safeRole + ")")
             }.onFailure { Log.e(TAG, "Unable to create public diagnostic log", it) }
@@ -68,21 +72,20 @@ object UltraShareDiagnostics {
     }
 
     fun event(stage: String, name: String, details: Map<String, Any?> = emptyMap()) {
-        // Android's org.json implementation is a stub in plain JVM unit tests.
-        // Diagnostics must never become the reason a protocol test fails.
         if (appContext == null) return
         val session = currentSession ?: run {
             beginSession("UNKNOWN", "automatic")
             currentSession
         } ?: return
-        val payload = JSONObject()
-            .put("timestamp", timestamp())
-            .put("sessionId", session.id)
-            .put("role", session.role)
-            .put("stage", safeValue(stage))
-            .put("event", safeValue(name))
+        val payload = linkedMapOf<String, Any?>(
+            "timestamp" to timestamp(),
+            "sessionId" to session.id,
+            "role" to session.role,
+            "stage" to safeValue(stage),
+            "event" to safeValue(name)
+        )
         details.forEach { (key, value) ->
-            if (value != null) payload.put(safeKey(key), safeValueForKey(key, value.toString()))
+            if (value != null) payload[safeKey(key)] = safeValueForKey(key, value.toString())
         }
         append(session, payload)
     }
@@ -97,44 +100,45 @@ object UltraShareDiagnostics {
         val frame = sequenceOf(failure, root)
             .flatMap { it.stackTrace.asSequence() }
             .firstOrNull { it.className.startsWith("com.malekplay.") }
-        val payload = JSONObject()
-            .put("timestamp", timestamp())
-            .put("sessionId", session.id)
-            .put("role", session.role)
-            .put("stage", safeValue(stage))
-            .put("event", "ERROR")
-            .put("exception", failure.javaClass.name)
-            .put("rootException", root.javaClass.name)
-            .put("message", safeValue(contextMessage ?: failure.message.orEmpty()))
-            .put("rootMessage", safeValue(root.message.orEmpty()))
-            .put("sourceClass", frame?.className.orEmpty())
-            .put("sourceMethod", frame?.methodName.orEmpty())
-            .put("sourceLine", frame?.lineNumber ?: -1)
-            .put("stackTrace", safeValue(failure.stackTraceToString(), MAX_STACK_CHARS))
-        append(session, payload)
+        append(session, linkedMapOf(
+            "timestamp" to timestamp(),
+            "sessionId" to session.id,
+            "role" to session.role,
+            "stage" to safeValue(stage),
+            "event" to "ERROR",
+            "exception" to failure.javaClass.name,
+            "rootException" to root.javaClass.name,
+            "message" to safeValue(contextMessage ?: failure.message.orEmpty()),
+            "rootMessage" to safeValue(root.message.orEmpty()),
+            "sourceClass" to frame?.className.orEmpty(),
+            "sourceMethod" to frame?.methodName.orEmpty(),
+            "sourceLine" to (frame?.lineNumber ?: -1),
+            "stackTrace" to safeValue(failure.stackTraceToString(), MAX_STACK_CHARS)
+        ))
         Log.e(TAG, "[" + stage + "] " + failure.javaClass.simpleName + ": " + failure.message, failure)
     }
 
     fun endSession(result: String = "finished") {
         val session = currentSession ?: return
         if (appContext != null) {
-            val payload = JSONObject()
-                .put("timestamp", timestamp())
-                .put("sessionId", session.id)
-                .put("role", session.role)
-                .put("stage", "SESSION")
-                .put("event", "ENDED")
-                .put("result", safeValue(result))
-            append(session, payload)
+            append(session, linkedMapOf(
+                "timestamp" to timestamp(),
+                "sessionId" to session.id,
+                "role" to session.role,
+                "stage" to "SESSION",
+                "event" to "ENDED",
+                "result" to safeValue(result)
+            ))
         }
         if (currentSession === session) currentSession = null
     }
 
-    private fun append(session: SessionLog, payload: JSONObject) {
+    private fun append(session: SessionLog, payload: Map<String, Any?>) {
         val context = appContext ?: return
+        val encoded = jsonObject(payload)
         writer.execute {
             val target = session.uri ?: return@execute
-            writeLine(context, target, payload)
+            writeLine(context, target, encoded)
         }
     }
 
@@ -149,11 +153,45 @@ object UltraShareDiagnostics {
         return current
     }
 
-    private fun writeLine(context: Context, uri: Uri, payload: JSONObject) {
+    private fun jsonObject(values: Map<String, Any?>): String =
+        values.entries.joinToString(prefix = "{", postfix = "}") { (key, value) ->
+            jsonString(key) + ":" + jsonValue(value)
+        }
+
+    private fun jsonValue(value: Any?): String = when (value) {
+        null -> "null"
+        is Boolean -> value.toString()
+        is Byte, is Short, is Int, is Long -> value.toString()
+        is Float -> if (value.isFinite()) value.toString() else "null"
+        is Double -> if (value.isFinite()) value.toString() else "null"
+        else -> jsonString(value.toString())
+    }
+
+    private fun jsonString(value: String): String = buildString(value.length + 2) {
+        append('"')
+        value.forEach { character ->
+            when (character) {
+                '"' -> append("\\\"")
+                '\\' -> append("\\\\")
+                '\b' -> append("\\b")
+                '\u000C' -> append("\\f")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> if (character.code < 0x20) {
+                    append("\\u")
+                    append(character.code.toString(16).padStart(4, '0'))
+                } else append(character)
+            }
+        }
+        append('"')
+    }
+
+    private fun writeLine(context: Context, uri: Uri, payload: String) {
         runCatching {
             context.contentResolver.openOutputStream(uri, "wa")?.use { output ->
                 OutputStreamWriter(output, StandardCharsets.UTF_8).use { stream ->
-                    stream.write(payload.toString())
+                    stream.write(payload)
                     stream.write("\n")
                     stream.flush()
                 }
@@ -199,16 +237,6 @@ object UltraShareDiagnostics {
             runCatching { context.contentResolver.delete(uri, null, null) }
                 .onFailure { Log.w(TAG, "Unable to prune old diagnostic file", it) }
         }
-    }
-
-    private fun eventNow(context: Context, uri: Uri, stage: String, name: String, details: JSONObject) {
-        val payload = JSONObject().put("timestamp", timestamp()).put("stage", stage).put("event", name)
-        val keys = details.keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            payload.put(key, details.opt(key))
-        }
-        writeLine(context, uri, payload)
     }
 
     private fun safeKey(value: String): String =
