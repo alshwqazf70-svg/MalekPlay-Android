@@ -392,6 +392,7 @@ class UltraShareForegroundService : Service() {
                                 destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
                                 maxPeers = UltraShareBatchTransport.DEFAULT_MAX_PEERS,
                                 onPeerStarted = { peer ->
+                                    UltraShareDiagnostics.event("DATA_CHANNEL", "V2_PEER_AUTHENTICATED", mapOf("peerHost" to peer))
                                     beginTransfer(isReceiving = true)
                                     updateState { current ->
                                         val item = UltraSharePeerTransfer(
@@ -403,6 +404,7 @@ class UltraShareForegroundService : Service() {
                                     }
                                 },
                                 onPeerFinished = { peer ->
+                                    UltraShareDiagnostics.event("DATA_CHANNEL", "V2_PEER_SESSION_CLOSED", mapOf("peerHost" to peer))
                                     updateState { current ->
                                         val existing = current.peerTransfers.firstOrNull { it.host == peer }
                                         val updatedTransfers = if (existing == null || existing.status == "جارٍ الاستقبال") {
@@ -445,6 +447,15 @@ class UltraShareForegroundService : Service() {
                                     }
                                 },
                                 onBatchFinished = { peer, batch ->
+                                    UltraShareDiagnostics.event(
+                                        "TRANSFER", "V2_BATCH_RECEIVED",
+                                        mapOf(
+                                            "peerHost" to peer,
+                                            "files" to batch.files.size,
+                                            "completed" to batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED },
+                                            "failed" to batch.files.count { it.status != UltraShareBatchProtocol.FileStatus.COMPLETED }
+                                        )
+                                    )
                                     batch.files.forEach { item ->
                                         val received = item.receivedFile ?: return@forEach
                                         try {
