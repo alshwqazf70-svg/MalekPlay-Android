@@ -407,6 +407,7 @@ class UltraShareViewModel @Inject constructor(
                 _state.value = _state.value.copy(requestingConnection = false)
                 throw cancelled
             } catch (failure: Exception) {
+                UltraShareDiagnostics.failure("PAIRING_WORKFLOW", failure, "host=" + host.trim())
                 val previousTarget = UltraShareForegroundService.approvedSendTargets().lastOrNull()
                 _state.value = _state.value.copy(
                     approvedPeerHost = previousTarget?.host,
