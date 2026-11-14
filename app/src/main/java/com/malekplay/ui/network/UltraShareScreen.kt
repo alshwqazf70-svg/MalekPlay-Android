@@ -451,7 +451,11 @@ class LegacyUltraShareViewModel @Inject constructor(
                 // A QR scan initially authenticates the scanner as a sender. Start
                 // its receiver endpoint too, so the QR creator can send back over the
                 // same temporary pairing session without clearing this approved peer.
-                UltraShareForegroundService.startReceiving(context, pairing.pairingSecret)
+                UltraShareForegroundService.startReceiving(
+                    context,
+                    pairing.pairingSecret,
+                    createHotspot = false
+                )
                 _state.value = _state.value.copy(
                     wifiDirectHost = connectedHost,
                     scanning = false,
