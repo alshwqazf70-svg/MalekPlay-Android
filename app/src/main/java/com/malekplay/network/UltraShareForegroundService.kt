@@ -688,6 +688,8 @@ class UltraShareForegroundService : Service() {
                     preferredLocalIpv4 = localIpv4,
                     onPeerFound = {}
                 )
+            }.onFailure { failure ->
+                UltraShareDiagnostics.failure("DFILE_NSTACKX_START", failure, "peerHost=" + peerAddress + ";localIp=" + localIpv4)
             }.getOrNull() ?: return null
         }
 
