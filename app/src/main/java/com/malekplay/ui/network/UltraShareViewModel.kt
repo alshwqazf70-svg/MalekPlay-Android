@@ -101,14 +101,24 @@ class UltraShareViewModel @Inject constructor(
     private var bluetoothSession: UltraShareBluetoothDiscovery.Session? = null
     private var bleSession: UltraShareBleDiscovery.Session? = null
     private var nstackxStartJob: Job? = null
-    private var hotspotNetworkCallback: android.net.ConnectivityManager.NetworkCallback? = null
-    private var hotspotNetworkPaired = false
+    // The requested Wi-Fi Network is process-scoped, not screen-scoped. Keep
+    // its callback lease shared across ViewModel recreation while a paired session
+    // is alive; stopReceiving() or onLost() releases it.
+    private var hotspotNetworkCallback: android.net.ConnectivityManager.NetworkCallback?
+        get() = retainedHotspotNetworkCallback
+        set(value) { retainedHotspotNetworkCallback = value }
+    private var hotspotNetworkPaired: Boolean
+        get() = retainedHotspotNetworkPaired
+        set(value) { retainedHotspotNetworkPaired = value }
     private val nstackxPeerNames = NstackxPeerNameCache()
     private data class PendingQrPairing(val secret: String, val hosts: List<String>)
     private var pendingQrPairing: PendingQrPairing? = null
     private var qrP2pConnectStarted = false
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
+        @Volatile private var retainedHotspotNetworkCallback:
+            android.net.ConnectivityManager.NetworkCallback? = null
+        @Volatile private var retainedHotspotNetworkPaired: Boolean = false
     }
 
     init {
@@ -608,8 +618,13 @@ class UltraShareViewModel @Inject constructor(
             override fun onUnavailable() {
                 networkLost.set(true)
                 val viewModel = owner.get()
+                if (retainedHotspotNetworkCallback === this) {
+                    retainedHotspotNetworkCallback = null
+                    retainedHotspotNetworkPaired = false
+                }
                 if (viewModel != null && viewModel.hotspotNetworkCallback === this) {
                     viewModel.hotspotNetworkCallback = null
+                    viewModel.hotspotNetworkPaired = false
                     viewModel._state.value = viewModel._state.value.copy(
                         requestingConnection = false,
                         error = "لم يكتمل الانضمام إلى شبكة MalekPlay. وافق على طلب Wi-Fi الذي عرضه Android وأبقِ نقطة الاتصال مفتوحة."
@@ -621,11 +636,15 @@ class UltraShareViewModel @Inject constructor(
             override fun onLost(network: android.net.Network) {
                 networkLost.set(true)
                 val viewModel = owner.get()
-                val isCurrent = viewModel?.hotspotNetworkCallback === this
+                val isCurrent = retainedHotspotNetworkCallback === this
                 if (paired.get() && isCurrent) {
                     connectedHost.get()?.let { peerHost ->
                         UltraShareForegroundService.disconnectApprovedPeer(peerHost)
                     }
+                }
+                if (isCurrent) {
+                    retainedHotspotNetworkCallback = null
+                    retainedHotspotNetworkPaired = false
                 }
                 if (viewModel != null && isCurrent) {
                     val lostHost = connectedHost.get()
