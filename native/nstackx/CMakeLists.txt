@@ -94,6 +94,7 @@ set(NSTACKX_UTIL_SOURCES
 
 add_library(nstackx_util STATIC ${NSTACKX_UTIL_SOURCES})
 target_include_directories(nstackx_util PUBLIC
+    "${CMAKE_CURRENT_LIST_DIR}/android"
     "${NSTACKX_UTIL}/include"
     "${NSTACKX_UTIL}/interface"
     "${NSTACKX_UTIL}/platform/unix"
