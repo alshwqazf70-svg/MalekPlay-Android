@@ -1872,6 +1872,51 @@ fun UltraShareScreen(
             }
         }
 
+        if (state.sending && state.receiving) {
+            state.sendProgress?.let { progress ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("إرسال إلى الجهاز الآخر", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Text("${(progress.fraction * 100).toInt()}%", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
+                        }
+                        Text(progress.fileName, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        LinearProgressIndicator(progress = { progress.fraction }, modifier = Modifier.fillMaxWidth())
+                        Text(
+                            formatTransferBytes(progress.transferredBytes) + " / " + formatTransferBytes(progress.totalBytes) +
+                                " • " + formatTransferBytes(progress.bytesPerSecond) + "/ث",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            }
+            state.receiveProgress?.let { progress ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("استقبال من الجهاز الآخر", color = Color(0xFF65D6A2), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Text("${(progress.fraction * 100).toInt()}%", color = Color(0xFF65D6A2), fontWeight = FontWeight.ExtraBold)
+                        }
+                        Text(progress.fileName, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        LinearProgressIndicator(progress = { progress.fraction }, modifier = Modifier.fillMaxWidth())
+                        Text(
+                            formatTransferBytes(progress.transferredBytes) + " / " + formatTransferBytes(progress.totalBytes) +
+                                " • " + formatTransferBytes(progress.bytesPerSecond) + "/ث",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            }
+        }
+
         state.progress?.let { progress ->
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
