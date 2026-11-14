@@ -142,7 +142,7 @@ object UltraShareDiagnostics {
             MediaStore.MediaColumns.RELATIVE_PATH + "=? AND " +
                 MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ?",
             arrayOf(DIRECTORY, FILE_PREFIX + "%"),
-            MediaStore.MediaColumns.DATE_ADDED + " DESC"
+            MediaStore.MediaColumns.DATE_ADDED + " DESC, " + MediaStore.MediaColumns._ID + " DESC"
         )?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
             val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
