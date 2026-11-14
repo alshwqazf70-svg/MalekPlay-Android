@@ -288,6 +288,7 @@ object UltraShareTransport {
         sizeBytes: Long,
         chunkBytes: Int = CHUNK_BYTES,
         network: Network? = null,
+        networks: List<Network> = emptyList(),
         onProgress: (Progress) -> Unit = {}
     ) = withContext(Dispatchers.IO) {
         require(host.isNotBlank()) { "أدخل عنوان الجهاز المستقبل." }
@@ -304,12 +305,38 @@ object UltraShareTransport {
             digestStream(BufferedInputStream(rawStream, IO_BUFFER_BYTES), sizeBytes)
         } ?: error("تعذر فتح الملف المحدد.")
 
-        Socket().use { socket ->
-            // Bind to the Android network whose route reaches this exact peer IP.
-            // Without this, dual Wi-Fi/Wi-Fi Direct devices may send the SYN through
-            // the default WLAN and fail with ENETUNREACH/EHOSTUNREACH.
-            network?.bindSocket(socket)
-            socket.connect(InetSocketAddress(targetAddress, port), SOCKET_TIMEOUT_MS)
+        val routeCandidates = (networks + listOfNotNull(network)).distinct().take(4)
+        var connectedSocket: Socket? = null
+        var connectFailure: IOException? = null
+        if (routeCandidates.isEmpty()) {
+            val candidate = Socket()
+            try {
+                candidate.connect(InetSocketAddress(targetAddress, port), SOCKET_TIMEOUT_MS)
+                connectedSocket = candidate
+            } catch (failure: IOException) {
+                runCatching { candidate.close() }
+                connectFailure = failure
+            }
+        } else {
+            for (route in routeCandidates) {
+                currentCoroutineContext().ensureActive()
+                val candidate = Socket()
+                try {
+                    route.bindSocket(candidate)
+                    candidate.connect(InetSocketAddress(targetAddress, port), SOCKET_TIMEOUT_MS)
+                    connectedSocket = candidate
+                    break
+                } catch (failure: IOException) {
+                    runCatching { candidate.close() }
+                    connectFailure = failure
+                }
+            }
+        }
+        val socket = connectedSocket ?: throw (connectFailure
+            ?: IOException("تعذر الاتصال بأي مسار شبكة متاح."))
+        socket.use {
+            // Try each Android route with a fresh socket; never reuse a socket
+            // after a failed bind/connect attempt.
             socket.soTimeout = SOCKET_TIMEOUT_MS
             socket.sendBufferSize = SOCKET_BUFFER_BYTES
             socket.receiveBufferSize = SOCKET_BUFFER_BYTES
