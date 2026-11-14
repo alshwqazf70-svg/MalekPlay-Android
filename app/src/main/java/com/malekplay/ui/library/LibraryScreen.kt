@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.util.Locale
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaFolder
@@ -665,12 +666,12 @@ fun formatDuration(durationMs: Long): String {
     val hours = totalSeconds / 3600L
     val minutes = (totalSeconds % 3600L) / 60L
     val seconds = totalSeconds % 60L
-    return if (hours > 0) String.format("%d:%02d:%02d", hours, minutes, seconds)
-    else String.format("%02d:%02d", minutes, seconds)
+    return if (hours > 0) String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, seconds)
+    else String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
 }
 
 fun formatFileSize(bytes: Long): String {
     if (bytes <= 0L) return ""
     val mb = bytes / (1024.0 * 1024.0)
-    return if (mb >= 1024.0) String.format("%.1f GB", mb / 1024.0) else String.format("%.1f MB", mb)
+    return if (mb >= 1024.0) String.format(Locale.getDefault(), "%.1f GB", mb / 1024.0) else String.format(Locale.getDefault(), "%.1f MB", mb)
 }
