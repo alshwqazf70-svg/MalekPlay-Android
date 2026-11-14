@@ -558,59 +558,91 @@ class UltraShareViewModel @Inject constructor(
             .setNetworkSpecifier(specifier)
             .build()
         val connectionStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+        val paired = java.util.concurrent.atomic.AtomicBoolean(false)
+        val connectedHost = java.util.concurrent.atomic.AtomicReference<String?>(null)
+        // Keep the NetworkCallback alive after the screen is closed without making
+        // ConnectivityManager retain the entire ViewModel through an inner closure.
+        val owner = java.lang.ref.WeakReference(this)
         val callback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: android.net.Network) {
                 if (!connectionStarted.compareAndSet(false, true)) return
-                _state.value = _state.value.copy(
+                val viewModel = owner.get() ?: run {
+                    runCatching { connectivity.unregisterNetworkCallback(this) }
+                    return
+                }
+                viewModel._state.value = viewModel._state.value.copy(
                     status = "اتصل Android بشبكة MalekPlay؛ جارٍ التحقق من رمز الاقتران..."
                 )
-                requestConnection(
+                viewModel.requestConnection(
                     host = pairing.host,
                     secret = pairing.pairingSecret,
                     alternateHosts = pairing.hosts.drop(1),
                     preferredNetwork = network,
-                    onConnectionEstablished = { connectedHost ->
-                        hotspotNetworkPaired = true
+                    onConnectionEstablished = { peerHost ->
+                        connectedHost.set(peerHost)
+                        paired.set(true)
+                        viewModel.hotspotNetworkPaired = true
                         UltraShareForegroundService.startReceiving(
-                            context,
+                            viewModel.context,
                             pairing.pairingSecret,
                             createHotspot = false
                         )
-                        val remoteDataReady = _state.value.peerDataChannelReady
-                        _state.value = _state.value.copy(
-                            approvedPeerHost = connectedHost,
+                        val remoteDataReady = viewModel._state.value.peerDataChannelReady
+                        viewModel._state.value = viewModel._state.value.copy(
+                            approvedPeerHost = peerHost,
                             status = if (remoteDataReady)
                                 "تم الاقتران عبر شبكة MalekPlay، وتم التحقق من قناة نقل الملفات."
                             else
                                 "تم الاقتران عبر شبكة MalekPlay، لكن منفذ نقل الملفات لدى الجهاز الآخر لم يستجب بعد. يمكنك الاستقبال، وسيُمنع الإرسال حتى تتأكد جاهزيته.",
-                            error = if (remoteDataReady) null else _state.value.error
+                            error = if (remoteDataReady) null else viewModel._state.value.error
                         )
                     }
                 )
             }
 
             override fun onUnavailable() {
-                if (hotspotNetworkPaired) return
-                _state.value = _state.value.copy(
-                    requestingConnection = false,
-                    error = "لم يكتمل الانضمام إلى شبكة MalekPlay. وافق على طلب Wi-Fi الذي عرضه Android وأبقِ نقطة الاتصال مفتوحة."
-                )
+                val viewModel = owner.get()
+                if (viewModel != null && viewModel.hotspotNetworkCallback === this) {
+                    viewModel.hotspotNetworkCallback = null
+                    viewModel._state.value = viewModel._state.value.copy(
+                        requestingConnection = false,
+                        error = "لم يكتمل الانضمام إلى شبكة MalekPlay. وافق على طلب Wi-Fi الذي عرضه Android وأبقِ نقطة الاتصال مفتوحة."
+                    )
+                }
+                runCatching { connectivity.unregisterNetworkCallback(this) }
             }
 
             override fun onLost(network: android.net.Network) {
-                if (!hotspotNetworkPaired) {
-                    _state.value = _state.value.copy(
+                val viewModel = owner.get()
+                val isCurrent = viewModel?.hotspotNetworkCallback === this
+                if (paired.get()) {
+                    connectedHost.get()?.let(UltraShareForegroundService::disconnectApprovedPeer)
+                }
+                if (viewModel != null && isCurrent) {
+                    val lostHost = connectedHost.get()
+                    if (paired.get() && lostHost != null) {
+                        viewModel.forgetApprovedSenderTarget(lostHost)
+                    }
+                    viewModel.hotspotNetworkPaired = false
+                    viewModel.hotspotNetworkCallback = null
+                    viewModel._state.value = viewModel._state.value.copy(
                         requestingConnection = false,
-                        error = "انقطع اتصال شبكة MalekPlay قبل اكتمال الاقتران."
+                        approvedPeerHost = if (paired.get()) null else viewModel._state.value.approvedPeerHost,
+                        peerDataChannelReady = false,
+                        status = "انقطع اتصال شبكة MalekPlay؛ أُغلقت جلسة الاقتران المؤقتة.",
+                        error = "انقطع اتصال Wi-Fi بين الهاتفين. أعد تشغيل نقطة الاتصال ثم امسح رمز QR مجدداً."
                     )
                 }
+                runCatching { connectivity.unregisterNetworkCallback(this) }
             }
         }
         hotspotNetworkCallback = callback
         try {
             connectivity.requestNetwork(request, callback, 30_000)
         } catch (failure: Exception) {
+            runCatching { connectivity.unregisterNetworkCallback(callback) }
             hotspotNetworkCallback = null
+            hotspotNetworkPaired = false
             _state.value = _state.value.copy(
                 requestingConnection = false,
                 error = failure.localizedMessage ?: "تعذر طلب الانضمام إلى شبكة MalekPlay."
