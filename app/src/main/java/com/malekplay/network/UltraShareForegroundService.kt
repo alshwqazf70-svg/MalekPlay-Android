@@ -657,16 +657,28 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun startDFileServerForPeer(peerAddress: String, localAddress: String?): Int? {
-        if (!NstackxNativeBridge.isAvailable) return null
+        if (!NstackxNativeBridge.isAvailable) {
+            UltraShareDiagnostics.event("DFILE", "NATIVE_ENGINE_UNAVAILABLE", mapOf("peerHost" to peerAddress))
+            return null
+        }
         val localIpv4 = localAddress?.takeIf { UltraShareTransport.isValidPrivateLanHost(it) }
-            ?: return null
+            ?: run {
+                UltraShareDiagnostics.event("DFILE", "LOCAL_INTERFACE_UNAVAILABLE", mapOf("peerHost" to peerAddress))
+                return null
+            }
 
         // Never reinitialize the process-global NSTACKX engine on another interface:
         // release() would silently destroy every other peer's active DFile session.
         val currentDiscovery = NstackxAndroidDiscoverySession.current()
         val discovery = when {
             currentDiscovery != null && currentDiscovery.localIpv4 == localIpv4 -> currentDiscovery
-            currentDiscovery != null -> return null
+            currentDiscovery != null -> {
+                UltraShareDiagnostics.event(
+                    "DFILE", "ENGINE_BOUND_TO_DIFFERENT_NETWORK",
+                    mapOf("peerHost" to peerAddress, "requestedLocalIp" to localIpv4, "activeLocalIp" to currentDiscovery.localIpv4)
+                )
+                return null
+            }
             else -> runCatching {
                 NstackxAndroidDiscoverySession.start(
                     this,
@@ -723,6 +735,7 @@ class UltraShareForegroundService : Service() {
         }
         NstackxNativeBridge.addDFileListener(listener)
         var sessionId = -1
+        var lastStartFailure: Exception? = null
         for (attempt in 0 until 5) {
             if (sessionId > 0) break
             port = runCatching { ServerSocket(0).use { it.localPort } }
@@ -735,11 +748,19 @@ class UltraShareForegroundService : Service() {
                     port = port,
                     destinationDirectory = safeStaging
                 )
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
+                lastStartFailure = failure
                 -1
             }
         }
         if (sessionId <= 0) {
+            UltraShareDiagnostics.event(
+                "DFILE", "NATIVE_SERVER_START_FAILED",
+                mapOf("peerHost" to peerAddress, "localIp" to localIpv4, "attempts" to 5, "lastPort" to port)
+            )
+            lastStartFailure?.let {
+                UltraShareDiagnostics.failure("DFILE_NATIVE_SERVER_START", it, "peerHost=" + peerAddress + ";localIp=" + localIpv4)
+            }
             listenerActive.set(false)
             NstackxNativeBridge.removeDFileListener(listener)
             runCatching { safeStaging.deleteRecursively() }
@@ -749,6 +770,10 @@ class UltraShareForegroundService : Service() {
             sessionId, listener, activeTransferIds, listenerActive
         )
         sessionIdRef.set(sessionId)
+        UltraShareDiagnostics.event(
+            "DFILE", "NATIVE_SERVER_READY",
+            mapOf("peerHost" to peerAddress, "localIp" to localIpv4, "port" to port, "nativeSessionId" to sessionId)
+        )
         while (true) {
             val event = earlyEvents.poll() ?: break
             if (event.sessionId == sessionId) {
