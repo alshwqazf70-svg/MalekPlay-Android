@@ -14,7 +14,6 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 
 /** JSONL diagnostics exported to Downloads for Termux on Android 10+. */
 object UltraShareDiagnostics {
@@ -31,7 +30,6 @@ object UltraShareDiagnostics {
     @Volatile private var currentUri: Uri? = null
     @Volatile private var currentSessionId: String? = null
     @Volatile private var currentRole = "UNKNOWN"
-    private val closed = AtomicBoolean(true)
 
     fun initialize(context: Context) { appContext = context.applicationContext }
 
@@ -40,7 +38,6 @@ object UltraShareDiagnostics {
             .filter { it.isLetterOrDigit() || it == '_' }.take(16).ifBlank { "UNKNOWN" }
         val id = UUID.randomUUID().toString()
         synchronized(this) {
-            closed.set(false)
             currentSessionId = id
             currentRole = safeRole
             currentUri = null
@@ -63,7 +60,7 @@ object UltraShareDiagnostics {
         val payload = JSONObject().put("timestamp", timestamp()).put("sessionId", id)
             .put("role", currentRole).put("stage", safeValue(stage)).put("event", safeValue(name))
         details.forEach { (key, value) ->
-            if (value != null) payload.put(safeKey(key), safeValue(value.toString()))
+            if (value != null) payload.put(safeKey(key), safeValueForKey(key, value.toString()))
         }
         append(payload)
     }
@@ -90,7 +87,6 @@ object UltraShareDiagnostics {
             if (currentSessionId == id) {
                 currentSessionId = null
                 currentUri = null
-                closed.set(true)
             }
         }
     }
@@ -169,6 +165,13 @@ object UltraShareDiagnostics {
 
     private fun safeKey(value: String): String =
         value.filter { it.isLetterOrDigit() || it == '_' }.take(48).ifBlank { "detail" }
+
+    private fun safeValueForKey(key: String, value: String): String {
+        if (Regex("(?i).*(password|passwd|secret|token|pairing[_ -]?code|session[_ -]?key|authorization|credential).*").matches(key)) {
+            return "[REDACTED]"
+        }
+        return safeValue(value)
+    }
 
     private fun safeValue(value: String): String {
         val redacted = value
