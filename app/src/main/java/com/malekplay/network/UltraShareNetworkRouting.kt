@@ -81,6 +81,10 @@ internal object UltraShareNetworkRouting {
     internal fun isWifiDirectInterfaceName(name: String): Boolean =
         name.trim().lowercase().let { it.startsWith("p2p") }
 
+    /** Android OEMs expose local-only hotspots under different interface prefixes. */
+    internal fun isHotspotInterfaceName(name: String): Boolean =
+        name.trim().lowercase().let { it.startsWith("ap") || it.startsWith("softap") || it.startsWith("swlan") }
+
     internal fun isAndroidWifiDirectGroupAddress(address: Inet4Address): Boolean =
         isInPrefix(
             address,
