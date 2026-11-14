@@ -85,6 +85,8 @@ internal object UltraShareNetworkRouting {
                 .thenByDescending { it.third }
                 .thenBy { if (it.first == active) 0 else 1 }
         ).take(4).map { it.first }
+    }.onFailure { failure ->
+        UltraShareDiagnostics.failure("NETWORK_ROUTE_DISCOVERY", failure, "host=" + host)
     }.getOrDefault(emptyList())
 
     /** Compatibility helper for call sites that need only the best matching route. */
