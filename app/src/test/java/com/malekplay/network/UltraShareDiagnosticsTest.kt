@@ -1,20 +1,19 @@
 package com.malekplay.network
 
-import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class UltraShareDiagnosticsTest {
     @Test
-    fun retentionKeepsOnlyThreeNewestSessions() {
-        val newestFirst = (1..5).map { Uri.parse("content://diagnostics/$it") }
-        assertEquals(newestFirst.take(3), UltraShareDiagnostics.filesToDelete(newestFirst).let { newestFirst - it.toSet() })
-        assertEquals(newestFirst.drop(3), UltraShareDiagnostics.filesToDelete(newestFirst))
+    fun retentionKeepsThreeNewestSessions() {
+        val newestFirst = listOf("session-5", "session-4", "session-3", "session-2", "session-1")
+        assertEquals(listOf("session-2", "session-1"), UltraShareDiagnostics.filesToDelete(newestFirst))
+        assertEquals(newestFirst.take(3), newestFirst - UltraShareDiagnostics.filesToDelete(newestFirst).toSet())
     }
 
     @Test
-    fun retentionDoesNotDeleteWhenThreeOrFewerSessionsExist() {
-        val sessions = (1..3).map { Uri.parse("content://diagnostics/$it") }
-        assertEquals(emptyList<Uri>(), UltraShareDiagnostics.filesToDelete(sessions))
+    fun retentionDoesNotDeleteThreeOrFewerSessions() {
+        assertEquals(emptyList<String>(), UltraShareDiagnostics.filesToDelete(listOf("one", "two", "three")))
+        assertEquals(emptyList<String>(), UltraShareDiagnostics.filesToDelete(emptyList()))
     }
 }
