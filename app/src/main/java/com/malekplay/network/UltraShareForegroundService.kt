@@ -1587,7 +1587,10 @@ class UltraShareForegroundService : Service() {
                             beginTransfer(isReceiving = false)
                             sendWithRetry(uri, host, secret, metadata) { progress ->
                                 updateState { current -> current.copy(
-                                    progress = progress,
+                                    // Keep the legacy V1 sender isolated from an active
+                                    // receive operation; the shared progress field is only
+                                    // the currently foregrounded direction.
+                                    progress = if (current.receiving) current.receiveProgress else progress,
                                     sendProgress = progress,
                                     queueCurrentName = metadata.first,
                                     queueTransferredBytes = minOf(totalBytes, completedBytes + progress.transferredBytes)
