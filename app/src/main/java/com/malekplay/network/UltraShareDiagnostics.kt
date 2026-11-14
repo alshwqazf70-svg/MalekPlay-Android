@@ -29,54 +29,89 @@ object UltraShareDiagnostics {
     private data class SessionLog(
         val id: String,
         val role: String,
+        val key: String,
+        val createdAtMillis: Long = System.currentTimeMillis(),
         @Volatile var uri: Uri? = null
     )
 
     private val writer = Executors.newSingleThreadExecutor { task ->
         Thread(task, "MalekPlay-Diagnostics").apply { isDaemon = true }
     }
+    private val sessions = java.util.concurrent.ConcurrentHashMap<String, SessionLog>()
+    private val sessionLock = Any()
     @Volatile private var appContext: Context? = null
-    @Volatile private var currentSession: SessionLog? = null
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
+        beginSession("SERVICE", "process_started", "process")
     }
 
-    fun beginSession(role: String, trigger: String = "share_started"): String {
+    /**
+     * Creates or returns the diagnostic log for a logical connection.
+     * sessionKey must be a non-secret stable key (for example an approved peer host).
+     */
+    fun beginSession(
+        role: String,
+        trigger: String = "share_started",
+        sessionKey: String? = null
+    ): String {
         val safeRole = role.uppercase(Locale.ROOT)
             .filter { it.isLetterOrDigit() || it == '_' }.take(16).ifBlank { "UNKNOWN" }
-        val session = SessionLog(UUID.randomUUID().toString(), safeRole)
-        currentSession = session
-
-        // The single writer guarantees the file exists before this session's queued events.
-        writer.execute {
-            runCatching {
-                val context = appContext ?: return@runCatching
-                val uri = createPublicLog(context, safeRole, session.id)
-                session.uri = uri
-                writeLine(
-                    context, uri,
-                    jsonObject(linkedMapOf(
-                        "timestamp" to timestamp(),
-                        "sessionId" to session.id,
-                        "role" to safeRole,
-                        "stage" to "SESSION",
-                        "event" to "STARTED",
-                        "trigger" to safeValue(trigger)
-                    ))
-                )
-                Log.i(TAG, "Diagnostic session started: " + session.id + " (" + safeRole + ")")
-            }.onFailure { Log.e(TAG, "Unable to create public diagnostic log", it) }
+        val key = normalizeSessionKey(sessionKey ?: "session:" + UUID.randomUUID())
+        synchronized(sessionLock) {
+            sessions[key]?.let { return it.id }
+            val session = SessionLog(UUID.randomUUID().toString(), safeRole, key)
+            sessions[key] = session
+            while (sessions.size > MAX_SESSIONS + 1) {
+                sessions.values.filter { it.key != "process" }
+                    .minByOrNull { it.createdAtMillis }
+                    ?.let { expired ->
+                        if (sessions.remove(expired.key, expired)) {
+                            append(expired, linkedMapOf(
+                                "timestamp" to timestamp(),
+                                "sessionId" to expired.id,
+                                "role" to expired.role,
+                                "stage" to "SESSION",
+                                "event" to "EVICTED",
+                                "result" to "diagnostic_session_limit"
+                            ))
+                        }
+                    } ?: break
+            }
+            // The single writer guarantees the file exists before this session's queued events.
+            writer.execute {
+                runCatching {
+                    val context = appContext ?: return@runCatching
+                    val uri = createPublicLog(context, safeRole, session.id)
+                    session.uri = uri
+                    writeLine(
+                        context, uri,
+                        jsonObject(linkedMapOf(
+                            "timestamp" to timestamp(),
+                            "sessionId" to session.id,
+                            "role" to safeRole,
+                            "stage" to "SESSION",
+                            "event" to "STARTED",
+                            "trigger" to safeValue(trigger)
+                        ))
+                    )
+                    Log.i(TAG, "Diagnostic session started: " + session.id + " (" + safeRole + ")")
+                }.onFailure { Log.e(TAG, "Unable to create public diagnostic log", it) }
+            }
+            return session.id
         }
-        return session.id
     }
 
     fun event(stage: String, name: String, details: Map<String, Any?> = emptyMap()) {
         if (appContext == null) return
-        val session = currentSession ?: run {
-            beginSession("UNKNOWN", "automatic")
-            currentSession
-        } ?: return
+        val key = details["sessionId"]?.toString()?.takeIf { it.isNotBlank() }
+            ?.let { normalizeSessionKey("id:" + it) }
+            ?: details["peerHost"]?.toString()?.takeIf { it.isNotBlank() }
+                ?.let { normalizeSessionKey("peer:" + it) }
+            ?: details["host"]?.toString()?.takeIf { it.isNotBlank() }
+                ?.let { normalizeSessionKey("peer:" + it) }
+            ?: "process"
+        val session = sessionFor(key, if (key == "process") "SERVICE" else "PEER") ?: return
         val payload = linkedMapOf<String, Any?>(
             "timestamp" to timestamp(),
             "sessionId" to session.id,
@@ -84,18 +119,26 @@ object UltraShareDiagnostics {
             "stage" to safeValue(stage),
             "event" to safeValue(name)
         )
-        details.forEach { (key, value) ->
-            if (value != null) payload[safeKey(key)] = safeValueForKey(key, value.toString())
+        details.forEach { (detailKey, value) ->
+            if (value != null && !detailKey.equals("sessionId", true)) {
+                payload[safeKey(detailKey)] = safeValueForKey(detailKey, value.toString())
+            }
         }
         append(session, payload)
+        if (name in setOf("V2_PEER_SESSION_CLOSED", "SESSION_CLOSED") ||
+            (stage == "SESSION" && name == "ENDED")
+        ) {
+            endSessionForKey(key, "peer_session_closed")
+        }
     }
 
     fun failure(stage: String, failure: Throwable, contextMessage: String? = null) {
         if (appContext == null) return
-        val session = currentSession ?: run {
-            beginSession("UNKNOWN", "automatic_error")
-            currentSession
-        } ?: return
+        val peer = contextMessage?.let {
+            Regex("(?i)(?:peerHost|host)\\s*=\\s*([^;,\\s]+)").find(it)?.groupValues?.getOrNull(1)
+        }
+        val key = peer?.let { normalizeSessionKey("peer:" + it) } ?: "process"
+        val session = sessionFor(key, if (key == "process") "SERVICE" else "PEER") ?: return
         val root = rootCause(failure)
         val frame = sequenceOf(failure, root)
             .flatMap { it.stackTrace.asSequence() }
@@ -119,18 +162,36 @@ object UltraShareDiagnostics {
     }
 
     fun endSession(result: String = "finished") {
-        val session = currentSession ?: return
-        if (appContext != null) {
-            append(session, linkedMapOf(
-                "timestamp" to timestamp(),
-                "sessionId" to session.id,
-                "role" to session.role,
-                "stage" to "SESSION",
-                "event" to "ENDED",
-                "result" to safeValue(result)
-            ))
-        }
-        if (currentSession === session) currentSession = null
+        endSessionForKey("process", result)
+    }
+
+    fun endPeerSession(peerHost: String, result: String = "finished") {
+        endSessionForKey(normalizeSessionKey("peer:" + peerHost), result)
+    }
+
+    private fun sessionFor(key: String, role: String): SessionLog? =
+        sessions[key] ?: runCatching {
+            beginSession(role, "automatic", key)
+            sessions[key]
+        }.getOrNull()
+
+    private fun endSessionForKey(key: String, result: String) {
+        val session = sessions.remove(key) ?: return
+        append(session, linkedMapOf(
+            "timestamp" to timestamp(),
+            "sessionId" to session.id,
+            "role" to session.role,
+            "stage" to "SESSION",
+            "event" to "ENDED",
+            "result" to safeValue(result)
+        ))
+    }
+
+    private fun normalizeSessionKey(value: String): String {
+        if (value == "process") return value
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(StandardCharsets.UTF_8))
+        return "key:" + digest.take(12).joinToString("") { "%02x".format(it) }
     }
 
     private fun append(session: SessionLog, payload: Map<String, Any?>) {
