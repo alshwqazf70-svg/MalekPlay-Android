@@ -16,6 +16,13 @@ class UltraShareDFileStagerTest {
     }
 
     @Test
+    fun aggregateDFileByteCountIsComparedOnlyForSingleFileCallbacks() {
+        assertEquals(4L, UltraShareDFileStager.reportedSizeForValidation(1, 4L))
+        assertEquals(0L, UltraShareDFileStager.reportedSizeForValidation(2, 8L))
+        assertEquals(0L, UltraShareDFileStager.reportedSizeForValidation(1, -1L))
+    }
+
+    @Test
     fun receivedDFileMustStayInsideStagingAndMatchReportedSize() {
         val cache = createTempDir(prefix = "dfile-receive-validate")
         try {
