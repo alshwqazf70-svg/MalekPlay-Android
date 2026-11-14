@@ -25,7 +25,9 @@ object NstackxNativeBridge {
     private val dfileListeners = CopyOnWriteArraySet<DFileListener>()
     // Kotlin mirrors native DFile handles so discovery teardown can be deferred
     // until every in-flight transfer has explicitly closed its session.
-    private val activeDFileSessions = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
+    private val activeDFileSessions = java.util.Collections.newSetFromMap(
+        java.util.concurrent.ConcurrentHashMap<Int, Boolean>()
+    )
 
     internal fun activeDFileSessionCount(): Int = activeDFileSessions.size
     internal fun hasActiveDFileSessions(): Boolean = activeDFileSessions.isNotEmpty()
