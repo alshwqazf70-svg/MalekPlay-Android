@@ -48,6 +48,7 @@ data class UltraShareUiState(
     val receiving: Boolean = false,
     val controlChannelReady: Boolean = false,
     val dataChannelReady: Boolean = false,
+    val peerDataChannelReady: Boolean = false,
     val sending: Boolean = false,
     val scanning: Boolean = false,
     val discoveredPeers: List<UltraShareDiscovery.Peer> = emptyList(),
@@ -147,10 +148,7 @@ class UltraShareViewModel @Inject constructor(
                     localAddresses = serviceState.localAddresses,
                     receiving = serviceState.receiving,
                     controlChannelReady = serviceState.controlChannelReady,
-                    dataChannelReady = serviceState.dataChannelReady ||
-                        (current.dataChannelReady && current.approvedPeerHost?.let { host ->
-                            serviceState.activePeers.any { it.host == host }
-                        } == true),
+                    dataChannelReady = serviceState.dataChannelReady,
                     sending = serviceState.sending,
                     progress = serviceState.progress,
                     sendProgress = serviceState.sendProgress,
@@ -227,7 +225,7 @@ class UltraShareViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = _state.value.copy(
                 requestingConnection = true,
-                dataChannelReady = false,
+                peerDataChannelReady = false,
                 error = null,
                 status = "جارٍ الاتصال تلقائياً بالجهاز؛ نختبر أفضل مسارات الشبكة..."
             )
@@ -358,7 +356,7 @@ class UltraShareViewModel @Inject constructor(
                     )
                     _state.value = _state.value.copy(
                         approvedPeerHost = connectedHost,
-                        dataChannelReady = dataReady,
+                        peerDataChannelReady = dataReady,
                         approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
                         approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host },
                         status = if (dataReady)
@@ -404,7 +402,7 @@ class UltraShareViewModel @Inject constructor(
         val next = UltraShareForegroundService.approvedSendTargets().lastOrNull()
         _state.value = _state.value.copy(
             approvedPeerHost = next?.host,
-            dataChannelReady = next?.candidates?.any { it.reachable } == true,
+            peerDataChannelReady = next?.candidates?.any { it.reachable } == true,
             approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
             approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host }
         )
@@ -463,7 +461,7 @@ class UltraShareViewModel @Inject constructor(
         val next = UltraShareForegroundService.approvedSendTargets().lastOrNull()
         _state.value = _state.value.copy(
             approvedPeerHost = next?.host,
-            dataChannelReady = next?.candidates?.any { it.reachable } == true,
+            peerDataChannelReady = next?.candidates?.any { it.reachable } == true,
             approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
             approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host },
             reconnectablePeers = _state.value.reconnectablePeers.filterNot { it.host == host }
@@ -578,10 +576,14 @@ class UltraShareViewModel @Inject constructor(
                             pairing.pairingSecret,
                             createHotspot = false
                         )
+                        val remoteDataReady = _state.value.peerDataChannelReady
                         _state.value = _state.value.copy(
                             approvedPeerHost = connectedHost,
-                            status = "تم الاقتران عبر شبكة MalekPlay؛ الإرسال والاستقبال جاهزان.",
-                            error = null
+                            status = if (remoteDataReady)
+                                "تم الاقتران عبر شبكة MalekPlay، وتم التحقق من قناة نقل الملفات."
+                            else
+                                "تم الاقتران عبر شبكة MalekPlay، لكن منفذ نقل الملفات لدى الجهاز الآخر لم يستجب بعد. يمكنك الاستقبال، وسيُمنع الإرسال حتى تتأكد جاهزيته.",
+                            error = if (remoteDataReady) null else _state.value.error
                         )
                     }
                 )
