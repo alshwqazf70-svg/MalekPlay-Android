@@ -55,7 +55,6 @@ checkout_pinned() {
 }
 
 checkout_pinned nstackx "$NSTACKX_REPOSITORY" "$NSTACKX_COMMIT"
-patch_nstackx_android_network_binding
 # NSTACKX's CoAP adapter accesses libcoap socket internals (flags/fd), but the
 # pinned libcoap public coap.h intentionally exposes only forward declarations.
 # Include the matching private header in this upstream integration translation
@@ -178,6 +177,8 @@ PY
   fi
   echo "verified NSTACKX TCP/UDP socket binding to Android Network"
 }
+
+patch_nstackx_android_network_binding
 
 patch_nstackx_securec_header() {
   local source="$DEST/nstackx/nstackx_ctrl/core/nstackx_dfinder_mgt_msg_log.c"
