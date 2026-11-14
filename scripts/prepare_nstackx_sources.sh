@@ -193,28 +193,12 @@ for index, (old, new) in enumerate(replacements):
             raise SystemExit(f"Unexpected UDP server socket anchor count after TCP patch: {count}")
     source = source.replace(old, new, 1)
 
-accept_anchor = (
-    'static int32_t SetAcceptSocket(SocketDesc acceptFd)\n'
-    '{\n'
-    '    struct sockaddr_in localAddr;'
-)
-if source.count(accept_anchor) != 1:
-    raise SystemExit("Unexpected accepted-socket setup; refusing an unsafe patch")
-source = source.replace(
-    accept_anchor,
-    'static int32_t SetAcceptSocket(SocketDesc acceptFd)\n'
-    '{\n'
-    '    struct sockaddr_in localAddr;\n'
-    '    if (NstackxBindSocketToCurrentNetwork(acceptFd) != 0) {\n'
-    '        LOGE(TAG, "bind accepted socket to Android Network failed");\n'
-    '        return NSTACKX_EFAILED;\n'
-    '    }',
-    1
-)
+# Accepted TCP sockets inherit the listening socket's Android Network; do not
+# attempt to rebind them after accept, because the socket is already connected.
 path.write_text(source, encoding="utf-8")
 PY
   fi
-  if [[ "$(grep -c 'NstackxBindSocketToCurrentNetwork' "$source")" -lt 6 ]]; then
+  if [[ "$(grep -c 'NstackxBindSocketToCurrentNetwork' "$source")" -lt 4 ]]; then
     echo "NSTACKX Android Network binding patch is incomplete" >&2
     return 11
   fi
