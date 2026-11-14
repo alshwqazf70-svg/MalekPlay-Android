@@ -822,6 +822,10 @@ class UltraShareForegroundService : Service() {
                 updateNotification(progress)
             }
             NstackxNativeBridge.DFILE_ON_FILE_RECEIVE_SUCCESS -> {
+                UltraShareDiagnostics.event(
+                    "DFILE", "FILE_RECEIVE_SUCCEEDED",
+                    mapOf("peerHost" to peerAddress, "fileNames" to event.fileNames.joinToString(","), "reportedBytes" to event.totalBytes)
+                )
                 if (event.transferId > 0 && activeTransferIds.remove(event.transferId)) {
                     endTransfer(isReceiving = true)
                 }
@@ -962,6 +966,12 @@ class UltraShareForegroundService : Service() {
             check(target.canonicalFile.parentFile == safeDestination)
             runCatching { staged.delete() }
             target.canonicalFile
+        }.onFailure { failure ->
+            UltraShareDiagnostics.failure(
+                "DFILE_STAGED_FILE_PUBLICATION",
+                failure,
+                "file=" + safeName + ";staged=" + staged.name
+            )
         }.getOrNull()
 
     private fun closeDFileServerForPeer(peerAddress: String) {
