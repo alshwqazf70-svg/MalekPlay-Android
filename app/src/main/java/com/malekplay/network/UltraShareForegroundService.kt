@@ -2115,6 +2115,7 @@ class UltraShareForegroundService : Service() {
         val payloadAccepted = java.util.concurrent.atomic.AtomicBoolean(false)
         val sessionIdRef = java.util.concurrent.atomic.AtomicInteger(-1)
         val earlyEvents = java.util.concurrent.ConcurrentLinkedQueue<NstackxNativeBridge.DFileEvent>()
+        val listenerActive = java.util.concurrent.atomic.AtomicBoolean(true)
         val connected = CompletableDeferred<Boolean>()
         val completed = CompletableDeferred<Boolean>()
         val completedNames = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
@@ -2162,7 +2163,9 @@ class UltraShareForegroundService : Service() {
         }
 
         val listener = NstackxNativeBridge.DFileListener { event ->
-            if (sessionIdRef.get() <= 0) earlyEvents.add(event) else handleEvent(event)
+            if (listenerActive.get()) {
+                if (sessionIdRef.get() <= 0) earlyEvents.add(event) else handleEvent(event)
+            }
         }
         NstackxNativeBridge.addDFileListener(listener)
         try {
@@ -2234,6 +2237,8 @@ class UltraShareForegroundService : Service() {
             }
             return null
         } finally {
+            listenerActive.set(false)
+            sessionIdRef.set(-1)
             NstackxNativeBridge.removeDFileListener(listener)
             if (nativeSessionId > 0) NstackxNativeBridge.closeDFileSession(nativeSessionId)
             staged.forEach(UltraShareDFileStager.StagedFile::close)
