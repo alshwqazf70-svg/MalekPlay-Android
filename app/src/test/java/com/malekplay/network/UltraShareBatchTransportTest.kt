@@ -70,4 +70,40 @@ class UltraShareBatchTransportTest {
             directory.deleteRecursively()
         }
     }
+
+    @Test
+    fun resumeUsesOnlyDurablePartialBytesWithinManifestSize() {
+        val directory = Files.createTempDirectory("ultrashare-resume-offset").toFile()
+        try {
+            val partial = java.io.File(directory, "payload.part")
+            partial.writeBytes(ByteArray(4096) { it.toByte() })
+
+            assertTrue(partial.isFile)
+            org.junit.Assert.assertEquals(
+                4096L,
+                UltraShareBatchTransport.resumableFileOffset(partial, 8192L)
+            )
+            org.junit.Assert.assertEquals(
+                0L,
+                UltraShareBatchTransport.resumableFileOffset(partial, 2048L)
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun resumeStartsAtZeroWhenPartialFileIsMissing() {
+        val directory = Files.createTempDirectory("ultrashare-resume-missing").toFile()
+        try {
+            val partial = java.io.File(directory, "missing.part")
+            assertTrue(!partial.exists())
+            org.junit.Assert.assertEquals(
+                0L,
+                UltraShareBatchTransport.resumableFileOffset(partial, 8192L)
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
 }
