@@ -208,7 +208,7 @@ object UltraShareControlChannel {
             // A peer can be reachable through more than one Android Network
             // (WLAN, SoftAP or Wi-Fi Direct). Never assume the first matching
             // route is usable: try each route with a fresh, unbound socket.
-            val routeCandidates = (listOfNotNull(network) + networks).distinct()
+            val routeCandidates = UltraShareNetworkRouting.orderedDistinctRoutes(network, networks)
             var connected = false
             var lastRouteFailure: java.io.IOException? = null
             for ((index, candidateNetwork) in routeCandidates.withIndex()) {
