@@ -14,6 +14,17 @@ import java.net.InetAddress
  * interface addresses can miss that route and silently send sockets over WLAN.
  */
 internal object UltraShareNetworkRouting {
+    /** Executes route attempts in order and stops only after the first successful connection. */
+    internal fun <T> firstSuccessfulRoute(
+        routes: List<T>,
+        attempt: (T) -> Boolean
+    ): T? {
+        for (route in routes) {
+            if (attempt(route)) return route
+        }
+        return null
+    }
+
     /** Preserve the preferred route first, then try every distinct alternative once. */
     internal fun <T> orderedDistinctRoutes(preferred: T?, alternatives: List<T>): List<T> =
         (listOfNotNull(preferred) + alternatives).distinct()
