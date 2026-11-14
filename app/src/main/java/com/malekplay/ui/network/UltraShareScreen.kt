@@ -208,6 +208,24 @@ class LegacyUltraShareViewModel @Inject constructor(
         }
     }
 
+    override fun onCleared() {
+        hotspotNetworkCallback?.let { callback ->
+            val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            runCatching { connectivity?.unregisterNetworkCallback(callback) }
+        }
+        hotspotNetworkCallback = null
+        invitationTimeout?.cancel()
+        wifiDirectScanTimeout?.cancel()
+        scanJob?.cancel()
+        wifiDirectScanTimeout = null
+        invitationTimeout = null
+        pendingInvitation = null
+        pendingInvitationReady = null
+        runCatching { wifiDirectSession?.close() }
+        wifiDirectSession = null
+        super.onCleared()
+    }
+
     private fun completeReversedInvitationConnection(host: String) {
         if (!_state.value.receiving || _state.value.pairedSession || reverseInvitationConnectionInProgress) return
         // Wi-Fi P2P may report the same formed group more than once. Use this
@@ -687,8 +705,13 @@ class LegacyUltraShareViewModel @Inject constructor(
             .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
             .setNetworkSpecifier(specifier)
             .build()
+        var connectionStarted = false
         val callback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: android.net.Network) {
+                // Network callbacks may be repeated; only one authenticated handshake
+                // may consume this QR invitation.
+                if (connectionStarted) return
+                connectionStarted = true
                 viewModelScope.launch {
                     _state.value = _state.value.copy(
                         status = "اتصل Android بشبكة MalekPlay؛ جارٍ التحقق من خادم الاستقبال..."
@@ -1165,7 +1188,7 @@ fun UltraShareScreen(
         !state.hotspotPassword.isNullOrBlank() && state.localAddresses.isNotEmpty()
     ) {
         UltraShareQrCode.createHotspotReceiverPayload(
-            state.localAddresses.first(),
+            state.localAddresses,
             state.pairingSecret,
             state.hotspotSsid,
             state.hotspotPassword
