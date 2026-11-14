@@ -12,13 +12,21 @@ if [ ! -d "$SOURCE" ]; then
   exit 1
 fi
 
-mapfile -t FILES < <(find "$SOURCE" -maxdepth 1 -type f -name 'ultrashare-*.jsonl' -printf '%T@ %p\n' | sort -rn | head -n 3 | cut -d' ' -f2-)
+FILES=()
+while IFS= read -r file; do
+  FILES+=("$file")
+done < <(ls -1t "$SOURCE"/ultrashare-*.jsonl 2>/dev/null | head -n 3 || true)
 
 if [ "${#FILES[@]}" -eq 0 ]; then
   echo "لا توجد سجلات تشخيص بعد. شغّل Ultra Share وجرّب الاقتران أولاً."
   exit 1
 fi
 
-tar -czf "$ARCHIVE" -C "$SOURCE" "$(printf '%s\n' "${FILES[@]}" | sed 's#^.*/##')"
+NAMES=()
+for file in "${FILES[@]}"; do
+  NAMES+=("$(basename "$file")")
+done
+
+tar -czf "$ARCHIVE" -C "$SOURCE" -- "${NAMES[@]}"
 echo "تم جمع ${#FILES[@]} من أحدث ملفات التشخيص."
 echo "الملف: $ARCHIVE"
