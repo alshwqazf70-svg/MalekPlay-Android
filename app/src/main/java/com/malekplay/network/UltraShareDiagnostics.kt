@@ -22,6 +22,8 @@ object UltraShareDiagnostics {
     private const val DIRECTORY = "Download/MalekPlayDiagnostics/"
     private const val FILE_PREFIX = "ultrashare-"
     private const val MAX_SESSIONS = 3
+
+    internal fun filesToDelete(newestFirst: List<Uri>): List<Uri> = newestFirst.drop(MAX_SESSIONS)
     private val writer = Executors.newSingleThreadExecutor { task ->
         Thread(task, "MalekPlay-Diagnostics").apply { isDaemon = true }
     }
@@ -149,8 +151,8 @@ object UltraShareDiagnostics {
                 files += uri to cursor.getLong(dateColumn)
             }
         }
-        files.drop(MAX_SESSIONS).forEach { item ->
-            runCatching { context.contentResolver.delete(item.first, null, null) }
+        filesToDelete(files.map { it.first }).forEach { uri ->
+            runCatching { context.contentResolver.delete(uri, null, null) }
                 .onFailure { Log.w(TAG, "Unable to prune old diagnostic file", it) }
         }
     }
