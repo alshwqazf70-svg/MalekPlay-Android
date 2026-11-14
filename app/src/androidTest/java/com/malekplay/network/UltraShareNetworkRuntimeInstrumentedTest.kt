@@ -43,16 +43,21 @@ class UltraShareNetworkRuntimeInstrumentedTest {
         val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network: Network? = manager.activeNetwork
         Assume.assumeTrue("The test device has no active Android Network", network != null)
+        val localAddress = manager.getLinkProperties(network!!)
+            ?.linkAddresses
+            ?.mapNotNull { it.address as? java.net.Inet4Address }
+            ?.firstOrNull { it.isSiteLocalAddress && !it.isLoopbackAddress }
+        Assume.assumeTrue("The active Network has no private IPv4 address", localAddress != null)
 
         val outbound = ByteArray(256 * 1024) { index -> (index * 31).toByte() }
         val inbound = ByteArray(192 * 1024) { index -> (index * 17 + 3).toByte() }
 
-        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
+        ServerSocket(0, 1, localAddress!!).use { server ->
             server.soTimeout = 8_000
             val client = Socket()
-            network!!.bindSocket(client)
+            network.bindSocket(client)
             client.soTimeout = 8_000
-            client.connect(InetSocketAddress(InetAddress.getByName("127.0.0.1"), server.localPort), 5_000)
+            client.connect(InetSocketAddress(localAddress, server.localPort), 5_000)
             server.accept().use { accepted ->
                 accepted.soTimeout = 8_000
                 client.use { connected ->
