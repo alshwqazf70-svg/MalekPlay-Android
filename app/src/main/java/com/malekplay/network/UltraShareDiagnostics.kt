@@ -107,7 +107,7 @@ object UltraShareDiagnostics {
         val key = details["sessionId"]?.toString()?.takeIf { it.isNotBlank() }
             ?.let { normalizeSessionKey("id:" + it) }
             ?: details["peerHost"]?.toString()?.takeIf { it.isNotBlank() }
-                ?.let { normalizeSessionKey("peer:" + it) }
+                ?.let(::diagnosticPeerSessionKey)
             ?: details["host"]?.toString()?.takeIf { it.isNotBlank() }
                 ?.let { normalizeSessionKey("peer:" + it) }
             ?: "process"
@@ -166,7 +166,7 @@ object UltraShareDiagnostics {
     }
 
     fun endPeerSession(peerHost: String, result: String = "finished") {
-        endSessionForKey(normalizeSessionKey("peer:" + peerHost), result)
+        endSessionForKey(diagnosticPeerSessionKey(peerHost), result)
     }
 
     private fun sessionFor(key: String, role: String): SessionLog? =
@@ -185,6 +185,11 @@ object UltraShareDiagnostics {
             "event" to "ENDED",
             "result" to safeValue(result)
         ))
+    }
+
+    internal fun diagnosticPeerSessionKey(peerHost: String): String {
+        require(peerHost.isNotBlank())
+        return normalizeSessionKey("peer:" + peerHost.trim().lowercase(Locale.ROOT))
     }
 
     private fun normalizeSessionKey(value: String): String {
