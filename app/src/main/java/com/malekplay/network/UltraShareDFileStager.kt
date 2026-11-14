@@ -102,11 +102,15 @@ internal object UltraShareDFileStager {
             check(copied == expectedSizeBytes && target.length() == expectedSizeBytes) {
                 "تغير حجم الملف أثناء تجهيزه؛ أعد اختيار الملف."
             }
-            check(target.isFile &&
-                target.canonicalFile.parentFile == stagingDirectory.canonicalFile &&
-                stagingDirectory.canonicalFile.parentFile == root.canonicalFile
-            ) {
-                "تعذر التحقق من مسار الملف المجهز."
+            check(isSafeStagedFile(
+                target = target,
+                stagingDirectory = stagingDirectory,
+                stagingRoot = root,
+                cacheDirectory = cacheDirectory,
+                copiedBytes = copied,
+                expectedBytes = expectedSizeBytes
+            )) {
+                "تعذر التحقق من مسار الملف المجهز أو حجمه."
             }
             completed = true
             StagedFile(target, safeName, safeMime, copied, digest.digest(), stagingDirectory)
@@ -117,6 +121,42 @@ internal object UltraShareDFileStager {
             }
         }
     }
+
+    internal fun isSafeStagedFile(
+        target: File,
+        stagingDirectory: File,
+        stagingRoot: File,
+        cacheDirectory: File,
+        copiedBytes: Long,
+        expectedBytes: Long
+    ): Boolean = runCatching {
+        val canonicalCache = cacheDirectory.canonicalFile
+        val canonicalRoot = stagingRoot.canonicalFile
+        val canonicalSession = stagingDirectory.canonicalFile
+        val canonicalTarget = target.canonicalFile
+        copiedBytes == expectedBytes &&
+            expectedBytes >= 0L &&
+            canonicalRoot.parentFile == canonicalCache &&
+            canonicalSession.parentFile == canonicalRoot &&
+            canonicalTarget.parentFile == canonicalSession &&
+            canonicalTarget.isFile &&
+            canonicalTarget.length() == expectedBytes
+    }.getOrDefault(false)
+
+    /** Re-checks the staged source bytes before declaring native DFile send complete. */
+    internal fun verifyStagedDigest(staged: StagedFile): Boolean = runCatching {
+        val digest = MessageDigest.getInstance("SHA-256")
+        staged.file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(BUFFER_BYTES)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (count > 0) digest.update(buffer, 0, count)
+            }
+        }
+        MessageDigest.isEqual(digest.digest(), staged.sha256) &&
+            staged.file.length() == staged.sizeBytes
+    }.getOrDefault(false)
 
     fun cleanupStale(cacheDirectory: File, olderThanMillis: Long = 24L * 60L * 60L * 1000L) {
         require(olderThanMillis >= 0L)
