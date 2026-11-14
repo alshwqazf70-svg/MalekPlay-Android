@@ -105,6 +105,7 @@ import java.io.File
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 data class LegacyUltraShareUiState(
@@ -705,13 +706,12 @@ class LegacyUltraShareViewModel @Inject constructor(
             .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
             .setNetworkSpecifier(specifier)
             .build()
-        var connectionStarted = false
+        val connectionStarted = AtomicBoolean(false)
         val callback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: android.net.Network) {
                 // Network callbacks may be repeated; only one authenticated handshake
                 // may consume this QR invitation.
-                if (connectionStarted) return
-                connectionStarted = true
+                if (!connectionStarted.compareAndSet(false, true)) return
                 viewModelScope.launch {
                     _state.value = _state.value.copy(
                         status = "اتصل Android بشبكة MalekPlay؛ جارٍ التحقق من خادم الاستقبال..."
