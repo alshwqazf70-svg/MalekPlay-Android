@@ -115,7 +115,7 @@ object UltraShareDiagnostics {
             "sourceLine" to (frame?.lineNumber ?: -1),
             "stackTrace" to safeValue(failure.stackTraceToString(), MAX_STACK_CHARS)
         ))
-        Log.e(TAG, "[" + stage + "] " + failure.javaClass.simpleName + ": " + failure.message, failure)
+        Log.e(TAG, "[" + stage + "] " + failure.javaClass.simpleName + ": " + safeValue(failure.message.orEmpty()))
     }
 
     fun endSession(result: String = "finished") {
