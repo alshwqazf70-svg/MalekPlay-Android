@@ -85,12 +85,18 @@ object UltraShareQrCode {
 
     /** Version 4 carries temporary LocalOnlyHotspot credentials for system-mediated joining. */
     fun createHotspotReceiverPayload(
-        host: String,
+        hosts: List<String>,
         pairingSecret: String,
         ssid: String,
         password: String
     ): String {
-        require(UltraShareTransport.isValidPrivateLanHost(host)) { "عنوان نقطة الاتصال غير صالح." }
+        val safeHosts = hosts.asSequence()
+            .map { it.trim() }
+            .filter { UltraShareTransport.isValidPrivateLanHost(it) }
+            .distinct()
+            .take(MAX_QR_HOSTS)
+            .toList()
+        require(safeHosts.isNotEmpty()) { "لا يوجد عنوان صالح لنقطة اتصال MalekPlay." }
         require(UltraShareTransport.isValidPairingSecret(pairingSecret)) { "رمز الاقتران غير صالح." }
         require(ssid.isNotBlank() && ssid.length <= 32) { "اسم شبكة MalekPlay غير صالح." }
         require(password.length in 8..63) { "كلمة مرور شبكة MalekPlay غير صالحة." }
@@ -98,7 +104,7 @@ object UltraShareQrCode {
             .scheme(SCHEMA)
             .authority(AUTHORITY)
             .appendQueryParameter("v", HOTSPOT_VERSION)
-            .appendQueryParameter("host", host)
+            .apply { safeHosts.forEach { appendQueryParameter("host", it) } }
             .appendQueryParameter("port", UltraShareControlChannel.DEFAULT_PORT.toString())
             .appendQueryParameter("secret", pairingSecret)
             .appendQueryParameter("ssid", ssid)
@@ -144,7 +150,7 @@ object UltraShareQrCode {
         require(version == VERSION || version == MULTI_HOST_VERSION || version == INVITATION_VERSION || version == HOTSPOT_VERSION) {
             "إصدار رمز الاقتران غير مدعوم."
         }
-        val hosts = (if (version == MULTI_HOST_VERSION || version == INVITATION_VERSION) {
+        val hosts = (if (version == MULTI_HOST_VERSION || version == INVITATION_VERSION || version == HOTSPOT_VERSION) {
             uri.getQueryParameters("host")
         } else {
             listOfNotNull(uri.getQueryParameter("host"))
