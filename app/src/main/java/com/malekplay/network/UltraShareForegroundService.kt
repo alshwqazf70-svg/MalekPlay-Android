@@ -2185,8 +2185,8 @@ class UltraShareForegroundService : Service() {
             .filter { network ->
                 val name = network.name.lowercase()
                 network.isUp && !network.isLoopback &&
-                    (name.startsWith("wlan") || name.startsWith("swlan") ||
-                        name.startsWith("ap") || name.startsWith("softap") || name.startsWith("eth"))
+                    (name.startsWith("wlan") || UltraShareNetworkRouting.isHotspotInterfaceName(name) ||
+                        name.startsWith("eth"))
             }
             .flatMap { network ->
                 network.inetAddresses.toList()
