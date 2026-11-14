@@ -306,31 +306,22 @@ object UltraShareTransport {
             digestStream(BufferedInputStream(rawStream, IO_BUFFER_BYTES), sizeBytes)
         } ?: error("تعذر فتح الملف المحدد.")
 
-        val routeCandidates = (networks + listOfNotNull(network)).distinct().take(4)
+        val routeCandidates = UltraShareNetworkRouting.orderedRoutesWithDefaultFallback(
+            UltraShareNetworkRouting.orderedDistinctRoutes(network, networks).take(4)
+        )
         var connectedSocket: Socket? = null
         var connectFailure: IOException? = null
-        if (routeCandidates.isEmpty()) {
+        for (route in routeCandidates) {
+            currentCoroutineContext().ensureActive()
             val candidate = Socket()
             try {
+                route?.bindSocket(candidate)
                 candidate.connect(InetSocketAddress(targetAddress, port), SOCKET_TIMEOUT_MS)
                 connectedSocket = candidate
+                break
             } catch (failure: IOException) {
                 runCatching { candidate.close() }
                 connectFailure = failure
-            }
-        } else {
-            for (route in routeCandidates) {
-                currentCoroutineContext().ensureActive()
-                val candidate = Socket()
-                try {
-                    route.bindSocket(candidate)
-                    candidate.connect(InetSocketAddress(targetAddress, port), SOCKET_TIMEOUT_MS)
-                    connectedSocket = candidate
-                    break
-                } catch (failure: IOException) {
-                    runCatching { candidate.close() }
-                    connectFailure = failure
-                }
             }
         }
         val socket = connectedSocket ?: throw (connectFailure
