@@ -183,6 +183,7 @@ class UltraShareViewModel @Inject constructor(
             pairingSecret = secret,
             invitationId = "",
             receiving = true,
+            controlChannelReady = false,
             progress = null,
             error = null,
             status = context.getString(R.string.ultra_share_waiting)
@@ -457,6 +458,7 @@ class UltraShareViewModel @Inject constructor(
         runCatching { wifiDirectSession?.removeGroup() }
         _state.value = _state.value.copy(
             receiving = false,
+            controlChannelReady = false,
             pairingSecret = "",
             invitationId = "",
             localAddresses = emptyList(),
@@ -477,11 +479,9 @@ class UltraShareViewModel @Inject constructor(
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             _state.value = _state.value.copy(
-                requestingConnection = true,
-                error = null,
-                status = "اتصل أولاً بشبكة MalekPlay من إعدادات Wi-Fi، ثم أعد مسح رمز QR."
+                requestingConnection = false,
+                error = "هذا الإصدار من Android لا يدعم الانضمام التلقائي. اتصل بشبكة MalekPlay من إعدادات Wi-Fi ثم امسح رمز QR مرة أخرى."
             )
-            requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
             return
         }
 
@@ -1302,7 +1302,7 @@ class UltraShareViewModel @Inject constructor(
                 runCatching { connectivity?.unregisterNetworkCallback(callback) }
             }
         }
-        hotspotNetworkCallback = null
+        if (!hotspotNetworkPaired) hotspotNetworkCallback = null
         scanJob?.cancel()
         wifiDirectScanTimeout?.cancel()
         bluetoothScanTimeout?.cancel()
