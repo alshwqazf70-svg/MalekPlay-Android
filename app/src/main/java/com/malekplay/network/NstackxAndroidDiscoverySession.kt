@@ -196,6 +196,7 @@ object NstackxAndroidDiscoverySession {
             callbackConnectivity = connectivity
             networkCallback = callback
         } catch (failure: Exception) {
+            UltraShareDiagnostics.failure("NSTACKX_NETWORK_CALLBACK_REGISTRATION", failure, "interface=" + active.interfaceName + ";networkHandle=" + active.networkHandle)
             // Discovery remains usable if an OEM denies callback registration.
             // Explicit callers can still stop/restart the session normally.
         }
