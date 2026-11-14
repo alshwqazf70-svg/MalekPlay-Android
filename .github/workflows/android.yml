@@ -91,7 +91,7 @@ jobs:
           retention-days: 14
 
   release-apks:
-    name: Build optimized ABI-specific Release APKs
+    name: Build one universal Release APK
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -121,13 +121,12 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
       - name: Prepare pinned NSTACKX source trees
         run: bash scripts/prepare_nstackx_sources.sh
-      - name: Assemble ABI-specific minified Release APKs
+      - name: Assemble a single universal minified Release APK
         run: |
           ./gradlew --stacktrace --max-workers=2 \
             -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" \
             -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" \
-            -PenableNstackxNativeBuild=true \
-            -PenableAbiSplits=true :app:assembleRelease
+            -PenableNstackxNativeBuild=true :app:assembleRelease
       - name: Verify and measure optimized Release APKs
         shell: bash
         run: |
@@ -146,7 +145,7 @@ jobs:
       - name: Upload optimized Release APKs
         uses: actions/upload-artifact@v4
         with:
-          name: MalekPlayer-release-apks
+          name: MalekPlayer-universal-release
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
