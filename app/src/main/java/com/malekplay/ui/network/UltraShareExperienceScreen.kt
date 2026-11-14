@@ -341,7 +341,13 @@ fun UltraShareExperienceScreen(
             val wasAdvertisingInvitation = pendingInvitationAdvertisement
             pendingQrPairing = null
             pendingInvitationAdvertisement = false
-            if (pairing != null && pairing.hosts.isNotEmpty()) {
+            if (pairing != null && !pairing.hotspotSsid.isNullOrBlank()) {
+                Toast.makeText(
+                    context,
+                    "يلزم إذن الأجهزة القريبة للانضمام تلقائياً إلى شبكة MalekPlay. امنح الإذن ثم أعد مسح QR.",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else if (pairing != null && pairing.hosts.isNotEmpty()) {
                 viewModel.requestConnection(
                     pairing.hosts.first(),
                     pairing.pairingSecret,
@@ -562,8 +568,18 @@ fun UltraShareExperienceScreen(
     LaunchedEffect(pendingQrPairing) {
         val pairing = pendingQrPairing ?: return@LaunchedEffect
         if (!pairing.hotspotSsid.isNullOrBlank() && !pairing.hotspotPassword.isNullOrBlank()) {
-            pendingQrPairing = null
-            viewModel.connectHotspotInvitation(pairing)
+            val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+            } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+            val missing = required.filter {
+                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                wifiPermission.launch(missing.toTypedArray())
+            } else {
+                pendingQrPairing = null
+                viewModel.connectHotspotInvitation(pairing)
+            }
         } else if (pairing.invitationId.isNullOrBlank()) {
             pendingQrPairing = null
             if (pairing.host.isNotBlank()) {
@@ -846,7 +862,8 @@ fun UltraShareExperienceScreen(
                                     .onSuccess { pairing ->
                                         host = pairing.host
                                         secret = pairing.pairingSecret
-                                        viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
+                                        pendingQrPairing = pairing
+                                        page = UltraSharePage.SEND
                                     }
                                     .onFailure { Toast.makeText(context, "بيانات الاقتران في الحافظة غير صالحة.", Toast.LENGTH_LONG).show() }
                             }
