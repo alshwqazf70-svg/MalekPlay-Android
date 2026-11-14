@@ -298,12 +298,17 @@ class UltraShareForegroundService : Service() {
                     try {
                         while (true) {
                             try {
+                                var transferLockStarted = false
                                 val received = try {
                                     UltraShareTransport.receiveOnce(
                                         pairingSecret = secret,
                                         destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
                                         onProgress = { progress ->
-                                            beginTransfer(isReceiving = true)
+                                            // Progress may be reported for every chunk. Acquire once per file.
+                                            if (!transferLockStarted) {
+                                                beginTransfer(isReceiving = true)
+                                                transferLockStarted = true
+                                            }
                                             updateState { current ->
                                                 current.copy(progress = progress, receiveProgress = progress, error = null)
                                             }
@@ -311,8 +316,8 @@ class UltraShareForegroundService : Service() {
                                         }
                                     )
                                 } finally {
-                                    // Release the receive-side lock after this file, without affecting an active send.
-                                    endTransfer(isReceiving = true)
+                                    // Do not decrement a lock when the connection never transferred data.
+                                    if (transferLockStarted) endTransfer(isReceiving = true)
                                 }
                                 // Publish to the user's public Downloads folder automatically on Android 10+.
                                 val publishedUri = UltraShareReceivedPublisher.publish(
@@ -1206,7 +1211,7 @@ class UltraShareForegroundService : Service() {
                     val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
                     wifiLock = manager.createWifiLock(WifiManager.WIFI_MODE_FULL, "MalekPlay:UltraShare").apply {
                         setReferenceCounted(false)
-                        acquire()
+                        acquire(TRANSFER_LOCK_TIMEOUT_MS)
                     }
                 }
             }
@@ -1215,7 +1220,7 @@ class UltraShareForegroundService : Service() {
                     val manager = getSystemService(POWER_SERVICE) as PowerManager
                     cpuWakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MalekPlay:UltraShare").apply {
                         setReferenceCounted(false)
-                        acquire()
+                        acquire(TRANSFER_LOCK_TIMEOUT_MS)
                     }
                 }
             }
@@ -2381,6 +2386,8 @@ class UltraShareForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "malekplay_ultra_share"
         private const val NOTIFICATION_ID = 38741
+        // Bound CPU/Wi-Fi locks to the platform data-sync foreground-service window.
+        private const val TRANSFER_LOCK_TIMEOUT_MS = 6L * 60L * 60L * 1000L
         private const val EXTRA_SECRET = "secret"
         private const val EXTRA_HOST = "host"
         private const val EXTRA_URI = "uri"
