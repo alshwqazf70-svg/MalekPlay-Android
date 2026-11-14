@@ -2,6 +2,7 @@ package com.malekplay.network
 
 import android.net.Network
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -621,7 +622,7 @@ object UltraShareControlChannel {
             ) {
                 serverSessionPeerIds.remove(requestToClose.peerAddress)
                 serverSessionDFileKeys.remove(requestToClose.peerAddress)?.fill(0)
-                onSessionClosed(requestToClose)
+                withContext(NonCancellable) { onSessionClosed(requestToClose) }
             }
         }
     }
