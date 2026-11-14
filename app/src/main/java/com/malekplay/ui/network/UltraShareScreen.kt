@@ -348,7 +348,8 @@ class LegacyUltraShareViewModel @Inject constructor(
     private fun completeInvitationConnection(
         host: String,
         message: String,
-        preferredNetwork: android.net.Network? = null
+        preferredNetwork: android.net.Network? = null,
+        connectionFailureHint: String? = null
     ) {
         val callback = pendingInvitationReady ?: return
         val pairing = pendingInvitation ?: return
@@ -487,8 +488,9 @@ class LegacyUltraShareViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     wifiDirectHost = null,
                     scanning = false,
-                    error = lastFailure?.localizedMessage
-                        ?: "تعذر إنشاء اتصال آمن. تأكد من تشغيل الاستقبال وصحة رمز الاقتران."
+                    error = (lastFailure?.localizedMessage
+                        ?: "تعذر إنشاء اتصال آمن. تأكد من تشغيل الاستقبال وصحة رمز الاقتران.") +
+                        (connectionFailureHint?.let { "\n$it" } ?: "")
                 )
             }
         }
@@ -678,9 +680,13 @@ class LegacyUltraShareViewModel @Inject constructor(
         onReady: (String) -> Unit
     ) {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
-            _state.value = _state.value.copy(
-                scanning = false,
-                error = "الانضمام التلقائي إلى شبكة QR يتطلب Android 10 أو أحدث. اتصل بالشبكة من إعدادات Wi-Fi ثم أعد المحاولة."
+            // WifiNetworkSpecifier is unavailable before Android 10. Still try the
+            // authenticated TCP handshake on the current route: this succeeds when
+            // the user has already joined the QR hotspot manually in Wi-Fi settings.
+            completeInvitationConnection(
+                host = pairing.host,
+                message = "تم التحقق من الاقتران عبر اتصال Wi-Fi اليدوي.",
+                connectionFailureHint = "على Android 9 أو أقدم، اتصل أولاً بشبكة MalekPlay الظاهرة في رمز QR من إعدادات Wi-Fi، ثم امسح الرمز مرة أخرى."
             )
             return
         }
