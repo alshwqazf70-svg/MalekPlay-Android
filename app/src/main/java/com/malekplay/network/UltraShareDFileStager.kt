@@ -154,13 +154,16 @@ internal object UltraShareDFileStager {
     internal fun isSafeReceivedFile(
         file: File,
         stagingDirectory: File,
+        expectedParentDirectory: File,
         reportedBytes: Long,
         maximumBytes: Long = UltraShareTransport.MAX_FILE_BYTES
     ): Boolean = runCatching {
+        val canonicalParent = expectedParentDirectory.canonicalFile
         val canonicalDirectory = stagingDirectory.canonicalFile
         val canonicalFile = file.canonicalFile
         val actualBytes = canonicalFile.length()
-        canonicalFile.parentFile == canonicalDirectory &&
+        canonicalDirectory.parentFile == canonicalParent &&
+            canonicalFile.parentFile == canonicalDirectory &&
             canonicalFile.isFile &&
             actualBytes in 0..maximumBytes &&
             (reportedBytes <= 0L || reportedBytes == actualBytes)
