@@ -125,6 +125,7 @@ object NstackxNativeBridge {
 
     /** Start a native DFile sender to a private IPv4 endpoint. */
     @Synchronized
+    @Synchronized
     fun startDFileClient(remoteIpv4: String, port: Int, sessionKey: ByteArray): Int {
         if (!libraryLoaded) return LOAD_ERROR
         if (NstackxAndroidDiscoverySession.current() == null) return NOT_INITIALIZED
