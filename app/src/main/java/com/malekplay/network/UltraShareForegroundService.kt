@@ -2208,7 +2208,10 @@ class UltraShareForegroundService : Service() {
             ))
             .mapNotNull { (_, address) -> address.hostAddress }
 
-        (activeWifiAddresses + interfaceAddresses).distinct()
+        // For QR LocalOnlyHotspot sessions, prefer SoftAP-specific interfaces
+        // over the device's pre-existing infrastructure Wi-Fi route. The latter
+        // can be a different subnet and is not necessarily reachable by the joining peer.
+        (interfaceAddresses + activeWifiAddresses).distinct()
     }.getOrDefault(emptyList())
 
     @Suppress("DEPRECATION")
