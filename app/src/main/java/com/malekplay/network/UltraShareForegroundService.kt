@@ -646,9 +646,17 @@ class UltraShareForegroundService : Service() {
         val peerToken = java.security.MessageDigest.getInstance("SHA-256")
             .digest(peerAddress.toByteArray(Charsets.UTF_8))
             .take(8).joinToString("") { "%02x".format(it) }
-        val stagingDirectory = File(safeDestination, ".ultrashare-dfile-$peerToken")
         closeDFileServerForPeer(peerAddress)
-        runCatching { stagingDirectory.deleteRecursively() }
+        val staleBefore = System.currentTimeMillis() - 24L * 60L * 60L * 1_000L
+        safeDestination.listFiles()
+            ?.filter { it.isDirectory && it.name.startsWith(".ultrashare-dfile-") && it.lastModified() < staleBefore }
+            ?.forEach { runCatching { it.deleteRecursively() } }
+        // A unique directory prevents a late native completion callback from racing
+        // with a new session for the same peer and losing a just-received file.
+        val stagingDirectory = File(
+            safeDestination,
+            ".ultrashare-dfile-$peerToken-${java.util.UUID.randomUUID()}"
+        )
         if (!stagingDirectory.exists() && !stagingDirectory.mkdirs()) return null
         val safeStaging = runCatching { stagingDirectory.canonicalFile }.getOrNull() ?: return null
         if (safeStaging.parentFile != safeDestination || !safeStaging.isDirectory || !safeStaging.canWrite()) return null
@@ -859,7 +867,8 @@ class UltraShareForegroundService : Service() {
                 if (active.activeTransferIds.remove(id)) endTransfer(isReceiving = true)
             }
             NstackxNativeBridge.closeDFileSession(active.sessionId)
-            runCatching { active.stagingDirectory.deleteRecursively() }
+            // Keep the hidden staging folder until age-based cleanup. A native
+            // success callback may already be queued on serviceScope.
         }
     }
 
