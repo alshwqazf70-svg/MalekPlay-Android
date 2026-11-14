@@ -615,8 +615,10 @@ class UltraShareViewModel @Inject constructor(
             override fun onLost(network: android.net.Network) {
                 val viewModel = owner.get()
                 val isCurrent = viewModel?.hotspotNetworkCallback === this
-                if (paired.get()) {
-                    connectedHost.get()?.let(UltraShareForegroundService::disconnectApprovedPeer)
+                if (paired.get() && isCurrent) {
+                    connectedHost.get()?.let { peerHost ->
+                        UltraShareForegroundService.disconnectApprovedPeer(peerHost)
+                    }
                 }
                 if (viewModel != null && isCurrent) {
                     val lostHost = connectedHost.get()
