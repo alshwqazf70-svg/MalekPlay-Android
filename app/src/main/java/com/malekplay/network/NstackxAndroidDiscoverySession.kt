@@ -51,8 +51,6 @@ object NstackxAndroidDiscoverySession {
         check(NstackxNativeBridge.isAvailable) {
             "مكتبة NSTACKX الأصلية غير محمّلة. تحقق من بناء NDK."
         }
-        stop()
-
         val appContext = context.applicationContext
         val connectivity = appContext.getSystemService(Context.CONNECTIVITY_SERVICE)
             as? ConnectivityManager ?: error("خدمة اتصالات Android غير متاحة.")
@@ -96,6 +94,24 @@ object NstackxAndroidDiscoverySession {
                     "لم يعثر Android على واجهة Wi-Fi أو Wi-Fi Direct نشطة بعنوان IPv4."
                 else "واجهة الشبكة التي استقبلت طلب الاقتران غير متاحة لبدء DFile."
             )
+
+        // NSTACKX is process-global and also owns DFile sessions. Reuse an
+        // identical network; do not restart the engine under another caller.
+        val existing = started
+        if (existing != null) {
+            val sameNetwork = isSameNetworkSession(
+                existing.interfaceName, existing.localIpv4, existing.networkHandle,
+                candidate.interfaceName, candidate.localIpv4, candidate.network.networkHandle
+            )
+            if (sameNetwork) {
+                setPeerListener(onPeerFound)
+                return existing
+            }
+            check(!NstackxNativeBridge.hasActiveDFileSessions()) {
+                "جلسة نقل DFile نشطة على شبكة أخرى؛ لن نعيد تهيئة NSTACKX حتى لا نقطع النقل."
+            }
+            stopNow()
+        }
 
         val handle = candidate.network.networkHandle
         check(handle > 0L) { "معرّف شبكة Android غير صالح." }
@@ -202,6 +218,31 @@ object NstackxAndroidDiscoverySession {
     @Synchronized
     fun stop() {
         detachPeerListener()
+        if (shouldDeferNativeRelease(NstackxNativeBridge.activeDFileSessionCount())) {
+            // Keep the engine, network binding and multicast lock alive until all
+            // DFile handles close. UI lifecycle must not interrupt foreground I/O.
+            stopWhenDFileIdle = true
+            return
+        }
+        stopNow()
+    }
+
+    /** Complete a deferred engine stop after the last DFile handle is closed. */
+    fun onDFileSessionsChanged() {
+        synchronized(this) {
+            if (stopWhenDFileIdle &&
+                !shouldDeferNativeRelease(NstackxNativeBridge.activeDFileSessionCount())
+            ) stopNow()
+        }
+    }
+
+    /** Serialize native DFile creation against engine teardown. */
+    fun <T> withActiveEngine(block: () -> T): T? = synchronized(this) {
+        if (started == null) null else block()
+    }
+
+    private fun stopNow() {
+        detachPeerListener()
         networkCallback?.let { callback ->
             runCatching { callbackConnectivity?.unregisterNetworkCallback(callback) }
         }
@@ -214,8 +255,24 @@ object NstackxAndroidDiscoverySession {
         }
         runCatching { multicastLock?.takeIf { it.isHeld }?.release() }
         multicastLock = null
+        stopWhenDFileIdle = false
     }
 
     @Synchronized
     fun current(): Started? = started
+
+    private var stopWhenDFileIdle = false
+
+    internal fun isSameNetworkSession(
+        currentInterface: String,
+        currentIpv4: String,
+        currentHandle: Long,
+        requestedInterface: String,
+        requestedIpv4: String,
+        requestedHandle: Long
+    ): Boolean = currentInterface == requestedInterface &&
+        currentIpv4 == requestedIpv4 && currentHandle == requestedHandle
+
+    internal fun shouldDeferNativeRelease(activeDFileSessions: Int): Boolean =
+        activeDFileSessions > 0
 }
