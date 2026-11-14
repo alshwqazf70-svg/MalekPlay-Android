@@ -114,84 +114,58 @@ if source.count(include_anchor) != 1:
     raise SystemExit("Unexpected NSTACKX socket include layout; refusing an unsafe patch")
 source = source.replace(include_anchor, include_anchor + '#include "sys_network.h"\n', 1)
 
-replacements = [
-    (
-        '    if (SetTcpSocketBufSize(clientSocket->sockfd, NSTACKX_TCP_SOCKET_BUFFER_SIZE) != NSTACKX_EOK) {',
-        '    if (NstackxBindSocketToCurrentNetwork(clientSocket->sockfd) != 0) {\n'
-        '        LOGE(TAG, "bind TCP client socket to Android Network failed");\n'
-        '        goto FAIL_SOCKET;\n'
-        '    }\n'
-        '    if (SetTcpSocketBufSize(clientSocket->sockfd, NSTACKX_TCP_SOCKET_BUFFER_SIZE) != NSTACKX_EOK) {'
-    ),
-    (
-        '    if (SetSocketNonBlock(clientSocket->sockfd) != NSTACKX_EOK) {\n'
-        '        LOGE(TAG, "set socket nonblock failed");\n'
-        '        goto FAIL_SOCKET;\n'
-        '    }\n\n'
-        '    if (localInterface == NULL) {',
-        '    if (NstackxBindSocketToCurrentNetwork(clientSocket->sockfd) != 0) {\n'
-        '        LOGE(TAG, "bind UDP client socket to Android Network failed");\n'
-        '        goto FAIL_SOCKET;\n'
-        '    }\n'
-        '    if (SetSocketNonBlock(clientSocket->sockfd) != NSTACKX_EOK) {\n'
-        '        LOGE(TAG, "set socket nonblock failed");\n'
-        '        goto FAIL_SOCKET;\n'
-        '    }\n\n'
-        '    if (localInterface == NULL) {'
-    ),
-    (
-        '    if (SetSocketNonBlock(serverSocket->sockfd) != NSTACKX_EOK) {\n'
-        '        LOGE(TAG, "set socket nonblock failed");\n'
-        '        goto FAIL_SOCKET;\n'
-        '    }\n\n'
-        '    if (setsockopt(serverSocket->sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0) {',
-        '    if (NstackxBindSocketToCurrentNetwork(serverSocket->sockfd) != 0) {\n'
-        '        LOGE(TAG, "bind TCP server socket to Android Network failed");\n'
-        '        goto FAIL_SOCKET;\n'
-        '    }\n'
-        '    if (SetSocketNonBlock(serverSocket->sockfd) != NSTACKX_EOK) {\n'
-        '        LOGE(TAG, "set socket nonblock failed");\n'
-        '        goto FAIL_SOCKET;\n'
-        '    }\n\n'
-        '    if (setsockopt(serverSocket->sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0) {'
-    ),
-    (
-        '    if (SetSocketNonBlock(serverSocket->sockfd) != NSTACKX_EOK) {\n'
-        '        LOGE(TAG, "set socket nonblock failed");\n'
-        '        goto FAIL_SOCKET;\n'
-        '    }\n\n'
-        '    if (setsockopt(serverSocket->sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0) {',
-        '    if (NstackxBindSocketToCurrentNetwork(serverSocket->sockfd) != 0) {\n'
-        '        LOGE(TAG, "bind UDP server socket to Android Network failed");\n'
-        '        goto FAIL_SOCKET;\n'
-        '    }\n'
-        '    if (SetSocketNonBlock(serverSocket->sockfd) != NSTACKX_EOK) {\n'
-        '        LOGE(TAG, "set socket nonblock failed");\n'
-        '        goto FAIL_SOCKET;\n'
-        '    }\n\n'
-        '    if (setsockopt(serverSocket->sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0) {'
-    ),
-]
-# The TCP/UDP server setup snippets are structurally similar. Apply the TCP
-# replacement first, then target the remaining UDP occurrence with a distinct
-# function-local anchor so neither constructor is accidentally skipped.
-for index, (old, new) in enumerate(replacements):
-    count = source.count(old)
-    if index == 0 and count != 1:
-        raise SystemExit(f"Unexpected TCP client socket anchor count: {count}")
-    if index == 1 and count != 1:
-        raise SystemExit(f"Unexpected UDP client socket anchor count: {count}")
-    if index == 2:
-        # The TCP server block occurs before CreateUdpServer.
-        if count != 2:
-            raise SystemExit(f"Unexpected server socket anchor count before TCP patch: {count}")
-        source = source.replace(old, new, 1)
-        continue
-    if index == 3:
-        # The UDP server block is the remaining structurally identical block.
-        if count != 1:
-            raise SystemExit(f"Unexpected UDP server socket anchor count after TCP patch: {count}")
-    source = source.replace(old, new, 1)
+def patch_function(start_signature, end_signature, anchor, insertion, label):
+    global source
+    start = source.find(start_signature)
+    end = source.find(end_signature, start + len(start_signature))
+    if start < 0 or end < 0:
+        raise SystemExit(f"Missing NSTACKX {label} function boundary")
+    chunk = source[start:end]
+    if chunk.count(anchor) != 1:
+        raise SystemExit(f"Unexpected {label} socket setup anchor count: {chunk.count(anchor)}")
+    chunk = chunk.replace(anchor, insertion + anchor, 1)
+    source = source[:start] + chunk + source[end:]
+
+patch_function(
+    'static int32_t ConnectTcpServerWithTargetDev(',
+    'static int32_t ConnectUdpServerWithTargetDev(',
+    '    if (SetTcpSocketBufSize(clientSocket->sockfd, NSTACKX_TCP_SOCKET_BUFFER_SIZE) != NSTACKX_EOK) {',
+    '    if (NstackxBindSocketToCurrentNetwork(clientSocket->sockfd) != 0) {\n'
+    '        LOGE(TAG, "bind TCP client socket to Android Network failed");\n'
+    '        goto FAIL_SOCKET;\n'
+    '    }\n',
+    'TCP client'
+)
+patch_function(
+    'static int32_t ConnectUdpServerWithTargetDev(',
+    'static int32_t CreateTcpServer(',
+    '    if (SetSocketNonBlock(clientSocket->sockfd) != NSTACKX_EOK) {',
+    '    if (NstackxBindSocketToCurrentNetwork(clientSocket->sockfd) != 0) {\n'
+    '        LOGE(TAG, "bind UDP client socket to Android Network failed");\n'
+    '        goto FAIL_SOCKET;\n'
+    '    }\n',
+    'UDP client'
+)
+patch_function(
+    'static int32_t CreateTcpServer(',
+    'static int32_t CreateUdpServer(',
+    '    if (SetSocketNonBlock(serverSocket->sockfd) != NSTACKX_EOK) {',
+    '    if (NstackxBindSocketToCurrentNetwork(serverSocket->sockfd) != 0) {\n'
+    '        LOGE(TAG, "bind TCP server socket to Android Network failed");\n'
+    '        goto FAIL_SOCKET;\n'
+    '    }\n',
+    'TCP server'
+)
+patch_function(
+    'static int32_t CreateUdpServer(',
+    'Socket *ClientSocketWithTargetDev(',
+    '    if (SetSocketNonBlock(serverSocket->sockfd) != NSTACKX_EOK) {',
+    '    if (NstackxBindSocketToCurrentNetwork(serverSocket->sockfd) != 0) {\n'
+    '        LOGE(TAG, "bind UDP server socket to Android Network failed");\n'
+    '        goto FAIL_SOCKET;\n'
+    '    }\n',
+    'UDP server'
+)
 
 # Accepted TCP sockets inherit the listening socket's Android Network; do not
 # attempt to rebind them after accept, because the socket is already connected.
