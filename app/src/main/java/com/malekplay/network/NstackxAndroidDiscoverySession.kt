@@ -104,6 +104,8 @@ object NstackxAndroidDiscoverySession {
                 candidate.interfaceName, candidate.localIpv4, candidate.network.networkHandle
             )
             if (sameNetwork) {
+                // A new active consumer cancels a stop that was deferred for DFile.
+                stopWhenDFileIdle = false
                 setPeerListener(onPeerFound)
                 return existing
             }
@@ -230,8 +232,10 @@ object NstackxAndroidDiscoverySession {
     /** Complete a deferred engine stop after the last DFile handle is closed. */
     fun onDFileSessionsChanged() {
         synchronized(this) {
-            if (stopWhenDFileIdle &&
-                !shouldDeferNativeRelease(NstackxNativeBridge.activeDFileSessionCount())
+            if (shouldCompleteDeferredStop(
+                    stopWhenDFileIdle,
+                    NstackxNativeBridge.activeDFileSessionCount()
+                )
             ) stopNow()
         }
     }
@@ -275,4 +279,9 @@ object NstackxAndroidDiscoverySession {
 
     internal fun shouldDeferNativeRelease(activeDFileSessions: Int): Boolean =
         activeDFileSessions > 0
+
+    internal fun shouldCompleteDeferredStop(
+        stopRequested: Boolean,
+        activeDFileSessions: Int
+    ): Boolean = stopRequested && activeDFileSessions == 0
 }
