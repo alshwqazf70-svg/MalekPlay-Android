@@ -151,6 +151,7 @@ class LegacyUltraShareViewModel @Inject constructor(
     private var pendingInvitation: UltraShareQrCode.PairingDetails? = null
     private var pendingInvitationReady: ((String) -> Unit)? = null
     private var reverseInvitationConnectionInProgress = false
+    private var hotspotNetworkCallback: android.net.ConnectivityManager.NetworkCallback? = null
     private val invitationPreferences by lazy {
         context.getSharedPreferences("ultra_share_invitation", Context.MODE_PRIVATE)
     }
@@ -330,7 +331,11 @@ class LegacyUltraShareViewModel @Inject constructor(
         }
     }
 
-    private fun completeInvitationConnection(host: String, message: String) {
+    private fun completeInvitationConnection(
+        host: String,
+        message: String,
+        preferredNetwork: android.net.Network? = null
+    ) {
         val callback = pendingInvitationReady ?: return
         val pairing = pendingInvitation ?: return
         // Claim this invitation synchronously before launching IO. Wi-Fi P2P can
@@ -368,8 +373,10 @@ class LegacyUltraShareViewModel @Inject constructor(
                     // Finally try Android's default route for OEM P2P stacks that
                     // do not expose a bindable Network object.
                     val routeCandidates: List<android.net.Network?> =
-                        UltraShareNetworkRouting.findNetworksForHost(context, candidate)
-                            .map { it as android.net.Network? } + listOf(null)
+                        (listOfNotNull(preferredNetwork) +
+                            UltraShareNetworkRouting.findNetworksForHost(context, candidate)
+                                .map { it as android.net.Network? })
+                            .distinctBy { it?.toString() } + listOf(null)
                     var routeAuthenticationOrProtocolFailure = false
                     for ((routeIndex, route) in routeCandidates.withIndex()) {
                         if (candidateAccepted || routeAuthenticationOrProtocolFailure) break
@@ -649,7 +656,88 @@ class LegacyUltraShareViewModel @Inject constructor(
         activateReceiverInvitation(invitationId)
     }
 
+    private fun connectThroughLocalHotspot(
+        pairing: UltraShareQrCode.PairingDetails,
+        onReady: (String) -> Unit
+    ) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
+            _state.value = _state.value.copy(
+                scanning = false,
+                error = "الانضمام التلقائي إلى شبكة QR يتطلب Android 10 أو أحدث. اتصل بالشبكة من إعدادات Wi-Fi ثم أعد المحاولة."
+            )
+            return
+        }
+        val ssid = pairing.hotspotSsid ?: return
+        val password = pairing.hotspotPassword ?: return
+        val host = pairing.host
+        if (!UltraShareTransport.isValidPrivateLanHost(host)) {
+            _state.value = _state.value.copy(error = "عنوان خادم الاستقبال في رمز QR غير صالح.")
+            return
+        }
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        hotspotNetworkCallback?.let { runCatching { connectivity.unregisterNetworkCallback(it) } }
+        _state.value = _state.value.copy(
+            scanning = true,
+            error = null,
+            status = "جارٍ طلب الانضمام إلى شبكة MalekPlay من Android..."
+        )
+        val specifier = android.net.wifi.WifiNetworkSpecifier.Builder()
+            .setSsid(ssid)
+            .setWpa2Passphrase(password)
+            .build()
+        val request = android.net.NetworkRequest.Builder()
+            .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+            .setNetworkSpecifier(specifier)
+            .build()
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                viewModelScope.launch {
+                    _state.value = _state.value.copy(
+                        status = "اتصل Android بشبكة MalekPlay؛ جارٍ التحقق من خادم الاستقبال..."
+                    )
+                    completeInvitationConnection(
+                        host,
+                        "تم الانضمام إلى شبكة MalekPlay عبر Android.",
+                        network
+                    )
+                }
+            }
+
+            override fun onUnavailable() {
+                _state.value = _state.value.copy(
+                    scanning = false,
+                    error = "لم يكتمل الانضمام إلى شبكة MalekPlay. وافق على طلب Wi-Fi الذي عرضه Android وتأكد من بقاء نقطة الاتصال مفتوحة."
+                )
+            }
+
+            override fun onLost(network: android.net.Network) {
+                if (!_state.value.pairedSession) {
+                    _state.value = _state.value.copy(
+                        scanning = false,
+                        error = "انقطع اتصال شبكة MalekPlay قبل اكتمال الاقتران."
+                    )
+                }
+            }
+        }
+        hotspotNetworkCallback = callback
+        try {
+            connectivity.requestNetwork(request, callback, 30_000)
+        } catch (failure: Exception) {
+            hotspotNetworkCallback = null
+            _state.value = _state.value.copy(
+                scanning = false,
+                error = failure.localizedMessage ?: "تعذر طلب الانضمام إلى شبكة MalekPlay."
+            )
+        }
+    }
+
     fun connectInvitation(pairing: UltraShareQrCode.PairingDetails, onReady: (String) -> Unit) {
+        if (!pairing.hotspotSsid.isNullOrBlank() && !pairing.hotspotPassword.isNullOrBlank()) {
+            pendingInvitation = pairing
+            pendingInvitationReady = onReady
+            connectThroughLocalHotspot(pairing, onReady)
+            return
+        }
         val fallbackHost = pairing.hosts.firstOrNull()
         if (pairing.invitationId.isNullOrBlank()) {
             if (fallbackHost.isNullOrBlank()) {
