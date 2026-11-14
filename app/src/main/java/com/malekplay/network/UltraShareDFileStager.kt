@@ -143,6 +143,13 @@ internal object UltraShareDFileStager {
             canonicalTarget.length() == expectedBytes
     }.getOrDefault(false)
 
+    /**
+     * DFile reports aggregate transfer bytes for a file-list event. That value is
+     * comparable to a received file's length only when the callback names one file.
+     */
+    internal fun reportedSizeForValidation(fileCount: Int, reportedBytes: Long): Long =
+        if (fileCount == 1 && reportedBytes >= 0L) reportedBytes else 0L
+
     /** Validates a native DFile receive result before publishing it outside staging. */
     internal fun isSafeReceivedFile(
         file: File,
