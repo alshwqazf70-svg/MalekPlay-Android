@@ -1503,7 +1503,7 @@ fun UltraShareScreen(
                             Text("تحديث عناوين الشبكة")
                         }
                         Text(
-                            stringResource(R.string.ultra_share_port, UltraShareTransport.DEFAULT_PORT),
+                            stringResource(R.string.ultra_share_port, UltraShareControlChannel.DEFAULT_PORT),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
