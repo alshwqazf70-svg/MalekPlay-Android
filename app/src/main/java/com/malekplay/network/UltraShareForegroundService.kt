@@ -1036,6 +1036,8 @@ class UltraShareForegroundService : Service() {
             )
         }
         if (::notificationManager.isInitialized) notificationManager.cancel(NOTIFICATION_ID)
+        UltraShareDiagnostics.event("SERVICE", "DESTROYED")
+        UltraShareDiagnostics.endSession("service_destroyed")
         super.onDestroy()
     }
 
