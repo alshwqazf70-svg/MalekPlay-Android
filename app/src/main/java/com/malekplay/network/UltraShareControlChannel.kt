@@ -412,6 +412,11 @@ object UltraShareControlChannel {
             diagnostic("CLIENT cancelled at " + diagnosticStage)
             throw cancelled
         } catch (failure: Exception) {
+            UltraShareDiagnostics.failure(
+                "CONTROL_CHANNEL_CLIENT",
+                failure,
+                "host=" + host + ";port=" + port + ";stage=" + diagnosticStage
+            )
             diagnostic("CLIENT failed at " + diagnosticStage + ": " +
                 failure.javaClass.simpleName + (failure.message?.take(160)?.let { " - " + it } ?: ""))
             throw failure
