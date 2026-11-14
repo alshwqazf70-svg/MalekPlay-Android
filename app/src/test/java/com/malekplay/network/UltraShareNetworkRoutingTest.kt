@@ -9,6 +9,34 @@ import org.junit.Test
 
 class UltraShareNetworkRoutingTest {
     @Test
+    fun failedPrimaryRouteFallsThroughToNextWorkingNetworkOnly() {
+        val attempted = mutableListOf<String>()
+        val selected = UltraShareNetworkRouting.firstSuccessfulRoute(
+            listOf("preferred-p2p", "secondary-wlan", "hotspot", "unused")
+        ) { route ->
+            attempted += route
+            route == "hotspot"
+        }
+
+        assertEquals("hotspot", selected)
+        assertEquals(listOf("preferred-p2p", "secondary-wlan", "hotspot"), attempted)
+    }
+
+    @Test
+    fun returnsNullOnlyAfterEveryNetworkRouteFails() {
+        val attempted = mutableListOf<String>()
+        val selected = UltraShareNetworkRouting.firstSuccessfulRoute(
+            listOf("p2p", "wlan", "hotspot")
+        ) { route ->
+            attempted += route
+            false
+        }
+
+        assertEquals(null, selected)
+        assertEquals(listOf("p2p", "wlan", "hotspot"), attempted)
+    }
+
+    @Test
     fun preservesPreferredNetworkThenAttemptsEveryDistinctAlternative() {
         assertEquals(
             listOf("preferred-p2p", "wlan", "hotspot"),
