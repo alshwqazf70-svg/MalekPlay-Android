@@ -136,7 +136,8 @@ class UltraShareForegroundService : Service() {
     private data class ActiveDFileServer(
         val sessionId: Int,
         val listener: NstackxNativeBridge.DFileListener,
-        val activeTransferIds: MutableSet<Int>
+        val activeTransferIds: MutableSet<Int>,
+        val stagingDirectory: File
     )
     private val dfileServerSessions = java.util.concurrent.ConcurrentHashMap<String, ActiveDFileServer>()
     @Volatile private var receiveJob: Job? = null
@@ -640,12 +641,28 @@ class UltraShareForegroundService : Service() {
             safeDestination.path != File(base, "MalekPlayer/Received").canonicalPath
         ) return null
 
-        // Probe an OS-assigned port; NSTACKX binds it before ACCEPT is emitted.
-        val port = runCatching { ServerSocket(0).use { it.localPort } }
-            .getOrNull()?.takeIf { it in 1..65535 } ?: return null
-
-        // Replace only this peer's receiver and detach its old listener.
+        // Keep native writes isolated from completed downloads. Only files reported
+        // successful are moved atomically into the visible Received directory.
+        val peerToken = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(peerAddress.toByteArray(Charsets.UTF_8))
+            .take(8).joinToString("") { "%02x".format(it) }
+        val stagingDirectory = File(safeDestination, ".ultrashare-dfile-$peerToken")
         closeDFileServerForPeer(peerAddress)
+        runCatching { stagingDirectory.deleteRecursively() }
+        if (!stagingDirectory.exists() && !stagingDirectory.mkdirs()) return null
+        val safeStaging = runCatching { stagingDirectory.canonicalFile }.getOrNull() ?: return null
+        if (safeStaging.parentFile != safeDestination || !safeStaging.isDirectory || !safeStaging.canWrite()) return null
+
+        // The native API accepts a port rather than an already-bound descriptor.
+        // Retry OS-assigned candidates to reduce the short close/rebind race.
+        var port = 0
+        repeat(5) {
+            if (port == 0) {
+                port = runCatching { ServerSocket(0).use { it.localPort } }
+                    .getOrNull()?.takeIf { it in 1..65535 } ?: 0
+            }
+        }
+        if (port !in 1..65535) return null
         val sessionIdRef = java.util.concurrent.atomic.AtomicInteger(-1)
         val earlyEvents = java.util.concurrent.ConcurrentLinkedQueue<NstackxNativeBridge.DFileEvent>()
         val activeTransferIds = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Int, Boolean>())
@@ -653,7 +670,7 @@ class UltraShareForegroundService : Service() {
             val expected = sessionIdRef.get()
             if (expected <= 0) earlyEvents.add(event)
             else if (event.sessionId == expected) {
-                handleDFileServerEvent(peerAddress, safeDestination, event, activeTransferIds)
+                handleDFileServerEvent(peerAddress, safeStaging, safeDestination, event, activeTransferIds)
             }
         }
         NstackxNativeBridge.addDFileListener(listener)
@@ -662,7 +679,7 @@ class UltraShareForegroundService : Service() {
                 peerIpv4 = peerAddress,
                 localIpv4 = discovery.localIpv4,
                 port = port,
-                destinationDirectory = safeDestination
+                destinationDirectory = safeStaging
             )
         } catch (failure: Exception) {
             -1
@@ -672,11 +689,11 @@ class UltraShareForegroundService : Service() {
             return null
         }
         sessionIdRef.set(sessionId)
-        dfileServerSessions[peerAddress] = ActiveDFileServer(sessionId, listener, activeTransferIds)
+        dfileServerSessions[peerAddress] = ActiveDFileServer(sessionId, listener, activeTransferIds, safeStaging)
         while (true) {
             val event = earlyEvents.poll() ?: break
             if (event.sessionId == sessionId) {
-                handleDFileServerEvent(peerAddress, safeDestination, event, activeTransferIds)
+                handleDFileServerEvent(peerAddress, safeStaging, safeDestination, event, activeTransferIds)
             }
         }
         return port
@@ -684,6 +701,7 @@ class UltraShareForegroundService : Service() {
 
     private fun handleDFileServerEvent(
         peerAddress: String,
+        stagingDirectory: File,
         destination: File,
         event: NstackxNativeBridge.DFileEvent,
         activeTransferIds: MutableSet<Int>
@@ -716,28 +734,35 @@ class UltraShareForegroundService : Service() {
                 event.fileNames.forEach { receivedName ->
                     serviceScope.launch {
                         val safeName = UltraShareTransport.sanitizeFileName(receivedName)
-                        val receivedFile = File(destination, safeName)
-                        val canonical = runCatching { receivedFile.canonicalFile }.getOrNull()
+                        val stagedFile = runCatching { File(stagingDirectory, safeName).canonicalFile }.getOrNull()
                             ?: return@launch
-                        if (canonical.parentFile != destination.canonicalFile ||
-                            !canonical.isFile || canonical.length() < 0L
+                        if (stagedFile.parentFile != stagingDirectory.canonicalFile ||
+                            !stagedFile.isFile || stagedFile.length() < 0L
                         ) return@launch
                         val mimeType = MimeTypeMap.getSingleton()
                             .getMimeTypeFromExtension(canonical.extension.lowercase())
                             ?: "application/octet-stream"
-                        val receivedSize = canonical.length()
+                        val receivedSize = stagedFile.length()
                         if (receivedSize !in 0..UltraShareTransport.MAX_FILE_BYTES ||
                             !UltraShareTransport.isAllowedShareFile(safeName, mimeType)
                         ) {
                             // Enforce the same file policy on the receiving device; never
                             // trust a sender-side filter when the native engine is exposed.
-                            runCatching { canonical.delete() }
+                            runCatching { stagedFile.delete() }
                             updateState { current -> current.copy(
                                 error = "رُفض ملف DFile غير مسموح: $safeName",
                                 status = "تم رفض الملف قبل إضافته إلى سجل الاستلام."
                             ) }
                             return@launch
                         }
+                        val canonical = publishDFileStagedFile(stagedFile, destination, safeName)
+                            ?: run {
+                                updateState { current -> current.copy(
+                                    error = "تعذر تثبيت الملف المستلم بأمان: $safeName",
+                                    status = "لم يُضف الملف إلى سجل الاستلام."
+                                ) }
+                                return@launch
+                            }
                         val received = UltraShareTransport.ReceivedFile(
                             file = canonical,
                             fileName = safeName,
@@ -790,6 +815,40 @@ class UltraShareForegroundService : Service() {
         }
     }
 
+    private fun publishDFileStagedFile(staged: File, destination: File, safeName: String): File? =
+        runCatching {
+            val safeDestination = destination.canonicalFile
+            val safeStaged = staged.canonicalFile
+            check(safeStaged.parentFile == File(safeDestination, staged.parentFile.name).canonicalFile)
+            check(safeStaged.isFile && safeStaged.length() <= UltraShareTransport.MAX_FILE_BYTES)
+            val extension = safeName.substringAfterLast('.', "").takeIf { it.isNotBlank() }
+            val baseName = if (extension == null) safeName else safeName.removeSuffix(".$extension")
+            var target = File(safeDestination, safeName)
+            var suffix = 1
+            while (target.exists()) {
+                val candidateName = if (extension == null) "$baseName ($suffix)"
+                    else "$baseName ($suffix).$extension"
+                target = File(safeDestination, candidateName)
+                suffix++
+                check(suffix < 10_000) { "تعذر إيجاد اسم ملف متاح." }
+            }
+            val temporary = File(safeDestination, ".${target.name}.${java.util.UUID.randomUUID()}.part")
+            try {
+                staged.inputStream().use { input ->
+                    java.io.FileOutputStream(temporary).use { output ->
+                        input.copyTo(output, UltraShareTransport.CHUNK_BYTES)
+                        output.fd.sync()
+                    }
+                }
+                check(temporary.renameTo(target)) { "تعذر تثبيت الملف المستلم." }
+            } finally {
+                runCatching { temporary.delete() }
+            }
+            check(target.canonicalFile.parentFile == safeDestination)
+            runCatching { staged.delete() }
+            target.canonicalFile
+        }.getOrNull()
+
     private fun closeDFileServerForPeer(peerAddress: String) {
         dfileServerSessions.remove(peerAddress)?.let { active ->
             NstackxNativeBridge.removeDFileListener(active.listener)
@@ -797,6 +856,7 @@ class UltraShareForegroundService : Service() {
                 if (active.activeTransferIds.remove(id)) endTransfer(isReceiving = true)
             }
             NstackxNativeBridge.closeDFileSession(active.sessionId)
+            runCatching { active.stagingDirectory.deleteRecursively() }
         }
     }
 
