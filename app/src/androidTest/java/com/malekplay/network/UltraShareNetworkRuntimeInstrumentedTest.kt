@@ -48,16 +48,17 @@ class UltraShareNetworkRuntimeInstrumentedTest {
             ?.mapNotNull { it.address as? java.net.Inet4Address }
             ?.firstOrNull { it.isSiteLocalAddress && !it.isLoopbackAddress }
         Assume.assumeTrue("The active Network has no private IPv4 address", localAddress != null)
+        val boundAddress = requireNotNull(localAddress)
 
         val outbound = ByteArray(256 * 1024) { index -> (index * 31).toByte() }
         val inbound = ByteArray(192 * 1024) { index -> (index * 17 + 3).toByte() }
 
-        ServerSocket(0, 1, localAddress!!).use { server ->
+        ServerSocket(0, 1, boundAddress).use { server ->
             server.soTimeout = 8_000
             val client = Socket()
             network.bindSocket(client)
             client.soTimeout = 8_000
-            client.connect(InetSocketAddress(localAddress, server.localPort), 5_000)
+            client.connect(InetSocketAddress(boundAddress, server.localPort), 5_000)
             server.accept().use { accepted ->
                 accepted.soTimeout = 8_000
                 client.use { connected ->
