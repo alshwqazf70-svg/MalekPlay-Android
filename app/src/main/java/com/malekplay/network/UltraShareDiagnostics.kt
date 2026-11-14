@@ -14,7 +14,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
 /** JSONL diagnostics exported to Downloads for Termux on Android 10+. */
@@ -37,7 +36,6 @@ object UltraShareDiagnostics {
     private val writer = Executors.newSingleThreadExecutor { task ->
         Thread(task, "MalekPlay-Diagnostics").apply { isDaemon = true }
     }
-    private val sessions = ConcurrentHashMap<String, SessionLog>()
     @Volatile private var appContext: Context? = null
     @Volatile private var currentSession: SessionLog? = null
 
@@ -49,7 +47,6 @@ object UltraShareDiagnostics {
         val safeRole = role.uppercase(Locale.ROOT)
             .filter { it.isLetterOrDigit() || it == '_' }.take(16).ifBlank { "UNKNOWN" }
         val session = SessionLog(UUID.randomUUID().toString(), safeRole)
-        sessions[session.id] = session
         currentSession = session
 
         // The executor serializes creation before every event appended for this session.
@@ -74,8 +71,10 @@ object UltraShareDiagnostics {
         // Android's org.json implementation is a stub in plain JVM unit tests.
         // Diagnostics must never become the reason a protocol test fails.
         if (appContext == null) return
-        val session = currentSession ?: sessions[beginSession("UNKNOWN", "automatic")]
-            ?: return
+        val session = currentSession ?: run {
+            beginSession("UNKNOWN", "automatic")
+            currentSession
+        } ?: return
         val payload = JSONObject()
             .put("timestamp", timestamp())
             .put("sessionId", session.id)
@@ -90,8 +89,10 @@ object UltraShareDiagnostics {
 
     fun failure(stage: String, failure: Throwable, contextMessage: String? = null) {
         if (appContext == null) return
-        val session = currentSession ?: sessions[beginSession("UNKNOWN", "automatic_error")]
-            ?: return
+        val session = currentSession ?: run {
+            beginSession("UNKNOWN", "automatic_error")
+            currentSession
+        } ?: return
         val root = rootCause(failure)
         val frame = sequenceOf(failure, root)
             .flatMap { it.stackTrace.asSequence() }
