@@ -390,7 +390,13 @@ object UltraShareDiscovery {
             UltraShareNetworkRouting.findNetworksForHost(it, candidate.host)
         } ?: emptyList()
         // When a Context is supplied, never probe through an unrelated process-default route.
-        if (context != null && routes.isEmpty()) return false
+        if (context != null && routes.isEmpty()) {
+            UltraShareDiagnostics.event(
+                "DISCOVERY", "NO_ANDROID_ROUTE_FOR_PEER",
+                mapOf("peerHost" to candidate.host, "dataPort" to candidate.port)
+            )
+            return false
+        }
         val attempts: List<android.net.Network?> = if (context == null) listOf(null) else routes
         return attempts.any { network ->
             if (!probeEndpoint(candidate.host, UltraShareControlChannel.DEFAULT_PORT, network)) {
