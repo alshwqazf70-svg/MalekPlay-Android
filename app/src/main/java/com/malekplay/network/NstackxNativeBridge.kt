@@ -23,6 +23,12 @@ object NstackxNativeBridge {
 
     private val listeners = CopyOnWriteArraySet<Listener>()
     private val dfileListeners = CopyOnWriteArraySet<DFileListener>()
+    // Kotlin mirrors native DFile handles so discovery teardown can be deferred
+    // until every in-flight transfer has explicitly closed its session.
+    private val activeDFileSessions = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
+
+    internal fun activeDFileSessionCount(): Int = activeDFileSessions.size
+    internal fun hasActiveDFileSessions(): Boolean = activeDFileSessions.isNotEmpty()
 
     data class DFileEvent(
         val sessionId: Int,
@@ -101,7 +107,6 @@ object NstackxNativeBridge {
      * the authenticated QR/PIN session; never pass the visible PIN directly.
      * The destination must be an existing app-owned writable directory.
      */
-    @Synchronized
     fun startDFileServer(
         localIpv4: String,
         port: Int,
@@ -109,30 +114,35 @@ object NstackxNativeBridge {
         destinationDirectory: File
     ): Int {
         if (!libraryLoaded) return LOAD_ERROR
-        if (NstackxAndroidDiscoverySession.current() == null) return NOT_INITIALIZED
         require(UltraShareTransport.isValidPrivateLanHost(localIpv4))
         require(port in 1..65535 && sessionKey.size == 16)
         require(destinationDirectory.isDirectory && destinationDirectory.canWrite())
         val keyCopy = sessionKey.copyOf()
         return try {
-            nativeDFileStartServer(
-                localIpv4, port, keyCopy, destinationDirectory.canonicalPath
-            )
+            NstackxAndroidDiscoverySession.withActiveEngine {
+                val sessionId = nativeDFileStartServer(
+                    localIpv4, port, keyCopy, destinationDirectory.canonicalPath
+                )
+                if (sessionId > 0) activeDFileSessions.add(sessionId)
+                sessionId
+            } ?: NOT_INITIALIZED
         } finally {
             keyCopy.fill(0)
         }
     }
 
     /** Start a native DFile sender to a private IPv4 endpoint. */
-    @Synchronized
     fun startDFileClient(remoteIpv4: String, port: Int, sessionKey: ByteArray): Int {
         if (!libraryLoaded) return LOAD_ERROR
-        if (NstackxAndroidDiscoverySession.current() == null) return NOT_INITIALIZED
         require(UltraShareTransport.isValidPrivateLanHost(remoteIpv4))
         require(port in 1..65535 && sessionKey.size == 16)
         val keyCopy = sessionKey.copyOf()
         return try {
-            nativeDFileStartClient(remoteIpv4, port, keyCopy)
+            NstackxAndroidDiscoverySession.withActiveEngine {
+                val sessionId = nativeDFileStartClient(remoteIpv4, port, keyCopy)
+                if (sessionId > 0) activeDFileSessions.add(sessionId)
+                sessionId
+            } ?: NOT_INITIALIZED
         } finally {
             keyCopy.fill(0)
         }
@@ -183,9 +193,14 @@ object NstackxNativeBridge {
         return nativeDFileSendFiles(sessionId, paths.toTypedArray())
     }
 
-    @Synchronized
     fun closeDFileSession(sessionId: Int) {
-        if (libraryLoaded && sessionId > 0) nativeDFileCloseSession(sessionId)
+        if (sessionId <= 0) return
+        if (libraryLoaded) nativeDFileCloseSession(sessionId)
+        if (activeDFileSessions.remove(sessionId)) {
+            // Notify only after native close has returned; fatal callbacks may be
+            // completing on a native worker thread.
+            NstackxAndroidDiscoverySession.onDFileSessionsChanged()
+        }
     }
 
     fun addDFileListener(listener: DFileListener) {
@@ -198,7 +213,9 @@ object NstackxNativeBridge {
 
     @Synchronized
     fun release() {
-        if (libraryLoaded) nativeRelease()
+        // A native release closes every DFile handle. Refuse it while any sender
+        // or receiver still owns a session; the lifecycle owner retries when idle.
+        if (libraryLoaded && activeDFileSessions.isEmpty()) nativeRelease()
     }
 
     @JvmStatic
