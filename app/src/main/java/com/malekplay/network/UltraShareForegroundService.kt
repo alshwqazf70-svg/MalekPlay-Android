@@ -2260,20 +2260,29 @@ class UltraShareForegroundService : Service() {
                 )
             }
             nativeSessionId = NstackxNativeBridge.startApprovedDFileClient(host, port)
-            if (nativeSessionId <= 0) return null
+            if (nativeSessionId <= 0) {
+                UltraShareDiagnostics.event("DFILE", "CLIENT_START_REJECTED", mapOf("peerHost" to host, "port" to port, "nativeResult" to nativeSessionId))
+                return null
+            }
             sessionIdRef.set(nativeSessionId)
             while (true) {
                 val queued = earlyEvents.poll() ?: break
                 handleEvent(queued)
             }
             val isConnected = withTimeoutOrNull(20_000L) { connected.await() } ?: false
-            if (!isConnected) return null
+            if (!isConnected) {
+                UltraShareDiagnostics.event("DFILE", "CLIENT_CONNECTION_FAILED", mapOf("peerHost" to host, "port" to port, "timeoutMs" to 20_000))
+                return null
+            }
 
             val sendResult = NstackxNativeBridge.sendDFileFiles(
                 nativeSessionId,
                 staged.map { it.file }
             )
-            if (sendResult != 0) return null
+            if (sendResult != 0) {
+                UltraShareDiagnostics.event("DFILE", "CLIENT_PAYLOAD_REJECTED", mapOf("peerHost" to host, "nativeResult" to sendResult, "files" to sources.size))
+                return null
+            }
             payloadAccepted.set(true)
             val totalBytes = sources.sumOf { it.sizeBytes.coerceAtLeast(0L) }
             val timeoutMillis = (60_000L + totalBytes / (256L * 1024L) * 1_000L)
@@ -2310,11 +2319,20 @@ class UltraShareForegroundService : Service() {
         } catch (failure: DFilePayloadStartedException) {
             throw failure
         } catch (failure: Exception) {
+            UltraShareDiagnostics.failure(
+                "DFILE_CLIENT_TRANSFER",
+                failure,
+                "peerHost=" + host + ";files=" + sources.size + ";payloadAccepted=" + payloadAccepted.get()
+            )
             if (payloadAccepted.get()) {
                 throw DFilePayloadStartedException(
                     failure.localizedMessage ?: "فشل DFile بعد بدء نقل البيانات."
                 )
             }
+            UltraShareDiagnostics.event(
+                "DFILE", "CLIENT_FALLBACK_TO_V2",
+                mapOf("peerHost" to host, "reason" to failure.javaClass.simpleName)
+            )
             return null
         } finally {
             listenerActive.set(false)
