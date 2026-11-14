@@ -84,6 +84,7 @@ import com.malekplay.network.ExternalWifiDirectQr
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraShareWifiDirect
 import com.malekplay.network.UltraShareControlChannel
+import com.malekplay.network.UltraShareDiagnostics
 import com.malekplay.network.UltraShareNetworkRouting
 import com.malekplay.network.UltraShareApprovedSendTarget
 import com.journeyapps.barcodescanner.ScanContract
@@ -160,6 +161,9 @@ class LegacyUltraShareViewModel @Inject constructor(
     }
 
     init {
+        // Initialize diagnostics before an outbound QR handshake; the receiver
+        // service may not exist yet on the device that scans the QR.
+        UltraShareDiagnostics.initialize(context)
         viewModelScope.launch {
             if (!UltraShareForegroundService.state.value.sending) {
                 UltraShareQueueStore.recoverInterrupted(context)
