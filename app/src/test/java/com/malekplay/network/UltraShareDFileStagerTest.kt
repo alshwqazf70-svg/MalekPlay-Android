@@ -21,16 +21,16 @@ class UltraShareDFileStagerTest {
         try {
             val staging = File(cache, "session-receive").apply { mkdirs() }
             val received = File(staging, "received.mp4").apply { writeBytes(byteArrayOf(9, 8, 7, 6)) }
-            assertTrue(UltraShareDFileStager.isSafeReceivedFile(received, staging, 4L))
-            assertTrue(UltraShareDFileStager.isSafeReceivedFile(received, staging, 0L))
-            assertFalse(UltraShareDFileStager.isSafeReceivedFile(received, staging, 3L))
+            assertTrue(UltraShareDFileStager.isSafeReceivedFile(received, staging, cache, 4L))
+            assertTrue(UltraShareDFileStager.isSafeReceivedFile(received, staging, cache, 0L))
+            assertFalse(UltraShareDFileStager.isSafeReceivedFile(received, staging, cache, 3L))
 
             val outside = File(cache, "outside.mp4").apply { writeBytes(byteArrayOf(9, 8, 7, 6)) }
             val link = File(staging, "outside-link.mp4")
             runCatching {
                 java.nio.file.Files.createSymbolicLink(link.toPath(), outside.toPath())
             }.onSuccess {
-                assertFalse(UltraShareDFileStager.isSafeReceivedFile(link, staging, 4L))
+                assertFalse(UltraShareDFileStager.isSafeReceivedFile(link, staging, cache, 4L))
             }
         } finally {
             cache.deleteRecursively()
