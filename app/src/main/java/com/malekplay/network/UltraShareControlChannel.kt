@@ -209,9 +209,10 @@ object UltraShareControlChannel {
             // (WLAN, SoftAP or Wi-Fi Direct). Never assume the first matching
             // route is usable: try each route with a fresh, unbound socket.
             val routeCandidates = UltraShareNetworkRouting.orderedDistinctRoutes(network, networks)
-            var connected = false
+            var routeIndex = 0
             var lastRouteFailure: java.io.IOException? = null
-            for ((index, candidateNetwork) in routeCandidates.withIndex()) {
+            val connectedNetwork = UltraShareNetworkRouting.firstSuccessfulRoute(routeCandidates) { candidateNetwork ->
+                val index = routeIndex++
                 runCatching { socket.close() }
                 socket = Socket()
                 try {
@@ -220,18 +221,19 @@ object UltraShareControlChannel {
                     diagnostic("CLIENT network bind succeeded: " + candidateNetwork)
                     diagnosticStage = "tcp-connect-$index"
                     socket.connect(endpoint, HANDSHAKE_TIMEOUT_MS)
-                    connected = true
                     diagnostic("CLIENT TCP connected via Android Network local=" +
                         socket.localAddress?.hostAddress + ":" + socket.localPort +
                         " remote=" + socket.inetAddress?.hostAddress + ":" + socket.port)
-                    break
+                    true
                 } catch (routeFailure: java.io.IOException) {
                     lastRouteFailure = routeFailure
                     diagnostic("CLIENT Android Network attempt failed at " + diagnosticStage + ": " +
                         routeFailure.javaClass.simpleName +
                         (routeFailure.message?.take(100)?.let { " - " + it } ?: ""))
+                    false
                 }
             }
+            val connected = connectedNetwork != null
             if (!connected) {
                 runCatching { socket.close() }
                 socket = Socket()
