@@ -33,13 +33,23 @@ object UltraShareReceivedPublisher {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/MalekPlayer/Received")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
-            val uri = runCatching { resolver.insert(collection, values) }.getOrNull()
-                ?: return@withContext null
+            val uri = runCatching { resolver.insert(collection, values) }
+                .onFailure { failure ->
+                    UltraShareDiagnostics.failure(
+                        "RECEIVED_PUBLISH_INSERT",
+                        failure,
+                        "file=" + received.fileName + ";mime=" + received.mimeType
+                    )
+                }
+                .getOrNull() ?: return@withContext null
             try {
                 val output = resolver.openOutputStream(uri, "w")
                     ?: error("تعذر فتح ملف التنزيلات للحفظ.")
-                received.file.inputStream().use { input ->
+                val copiedBytes = received.file.inputStream().use { input ->
                     output.use { target -> input.copyTo(target, UltraShareTransport.CHUNK_BYTES) }
+                }
+                check(copiedBytes == received.sizeBytes && received.file.length() == received.sizeBytes) {
+                    "تغير حجم الملف المستلم أثناء نشره في التنزيلات."
                 }
                 values.clear()
                 values.put(MediaStore.MediaColumns.IS_PENDING, 0)
@@ -48,6 +58,11 @@ object UltraShareReceivedPublisher {
                 }
                 uri
             } catch (failure: Exception) {
+                UltraShareDiagnostics.failure(
+                    "RECEIVED_PUBLISH_COPY_OR_FINALIZE",
+                    failure,
+                    "file=" + received.fileName + ";expectedBytes=" + received.sizeBytes
+                )
                 runCatching { resolver.delete(uri, null, null) }
                 null
             }
