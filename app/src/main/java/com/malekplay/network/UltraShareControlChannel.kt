@@ -249,7 +249,6 @@ object UltraShareControlChannel {
                             " peer-specific routes failed; trying default route")
                     }
                     socket.connect(endpoint, HANDSHAKE_TIMEOUT_MS)
-                    connected = true
                     diagnostic("CLIENT default-route TCP connected local=" +
                         socket.localAddress?.hostAddress + ":" + socket.localPort)
                 } catch (fallbackFailure: java.io.IOException) {
