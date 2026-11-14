@@ -86,20 +86,32 @@ object NstackxNativeBridge {
         ipv4Address: String,
         networkHandle: Long
     ): Int {
-        if (!libraryLoaded) return LOAD_ERROR
+        if (!libraryLoaded) {
+            UltraShareDiagnostics.event("NSTACKX", "LIBRARY_UNAVAILABLE")
+            return LOAD_ERROR
+        }
         if (deviceName.isBlank() || deviceId.isBlank() ||
             interfaceName.isBlank() || ipv4Address.isBlank() || networkHandle <= 0L
         ) return INVALID_ARGUMENT
-        return nativeInitialize(deviceName, deviceId, interfaceName, ipv4Address, networkHandle)
+        UltraShareDiagnostics.event("NSTACKX", "INITIALIZE_REQUESTED", mapOf("interface" to interfaceName, "localIp" to ipv4Address, "networkHandle" to networkHandle))
+        val result = nativeInitialize(deviceName, deviceId, interfaceName, ipv4Address, networkHandle)
+        UltraShareDiagnostics.event("NSTACKX", if (result == 0) "INITIALIZED" else "INITIALIZE_FAILED", mapOf("resultCode" to result))
+        return result
     }
 
     @Synchronized
-    fun startDiscovery(): Int =
-        if (libraryLoaded) nativeStartDiscovery() else LOAD_ERROR
+    fun startDiscovery(): Int {
+        val result = if (libraryLoaded) nativeStartDiscovery() else LOAD_ERROR
+        UltraShareDiagnostics.event("NSTACKX", if (result == 0) "DISCOVERY_STARTED" else "DISCOVERY_START_FAILED", mapOf("resultCode" to result))
+        return result
+    }
 
     @Synchronized
-    fun stopDiscovery(): Int =
-        if (libraryLoaded) nativeStopDiscovery() else LOAD_ERROR
+    fun stopDiscovery(): Int {
+        val result = if (libraryLoaded) nativeStopDiscovery() else LOAD_ERROR
+        UltraShareDiagnostics.event("NSTACKX", "DISCOVERY_STOPPED", mapOf("resultCode" to result))
+        return result
+    }
 
 
     /**
@@ -124,6 +136,7 @@ object NstackxNativeBridge {
                     localIpv4, port, keyCopy, destinationDirectory.canonicalPath
                 )
                 if (sessionId > 0) activeDFileSessions.add(sessionId)
+                UltraShareDiagnostics.event("DFILE_SERVER", if (sessionId > 0) "STARTED" else "START_FAILED", mapOf("localIp" to localIpv4, "port" to port, "resultCode" to sessionId))
                 sessionId
             } ?: NOT_INITIALIZED
         } finally {
@@ -141,6 +154,7 @@ object NstackxNativeBridge {
             NstackxAndroidDiscoverySession.withActiveEngine {
                 val sessionId = nativeDFileStartClient(remoteIpv4, port, keyCopy)
                 if (sessionId > 0) activeDFileSessions.add(sessionId)
+                UltraShareDiagnostics.event("DFILE_CLIENT", if (sessionId > 0) "STARTED" else "START_FAILED", mapOf("remoteIp" to remoteIpv4, "port" to port, "resultCode" to sessionId))
                 sessionId
             } ?: NOT_INITIALIZED
         } finally {
@@ -190,12 +204,15 @@ object NstackxNativeBridge {
             }
             canonical.absolutePath
         }
-        return nativeDFileSendFiles(sessionId, paths.toTypedArray())
+        val result = nativeDFileSendFiles(sessionId, paths.toTypedArray())
+        UltraShareDiagnostics.event("DFILE_TRANSFER", if (result == 0) "FILES_QUEUED" else "QUEUE_FAILED", mapOf("sessionHandle" to sessionId, "fileCount" to paths.size, "resultCode" to result))
+        return result
     }
 
     fun closeDFileSession(sessionId: Int) {
         if (sessionId <= 0) return
         if (libraryLoaded) nativeDFileCloseSession(sessionId)
+        UltraShareDiagnostics.event("DFILE_SESSION", "CLOSED", mapOf("sessionHandle" to sessionId))
         if (activeDFileSessions.remove(sessionId)) {
             // Notify only after native close has returned; fatal callbacks may be
             // completing on a native worker thread.
@@ -237,12 +254,14 @@ object NstackxNativeBridge {
             fileNames = fileNames.filter { it.isNotBlank() }.map { it.substringAfterLast('/') }.distinct(),
             message = message
         )
+        UltraShareDiagnostics.event("DFILE_CALLBACK", dfileEventName(eventType), mapOf("sessionHandle" to sessionId, "transferId" to transferId, "transferredBytes" to event.transferredBytes, "totalBytes" to event.totalBytes, "fileCount" to event.fileNames.size, "nativeMessage" to message.take(240)))
         dfileListeners.forEach { listener -> runCatching { listener.onEvent(event) } }
     }
 
     @JvmStatic
     private fun onNativeDeviceFound(deviceId: String, deviceName: String, networkInterface: String) {
         if (deviceId.isBlank()) return
+        UltraShareDiagnostics.event("DISCOVERY", "PEER_FOUND", mapOf("peerId" to deviceId.take(32), "peerName" to deviceName.take(64), "interface" to networkInterface))
         val peer = Peer(deviceId, deviceName, networkInterface)
         listeners.forEach { listener ->
             runCatching { listener.onPeerFound(peer) }
@@ -275,6 +294,20 @@ object NstackxNativeBridge {
     private external fun nativeDFileSendFiles(sessionId: Int, paths: Array<String>): Int
     private external fun nativeDFileCloseSession(sessionId: Int)
     private external fun nativeRelease()
+
+    private fun dfileEventName(type: Int): String = when (type) {
+        DFILE_ON_CONNECT_SUCCESS -> "CONNECT_SUCCESS"
+        DFILE_ON_CONNECT_FAIL -> "CONNECT_FAILED"
+        DFILE_ON_FILE_LIST_RECEIVED -> "FILE_LIST_RECEIVED"
+        DFILE_ON_FILE_RECEIVE_SUCCESS -> "FILE_RECEIVE_SUCCESS"
+        DFILE_ON_FILE_RECEIVE_FAIL -> "FILE_RECEIVE_FAILED"
+        DFILE_ON_FILE_SEND_SUCCESS -> "FILE_SEND_SUCCESS"
+        DFILE_ON_FILE_SEND_FAIL -> "FILE_SEND_FAILED"
+        DFILE_ON_FATAL_ERROR -> "FATAL_ERROR"
+        DFILE_ON_SESSION_IN_PROGRESS -> "SESSION_IN_PROGRESS"
+        DFILE_ON_TRANS_IN_PROGRESS -> "TRANSFER_IN_PROGRESS"
+        else -> "UNKNOWN_" + type
+    }
 
     private const val LOAD_ERROR = -1100
     private const val INVALID_ARGUMENT = -1101
