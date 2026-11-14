@@ -114,6 +114,7 @@ fun UltraShareExperienceScreen(
     var secret by remember { mutableStateOf("") }
     var pendingQrPairing by remember { mutableStateOf<UltraShareQrCode.PairingDetails?>(null) }
     var pendingInvitationAdvertisement by remember { mutableStateOf(false) }
+    var pendingReceiverStart by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
     var pendingFolderArchive by remember { mutableStateOf<UltraShareTransport.ReceivedFile?>(null) }
     var selectedUris by remember(initialUris) {
@@ -317,7 +318,9 @@ fun UltraShareExperienceScreen(
             val pairing = pendingQrPairing
             if (pairing != null) {
                 pendingQrPairing = null
-                if (!pairing.invitationId.isNullOrBlank()) {
+                if (!pairing.hotspotSsid.isNullOrBlank() && !pairing.hotspotPassword.isNullOrBlank()) {
+                    viewModel.connectHotspotInvitation(pairing)
+                } else if (!pairing.invitationId.isNullOrBlank()) {
                     viewModel.joinWifiDirectInvitation(
                         pairing.invitationId,
                         pairing.pairingSecret,
@@ -326,6 +329,9 @@ fun UltraShareExperienceScreen(
                 } else if (pairing.host.isNotBlank()) {
                     viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
                 }
+            } else if (pendingReceiverStart) {
+                pendingReceiverStart = false
+                viewModel.startReceiving()
             } else if (pendingInvitationAdvertisement) {
                 pendingInvitationAdvertisement = false
                 viewModel.advertiseCurrentWifiDirectInvitation()
@@ -341,6 +347,9 @@ fun UltraShareExperienceScreen(
                     pairing.pairingSecret,
                     alternateHosts = pairing.hosts.drop(1)
                 )
+            } else if (pendingReceiverStart) {
+                pendingReceiverStart = false
+                Toast.makeText(context, "يلزم إذن الأجهزة القريبة لإنشاء شبكة الاستقبال.", Toast.LENGTH_LONG).show()
             } else if (wasAdvertisingInvitation) {
                 viewModel.disableWifiDirectInvitation()
             }
@@ -494,7 +503,7 @@ fun UltraShareExperienceScreen(
     }
 
     fun startReceivingGroup() {
-        if (!state.receiving) viewModel.startReceiving()
+        if (state.receiving) return
         val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
         } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -502,13 +511,11 @@ fun UltraShareExperienceScreen(
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) {
-            pendingInvitationAdvertisement = false
-            viewModel.advertiseCurrentWifiDirectInvitation()
+            // The receiver owns one LocalOnlyHotspot. Wi-Fi Direct group creation
+            // is intentionally not started in parallel with that hotspot.
+            viewModel.startReceiving()
         } else {
-            // Preserve the requested action across the Android permission dialog.
-            // Without this flag the callback falls through to peer scanning and never
-            // creates the receiver's P2P group or advertises its QR invitation.
-            pendingInvitationAdvertisement = true
+            pendingReceiverStart = true
             wifiPermission.launch(missing.toTypedArray())
         }
     }
@@ -554,7 +561,10 @@ fun UltraShareExperienceScreen(
 
     LaunchedEffect(pendingQrPairing) {
         val pairing = pendingQrPairing ?: return@LaunchedEffect
-        if (pairing.invitationId.isNullOrBlank()) {
+        if (!pairing.hotspotSsid.isNullOrBlank() && !pairing.hotspotPassword.isNullOrBlank()) {
+            pendingQrPairing = null
+            viewModel.connectHotspotInvitation(pairing)
+        } else if (pairing.invitationId.isNullOrBlank()) {
             pendingQrPairing = null
             if (pairing.host.isNotBlank()) {
                 viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
@@ -599,22 +609,25 @@ fun UltraShareExperienceScreen(
     }
 
     val qrPayload = state.localAddresses
-        // Once a peer is paired, hide the invitation QR/code. The active session
-        // remains available for additional transfers until the user disconnects.
-        .takeIf { state.receiving && state.activePeers.isEmpty() && state.pairingSecret.isNotBlank() && it.isNotEmpty() }
+        // Do not expose a scannable invitation until the control listener and
+        // temporary hotspot credentials are both ready on the active receiver.
+        .takeIf {
+            state.receiving &&
+                state.controlChannelReady &&
+                state.hotspotActive &&
+                state.activePeers.isEmpty() &&
+                state.pairingSecret.isNotBlank() &&
+                !state.hotspotSsid.isNullOrBlank() &&
+                !state.hotspotPassword.isNullOrBlank() &&
+                it.isNotEmpty()
+        }
         ?.let {
-            if (state.invitationId.isBlank()) {
-                UltraShareQrCode.createReceiverPayload(
-                    hosts = it,
-                    pairingSecret = state.pairingSecret
-                )
-            } else {
-                UltraShareQrCode.createReceiverPayload(
-                    hosts = it,
-                    pairingSecret = state.pairingSecret,
-                    invitationId = state.invitationId
-                )
-            }
+            UltraShareQrCode.createHotspotReceiverPayload(
+                hosts = it,
+                pairingSecret = state.pairingSecret,
+                ssid = state.hotspotSsid!!,
+                password = state.hotspotPassword!!
+            )
         }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { runCatching { UltraShareQrCode.createBitmap(it) }.getOrNull() }
