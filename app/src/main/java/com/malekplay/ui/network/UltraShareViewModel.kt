@@ -46,6 +46,7 @@ data class UltraShareUiState(
     val invitationId: String = "",
     val localAddresses: List<String> = emptyList(),
     val receiving: Boolean = false,
+    val controlChannelReady: Boolean = false,
     val sending: Boolean = false,
     val scanning: Boolean = false,
     val discoveredPeers: List<UltraShareDiscovery.Peer> = emptyList(),
@@ -98,6 +99,8 @@ class UltraShareViewModel @Inject constructor(
     private var bluetoothSession: UltraShareBluetoothDiscovery.Session? = null
     private var bleSession: UltraShareBleDiscovery.Session? = null
     private var nstackxStartJob: Job? = null
+    private var hotspotNetworkCallback: android.net.ConnectivityManager.NetworkCallback? = null
+    private var hotspotNetworkPaired = false
     private val nstackxPeerNames = NstackxPeerNameCache()
     private data class PendingQrPairing(val secret: String, val hosts: List<String>)
     private var pendingQrPairing: PendingQrPairing? = null
@@ -142,6 +145,7 @@ class UltraShareViewModel @Inject constructor(
                     pairingSecret = serviceState.pairingSecret,
                     localAddresses = serviceState.localAddresses,
                     receiving = serviceState.receiving,
+                    controlChannelReady = serviceState.controlChannelReady,
                     sending = serviceState.sending,
                     progress = serviceState.progress,
                     sendProgress = serviceState.sendProgress,
@@ -184,7 +188,8 @@ class UltraShareViewModel @Inject constructor(
             status = context.getString(R.string.ultra_share_waiting)
         )
         runCatching { UltraShareForegroundService.startReceiving(context, secret) }
-            .onSuccess { ensureNstackxDiscovery() }
+            // The active receiver uses the LocalOnlyHotspot QR path. NSTACKX is
+            // initialized only after an authenticated peer selects its actual route.
             .onFailure {
                 _state.value = _state.value.copy(
                     receiving = false,
@@ -199,7 +204,9 @@ class UltraShareViewModel @Inject constructor(
         host: String,
         secret: String,
         candidates: List<com.malekplay.network.UltraShareNegotiation.Candidate> = emptyList(),
-        alternateHosts: List<String> = emptyList()
+        alternateHosts: List<String> = emptyList(),
+        preferredNetwork: android.net.Network? = null,
+        onConnectionEstablished: ((String) -> Unit)? = null
     ) {
         if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
             _state.value = _state.value.copy(error = "أدخل عنوان الجهاز ورمز الاقتران الصحيح أولاً.")
@@ -233,7 +240,11 @@ class UltraShareViewModel @Inject constructor(
                 var lastFailure: Exception? = null
                 for (routeHost in routeHosts) {
                     try {
-                        val routeNetwork = UltraShareNetworkRouting.findNetworkForHost(context, routeHost)
+                        val routeNetworks = (
+                            listOfNotNull(preferredNetwork) +
+                                UltraShareNetworkRouting.findNetworksForHost(context, routeHost)
+                            ).distinct()
+                        val routeNetwork = routeNetworks.firstOrNull()
                         // 192.168.49.x is the conventional Android Wi-Fi Direct group subnet.
                         // Never send that destination over the unrelated default WLAN when
                         // Android has not exposed a matching P2P Network; doing so produces
@@ -249,6 +260,7 @@ class UltraShareViewModel @Inject constructor(
                             pairingSecret = secret.trim(),
                             peerName = android.os.Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
                             network = routeNetwork,
+                            networks = routeNetworks.drop(1),
                             peerId = UltraShareDiscovery.localPeerId(context),
                             onSessionClosed = { disconnectedHost ->
                                 UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
@@ -309,6 +321,7 @@ class UltraShareViewModel @Inject constructor(
                         requestingConnection = false,
                         error = null
                     )
+                    onConnectionEstablished?.invoke(connectedHost)
                 } else {
                     val previousTarget = UltraShareForegroundService.approvedSendTargets().lastOrNull()
                     _state.value = _state.value.copy(
@@ -432,6 +445,13 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun stopReceiving() {
+        hotspotNetworkCallback?.let { callback ->
+            val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as? android.net.ConnectivityManager
+            runCatching { connectivity?.unregisterNetworkCallback(callback) }
+        }
+        hotspotNetworkCallback = null
+        hotspotNetworkPaired = false
         UltraShareForegroundService.stopReceiving(context)
         runCatching { wifiDirectSession?.stopInvitationAdvertisement() }
         runCatching { wifiDirectSession?.removeGroup() }
@@ -444,6 +464,107 @@ class UltraShareViewModel @Inject constructor(
             status = context.getString(R.string.ultra_share_stopped)
         )
         stopNstackxIfIdle()
+    }
+
+    /**
+     * Joins the temporary LocalOnlyHotspot advertised by QR v4, then performs
+     * the same authenticated MPC2 handshake as every other route.
+     */
+    fun connectHotspotInvitation(pairing: com.malekplay.network.UltraShareQrCode.PairingDetails) {
+        if (pairing.hotspotSsid.isNullOrBlank() || pairing.hotspotPassword.isNullOrBlank()) {
+            requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            _state.value = _state.value.copy(
+                requestingConnection = true,
+                error = null,
+                status = "اتصل أولاً بشبكة MalekPlay من إعدادات Wi-Fi، ثم أعد مسح رمز QR."
+            )
+            requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
+            return
+        }
+
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager
+        if (connectivity == null) {
+            _state.value = _state.value.copy(error = "خدمة اتصال Wi-Fi غير متاحة على هذا الجهاز.")
+            return
+        }
+        hotspotNetworkCallback?.let { old ->
+            runCatching { connectivity.unregisterNetworkCallback(old) }
+        }
+        hotspotNetworkPaired = false
+        _state.value = _state.value.copy(
+            requestingConnection = true,
+            error = null,
+            status = "جارٍ طلب الانضمام إلى شبكة MalekPlay من Android..."
+        )
+
+        val specifier = android.net.wifi.WifiNetworkSpecifier.Builder()
+            .setSsid(pairing.hotspotSsid)
+            .setWpa2Passphrase(pairing.hotspotPassword)
+            .build()
+        val request = android.net.NetworkRequest.Builder()
+            .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+            .removeCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .setNetworkSpecifier(specifier)
+            .build()
+        val connectionStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                if (!connectionStarted.compareAndSet(false, true)) return
+                _state.value = _state.value.copy(
+                    status = "اتصل Android بشبكة MalekPlay؛ جارٍ التحقق من رمز الاقتران..."
+                )
+                requestConnection(
+                    host = pairing.host,
+                    secret = pairing.pairingSecret,
+                    alternateHosts = pairing.hosts.drop(1),
+                    preferredNetwork = network,
+                    onConnectionEstablished = { connectedHost ->
+                        hotspotNetworkPaired = true
+                        UltraShareForegroundService.startReceiving(
+                            context,
+                            pairing.pairingSecret,
+                            createHotspot = false
+                        )
+                        _state.value = _state.value.copy(
+                            approvedPeerHost = connectedHost,
+                            status = "تم الاقتران عبر شبكة MalekPlay؛ الإرسال والاستقبال جاهزان.",
+                            error = null
+                        )
+                    }
+                )
+            }
+
+            override fun onUnavailable() {
+                if (hotspotNetworkPaired) return
+                _state.value = _state.value.copy(
+                    requestingConnection = false,
+                    error = "لم يكتمل الانضمام إلى شبكة MalekPlay. وافق على طلب Wi-Fi الذي عرضه Android وأبقِ نقطة الاتصال مفتوحة."
+                )
+            }
+
+            override fun onLost(network: android.net.Network) {
+                if (!hotspotNetworkPaired) {
+                    _state.value = _state.value.copy(
+                        requestingConnection = false,
+                        error = "انقطع اتصال شبكة MalekPlay قبل اكتمال الاقتران."
+                    )
+                }
+            }
+        }
+        hotspotNetworkCallback = callback
+        try {
+            connectivity.requestNetwork(request, callback, 30_000)
+        } catch (failure: Exception) {
+            hotspotNetworkCallback = null
+            _state.value = _state.value.copy(
+                requestingConnection = false,
+                error = failure.localizedMessage ?: "تعذر طلب الانضمام إلى شبكة MalekPlay."
+            )
+        }
     }
 
     fun scanNearbyDevices() {
@@ -1174,6 +1295,14 @@ class UltraShareViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        if (!hotspotNetworkPaired) {
+            hotspotNetworkCallback?.let { callback ->
+                val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                    as? android.net.ConnectivityManager
+                runCatching { connectivity?.unregisterNetworkCallback(callback) }
+            }
+        }
+        hotspotNetworkCallback = null
         scanJob?.cancel()
         wifiDirectScanTimeout?.cancel()
         bluetoothScanTimeout?.cancel()
