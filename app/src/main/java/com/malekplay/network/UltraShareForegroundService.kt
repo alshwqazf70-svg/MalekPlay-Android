@@ -137,7 +137,8 @@ class UltraShareForegroundService : Service() {
     private data class ActiveDFileServer(
         val sessionId: Int,
         val listener: NstackxNativeBridge.DFileListener,
-        val activeTransferIds: MutableSet<Int>
+        val activeTransferIds: MutableSet<Int>,
+        val listenerActive: java.util.concurrent.atomic.AtomicBoolean
     )
     private val dfileServerSessions = java.util.concurrent.ConcurrentHashMap<String, ActiveDFileServer>()
     @Volatile private var receiveJob: Job? = null
@@ -682,11 +683,14 @@ class UltraShareForegroundService : Service() {
         val sessionIdRef = java.util.concurrent.atomic.AtomicInteger(-1)
         val earlyEvents = java.util.concurrent.ConcurrentLinkedQueue<NstackxNativeBridge.DFileEvent>()
         val activeTransferIds = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Int, Boolean>())
+        val listenerActive = java.util.concurrent.atomic.AtomicBoolean(true)
         val listener = NstackxNativeBridge.DFileListener { event ->
-            val expected = sessionIdRef.get()
-            if (expected <= 0) earlyEvents.add(event)
-            else if (event.sessionId == expected) {
-                handleDFileServerEvent(peerAddress, safeStaging, safeDestination, event, activeTransferIds)
+            if (listenerActive.get()) {
+                val expected = sessionIdRef.get()
+                if (expected <= 0) earlyEvents.add(event)
+                else if (UltraShareDFileSessionGuard.isCurrentSession(expected, event.sessionId)) {
+                    handleDFileServerEvent(peerAddress, safeStaging, safeDestination, event, activeTransferIds)
+                }
             }
         }
         NstackxNativeBridge.addDFileListener(listener)
@@ -712,8 +716,10 @@ class UltraShareForegroundService : Service() {
             runCatching { safeStaging.deleteRecursively() }
             return null
         }
+        dfileServerSessions[peerAddress] = ActiveDFileServer(
+            sessionId, listener, activeTransferIds, listenerActive
+        )
         sessionIdRef.set(sessionId)
-        dfileServerSessions[peerAddress] = ActiveDFileServer(sessionId, listener, activeTransferIds)
         while (true) {
             val event = earlyEvents.poll() ?: break
             if (event.sessionId == sessionId) {
@@ -730,6 +736,11 @@ class UltraShareForegroundService : Service() {
         event: NstackxNativeBridge.DFileEvent,
         activeTransferIds: MutableSet<Int>
     ) {
+        if (!UltraShareDFileSessionGuard.isCurrentSession(
+                dfileServerSessions[peerAddress]?.sessionId,
+                event.sessionId
+            )
+        ) return
         when (event.eventType) {
             NstackxNativeBridge.DFILE_ON_TRANS_IN_PROGRESS -> {
                 if (event.transferId > 0 && activeTransferIds.add(event.transferId)) {
@@ -757,6 +768,11 @@ class UltraShareForegroundService : Service() {
                 }
                 event.fileNames.forEach { receivedName ->
                     serviceScope.launch {
+                        if (!UltraShareDFileSessionGuard.isCurrentSession(
+                                dfileServerSessions[peerAddress]?.sessionId,
+                                event.sessionId
+                            )
+                        ) return@launch
                         val safeName = UltraShareTransport.sanitizeFileName(receivedName)
                         val stagedFile = runCatching { File(stagingDirectory, safeName).canonicalFile }.getOrNull()
                             ?: return@launch
@@ -846,7 +862,7 @@ class UltraShareForegroundService : Service() {
                     error = event.message.ifBlank { "انتهت جلسة DFile بصورة غير متوقعة." },
                     status = "انتهت جلسة DFile؛ لن نكرر البيانات تلقائياً."
                 ) }
-                serviceScope.launch { closeDFileServerForPeer(peerAddress) }
+                serviceScope.launch { closeDFileServerForPeer(peerAddress, event.sessionId) }
             }
         }
     }
@@ -887,15 +903,22 @@ class UltraShareForegroundService : Service() {
         }.getOrNull()
 
     private fun closeDFileServerForPeer(peerAddress: String) {
-        dfileServerSessions.remove(peerAddress)?.let { active ->
-            NstackxNativeBridge.removeDFileListener(active.listener)
-            active.activeTransferIds.toList().forEach { id ->
-                if (active.activeTransferIds.remove(id)) endTransfer(isReceiving = true)
-            }
-            NstackxNativeBridge.closeDFileSession(active.sessionId)
-            // Keep the hidden staging folder until age-based cleanup. A native
-            // success callback may already be queued on serviceScope.
+        closeDFileServerForPeer(peerAddress, expectedSessionId = null)
+    }
+
+    /** A delayed fatal callback may only close the session that emitted it. */
+    private fun closeDFileServerForPeer(peerAddress: String, expectedSessionId: Int?) {
+        val active = dfileServerSessions[peerAddress] ?: return
+        if (expectedSessionId != null && active.sessionId != expectedSessionId) return
+        if (!dfileServerSessions.remove(peerAddress, active)) return
+        active.listenerActive.set(false)
+        NstackxNativeBridge.removeDFileListener(active.listener)
+        active.activeTransferIds.toList().forEach { id ->
+            if (active.activeTransferIds.remove(id)) endTransfer(isReceiving = true)
         }
+        NstackxNativeBridge.closeDFileSession(active.sessionId)
+        // Keep the hidden staging folder until age-based cleanup. The session guard
+        // prevents a late callback from publishing after this session is retired.
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
