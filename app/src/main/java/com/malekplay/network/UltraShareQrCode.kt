@@ -23,6 +23,7 @@ object UltraShareQrCode {
     private const val VERSION = "1"
     private const val MULTI_HOST_VERSION = "2"
     private const val INVITATION_VERSION = "3"
+    private const val HOTSPOT_VERSION = "4"
     private const val MAX_QR_HOSTS = 8
     private const val MAX_DECODE_DIMENSION = 2048
 
@@ -82,6 +83,29 @@ object UltraShareQrCode {
             .toString()
     }
 
+    /** Version 4 carries temporary LocalOnlyHotspot credentials for system-mediated joining. */
+    fun createHotspotReceiverPayload(
+        host: String,
+        pairingSecret: String,
+        ssid: String,
+        password: String
+    ): String {
+        require(UltraShareTransport.isValidPrivateLanHost(host)) { "عنوان نقطة الاتصال غير صالح." }
+        require(UltraShareTransport.isValidPairingSecret(pairingSecret)) { "رمز الاقتران غير صالح." }
+        require(ssid.isNotBlank() && ssid.length <= 32) { "اسم شبكة MalekPlay غير صالح." }
+        require(password.length in 8..63) { "كلمة مرور شبكة MalekPlay غير صالحة." }
+        return Uri.Builder()
+            .scheme(SCHEMA)
+            .authority(AUTHORITY)
+            .appendQueryParameter("v", HOTSPOT_VERSION)
+            .appendQueryParameter("host", host)
+            .appendQueryParameter("port", UltraShareControlChannel.DEFAULT_PORT.toString())
+            .appendQueryParameter("secret", pairingSecret)
+            .appendQueryParameter("ssid", ssid)
+            .appendQueryParameter("wifi_password", password)
+            .build().toString()
+    }
+
     fun createPayload(host: String, port: Int, pairingSecret: String): String {
         require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ قناة الاقتران غير متوافق." }
         require(UltraShareTransport.isValidPrivateLanHost(host)) {
@@ -106,7 +130,9 @@ object UltraShareQrCode {
         val port: Int,
         val pairingSecret: String,
         val hosts: List<String> = listOf(host),
-        val invitationId: String? = null
+        val invitationId: String? = null,
+        val hotspotSsid: String? = null,
+        val hotspotPassword: String? = null
     )
 
     fun parsePayload(payload: String): PairingDetails {
@@ -115,7 +141,7 @@ object UltraShareQrCode {
             "رمز QR ليس رمز اقتران MalekPlayer Ultra Share."
         }
         val version = uri.getQueryParameter("v")
-        require(version == VERSION || version == MULTI_HOST_VERSION || version == INVITATION_VERSION) {
+        require(version == VERSION || version == MULTI_HOST_VERSION || version == INVITATION_VERSION || version == HOTSPOT_VERSION) {
             "إصدار رمز الاقتران غير مدعوم."
         }
         val hosts = (if (version == MULTI_HOST_VERSION || version == INVITATION_VERSION) {
@@ -135,6 +161,14 @@ object UltraShareQrCode {
         val secret = requireNotNull(uri.getQueryParameter("secret")) { "رمز الاقتران غير موجود في رمز QR." }
         require(UltraShareTransport.isValidPairingSecret(secret)) { "رمز الاقتران في QR غير صالح." }
         require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ MalekPlayer Ultra Share غير متوافق." }
+        val hotspotSsid = if (version == HOTSPOT_VERSION) {
+            requireNotNull(uri.getQueryParameter("ssid")) { "اسم شبكة Wi-Fi غير موجود في QR." }
+                .also { require(it.isNotBlank() && it.length <= 32) { "اسم شبكة Wi-Fi غير صالح." } }
+        } else null
+        val hotspotPassword = if (version == HOTSPOT_VERSION) {
+            requireNotNull(uri.getQueryParameter("wifi_password")) { "كلمة مرور Wi-Fi غير موجودة في QR." }
+                .also { require(it.length in 8..63) { "كلمة مرور Wi-Fi غير صالحة." } }
+        } else null
         val invitationId = if (version == INVITATION_VERSION) {
             requireNotNull(uri.getQueryParameter("peer")) { "هوية الجهاز غير موجودة في رمز QR." }
                 .also {
@@ -143,7 +177,7 @@ object UltraShareQrCode {
                     }
                 }
         } else null
-        return PairingDetails(host, port, secret, hosts, invitationId)
+        return PairingDetails(host, port, secret, hosts, invitationId, hotspotSsid, hotspotPassword)
     }
 
     fun createBitmap(payload: String, dimension: Int = 640): Bitmap {
