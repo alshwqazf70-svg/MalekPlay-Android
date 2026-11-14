@@ -17,6 +17,14 @@ import org.junit.Test
 
 class UltraShareControlChannelTest {
     @Test
+    fun eitherApprovedControlSessionDirectionAllowsTheDataChannel() {
+        assertTrue(UltraShareControlChannel.isDataSessionAuthorized(true, false))
+        assertTrue(UltraShareControlChannel.isDataSessionAuthorized(false, true))
+        assertTrue(UltraShareControlChannel.isDataSessionAuthorized(true, true))
+        assertFalse(UltraShareControlChannel.isDataSessionAuthorized(false, false))
+    }
+
+    @Test
     fun authenticatedRequestWaitsForAndReceivesApproval() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
         val secret = "123456789"
