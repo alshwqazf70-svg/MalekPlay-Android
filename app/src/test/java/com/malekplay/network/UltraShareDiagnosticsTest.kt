@@ -12,6 +12,21 @@ class UltraShareDiagnosticsTest {
     }
 
     @Test
+    fun jsonEncoderEscapesControlCharactersAndPreservesPrimitiveTypes() {
+        val encoded = UltraShareDiagnostics.jsonObject(
+            linkedMapOf(
+                "message" to "first line\\nsecond line",
+                "count" to 3,
+                "enabled" to true
+            )
+        )
+        assertEquals(
+            """{"message":"first line\\nsecond line","count":3,"enabled":true}""",
+            encoded
+        )
+    }
+
+    @Test
     fun retentionDoesNotDeleteThreeOrFewerSessions() {
         assertEquals(emptyList<String>(), UltraShareDiagnostics.filesToDelete(listOf("one", "two", "three")))
         assertEquals(emptyList<String>(), UltraShareDiagnostics.filesToDelete(emptyList<String>()))
