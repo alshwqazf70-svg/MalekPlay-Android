@@ -654,7 +654,17 @@ object UltraShareControlChannel {
                     "CONTROL_CHANNEL", "SERVER_SESSION_CLOSED",
                     mapOf("peerHost" to requestToClose.peerAddress, "peerName" to requestToClose.peerName)
                 )
-                withContext(NonCancellable) { onSessionClosed(requestToClose) }
+                withContext(NonCancellable) {
+                    try {
+                        onSessionClosed(requestToClose)
+                    } catch (failure: Exception) {
+                        UltraShareDiagnostics.failure(
+                            "CONTROL_CHANNEL_SESSION_CLEANUP",
+                            failure,
+                            "peerHost=" + requestToClose.peerAddress
+                        )
+                    }
+                }
             }
         }
     }
