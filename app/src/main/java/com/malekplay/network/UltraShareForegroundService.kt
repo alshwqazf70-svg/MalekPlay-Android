@@ -208,6 +208,7 @@ class UltraShareForegroundService : Service() {
                     disconnectApprovedPeer(host)
                 }
                 dfileServerSessions.keys.toList().forEach(::closeDFileServerForPeer)
+                stopLocalHotspot()
                 updateState { current -> current.copy(activePeers = emptyList(), pendingConnection = null) }
                 return START_NOT_STICKY
             }
@@ -2198,9 +2199,9 @@ class UltraShareForegroundService : Service() {
             .sortedWith(compareBy<Pair<String, Inet4Address>>(
                 { (name, _) ->
                     when {
-                        name.startsWith("wlan") || name.startsWith("swlan") -> 0
-                        name.startsWith("ap") -> 1
-                        name.startsWith("p2p") -> 2
+                        name.startsWith("ap") || name.startsWith("softap") -> 0
+                        name.startsWith("swlan") -> 1
+                        name.startsWith("wlan") -> 2
                         else -> 3
                     }
                 },
@@ -2338,7 +2339,11 @@ class UltraShareForegroundService : Service() {
             start(context, intent)
         }
 
-        fun startReceiving(context: Context, secret: String) {
+        fun startReceiving(
+            context: Context,
+            secret: String,
+            createHotspot: Boolean = true
+        ) {
             // Clear a previous session's readiness before the asynchronous service
             // start, so a newly generated QR can never reuse stale "ready" state.
             mutableState.update { current -> current.copy(
@@ -2349,7 +2354,10 @@ class UltraShareForegroundService : Service() {
                 .setAction(ACTION_RECEIVE)
                 .putExtra(EXTRA_SECRET, secret)
             start(context, intent)
-            startLocalHotspot(context)
+            // The QR creator owns the LocalOnlyHotspot. The joining peer must not
+            // start a second hotspot while connected as a Wi-Fi client; it only
+            // opens its reverse transfer listener on the already-connected LAN.
+            if (createHotspot) startLocalHotspot(context)
         }
 
         fun startSending(context: Context, uri: Uri, host: String, secret: String) {
