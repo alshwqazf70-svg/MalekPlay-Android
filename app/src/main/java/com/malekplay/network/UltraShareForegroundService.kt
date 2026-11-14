@@ -543,7 +543,13 @@ class UltraShareForegroundService : Service() {
                                 localPeerName = Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
                                 localPeerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
                                 onListening = { actualPort ->
-                                    if (actualPort == UltraShareControlChannel.DEFAULT_PORT) {
+                                    val ready = actualPort == UltraShareControlChannel.DEFAULT_PORT
+                                    UltraShareDiagnostics.event(
+                                        "CONTROL_CHANNEL",
+                                        if (ready) "LISTENING" else "UNEXPECTED_LISTENING_PORT",
+                                        mapOf("port" to actualPort, "expectedPort" to UltraShareControlChannel.DEFAULT_PORT)
+                                    )
+                                    if (ready) {
                                         updateState { current -> current.copy(
                                             controlChannelReady = true,
                                             controlChannelError = null
@@ -562,6 +568,11 @@ class UltraShareForegroundService : Service() {
                                     }
                                 }
                             ) { request ->
+                                UltraShareDiagnostics.event(
+                                    "CONTROL_CHANNEL",
+                                    "PEER_AUTHENTICATED",
+                                    mapOf("peerHost" to request.peerAddress, "peerName" to request.peerName, "peerIdPresent" to (request.peerId != null))
+                                )
                                 // A valid QR/PIN is the user's pairing authorization.
                                 // Accept the authenticated session immediately; do not ask
                                 // the receiver for a second approval or persist device trust.
@@ -592,6 +603,11 @@ class UltraShareForegroundService : Service() {
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
+                            UltraShareDiagnostics.failure(
+                                "CONTROL_CHANNEL_SERVER",
+                                failure,
+                                "port=" + UltraShareControlChannel.DEFAULT_PORT
+                            )
                             updateState { current -> current.copy(
                                 controlChannelReady = false,
                                 controlChannelError = failure.localizedMessage ?: "تعذر فتح منفذ الاتصال الآمن 38744.",

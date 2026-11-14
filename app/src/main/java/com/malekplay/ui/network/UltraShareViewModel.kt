@@ -268,6 +268,15 @@ class UltraShareViewModel @Inject constructor(
                             listOfNotNull(preferredNetwork) +
                                 UltraShareNetworkRouting.findNetworksForHost(context, routeHost)
                             ).distinct()
+                        UltraShareDiagnostics.event(
+                            "NETWORK_ROUTING",
+                            "HOST_ROUTES_RESOLVED",
+                            mapOf(
+                                "host" to routeHost,
+                                "routeCount" to routeNetworks.size,
+                                "networkHandles" to routeNetworks.joinToString(",") { it.networkHandle.toString() }
+                            )
+                        )
                         val routeNetwork = routeNetworks.firstOrNull()
                         // 192.168.49.x is the conventional Android Wi-Fi Direct group subnet.
                         // Never send that destination over the unrelated default WLAN when

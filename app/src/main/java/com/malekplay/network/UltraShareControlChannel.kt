@@ -209,6 +209,11 @@ object UltraShareControlChannel {
             // (WLAN, SoftAP or Wi-Fi Direct). Never assume the first matching
             // route is usable: try each route with a fresh, unbound socket.
             val routeCandidates = UltraShareNetworkRouting.orderedDistinctRoutes(network, networks)
+            UltraShareDiagnostics.event(
+                "CONTROL_CHANNEL",
+                "ROUTE_CANDIDATES",
+                mapOf("host" to host, "port" to port, "routeCount" to routeCandidates.size)
+            )
             var routeIndex = 0
             var lastRouteFailure: java.io.IOException? = null
             val connectedNetwork = UltraShareNetworkRouting.firstSuccessfulRoute(routeCandidates) { candidateNetwork ->
@@ -216,17 +221,37 @@ object UltraShareControlChannel {
                 runCatching { socket.close() }
                 socket = Socket()
                 try {
+                    UltraShareDiagnostics.event(
+                        "CONTROL_CHANNEL",
+                        "ANDROID_NETWORK_ROUTE_ATTEMPT",
+                        mapOf("routeIndex" to index, "networkHandle" to candidateNetwork.networkHandle)
+                    )
                     diagnosticStage = "network-bind-$index"
                     candidateNetwork.bindSocket(socket)
                     diagnostic("CLIENT network bind succeeded: " + candidateNetwork)
+                    UltraShareDiagnostics.event(
+                        "CONTROL_CHANNEL",
+                        "ANDROID_NETWORK_BOUND",
+                        mapOf("routeIndex" to index, "networkHandle" to candidateNetwork.networkHandle)
+                    )
                     diagnosticStage = "tcp-connect-$index"
                     socket.connect(endpoint, HANDSHAKE_TIMEOUT_MS)
                     diagnostic("CLIENT TCP connected via Android Network local=" +
                         socket.localAddress?.hostAddress + ":" + socket.localPort +
                         " remote=" + socket.inetAddress?.hostAddress + ":" + socket.port)
+                    UltraShareDiagnostics.event(
+                        "CONTROL_CHANNEL",
+                        "TCP_CONNECTED",
+                        mapOf("route" to "android_network", "routeIndex" to index, "networkHandle" to candidateNetwork.networkHandle, "localAddress" to socket.localAddress?.hostAddress)
+                    )
                     true
                 } catch (routeFailure: java.io.IOException) {
                     lastRouteFailure = routeFailure
+                    UltraShareDiagnostics.failure(
+                        "CONTROL_CHANNEL_ANDROID_ROUTE_$index",
+                        routeFailure,
+                        "host=" + host + ";port=" + port + ";networkHandle=" + candidateNetwork.networkHandle + ";stage=" + diagnosticStage
+                    )
                     diagnostic("CLIENT Android Network attempt failed at " + diagnosticStage + ": " +
                         routeFailure.javaClass.simpleName +
                         (routeFailure.message?.take(100)?.let { " - " + it } ?: ""))
@@ -241,6 +266,11 @@ object UltraShareControlChannel {
                     // Some OEM P2P implementations do not publish a matching
                     // Network object. Preserve the system-route fallback, but only
                     // after every peer-specific Android Network has been attempted.
+                    UltraShareDiagnostics.event(
+                        "CONTROL_CHANNEL",
+                        "DEFAULT_ROUTE_FALLBACK",
+                        mapOf("host" to host, "port" to port, "routeCount" to routeCandidates.size)
+                    )
                     diagnosticStage = "default-route-connect"
                     if (routeCandidates.isEmpty()) {
                         diagnostic("CLIENT no peer-specific Android Network; trying default route")
@@ -251,7 +281,17 @@ object UltraShareControlChannel {
                     socket.connect(endpoint, HANDSHAKE_TIMEOUT_MS)
                     diagnostic("CLIENT default-route TCP connected local=" +
                         socket.localAddress?.hostAddress + ":" + socket.localPort)
+                    UltraShareDiagnostics.event(
+                        "CONTROL_CHANNEL",
+                        "TCP_CONNECTED",
+                        mapOf("route" to "default", "localAddress" to socket.localAddress?.hostAddress)
+                    )
                 } catch (fallbackFailure: java.io.IOException) {
+                    UltraShareDiagnostics.failure(
+                        "CONTROL_CHANNEL_DEFAULT_ROUTE",
+                        fallbackFailure,
+                        "host=" + host + ";port=" + port + ";routeCount=" + routeCandidates.size + ";stage=" + diagnosticStage
+                    )
                     diagnostic("CLIENT default-route failed: " + fallbackFailure.javaClass.simpleName +
                         (fallbackFailure.message?.take(100)?.let { " - " + it } ?: ""))
                     lastRouteFailure?.let(fallbackFailure::addSuppressed)
