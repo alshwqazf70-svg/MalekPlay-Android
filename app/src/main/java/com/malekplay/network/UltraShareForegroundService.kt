@@ -340,7 +340,7 @@ class UltraShareForegroundService : Service() {
                                 )
                                 updateState { current -> current.copy(
                                         receiving = true,
-                                        progress = if (current.sending) null else null,
+                                        progress = if (current.sending) current.sendProgress else null,
                                         receiveProgress = null,
                                         receivedFile = published,
                                         status = if (publishedUri != null) {
