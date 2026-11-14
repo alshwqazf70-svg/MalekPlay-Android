@@ -516,6 +516,11 @@ class UltraShareForegroundService : Service() {
                                         actualPort,
                                         UltraShareBatchTransport.DEFAULT_PORT
                                     )
+                                    UltraShareDiagnostics.event(
+                                        "DATA_CHANNEL",
+                                        if (ready) "V2_LISTENER_READY" else "V2_LISTENER_WRONG_PORT",
+                                        mapOf("actualPort" to actualPort, "expectedPort" to UltraShareBatchTransport.DEFAULT_PORT)
+                                    )
                                     updateState { current -> current.copy(
                                         dataChannelReady = ready,
                                         error = if (ready) current.error else
