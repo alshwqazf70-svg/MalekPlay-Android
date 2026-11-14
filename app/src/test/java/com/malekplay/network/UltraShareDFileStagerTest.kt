@@ -7,6 +7,28 @@ import org.junit.Test
 
 class UltraShareDFileStagerTest {
     @Test
+    fun receivedDFileMustStayInsideStagingAndMatchReportedSize() {
+        val cache = createTempDir(prefix = "dfile-receive-validate")
+        try {
+            val staging = File(cache, "session-receive").apply { mkdirs() }
+            val received = File(staging, "received.mp4").apply { writeBytes(byteArrayOf(9, 8, 7, 6)) }
+            assertTrue(UltraShareDFileStager.isSafeReceivedFile(received, staging, 4L))
+            assertTrue(UltraShareDFileStager.isSafeReceivedFile(received, staging, 0L))
+            assertFalse(UltraShareDFileStager.isSafeReceivedFile(received, staging, 3L))
+
+            val outside = File(cache, "outside.mp4").apply { writeBytes(byteArrayOf(9, 8, 7, 6)) }
+            val link = File(staging, "outside-link.mp4")
+            runCatching {
+                java.nio.file.Files.createSymbolicLink(link.toPath(), outside.toPath())
+            }.onSuccess {
+                assertFalse(UltraShareDFileStager.isSafeReceivedFile(link, staging, 4L))
+            }
+        } finally {
+            cache.deleteRecursively()
+        }
+    }
+
+    @Test
     fun stagedFileValidationRejectsSizeMismatchAndPathsOutsideOwnedSession() {
         val cache = createTempDir(prefix = "dfile-stage-path")
         try {
