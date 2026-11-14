@@ -710,6 +710,9 @@ class LegacyUltraShareViewModel @Inject constructor(
             .build()
         val request = android.net.NetworkRequest.Builder()
             .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+            // LocalOnlyHotspot deliberately has no internet access. The default
+            // NetworkRequest asks for INTERNET and can therefore reject this LAN.
+            .removeCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .setNetworkSpecifier(specifier)
             .build()
         val connectionStarted = AtomicBoolean(false)
