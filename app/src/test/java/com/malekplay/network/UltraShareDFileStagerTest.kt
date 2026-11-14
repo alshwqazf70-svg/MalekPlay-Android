@@ -1,11 +1,20 @@
 package com.malekplay.network
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UltraShareDFileStagerTest {
+    @Test
+    fun aggregateDFileByteCountIsNotComparedAgainstEachFileInMultiFileBatch() {
+        assertEquals(4L, UltraShareDFileStager.reportedSizeForValidation(1, 4L))
+        assertEquals(0L, UltraShareDFileStager.reportedSizeForValidation(2, 12L))
+        assertEquals(0L, UltraShareDFileStager.reportedSizeForValidation(0, 12L))
+        assertEquals(0L, UltraShareDFileStager.reportedSizeForValidation(1, -1L))
+    }
+
     @Test
     fun receivedDFileMustStayInsideStagingAndMatchReportedSize() {
         val cache = createTempDir(prefix = "dfile-receive-validate")
