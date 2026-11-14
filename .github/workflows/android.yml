@@ -237,7 +237,7 @@ jobs:
   android-runtime-tests:
     name: Android network runtime tests (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -259,8 +259,45 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_2
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: ./gradlew --build-cache --stacktrace --max-workers=2 :app:connectedDebugAndroidTest
+          verbose: true
+          script: |
+            set -euo pipefail
+            adb wait-for-device
+            for attempt in $(seq 1 30); do
+              sdk="$(adb shell getprop ro.build.version.sdk | tr -d '\\r')"
+              boot="$(adb shell getprop sys.boot_completed | tr -d '\\r')"
+              if [ "$sdk" = "${{ matrix.api-level }}" ] && [ "$boot" = "1" ]; then
+                echo "Emulator is stable: API $sdk"
+                break
+              fi
+              if [ "$attempt" -eq 30 ]; then
+                echo "Emulator did not reach a stable Android boot state."
+                adb devices -l || true
+                adb shell getprop || true
+                exit 1
+              fi
+              sleep 2
+            done
+            ./gradlew --build-cache --stacktrace --max-workers=1 :app:connectedDebugAndroidTest || {
+              adb logcat -d -v threadtime > ultrashare-emulator-logcat.txt || true
+              adb shell getprop > ultrashare-emulator-properties.txt || true
+              exit 1
+            }
+      - name: Upload Android runtime test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-runtime-diagnostics-api-${{ matrix.api-level }}
+          path: |
+            app/build/reports/androidTests/connected/debug/
+            app/build/outputs/androidTest-results/connected/
+            ultrashare-emulator-logcat.txt
+            ultrashare-emulator-properties.txt
+          if-no-files-found: warn
+          retention-days: 14
 
   android-lint:
     name: Android lint
