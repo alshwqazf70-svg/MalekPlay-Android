@@ -24,6 +24,20 @@ class UltraShareNetworkRoutingTest {
     }
 
     @Test
+    fun attemptsEveryDistinctAndroidNetworkBeforeSystemDefaultFallback() {
+        assertEquals(
+            listOf("p2p", "wlan", "hotspot", null),
+            UltraShareNetworkRouting.orderedRoutesWithDefaultFallback(
+                listOf("p2p", "wlan", "p2p", "hotspot", "wlan")
+            )
+        )
+        assertEquals(
+            listOf(null),
+            UltraShareNetworkRouting.orderedRoutesWithDefaultFallback(emptyList<String>())
+        )
+    }
+
+    @Test
     fun matchesAddressWithinFullAndPartialIpv4Prefixes() {
         val network = InetAddress.getByName("192.168.49.1") as Inet4Address
         assertTrue(
