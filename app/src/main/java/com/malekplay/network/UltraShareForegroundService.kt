@@ -1920,7 +1920,7 @@ class UltraShareForegroundService : Service() {
                 val dataNetworks = UltraShareNetworkRouting.findNetworksForHost(
                     this@UltraShareForegroundService, activeHost
                 )
-                val controlReady = UltraShareControlChannel.isSessionActive(activeHost)
+                val controlReady = UltraShareControlChannel.hasAnyActiveSession(activeHost)
                 val dataReady = UltraShareDiscovery.probeDataEndpoint(
                     activeHost, dataPort, dataNetworks
                 )
