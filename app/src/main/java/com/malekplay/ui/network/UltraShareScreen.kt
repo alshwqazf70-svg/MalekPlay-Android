@@ -203,12 +203,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                     queueTotalBytes = serviceState.queueTotalBytes,
                     queueTransferredBytes = serviceState.queueTransferredBytes
                 )
-                // Restore only after applying the service snapshot, otherwise the
-                // snapshot copy would overwrite the invitation ID we just recovered.
-                if (serviceState.receiving && _state.value.invitationId == null) {
-                    invitationPreferences.getString("active_invitation_id", null)
-                        ?.let(::activateReceiverInvitation)
-                }
+                // LocalOnlyHotspot v4 QR sessions do not create or restore Wi-Fi Direct invitations.
             }
         }
     }
@@ -628,10 +623,9 @@ class LegacyUltraShareViewModel @Inject constructor(
     fun startReceiving() {
         if (_state.value.receiving || _state.value.sending) return
         val secret = UltraShareTransport.createPairingSecret()
-        val invitationId = UUID.randomUUID().toString().replace("-", "")
         _state.value = _state.value.copy(
             pairingSecret = secret,
-            invitationId = invitationId,
+            invitationId = null,
             wifiDirectInvitationReady = false,
             pairedSession = false,
             receiving = true,
@@ -651,9 +645,9 @@ class LegacyUltraShareViewModel @Inject constructor(
                 )
                 return
             }
-        invitationPreferences.edit().putString("active_invitation_id", invitationId).apply()
-        // ERROR(0) never disables the regular WLAN receive endpoint.
-        activateReceiverInvitation(invitationId)
+        // QR v4 is advertised only after LocalOnlyHotspot credentials, IPv4 and
+        // the authenticated control listener are all ready. No Wi-Fi Direct group
+        // or NSTACKX invitation is created for this pairing path.
     }
 
     private fun connectThroughLocalHotspot(
