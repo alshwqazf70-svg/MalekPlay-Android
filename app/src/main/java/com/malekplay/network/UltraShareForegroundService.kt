@@ -1420,6 +1420,7 @@ class UltraShareForegroundService : Service() {
                         }
                         throw cancelled
                     } catch (failure: java.net.ConnectException) {
+                        UltraShareDiagnostics.failure("SEND_V2_CONNECT", failure, "host=" + host + "; fallback=legacy_v1")
                         // An older installed receiver has no v2 listener. Return claimed
                         // entries to pending and use the compatible v1 per-file path.
                         useLegacyV1 = true
@@ -1430,6 +1431,7 @@ class UltraShareForegroundService : Service() {
                             )
                         }
                     } catch (failure: Exception) {
+                        UltraShareDiagnostics.failure("SEND_V2_BATCH", failure, "host=" + host + "; files=" + v2Candidates.size)
                         failed += v2Candidates.size
                         lastError = failure.localizedMessage ?: "فشلت جلسة V2."
                         v2Candidates.forEach { (uri, source) ->
@@ -1514,6 +1516,7 @@ class UltraShareForegroundService : Service() {
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
+                            UltraShareDiagnostics.failure("SEND_FILE", failure, "fileExtension=" + metadata.first.substringAfterLast('.', "").take(12))
                             failed++
                             // Do not shrink the denominator on failure; otherwise the bar can
                             // report 100% even though this file still needs a retry.
