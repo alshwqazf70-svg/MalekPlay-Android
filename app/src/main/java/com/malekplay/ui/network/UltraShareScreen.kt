@@ -1166,9 +1166,14 @@ fun UltraShareScreen(
 
     // Keep the QR creator's send target in sync with the peer authenticated by
     // the foreground service. The scanner already fills these fields from the QR.
-    LaunchedEffect(state.approvedPeerHost, state.pairingSecret) {
+    LaunchedEffect(state.approvedPeerHost, state.pairingSecret, state.receiving) {
         state.approvedPeerHost?.takeIf { it.isNotBlank() }?.let { host = it }
-        if (state.pairingSecret.isNotBlank()) secret = state.pairingSecret
+        if (state.pairingSecret.isNotBlank()) {
+            secret = state.pairingSecret
+        } else if (!state.receiving) {
+            host = ""
+            secret = ""
+        }
     }
 
     fun acceptPairing(pairing: UltraShareQrCode.PairingDetails) {
