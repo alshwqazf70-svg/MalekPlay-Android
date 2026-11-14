@@ -559,6 +559,7 @@ class UltraShareViewModel @Inject constructor(
             .build()
         val connectionStarted = java.util.concurrent.atomic.AtomicBoolean(false)
         val paired = java.util.concurrent.atomic.AtomicBoolean(false)
+        val networkLost = java.util.concurrent.atomic.AtomicBoolean(false)
         val connectedHost = java.util.concurrent.atomic.AtomicReference<String?>(null)
         // Keep the NetworkCallback alive after the screen is closed without making
         // ConnectivityManager retain the entire ViewModel through an inner closure.
@@ -579,6 +580,10 @@ class UltraShareViewModel @Inject constructor(
                     alternateHosts = pairing.hosts.drop(1),
                     preferredNetwork = network,
                     onConnectionEstablished = { peerHost ->
+                        if (networkLost.get()) {
+                            UltraShareForegroundService.disconnectApprovedPeer(peerHost)
+                            return@requestConnection
+                        }
                         connectedHost.set(peerHost)
                         paired.set(true)
                         viewModel.hotspotNetworkPaired = true
@@ -601,6 +606,7 @@ class UltraShareViewModel @Inject constructor(
             }
 
             override fun onUnavailable() {
+                networkLost.set(true)
                 val viewModel = owner.get()
                 if (viewModel != null && viewModel.hotspotNetworkCallback === this) {
                     viewModel.hotspotNetworkCallback = null
@@ -613,6 +619,7 @@ class UltraShareViewModel @Inject constructor(
             }
 
             override fun onLost(network: android.net.Network) {
+                networkLost.set(true)
                 val viewModel = owner.get()
                 val isCurrent = viewModel?.hotspotNetworkCallback === this
                 if (paired.get() && isCurrent) {
