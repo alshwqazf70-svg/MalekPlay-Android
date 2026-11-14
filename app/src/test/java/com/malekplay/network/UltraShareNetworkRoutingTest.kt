@@ -9,6 +9,18 @@ import org.junit.Test
 
 class UltraShareNetworkRoutingTest {
     @Test
+    fun appendsDefaultRouteOnlyAfterAllExplicitNetworks() {
+        assertEquals(
+            listOf("p2p", "wlan", null),
+            UltraShareNetworkRouting.orderedRoutesWithDefaultFallback(listOf("p2p", "wlan"))
+        )
+        assertEquals(
+            listOf(null),
+            UltraShareNetworkRouting.orderedRoutesWithDefaultFallback(emptyList<String>())
+        )
+    }
+
+    @Test
     fun failedPrimaryRouteFallsThroughToNextWorkingNetworkOnly() {
         val attempted = mutableListOf<String>()
         val selected = UltraShareNetworkRouting.firstSuccessfulRoute(
