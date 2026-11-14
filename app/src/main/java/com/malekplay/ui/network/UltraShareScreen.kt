@@ -1169,17 +1169,25 @@ fun UltraShareScreen(
     var host by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var pendingMediaUris by remember(initialUris) { mutableStateOf(initialUris.distinct()) }
+    var lastApprovedPeerHost by remember { mutableStateOf<String?>(null) }
 
     // Keep the QR creator's send target in sync with the peer authenticated by
     // the foreground service. The scanner already fills these fields from the QR.
-    LaunchedEffect(state.approvedPeerHost, state.pairingSecret, state.receiving) {
-        state.approvedPeerHost?.takeIf { it.isNotBlank() }?.let { host = it }
-        if (state.pairingSecret.isNotBlank()) {
-            secret = state.pairingSecret
-        } else if (!state.receiving) {
-            host = ""
-            secret = ""
+    LaunchedEffect(state.approvedPeerHost) {
+        val approvedHost = state.approvedPeerHost?.takeIf { it.isNotBlank() }
+        if (approvedHost != null) {
+            host = approvedHost
+            lastApprovedPeerHost = approvedHost
+        } else {
+            lastApprovedPeerHost?.let { previous ->
+                if (host == previous) host = ""
+            }
+            lastApprovedPeerHost = null
         }
+    }
+    LaunchedEffect(state.pairingSecret, state.receiving) {
+        if (state.pairingSecret.isNotBlank()) secret = state.pairingSecret
+        else if (!state.receiving) secret = ""
     }
 
     fun acceptPairing(pairing: UltraShareQrCode.PairingDetails) {
