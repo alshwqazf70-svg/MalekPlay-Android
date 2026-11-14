@@ -413,7 +413,10 @@ object UltraShareControlChannel {
      * client-side session on one phone and the server-side session on the other.
      */
     fun hasAnyActiveSession(host: String): Boolean =
-        isSessionActive(host) || isServerSessionActive(host)
+        isDataSessionAuthorized(
+            clientSessionActive = isSessionActive(host),
+            serverSessionActive = isServerSessionActive(host)
+        )
 
     internal fun isDataSessionAuthorized(
         clientSessionActive: Boolean,
