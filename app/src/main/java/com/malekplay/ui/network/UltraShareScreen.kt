@@ -135,7 +135,8 @@ data class LegacyUltraShareUiState(
     val wifiDirectHost: String? = null,
     val invitationId: String? = null,
     val wifiDirectInvitationReady: Boolean = false,
-    val pairedSession: Boolean = false
+    val pairedSession: Boolean = false,
+    val approvedPeerHost: String? = null
 )
 
 @HiltViewModel
@@ -196,7 +197,8 @@ class LegacyUltraShareViewModel @Inject constructor(
                     progress = serviceState.progress,
                     receivedFile = serviceState.receivedFile ?: current.receivedFile,
                     status = serviceState.status ?: current.status,
-                    pairedSession = current.pairedSession || serviceState.activePeers.isNotEmpty(),
+                    pairedSession = serviceState.activePeers.isNotEmpty(),
+                    approvedPeerHost = serviceState.activePeers.lastOrNull()?.host,
                     error = serviceState.error,
                     queueCompleted = serviceState.queueCompleted,
                     queueTotal = serviceState.queueTotal,
@@ -1162,6 +1164,13 @@ fun UltraShareScreen(
     var secret by remember { mutableStateOf("") }
     var pendingMediaUris by remember(initialUris) { mutableStateOf(initialUris.distinct()) }
 
+    // Keep the QR creator's send target in sync with the peer authenticated by
+    // the foreground service. The scanner already fills these fields from the QR.
+    LaunchedEffect(state.approvedPeerHost, state.pairingSecret) {
+        state.approvedPeerHost?.takeIf { it.isNotBlank() }?.let { host = it }
+        if (state.pairingSecret.isNotBlank()) secret = state.pairingSecret
+    }
+
     fun acceptPairing(pairing: UltraShareQrCode.PairingDetails) {
         secret = pairing.pairingSecret
         host = pairing.host
@@ -1632,9 +1641,9 @@ fun UltraShareScreen(
                 )
                 OutlinedTextField(
                     value = secret,
-                    onValueChange = { secret = it.filter { char -> char in '0'..'9' }.take(9) },
+                    onValueChange = { secret = it.filter { char -> char in '0'..'9' }.take(12) },
                     modifier = Modifier.widthIn(max = 220.dp),
-                    label = { Text("رمز الاقتران (9 أرقام)") },
+                    label = { Text("رمز الاقتران (12 رقماً)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
