@@ -87,8 +87,13 @@ internal class UltraSharePairingAttemptLimiter(
     }
 
     private fun pruneGlobal(nowMillis: Long) {
-        while (globalFailures.isNotEmpty() && nowMillis - globalFailures.peekFirst() > globalWindowMillis) {
-            globalFailures.removeFirst()
+        while (globalFailures.isNotEmpty()) {
+            val oldestFailure = globalFailures.peekFirst() ?: break
+            if (nowMillis - oldestFailure > globalWindowMillis) {
+                globalFailures.removeFirst()
+            } else {
+                break
+            }
         }
         if (nowMillis >= globalBlockedUntil) globalBlockedUntil = 0L
     }
