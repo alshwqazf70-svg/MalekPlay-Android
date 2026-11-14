@@ -400,6 +400,21 @@ object UltraShareDiscovery {
         }
     }
 
+    /**
+     * Performs the V2 data-plane challenge on the already authenticated peer route.
+     * A successful MPC2 control handshake alone is not evidence that file transfer
+     * can start; this probe verifies the actual batch listener and is ignored by it.
+     */
+    internal fun probeDataEndpoint(
+        host: String,
+        port: Int,
+        networks: List<android.net.Network>
+    ): Boolean {
+        if (!UltraShareTransport.isValidPrivateLanHost(host) || port !in 1..65535) return false
+        val routes: List<android.net.Network?> = networks.distinct().ifEmpty { listOf(null) }
+        return routes.any { network -> probeV2DataEndpoint(host, port, network) }
+    }
+
     private fun probeEndpoint(host: String, port: Int, network: android.net.Network?): Boolean = runCatching {
         Socket().use { socket ->
             socket.tcpNoDelay = true
