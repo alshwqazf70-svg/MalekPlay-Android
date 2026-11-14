@@ -684,132 +684,16 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun startDFileServerForPeer(peerAddress: String, localAddress: String?): Int? {
-        if (!NstackxNativeBridge.isAvailable) {
-            UltraShareDiagnostics.event("DFILE", "NATIVE_ENGINE_UNAVAILABLE", mapOf("peerHost" to peerAddress))
-            return null
-        }
-        val localIpv4 = localAddress?.takeIf { UltraShareTransport.isValidPrivateLanHost(it) }
-            ?: run {
-                UltraShareDiagnostics.event("DFILE", "LOCAL_INTERFACE_UNAVAILABLE", mapOf("peerHost" to peerAddress))
-                return null
-            }
-
-        // Never reinitialize the process-global NSTACKX engine on another interface:
-        // release() would silently destroy every other peer's active DFile session.
-        val currentDiscovery = NstackxAndroidDiscoverySession.current()
-        val discovery = when {
-            currentDiscovery != null && currentDiscovery.localIpv4 == localIpv4 -> currentDiscovery
-            currentDiscovery != null -> {
-                UltraShareDiagnostics.event(
-                    "DFILE", "ENGINE_BOUND_TO_DIFFERENT_NETWORK",
-                    mapOf("peerHost" to peerAddress, "requestedLocalIp" to localIpv4, "activeLocalIp" to currentDiscovery.localIpv4)
-                )
-                return null
-            }
-            else -> runCatching {
-                NstackxAndroidDiscoverySession.start(
-                    this,
-                    preferredLocalIpv4 = localIpv4,
-                    onPeerFound = {}
-                )
-            }.onFailure { failure ->
-                UltraShareDiagnostics.failure("DFILE_NSTACKX_START", failure, "peerHost=" + peerAddress + ";localIp=" + localIpv4)
-            }.getOrNull() ?: return null
-        }
-
-        val destination = UltraShareTransport.defaultReceiveDirectory(this)
-        val base = (getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
-            ?: File(filesDir, "downloads")).canonicalFile
-        if (!destination.exists() && !destination.mkdirs()) return null
-        val safeDestination = runCatching { destination.canonicalFile }.getOrNull() ?: return null
-        if (!safeDestination.isDirectory || !safeDestination.canWrite() ||
-            safeDestination.path != File(base, "MalekPlayer/Received").canonicalPath
-        ) return null
-
-        // Keep native writes isolated from completed downloads. Only files reported
-        // successful are moved atomically into the visible Received directory.
-        val peerToken = java.security.MessageDigest.getInstance("SHA-256")
-            .digest(peerAddress.toByteArray(Charsets.UTF_8))
-            .take(8).joinToString("") { "%02x".format(it) }
-        closeDFileServerForPeer(peerAddress)
-        val staleBefore = System.currentTimeMillis() - 24L * 60L * 60L * 1_000L
-        safeDestination.listFiles()
-            ?.filter { it.isDirectory && it.name.startsWith(".ultrashare-dfile-") && it.lastModified() < staleBefore }
-            ?.forEach { runCatching { it.deleteRecursively() } }
-        // A unique directory prevents a late native completion callback from racing
-        // with a new session for the same peer and losing a just-received file.
-        val stagingDirectory = File(
-            safeDestination,
-            ".ultrashare-dfile-$peerToken-${java.util.UUID.randomUUID()}"
-        )
-        if (!stagingDirectory.exists() && !stagingDirectory.mkdirs()) return null
-        val safeStaging = runCatching { stagingDirectory.canonicalFile }.getOrNull() ?: return null
-        if (safeStaging.parentFile != safeDestination || !safeStaging.isDirectory || !safeStaging.canWrite()) return null
-
-        // The native API accepts a port rather than an already-bound descriptor.
-        // Retry both OS-assigned port selection and native bind failures.
-        var port = 0
-        val sessionIdRef = java.util.concurrent.atomic.AtomicInteger(-1)
-        val earlyEvents = java.util.concurrent.ConcurrentLinkedQueue<NstackxNativeBridge.DFileEvent>()
-        val activeTransferIds = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Int, Boolean>())
-        val listenerActive = java.util.concurrent.atomic.AtomicBoolean(true)
-        val listener = NstackxNativeBridge.DFileListener { event ->
-            if (listenerActive.get()) {
-                val expected = sessionIdRef.get()
-                if (expected <= 0) earlyEvents.add(event)
-                else if (UltraShareDFileSessionGuard.isCurrentSession(expected, event.sessionId)) {
-                    handleDFileServerEvent(peerAddress, safeStaging, safeDestination, event, activeTransferIds)
-                }
-            }
-        }
-        NstackxNativeBridge.addDFileListener(listener)
-        var sessionId = -1
-        var lastStartFailure: Exception? = null
-        for (attempt in 0 until 5) {
-            if (sessionId > 0) break
-            port = runCatching { ServerSocket(0).use { it.localPort } }
-                .getOrNull()?.takeIf { it in 1..65535 } ?: 0
-            if (port !in 1..65535) continue
-            sessionId = try {
-                NstackxNativeBridge.startApprovedDFileServer(
-                    peerIpv4 = peerAddress,
-                    localIpv4 = discovery.localIpv4,
-                    port = port,
-                    destinationDirectory = safeStaging
-                )
-            } catch (failure: Exception) {
-                lastStartFailure = failure
-                -1
-            }
-        }
-        if (sessionId <= 0) {
-            UltraShareDiagnostics.event(
-                "DFILE", "NATIVE_SERVER_START_FAILED",
-                mapOf("peerHost" to peerAddress, "localIp" to localIpv4, "attempts" to 5, "lastPort" to port)
-            )
-            lastStartFailure?.let {
-                UltraShareDiagnostics.failure("DFILE_NATIVE_SERVER_START", it, "peerHost=" + peerAddress + ";localIp=" + localIpv4)
-            }
-            listenerActive.set(false)
-            NstackxNativeBridge.removeDFileListener(listener)
-            runCatching { safeStaging.deleteRecursively() }
-            return null
-        }
-        dfileServerSessions[peerAddress] = ActiveDFileServer(
-            sessionId, listener, activeTransferIds, listenerActive
-        )
-        sessionIdRef.set(sessionId)
+        // Keep the native data plane disabled on both peers. NSTACKX callbacks do
+        // not carry the authenticated per-file V2 manifest, so the receiver cannot
+        // verify each SHA-256 digest before publishing a file. V2 TCP remains the
+        // only supported transfer path until the native protocol gains that contract.
         UltraShareDiagnostics.event(
-            "DFILE", "NATIVE_SERVER_READY",
-            mapOf("peerHost" to peerAddress, "localIp" to localIpv4, "port" to port, "nativeSessionId" to sessionId)
+            "DFILE",
+            "SERVER_DISABLED_UNTIL_RECEIVER_INTEGRITY_MANIFEST",
+            mapOf("peerHost" to peerAddress, "hasLocalAddress" to !localAddress.isNullOrBlank())
         )
-        while (true) {
-            val event = earlyEvents.poll() ?: break
-            if (event.sessionId == sessionId) {
-                handleDFileServerEvent(peerAddress, safeStaging, safeDestination, event, activeTransferIds)
-            }
-        }
-        return port
+        return null
     }
 
     private fun handleDFileServerEvent(
