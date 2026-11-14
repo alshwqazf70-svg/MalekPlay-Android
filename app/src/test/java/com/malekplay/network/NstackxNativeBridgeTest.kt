@@ -87,4 +87,11 @@ class NstackxDiscoveryLifecyclePolicyTest {
         assertTrue(NstackxAndroidDiscoverySession.shouldDeferNativeRelease(32))
         assertFalse(NstackxAndroidDiscoverySession.shouldDeferNativeRelease(0))
     }
+
+    @Test
+    fun deferredStopRunsOnlyWhenRequestedAndAllDFileSessionsAreClosed() {
+        assertTrue(NstackxAndroidDiscoverySession.shouldCompleteDeferredStop(true, 0))
+        assertFalse(NstackxAndroidDiscoverySession.shouldCompleteDeferredStop(true, 1))
+        assertFalse(NstackxAndroidDiscoverySession.shouldCompleteDeferredStop(false, 0))
+    }
 }
