@@ -1211,7 +1211,9 @@ class UltraShareForegroundService : Service() {
                     val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
                     wifiLock = manager.createWifiLock(WifiManager.WIFI_MODE_FULL, "MalekPlay:UltraShare").apply {
                         setReferenceCounted(false)
-                        acquire(TRANSFER_LOCK_TIMEOUT_MS)
+                        // WifiLock has no timed acquire overload. Its lifetime is
+                        // explicitly bounded by endTransfer()/service shutdown.
+                        acquire()
                     }
                 }
             }
