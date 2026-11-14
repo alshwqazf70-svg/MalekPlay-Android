@@ -408,6 +408,18 @@ object UltraShareControlChannel {
             !socket.isInputShutdown && !socket.isOutputShutdown
     }
 
+    /**
+     * Data transfer is bidirectional: the approved control session may be the
+     * client-side session on one phone and the server-side session on the other.
+     */
+    fun hasAnyActiveSession(host: String): Boolean =
+        isSessionActive(host) || isServerSessionActive(host)
+
+    internal fun isDataSessionAuthorized(
+        clientSessionActive: Boolean,
+        serverSessionActive: Boolean
+    ): Boolean = clientSessionActive || serverSessionActive
+
     fun isServerSessionActive(host: String): Boolean =
         serverSessions[host]?.isConnected == true && serverSessions[host]?.isClosed == false
 
