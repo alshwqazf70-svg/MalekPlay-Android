@@ -1,6 +1,8 @@
 package com.malekplay.network
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import java.net.Socket
 import java.io.DataInputStream
@@ -137,6 +139,43 @@ object UltraShareDiscovery {
     internal fun isSightingFresh(lastSeenMillis: Long, nowMillis: Long, ttlMillis: Long): Boolean =
         ttlMillis >= 0L && lastSeenMillis <= nowMillis && nowMillis - lastSeenMillis <= ttlMillis
 
+    private data class BroadcastRoute(val network: Network?, val address: InetAddress)
+
+    private fun findBroadcastRoutes(context: Context?): List<BroadcastRoute> = runCatching {
+        val manager = context?.applicationContext
+            ?.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val networkByInterface = manager?.allNetworks.orEmpty().mapNotNull { network ->
+            val iface = manager?.getLinkProperties(network)?.interfaceName ?: return@mapNotNull null
+            iface to network
+        }.toMap()
+        NetworkInterface.getNetworkInterfaces().toList()
+            .filter { iface ->
+                val name = iface.name.lowercase()
+                iface.isUp && !iface.isLoopback &&
+                    (name.startsWith("wlan") || UltraShareNetworkRouting.isHotspotInterfaceName(name) ||
+                        name.startsWith("eth") || name.startsWith("p2p"))
+            }
+            .flatMap { iface ->
+                val network = networkByInterface[iface.name]
+                iface.interfaceAddresses.mapNotNull { item ->
+                    val broadcast = item.broadcast as? Inet4Address ?: return@mapNotNull null
+                    BroadcastRoute(network, broadcast)
+                }
+            }
+            .distinctBy { "${it.network}:${it.address.hostAddress}" }
+    }.getOrDefault(emptyList()).ifEmpty {
+        listOf(BroadcastRoute(null, InetAddress.getByName("255.255.255.255")))
+    }
+
+    private fun createDiscoverySocket(network: Network?, port: Int): DatagramSocket =
+        DatagramSocket(null).apply {
+            reuseAddress = true
+            broadcast = true
+            network?.bindSocket(this)
+            bind(InetSocketAddress(port))
+            soTimeout = 120
+        }
+
     suspend fun advertiseWhileReceiving(
         transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT,
         legacyTransferPort: Int = UltraShareTransport.DEFAULT_PORT,
@@ -147,41 +186,46 @@ object UltraShareDiscovery {
         require(transferPort in 1..65535)
         val peerId = context?.let(::stablePeerId) ?: UUID.randomUUID().toString()
         val safeDisplayName = displayName.trim().take(64).ifBlank { "MalekPlayer Android" }
-        DatagramSocket(null).use { socket ->
-            socket.reuseAddress = true
-            socket.broadcast = true
-            socket.bind(InetSocketAddress(DISCOVERY_PORT))
-            socket.soTimeout = RECEIVE_TIMEOUT_MS
-            val buffer = ByteArray(MAX_PACKET_BYTES)
+        val networks = findBroadcastRoutes(context).mapNotNull { it.network }.distinct()
+        val sockets = networks.mapNotNull { network ->
+            runCatching { createDiscoverySocket(network, DISCOVERY_PORT) }.getOrNull()
+        }.ifEmpty { listOf(createDiscoverySocket(null, DISCOVERY_PORT)) }
+        try {
             while (true) {
                 currentCoroutineContext().ensureActive()
-                try {
-                    val packet = DatagramPacket(buffer, buffer.size)
-                    socket.receive(packet)
-                    val request = packet.data.copyOfRange(packet.offset, packet.offset + packet.length)
-                        .toString(Charsets.UTF_8)
-                    when (request) {
-                        PROBE_V1 -> {
-                            val response = "$OFFER_PREFIX_V1$legacyTransferPort|MalekPlayer".toByteArray(Charsets.UTF_8)
-                            socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
-                        }
-                        PROBE_V2 -> {
-                            val advertisedPort = transferPortProvider?.invoke() ?: transferPort
-                            if (advertisedPort in 1..65535) {
-                                val offer = UltraShareNegotiation.Offer(
-                                    peerId = peerId,
-                                    displayName = safeDisplayName,
-                                    candidates = localCandidates(advertisedPort)
-                                )
-                                val response = UltraShareNegotiation.encode(offer).toByteArray(Charsets.UTF_8)
+                sockets.forEach { socket ->
+                    try {
+                        val packet = DatagramPacket(ByteArray(MAX_PACKET_BYTES), MAX_PACKET_BYTES)
+                        socket.receive(packet)
+                        val request = packet.data.copyOfRange(packet.offset, packet.offset + packet.length)
+                            .toString(Charsets.UTF_8)
+                        when (request) {
+                            PROBE_V1 -> {
+                                val response = "$OFFER_PREFIX_V1$legacyTransferPort|MalekPlayer".toByteArray(Charsets.UTF_8)
                                 socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
                             }
+                            PROBE_V2 -> {
+                                val advertisedPort = transferPortProvider?.invoke() ?: transferPort
+                                if (advertisedPort in 1..65535) {
+                                    val offer = UltraShareNegotiation.Offer(
+                                        peerId = peerId,
+                                        displayName = safeDisplayName,
+                                        candidates = localCandidates(advertisedPort)
+                                    )
+                                    val response = UltraShareNegotiation.encode(offer).toByteArray(Charsets.UTF_8)
+                                    socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
+                                }
+                            }
                         }
+                    } catch (_: SocketTimeoutException) {
+                        // Poll each active interface and observe cancellation promptly.
+                    } catch (_: java.net.SocketException) {
+                        // A single OEM network can disappear while another remains usable.
                     }
-                } catch (_: SocketTimeoutException) {
-                    // Periodically check coroutine cancellation.
                 }
             }
+        } finally {
+            sockets.forEach { runCatching { it.close() } }
         }
     }
 
@@ -190,79 +234,73 @@ object UltraShareDiscovery {
         context: Context? = null
     ): List<Peer> = withContext(Dispatchers.IO) {
         require(scanWindowMs in 500L..15_000L)
-        val broadcasts = findBroadcastAddresses()
-        require(broadcasts.isNotEmpty()) { "تعذر تحديد عنوان البث لشبكة Wi-Fi المحلية." }
-        DatagramSocket(null).use { socket ->
-            socket.reuseAddress = true
-            socket.broadcast = true
-            socket.bind(InetSocketAddress(0))
-            socket.soTimeout = RECEIVE_TIMEOUT_MS
+        val routes = findBroadcastRoutes(context)
+        require(routes.isNotEmpty()) { "تعذر تحديد عنوان البث لشبكة Wi-Fi المحلية." }
+        val activeSockets = routes.groupBy { it.network }.mapNotNull { (network, networkRoutes) ->
+            runCatching {
+                Triple(network, createDiscoverySocket(network, 0), networkRoutes)
+            }.getOrNull()
+        }.ifEmpty {
+            listOf(Triple(null, createDiscoverySocket(null, 0), routes))
+        }
+        try {
             val probes = listOf(PROBE_V2, PROBE_V1).map { it.toByteArray(Charsets.UTF_8) }
-            broadcasts.forEach { address ->
-                probes.forEach { probe ->
-                    runCatching { socket.send(DatagramPacket(probe, probe.size, address, DISCOVERY_PORT)) }
+            activeSockets.forEach { (_, socket, networkRoutes) ->
+                networkRoutes.forEach { route ->
+                    probes.forEach { probe ->
+                        runCatching { socket.send(DatagramPacket(probe, probe.size, route.address, DISCOVERY_PORT)) }
+                    }
                 }
             }
-
             val peers = LinkedHashMap<String, Peer>()
             val v2SourceHosts = HashSet<String>()
             val deadline = System.nanoTime() + scanWindowMs * 1_000_000L
             val buffer = ByteArray(MAX_PACKET_BYTES)
             while (System.nanoTime() < deadline) {
                 currentCoroutineContext().ensureActive()
-                try {
-                    val packet = DatagramPacket(buffer, buffer.size)
-                    socket.receive(packet)
-                    val source = packet.address
-                    if (source !is Inet4Address || !isPrivateLanAddress(source)) continue
-                    val message = packet.data.copyOfRange(packet.offset, packet.offset + packet.length)
-                        .toString(Charsets.UTF_8)
-                    val host = source.hostAddress ?: continue
-                    val v2 = UltraShareNegotiation.decode(message)
-                    if (v2 != null) {
-                        // Verify both the authenticated control listener and the actual V2
-                        // data listener on every advertised interface. A reachable control
-                        // socket alone is not enough to prove that file transfer can use a path.
-                        // Keep all verified candidates so the selected path can be inspected and
-                        // a lower-priority path remains available to the caller.
-                        val testedCandidates = probeCandidates(
-                            v2.candidates.filter {
-                                it.connected && UltraShareTransport.isValidPrivateLanHost(it.host)
-                            },
-                            context
-                        )
-                        val endpoint = UltraShareNegotiation.selectCandidate(testedCandidates)
-                            ?: continue
-                        // Suppress a legacy offer only after at least one V2 route is verified.
-                        v2SourceHosts += host
-                        peers.remove("host:$host") // Upgrade an earlier V1 sighting to its stable V2 identity.
-                        val incoming = Peer(
-                            host = endpoint.host,
-                            port = endpoint.port,
-                            name = v2.displayName,
-                            peerId = v2.peerId,
-                            candidates = testedCandidates
-                        )
-                        val identity = "id:${v2.peerId.lowercase(java.util.Locale.ROOT)}"
-                        peers[identity] = peers[identity]?.let { existing ->
-                            mergePeerSightings(existing, incoming)
-                        } ?: incoming
-                        continue
+                activeSockets.forEach { (_, socket, _) ->
+                    try {
+                        val packet = DatagramPacket(buffer, buffer.size)
+                        socket.receive(packet)
+                        val source = packet.address
+                        if (source !is Inet4Address || !isPrivateLanAddress(source)) return@forEach
+                        val message = packet.data.copyOfRange(packet.offset, packet.offset + packet.length)
+                            .toString(Charsets.UTF_8)
+                        val host = source.hostAddress ?: return@forEach
+                        val v2 = UltraShareNegotiation.decode(message)
+                        if (v2 != null) {
+                            val testedCandidates = probeCandidates(
+                                v2.candidates.filter {
+                                    it.connected && UltraShareTransport.isValidPrivateLanHost(it.host)
+                                }, context
+                            )
+                            val endpoint = UltraShareNegotiation.selectCandidate(testedCandidates)
+                                ?: return@forEach
+                            v2SourceHosts += host
+                            peers.remove("host:$host")
+                            val incoming = Peer(endpoint.host, endpoint.port, v2.displayName, v2.peerId, testedCandidates)
+                            val identity = "id:${v2.peerId.lowercase(java.util.Locale.ROOT)}"
+                            peers[identity] = peers[identity]?.let { mergePeerSightings(it, incoming) } ?: incoming
+                            return@forEach
+                        }
+                        if (!message.startsWith(OFFER_PREFIX_V1)) return@forEach
+                        val parts = message.removePrefix(OFFER_PREFIX_V1).split('|', limit = 2)
+                        val port = parts.getOrNull(0)?.toIntOrNull() ?: return@forEach
+                        val name = parts.getOrNull(1)?.take(64)?.takeIf { it.isNotBlank() } ?: "MalekPlayer"
+                        if (port !in 1..65535) return@forEach
+                        if (host !in v2SourceHosts && peers["host:$host"] == null) {
+                            peers["host:$host"] = Peer(host, port, name)
+                        }
+                    } catch (_: SocketTimeoutException) {
+                        // Continue polling the remaining network-bound sockets.
+                    } catch (_: java.net.SocketException) {
+                        // Ignore a route removed during this bounded discovery pass.
                     }
-                    if (!message.startsWith(OFFER_PREFIX_V1)) continue
-                    val parts = message.removePrefix(OFFER_PREFIX_V1).split('|', limit = 2)
-                    val port = parts.getOrNull(0)?.toIntOrNull() ?: continue
-                    val name = parts.getOrNull(1)?.take(64)?.takeIf { it.isNotBlank() } ?: "MalekPlayer"
-                    if (port !in 1..65535) continue
-                    // Do not downgrade a v2 peer when its v1 response arrives later.
-                    if (host !in v2SourceHosts && peers["host:$host"] == null) {
-                        peers["host:$host"] = Peer(host, port, name)
-                    }
-                } catch (_: SocketTimeoutException) {
-                    // Continue until the bounded scan window expires.
                 }
             }
             peers.values.toList()
+        } finally {
+            activeSockets.forEach { (_, socket, _) -> runCatching { socket.close() } }
         }
     }
 
