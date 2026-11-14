@@ -153,7 +153,7 @@ object UltraShareDiagnostics {
         return current
     }
 
-    private fun jsonObject(values: Map<String, Any?>): String =
+    internal fun jsonObject(values: Map<String, Any?>): String =
         values.entries.joinToString(prefix = "{", postfix = "}") { (key, value) ->
             jsonString(key) + ":" + jsonValue(value)
         }
