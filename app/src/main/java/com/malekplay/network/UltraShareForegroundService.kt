@@ -43,7 +43,6 @@ import java.io.File
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.NetworkInterface
-import java.net.ServerSocket
 
 data class UltraShareServiceState(
     val pairingSecret: String = "",
