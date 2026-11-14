@@ -654,8 +654,6 @@ class LegacyUltraShareViewModel @Inject constructor(
             wifiDirectInvitationReady = false,
             pairedSession = false,
             receiving = true,
-            sending = false,
-            progress = null,
             error = null,
             status = context.getString(R.string.ultra_share_waiting)
         )
@@ -1643,7 +1641,7 @@ fun UltraShareScreen(
                 OutlinedButton(
                     onClick = ::scanQrWithCamera,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending
+                    enabled = !state.sending && !state.receiving
                 ) {
                     Icon(Icons.Filled.QrCode, contentDescription = null)
                     Text("مسح QR بالكاميرا", modifier = Modifier.padding(start = 8.dp))
@@ -1651,7 +1649,7 @@ fun UltraShareScreen(
                 OutlinedButton(
                     onClick = { scanQrImage.launch(arrayOf("image/*")) },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending
+                    enabled = !state.sending && !state.receiving
                 ) {
                     Icon(Icons.Filled.QrCode, contentDescription = null)
                     Text(stringResource(R.string.ultra_share_scan_qr), modifier = Modifier.padding(start = 8.dp))
@@ -1659,7 +1657,7 @@ fun UltraShareScreen(
                 OutlinedButton(
                     onClick = ::pastePairingDetails,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending
+                    enabled = !state.sending && !state.receiving
                 ) {
                     Icon(Icons.Filled.ContentCopy, contentDescription = null)
                     Text(stringResource(R.string.ultra_share_paste_pairing), modifier = Modifier.padding(start = 8.dp))
