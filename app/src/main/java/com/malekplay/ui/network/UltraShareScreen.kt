@@ -113,6 +113,7 @@ data class LegacyUltraShareUiState(
     val localAddresses: List<String> = emptyList(),
     val receiving: Boolean = false,
     val controlChannelReady: Boolean = false,
+    val dataChannelReady: Boolean = false,
     val hotspotSsid: String? = null,
     val hotspotPassword: String? = null,
     val hotspotActive: Boolean = false,
@@ -189,6 +190,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                     localAddresses = serviceState.localAddresses,
                     receiving = serviceState.receiving,
                     controlChannelReady = serviceState.controlChannelReady,
+                    dataChannelReady = serviceState.dataChannelReady,
                     hotspotSsid = serviceState.hotspotSsid,
                     hotspotPassword = serviceState.hotspotPassword,
                     hotspotActive = serviceState.hotspotActive,
@@ -1198,7 +1200,7 @@ fun UltraShareScreen(
     val hotspotSsid = state.hotspotSsid
     val hotspotPassword = state.hotspotPassword
     val qrPayload = if (
-        state.receiving && state.controlChannelReady && state.hotspotActive &&
+        state.receiving && state.controlChannelReady && state.dataChannelReady && state.hotspotActive &&
         !state.pairedSession && !hotspotSsid.isNullOrBlank() &&
         !hotspotPassword.isNullOrBlank() && state.localAddresses.isNotEmpty()
     ) {
