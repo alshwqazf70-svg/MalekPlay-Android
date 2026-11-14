@@ -712,6 +712,7 @@ class UltraShareForegroundService : Service() {
             }
         }
         if (sessionId <= 0) {
+            listenerActive.set(false)
             NstackxNativeBridge.removeDFileListener(listener)
             runCatching { safeStaging.deleteRecursively() }
             return null
