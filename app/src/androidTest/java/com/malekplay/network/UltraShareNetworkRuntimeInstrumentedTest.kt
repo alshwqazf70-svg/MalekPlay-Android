@@ -9,6 +9,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.io.DataInputStream
@@ -22,6 +23,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 /**
  * Android-runtime smoke tests for APIs that JVM protocol tests cannot exercise.
@@ -151,6 +157,43 @@ class UltraShareNetworkRuntimeInstrumentedTest {
             assertArrayEquals(expected, partial.readBytes())
         } finally {
             partial.delete()
+        }
+    }
+
+    @Test
+    fun androidDataListenerBindsAndAnswersReachabilityProbe() = runBlocking {
+        val localAddress = NetworkInterface.getNetworkInterfaces().toList()
+            .asSequence()
+            .filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList().asSequence() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .firstOrNull { it.isSiteLocalAddress && !it.isLoopbackAddress }
+            ?.hostAddress
+        Assume.assumeTrue("No private IPv4 interface is available", !localAddress.isNullOrBlank())
+
+        val directory = File(context.cacheDir, "ultrashare-runtime-probe-${System.nanoTime()}")
+        assertTrue(directory.mkdirs() || directory.isDirectory)
+        val ready = CompletableDeferred<Int>()
+        val listener = launch {
+            UltraShareBatchTransport.serveMany(
+                port = 0,
+                pairingSecret = "123456789",
+                destinationDirectory = directory,
+                onListening = { port -> if (!ready.isCompleted) ready.complete(port) }
+            )
+        }
+        try {
+            val port = withTimeout(8_000L) { ready.await() }
+            assertTrue(
+                UltraShareDiscovery.probeDataEndpoint(
+                    requireNotNull(localAddress),
+                    port,
+                    emptyList()
+                )
+            )
+        } finally {
+            listener.cancelAndJoin()
+            directory.deleteRecursively()
         }
     }
 }
