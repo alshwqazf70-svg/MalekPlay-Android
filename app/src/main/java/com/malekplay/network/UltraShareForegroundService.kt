@@ -2329,6 +2329,12 @@ class UltraShareForegroundService : Service() {
             context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_REJECT_CONNECTION))
         }
 
+        fun startLocalHotspot(context: Context) {
+            val intent = Intent(context, UltraShareForegroundService::class.java)
+                .setAction(ACTION_START_HOTSPOT)
+            start(context, intent)
+        }
+
         fun startReceiving(context: Context, secret: String) {
             // Clear a previous session's readiness before the asynchronous service
             // start, so a newly generated QR can never reuse stale "ready" state.
@@ -2340,6 +2346,7 @@ class UltraShareForegroundService : Service() {
                 .setAction(ACTION_RECEIVE)
                 .putExtra(EXTRA_SECRET, secret)
             start(context, intent)
+            startLocalHotspot(context)
         }
 
         fun startSending(context: Context, uri: Uri, host: String, secret: String) {
