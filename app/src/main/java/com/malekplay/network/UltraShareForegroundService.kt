@@ -340,7 +340,7 @@ class UltraShareForegroundService : Service() {
                                 )
                                 updateState { current -> current.copy(
                                         receiving = true,
-                                        progress = if (current.sending) current.sendProgress else null,
+                                        progress = if (current.sending) null else null,
                                         receiveProgress = null,
                                         receivedFile = published,
                                         status = if (publishedUri != null) {
@@ -414,7 +414,7 @@ class UltraShareForegroundService : Service() {
                                         current.copy(
                                             peerTransfers = updatedTransfers,
                                             receiveProgress = activeProgress,
-                                            progress = if (current.sending) current.sendProgress else activeProgress
+                                            progress = if (current.sending) null else activeProgress
                                         )
                                     }
                                     endTransfer(isReceiving = true)
@@ -435,7 +435,7 @@ class UltraShareForegroundService : Service() {
                                                 progress.fileName, progress.transferredBytes, progress.totalBytes,
                                                 progress.bytesPerSecond, true
                                             ),
-                                            progress = if (current.sending) current.sendProgress else UltraShareTransport.Progress(
+                                            progress = if (current.sending) null else UltraShareTransport.Progress(
                                                 progress.fileName, progress.transferredBytes, progress.totalBytes,
                                                 progress.bytesPerSecond, true
                                             ),
@@ -813,7 +813,7 @@ class UltraShareForegroundService : Service() {
                 )
                 updateState { current -> current.copy(
                     receiving = true,
-                    progress = if (current.sending) current.sendProgress else progress,
+                    progress = if (current.sending) null else progress,
                     receiveProgress = progress,
                     error = null
                 ) }
