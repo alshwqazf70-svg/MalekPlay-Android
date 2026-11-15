@@ -74,6 +74,7 @@ object UltraShareWifiDirect {
         private var ownerPeerCheckRunnable: Runnable? = null
         private var ownerPeerCheckTimeout: Runnable? = null
         private var connectionAttemptToken = 0
+        private var connectionInfoRequestToken = 0
         private var connectionTimeout: Runnable? = null
         private var groupAttemptToken = 0
         private var groupAttemptTimeout: Runnable? = null
@@ -543,6 +544,7 @@ object UltraShareWifiDirect {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             // Explicit receiver group creation is a new owner-side pairing flow,
             // not a continuation of a previous client connection attempt.
+            connectionInfoRequestToken++
             cancelClientPeerConfirmation()
             expectedPeerDeviceAddress = null
             wasConnected = false
@@ -737,6 +739,7 @@ object UltraShareWifiDirect {
                 return
             }
             if (connectionInProgress) return
+            connectionInfoRequestToken++
             cancelClientPeerConfirmation()
             expectedPeerDeviceAddress = deviceAddress.lowercase()
             wasConnected = false
@@ -788,6 +791,15 @@ object UltraShareWifiDirect {
                 cancelClientPeerConfirmation()
                 connectionAttemptToken++
                 reportError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
+            } catch (failure: RuntimeException) {
+                connectionInProgress = false
+                connectionTimeout?.let(mainHandler::removeCallbacks)
+                connectionTimeout = null
+                expectedPeerDeviceAddress = null
+                cancelClientPeerConfirmation()
+                connectionAttemptToken++
+                UltraShareDiagnostics.failure("WIFI_DIRECT_PEER_PREFLIGHT", failure)
+                reportError(failure.localizedMessage ?: "تعذر تحديث قائمة أجهزة Wi-Fi Direct قبل الاتصال.")
             }
         }
 
@@ -1229,9 +1241,24 @@ object UltraShareWifiDirect {
 
         @SuppressLint("MissingPermission")
         private fun requestConnectionInfo() {
+            // Ignore an older framework callback if another connection/group query
+            // was issued after it. Android broadcasts and OEM callbacks can overlap.
+            val requestToken = ++connectionInfoRequestToken
+            UltraShareDiagnostics.event(
+                "WIFI_DIRECT",
+                "CONNECTION_INFO_QUERY_STARTED",
+                mapOf("requestToken" to requestToken)
+            )
             try {
                 manager.requestConnectionInfo(channel) { info ->
-                    if (closed) return@requestConnectionInfo
+                    if (closed || requestToken != connectionInfoRequestToken) {
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "STALE_CONNECTION_INFO_CALLBACK_IGNORED",
+                            mapOf("requestToken" to requestToken, "currentToken" to connectionInfoRequestToken)
+                        )
+                        return@requestConnectionInfo
+                    }
                     UltraShareDiagnostics.event(
                         "WIFI_DIRECT",
                         if (info.groupFormed) "GROUP_FORMED" else "GROUP_NOT_FORMED",
@@ -1560,6 +1587,7 @@ object UltraShareWifiDirect {
             UltraShareDiagnostics.event("WIFI_DIRECT", "CHANNEL_DISCONNECTED")
             connectionInProgress = false
             connectionAttemptToken++
+            connectionInfoRequestToken++
             connectionTimeout?.let(mainHandler::removeCallbacks)
             connectionTimeout = null
             groupAttemptToken++
@@ -1602,6 +1630,7 @@ object UltraShareWifiDirect {
             if (connectionInProgress) runCatching { manager.cancelConnect(channel, null) }
             connectionInProgress = false
             connectionAttemptToken++
+            connectionInfoRequestToken++
             expectedPeerDeviceAddress = null
             cancelClientPeerConfirmation()
             cancelOwnerPeerConfirmation()
