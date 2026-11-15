@@ -376,7 +376,11 @@ class UltraShareViewModel @Inject constructor(
             UltraShareDiagnostics.event("PAIRING", "DUPLICATE_PAIRING_ATTEMPT_IGNORED", mapOf("host" to host.trim()))
             return
         }
-        UltraShareDiagnostics.beginSession("SENDER", "pairing_attempt")
+        UltraShareDiagnostics.beginSession(
+            "SENDER",
+            "pairing_attempt",
+            host.trim().takeIf { it.isNotBlank() }?.let { "peer:$it" }
+        )
         UltraShareDiagnostics.event("PAIRING", "CONNECTION_REQUESTED", mapOf("host" to host.trim(), "candidateCount" to candidates.size, "alternateHostCount" to alternateHosts.size))
         if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
             _state.value = _state.value.copy(
