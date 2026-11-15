@@ -1176,9 +1176,9 @@ class UltraShareViewModel @Inject constructor(
             error = null,
             status = "جارٍ إيقاف الاكتشاف وتجهيز مجموعة الاقتران المباشر..."
         )
-        session.stopDiscoveryChecked { stopped ->
+        session.stopInvitationDiscoveryChecked { stopped ->
             if (!stopped) {
-                val message = "لم يؤكد Android إيقاف اكتشاف Wi-Fi Direct؛ لم ننشئ المجموعة لتجنب تعارض عمليات P2P."
+                val message = "لم يؤكد Android إيقاف اكتشاف Wi-Fi Direct وتنظيف طلب الدعوة؛ لم ننشئ المجموعة لتجنب تعارض عمليات P2P."
                 UltraShareDiagnostics.event("WIFI_DIRECT", "GROUP_CREATE_ABORTED_DISCOVERY_STOP_UNCONFIRMED")
                 if (wifiDirectPrimaryAttempt && _state.value.receiving) startHotspotFallback(message)
                 else _state.value = _state.value.copy(error = message, status = "لم يتم إنشاء مجموعة Wi-Fi Direct.")
@@ -1483,10 +1483,10 @@ class UltraShareViewModel @Inject constructor(
             error = null,
             status = "جارٍ الاتصال بـ " + peer.name + " عبر Wi-Fi Direct..."
         )
-        session.stopDiscoveryChecked { stopped ->
+        session.stopInvitationDiscoveryChecked { stopped ->
             if (!stopped) {
                 _state.value = _state.value.copy(
-                    error = "لم يؤكد Android إيقاف اكتشاف Wi-Fi Direct؛ لم نبدأ الاتصال لتجنب تعارض عمليات P2P.",
+                    error = "لم يؤكد Android إيقاف اكتشاف Wi-Fi Direct وتنظيف طلب الدعوة؛ لم نبدأ الاتصال لتجنب تعارض عمليات P2P.",
                     status = "تعذر بدء الاتصال المباشر."
                 )
                 return@stopDiscoveryChecked
