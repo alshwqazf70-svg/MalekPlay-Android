@@ -49,7 +49,41 @@ object UltraShareDiagnostics {
     @Volatile private var appContext: Context? = null
 
     fun initialize(context: Context) {
-        appContext = context.applicationContext
+        val applicationContext = context.applicationContext
+        appContext = applicationContext
+        // A ViewModel can start a pairing session just before the foreground service
+        // initializes diagnostics. Materialize any queued sessions now instead of
+        // silently losing their earliest Wi-Fi Direct events.
+        sessions.values.forEach { session ->
+            if (session.uri == null && session.privateFile == null) {
+                writer.execute {
+                    if (session.uri == null && session.privateFile == null) {
+                        runCatching {
+                            val uri = runCatching {
+                                createPublicLog(applicationContext, session.role, session.id)
+                            }.getOrNull()
+                            if (uri != null) session.uri = uri
+                            else session.privateFile = createPrivateLog(applicationContext, session.role, session.id)
+                            val initial = jsonObject(linkedMapOf(
+                                "timestamp" to timestamp(),
+                                "sessionId" to session.id,
+                                "role" to session.role,
+                                "stage" to "SESSION",
+                                "event" to "STARTED",
+                                "eventSequence" to nextSequence(),
+                                "elapsedRealtimeMs" to android.os.SystemClock.elapsedRealtime(),
+                                "trigger" to "initialized_after_session_start",
+                                "sdkInt" to Build.VERSION.SDK_INT,
+                                "manufacturer" to Build.MANUFACTURER,
+                                "deviceModel" to Build.MODEL
+                            ))
+                            if (session.uri != null) writeLine(applicationContext, session.uri!!, initial)
+                            else writePrivateLine(session.privateFile!!, initial)
+                        }.onFailure { Log.e(TAG, "Unable to initialize pending diagnostic session", it) }
+                    }
+                }
+            }
+        }
         beginSession("SERVICE", "process_started", "process")
     }
 
