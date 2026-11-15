@@ -25,6 +25,21 @@ internal object UltraShareNetworkRouting {
         return null
     }
 
+    /**
+     * QR invitations discovered over Wi-Fi Direct are pinned to the confirmed
+     * group-owner address. Advertised LAN/SoftAP addresses are not interchangeable
+     * with the P2P peer and must not be tried after a P2P connection callback.
+     */
+    internal fun invitationHostCandidates(
+        confirmedHost: String,
+        advertisedHosts: List<String>,
+        pinToConfirmedHost: Boolean
+    ): List<String> =
+        (if (pinToConfirmedHost) listOf(confirmedHost) else listOf(confirmedHost) + advertisedHosts)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
     /** Preserve the preferred route first, then try every distinct alternative once. */
     internal fun <T> orderedDistinctRoutes(preferred: T?, alternatives: List<T>): List<T> =
         (listOfNotNull(preferred) + alternatives).distinct()
