@@ -263,18 +263,40 @@ object UltraShareWifiDirect {
 
         @SuppressLint("MissingPermission")
         fun stopInvitationAdvertisement() {
-            if (closed) return
-            runCatching {
+            stopInvitationAdvertisementChecked { }
+        }
+
+        /** Confirms local DNS-SD advertisement cleanup before switching transports. */
+        @SuppressLint("MissingPermission")
+        fun stopInvitationAdvertisementChecked(onResult: (Boolean) -> Unit) {
+            if (closed) {
+                onResult(false)
+                return
+            }
+            if (localInvitationService == null && localInvitationId == null) {
+                onResult(true)
+                return
+            }
+            val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+            try {
                 manager.clearLocalServices(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         localInvitationService = null
                         localInvitationId = null
+                        if (completed.compareAndSet(false, true)) onResult(true)
                     }
                     override fun onFailure(reason: Int) {
-                        localInvitationService = null
-                        localInvitationId = null
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "LOCAL_INVITATION_CLEAR_FAILED",
+                            mapOf("reason" to reason)
+                        )
+                        if (completed.compareAndSet(false, true)) onResult(false)
                     }
                 })
+            } catch (failure: RuntimeException) {
+                UltraShareDiagnostics.failure("WIFI_DIRECT_CLEAR_LOCAL_INVITATION", failure)
+                if (completed.compareAndSet(false, true)) onResult(false)
             }
         }
 
