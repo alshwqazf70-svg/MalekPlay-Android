@@ -48,6 +48,8 @@ object UltraShareWifiDirect {
         private var wasConnected = false
         private var connectionAttemptToken = 0
         private var connectionTimeout: Runnable? = null
+        private var groupAttemptToken = 0
+        private var groupAttemptTimeout: Runnable? = null
 
         private val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -329,10 +331,22 @@ object UltraShareWifiDirect {
         @SuppressLint("MissingPermission")
         private fun createGroupAttempt(onCreated: () -> Unit, attempt: Int) {
             if (closed) return
+            val token = ++groupAttemptToken
+            groupAttemptTimeout?.let(mainHandler::removeCallbacks)
+            val timeout = Runnable {
+                if (isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) {
+                    groupAttemptTimeout = null
+                    groupAttemptToken++
+                    onError("لم يستجب نظام Android لتهيئة مجموعة Wi-Fi Direct خلال 15 ثانية. أوقف أي اتصال مباشر قديم ثم أعد المحاولة.")
+                }
+            }
+            groupAttemptTimeout = timeout
+            mainHandler.postDelayed(timeout, 15_000L)
             try {
                 manager.requestGroupInfo(channel) { existingGroup ->
-                    if (closed) return@requestGroupInfo
+                    if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return@requestGroupInfo
                     if (existingGroup?.isGroupOwner == true) {
+                        finishGroupAttempt(token)
                         wasConnected = true
                         onCreated()
                         return@requestGroupInfo
@@ -343,17 +357,20 @@ object UltraShareWifiDirect {
                         // creation after Android reports completion. Keep an existing
                         // receiver-owned group intact because it may already serve peers.
                         if (attempt >= 2) {
+                            finishGroupAttempt(token)
                             onError("تعذر تحرير مجموعة Wi-Fi Direct السابقة بعد عدة محاولات. أوقف الاتصال المباشر القديم ثم أعد المحاولة.")
                             return@requestGroupInfo
                         }
                         manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
                             override fun onSuccess() {
+                                finishGroupAttempt(token)
                                 mainHandler.postDelayed({
                                     if (!closed) createGroupAttempt(onCreated, attempt + 1)
                                 }, 500L)
                             }
 
                             override fun onFailure(reason: Int) {
+                                finishGroupAttempt(token)
                                 onError("تعذر إغلاق مجموعة Wi-Fi Direct السابقة (رمز النظام $reason). أوقف الاتصال القديم ثم أعد المحاولة.")
                             }
                         })
@@ -361,43 +378,65 @@ object UltraShareWifiDirect {
                     }
                     manager.createGroup(channel, object : WifiP2pManager.ActionListener {
                         override fun onSuccess() {
-                            if (!closed) awaitReceiverGroup(onCreated, 0)
+                            if (!closed && isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) {
+                                awaitReceiverGroup(onCreated, 0, token)
+                            }
                         }
 
                         override fun onFailure(reason: Int) {
+                            if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return
                             if ((reason == WifiP2pManager.ERROR || reason == WifiP2pManager.BUSY) && attempt < 2) {
+                                finishGroupAttempt(token)
                                 runCatching { manager.cancelConnect(channel, null) }
                                 mainHandler.postDelayed({
                                     if (!closed) createGroupAttempt(onCreated, attempt + 1)
                                 }, 1_000L * (attempt + 1))
                             } else {
+                                finishGroupAttempt(token)
                                 onError(groupFailureMessage(reason))
                             }
                         }
                     })
                 }
             } catch (failure: SecurityException) {
+                finishGroupAttempt(token)
                 onError("يلزم إذن الأجهزة القريبة لإنشاء مجموعة Wi-Fi Direct.")
+            } catch (failure: RuntimeException) {
+                finishGroupAttempt(token)
+                onError(failure.localizedMessage ?: "تعذر تهيئة مجموعة Wi-Fi Direct.")
             }
         }
 
+        private fun finishGroupAttempt(token: Int) {
+            if (groupAttemptToken != token) return
+            groupAttemptTimeout?.let(mainHandler::removeCallbacks)
+            groupAttemptTimeout = null
+            groupAttemptToken++
+        }
+
         @SuppressLint("MissingPermission")
-        private fun awaitReceiverGroup(onCreated: () -> Unit, attempt: Int) {
+        private fun awaitReceiverGroup(onCreated: () -> Unit, attempt: Int, token: Int) {
             if (closed) return
             try {
                 manager.requestConnectionInfo(channel) { info ->
-                    if (closed) return@requestConnectionInfo
+                    if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return@requestConnectionInfo
                     if (info.groupFormed && info.isGroupOwner) {
+                        finishGroupAttempt(token)
                         wasConnected = true
                         onCreated()
                     } else if (attempt < 20) {
-                        mainHandler.postDelayed({ awaitReceiverGroup(onCreated, attempt + 1) }, 500L)
+                        mainHandler.postDelayed({ awaitReceiverGroup(onCreated, attempt + 1, token) }, 500L)
                     } else {
+                        finishGroupAttempt(token)
                         onError("لم تكتمل تهيئة مجموعة Wi-Fi Direct خلال 10 ثوانٍ. أوقف نقطة الاتصال أو أي اتصال مباشر آخر ثم أعد المحاولة.")
                     }
                 }
             } catch (failure: SecurityException) {
+                finishGroupAttempt(token)
                 onError("يلزم إذن الأجهزة القريبة للتحقق من إنشاء مجموعة Wi-Fi Direct.")
+            } catch (failure: RuntimeException) {
+                finishGroupAttempt(token)
+                onError(failure.localizedMessage ?: "تعذر التحقق من إنشاء مجموعة Wi-Fi Direct.")
             }
         }
 
@@ -642,6 +681,9 @@ object UltraShareWifiDirect {
             if (connectionInProgress) runCatching { manager.cancelConnect(channel, null) }
             connectionInProgress = false
             connectionAttemptToken++
+            groupAttemptToken++
+            groupAttemptTimeout?.let(mainHandler::removeCallbacks)
+            groupAttemptTimeout = null
             connectionTimeout?.let(mainHandler::removeCallbacks)
             connectionTimeout = null
             mainHandler.removeCallbacksAndMessages(null)
