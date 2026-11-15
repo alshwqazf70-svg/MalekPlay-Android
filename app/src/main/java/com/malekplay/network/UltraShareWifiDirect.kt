@@ -77,21 +77,58 @@ object UltraShareWifiDirect {
         private var connectionTimeout: Runnable? = null
         private var groupAttemptToken = 0
         private var groupAttemptTimeout: Runnable? = null
+        private var lastP2pRadioState: Int? = null
 
         private val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
                     WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION -> {
+                        // A missing OEM extra must not be mistaken for DISABLED.
                         val state = intent.getIntExtra(
                             WifiP2pManager.EXTRA_WIFI_STATE,
-                            WifiP2pManager.WIFI_P2P_STATE_DISABLED
+                            Int.MIN_VALUE
                         )
-                        if (state != WifiP2pManager.WIFI_P2P_STATE_ENABLED) {
-                            reportError("فعّل Wi-Fi وميزة Wi-Fi Direct من إعدادات الجهاز.")
+                        val stateName = wifiP2pRadioStateName(state)
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "RADIO_STATE_CHANGED",
+                            mapOf(
+                                "state" to state,
+                                "stateName" to stateName,
+                                "extraPresent" to intent.hasExtra(WifiP2pManager.EXTRA_WIFI_STATE),
+                                "sdkInt" to Build.VERSION.SDK_INT
+                            )
+                        )
+                        when (state) {
+                            WifiP2pManager.WIFI_P2P_STATE_ENABLED -> {
+                                lastP2pRadioState = state
+                                UltraShareDiagnostics.event("WIFI_DIRECT", "RADIO_READY")
+                            }
+                            WifiP2pManager.WIFI_P2P_STATE_DISABLED -> {
+                                val shouldReport = lastP2pRadioState != state
+                                lastP2pRadioState = state
+                                if (shouldReport) {
+                                    reportError("ميزة Wi-Fi Direct غير مفعلة حالياً. فعّل Wi-Fi وميزة Wi-Fi Direct من إعدادات الجهاز.")
+                                }
+                            }
+                            else -> {
+                                lastP2pRadioState = state
+                                UltraShareDiagnostics.event(
+                                    "WIFI_DIRECT",
+                                    "RADIO_STATE_UNRECOGNIZED",
+                                    mapOf("state" to state, "extraPresent" to intent.hasExtra(WifiP2pManager.EXTRA_WIFI_STATE))
+                                )
+                            }
                         }
                     }
-                    WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION -> requestPeers()
-                    WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> requestConnectionInfo()
+                    WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION -> {
+                        UltraShareDiagnostics.event("WIFI_DIRECT", "PEERS_CHANGED_BROADCAST")
+                        requestPeers()
+                    }
+                    WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
+                        UltraShareDiagnostics.event("WIFI_DIRECT", "CONNECTION_CHANGED_BROADCAST")
+                        requestConnectionInfo()
+                    }
                 }
             }
         }
@@ -1375,6 +1412,14 @@ object UltraShareWifiDirect {
         session = created
         return created
     }
+}
+
+/** Converts the Android P2P radio extra to a stable diagnostic label. */
+internal fun wifiP2pRadioStateName(state: Int): String = when (state) {
+    WifiP2pManager.WIFI_P2P_STATE_ENABLED -> "ENABLED"
+    WifiP2pManager.WIFI_P2P_STATE_DISABLED -> "DISABLED"
+    Int.MIN_VALUE -> "MISSING"
+    else -> "UNKNOWN"
 }
 
 /** Android 6 through 12L require Location services enabled for Wi-Fi Direct service discovery. */
