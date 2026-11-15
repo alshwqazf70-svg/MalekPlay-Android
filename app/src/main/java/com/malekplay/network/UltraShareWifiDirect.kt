@@ -1303,7 +1303,8 @@ object UltraShareWifiDirect {
                     clientPeerCheckInFlight = false
                     if (closed || token != clientPeerCheckToken) return@requestGroupInfo
                     val actualAddress = group?.owner?.deviceAddress
-                    val matches = isExpectedWifiDirectPeer(expectedAddress, actualAddress)
+                    val matches = group != null && !group.isGroupOwner &&
+                        isExpectedWifiDirectPeer(expectedAddress, actualAddress)
                     UltraShareDiagnostics.event(
                         "WIFI_DIRECT",
                         when {
@@ -1334,6 +1335,11 @@ object UltraShareWifiDirect {
                             )
                             onConnected(host, false)
                         }
+                    } else if (wasConnected) {
+                        wasConnected = false
+                        expectedPeerDeviceAddress = null
+                        cancelClientPeerConfirmation()
+                        reportError("تغير جهاز مالك مجموعة Wi-Fi Direct أو انقطع الاقتران مع الجهاز المحدد. أعد الاقتران قبل إرسال الملفات.")
                     } else {
                         scheduleClientPeerConfirmation(info, host, expectedAddress, token, attempt)
                     }
