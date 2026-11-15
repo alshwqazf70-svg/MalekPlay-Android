@@ -441,6 +441,10 @@ object UltraShareWifiDirect {
         @SuppressLint("MissingPermission")
         fun createGroup(onCreated: () -> Unit = {}) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
+            if (peerDiscoveryActive) {
+                onError("لا يمكن إنشاء مجموعة Wi-Fi Direct أثناء استمرار عملية الاكتشاف؛ انتظر تأكيد إيقافها أولاً.")
+                return
+            }
             createGroupAttempt(onCreated, 0)
         }
 
@@ -619,6 +623,10 @@ object UltraShareWifiDirect {
         @SuppressLint("MissingPermission")
         fun connect(deviceAddress: String, preferThisDeviceAsGroupOwner: Boolean) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
+            if (peerDiscoveryActive) {
+                onError("لا يمكن بدء اتصال Wi-Fi Direct أثناء استمرار الاكتشاف؛ أوقف عملية البحث وانتظر تأكيد Android أولاً.")
+                return
+            }
             if (!deviceAddress.matches(Regex("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}"))) {
                 onError("عنوان جهاز Wi-Fi Direct غير صالح؛ أعد البحث عن الأجهزة.")
                 return
