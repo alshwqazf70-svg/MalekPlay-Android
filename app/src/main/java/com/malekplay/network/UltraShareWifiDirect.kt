@@ -751,6 +751,8 @@ object UltraShareWifiDirect {
                 if (isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) {
                     connectionInProgress = false
                     connectionTimeout = null
+                    expectedPeerDeviceAddress = null
+                    cancelClientPeerConfirmation()
                     // Invalidate any requestPeers callback that arrives after this timeout.
                     connectionAttemptToken++
                     reportError("لم يستجب Android لتحديث قائمة أجهزة Wi-Fi Direct. أعد البحث ثم حاول الاتصال مجدداً.")
@@ -777,6 +779,8 @@ object UltraShareWifiDirect {
                 connectionInProgress = false
                 connectionTimeout?.let(mainHandler::removeCallbacks)
                 connectionTimeout = null
+                expectedPeerDeviceAddress = null
+                cancelClientPeerConfirmation()
                 connectionAttemptToken++
                 reportError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
             }
@@ -822,6 +826,8 @@ object UltraShareWifiDirect {
                                     }, 800L * (attempt + 1))
                                 } else {
                                     connectionAttemptToken++
+                                    expectedPeerDeviceAddress = null
+                                    cancelClientPeerConfirmation()
                                     reportError("انتهت مهلة اتصال Wi-Fi Direct بعد محاولات متعددة. تأكد من بقاء الجهازين قريبين ثم أعد المحاولة.")
                                 }
                             }
@@ -845,6 +851,8 @@ object UltraShareWifiDirect {
                             connectionInProgress = false
                             connectionTimeout?.let(mainHandler::removeCallbacks)
                             connectionTimeout = null
+                            expectedPeerDeviceAddress = null
+                            cancelClientPeerConfirmation()
                             connectionAttemptToken++
                             reportError(connectFailureMessage(reason))
                         }
@@ -854,12 +862,16 @@ object UltraShareWifiDirect {
                 connectionInProgress = false
                 connectionTimeout?.let(mainHandler::removeCallbacks)
                 connectionTimeout = null
+                expectedPeerDeviceAddress = null
+                cancelClientPeerConfirmation()
                 connectionAttemptToken++
                 reportError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
                 connectionInProgress = false
                 connectionTimeout?.let(mainHandler::removeCallbacks)
                 connectionTimeout = null
+                expectedPeerDeviceAddress = null
+                cancelClientPeerConfirmation()
                 connectionAttemptToken++
                 UltraShareDiagnostics.failure("WIFI_DIRECT_CONNECT", failure)
                 reportError(failure.localizedMessage ?: "تعذر بدء اتصال Wi-Fi Direct.")
@@ -1314,8 +1326,9 @@ object UltraShareWifiDirect {
                         },
                         mapOf(
                             "attempt" to attempt,
-                            "expectedAddress" to expectedAddress,
-                            "actualAddress" to actualAddress.orEmpty(),
+                            "expectedAddressPresent" to expectedAddress.isNotBlank(),
+                            "actualAddressPresent" to !actualAddress.isNullOrBlank(),
+                            "addressesMatch" to matches,
                             "groupIsOwner" to (group?.isGroupOwner == true),
                             "clientCount" to (group?.clientList?.size ?: 0)
                         )
@@ -1428,18 +1441,27 @@ object UltraShareWifiDirect {
                     ownerPeerCheckTimeout?.let(mainHandler::removeCallbacks)
                     ownerPeerCheckTimeout = null
                     ownerPeerCheckInFlight = false
-                    val clientCount = group?.clientList?.size ?: 0
+                    val clientAddresses = group?.clientList
+                        ?.mapNotNull { it.deviceAddress?.takeIf(String::isNotBlank) }
+                        .orEmpty()
+                    val clientCount = clientAddresses.size
+                    val expectedPeer = expectedPeerDeviceAddress
+                    val expectedClientPresent = if (expectedPeer.isNullOrBlank()) {
+                        clientCount > 0
+                    } else {
+                        clientAddresses.any { isExpectedWifiDirectPeer(expectedPeer, it) }
+                    }
                     UltraShareDiagnostics.event(
                         "WIFI_DIRECT",
-                        if (clientCount > 0) "GROUP_PEER_CONFIRMED" else "GROUP_WAITING_FOR_PEER",
-                        mapOf("clientCount" to clientCount, "attempt" to attempt)
-                    )
-                    if (isConfirmedWifiDirectOwnerPeer(
-                            groupFormed = info.groupFormed,
-                            isGroupOwner = info.isGroupOwner,
-                            clientCount = clientCount
+                        if (expectedClientPresent) "GROUP_PEER_CONFIRMED" else "GROUP_WAITING_FOR_PEER",
+                        mapOf(
+                            "clientCount" to clientCount,
+                            "expectedPeerPresent" to !expectedPeer.isNullOrBlank(),
+                            "expectedClientPresent" to expectedClientPresent,
+                            "attempt" to attempt
                         )
-                    ) {
+                    )
+                    if (info.groupFormed && info.isGroupOwner && expectedClientPresent) {
                         ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
                         ownerPeerCheckRunnable = null
                         connectionInProgress = false
