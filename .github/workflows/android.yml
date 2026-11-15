@@ -276,7 +276,6 @@ jobs:
           heap-size: 512
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -wipe-data
           disable-animations: true
-          verbose: true
           # Keep the action script to one command; the full Bash script lives in the repository.
           script: bash scripts/ci/run_android_runtime_tests.sh ${{ matrix.api-level }}
       - name: Upload Android runtime test diagnostics
