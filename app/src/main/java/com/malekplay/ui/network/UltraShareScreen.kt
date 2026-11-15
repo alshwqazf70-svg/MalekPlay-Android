@@ -387,9 +387,17 @@ class LegacyUltraShareViewModel @Inject constructor(
             status = "تم العثور على الجهاز؛ جارٍ إنشاء قناة اقتران آمنة..."
         )
         viewModelScope.launch {
-            val candidates = (listOf(host) + pairing.hosts)
-                .filter { UltraShareTransport.isValidPrivateLanHost(it) }
-                .distinct()
+            val p2pInvitation = !pairing.invitationId.isNullOrBlank()
+            val candidates = UltraShareNetworkRouting.invitationHostCandidates(
+                confirmedHost = host,
+                advertisedHosts = pairing.hosts,
+                pinToConfirmedHost = p2pInvitation
+            ).filter { UltraShareTransport.isValidPrivateLanHost(it) }
+            UltraShareDiagnostics.event(
+                "PAIRING",
+                if (p2pInvitation) "P2P_INVITATION_HOST_PINNED" else "LAN_INVITATION_HOST_CANDIDATES",
+                mapOf("candidateCount" to candidates.size, "p2pConfirmedHostOnly" to p2pInvitation)
+            )
             var connectedHost: String? = null
             var lastFailure: Exception? = null
             for (candidate in candidates) {
