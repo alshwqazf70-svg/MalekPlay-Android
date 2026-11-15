@@ -202,7 +202,8 @@ object UltraShareWifiDirect {
 
         @SuppressLint("MissingPermission")
         fun stopInvitationDiscovery(onStopped: () -> Unit = {}) {
-            stopInvitationDiscoveryChecked { onStopped() }
+            // Legacy callers may continue only after Android confirms the stop/cleanup.
+            stopInvitationDiscoveryChecked { stopped -> if (stopped) onStopped() }
         }
 
         /** Only reports success when Android confirms discovery and request cleanup. */
@@ -288,14 +289,17 @@ object UltraShareWifiDirect {
             attempt: Int
         ) {
             if (closed || invitationRequest !== request) return
+            // Mark the operation pending before crossing the asynchronous framework boundary.
+            // A stop request arriving before onSuccess must still wait for stopPeerDiscovery().
+            peerDiscoveryActive = true
             try {
                 manager.discoverServices(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        peerDiscoveryActive = true
                         UltraShareDiagnostics.event("WIFI_DIRECT", "SERVICE_DISCOVERY_STARTED", mapOf("attempt" to attempt))
                     }
 
                     override fun onFailure(reason: Int) {
+                        peerDiscoveryActive = false
                         UltraShareDiagnostics.event("WIFI_DIRECT", "SERVICE_DISCOVERY_FAILED", mapOf("reason" to reason, "attempt" to attempt))
                         if (closed || invitationRequest !== request) return
                         val retryable = reason == WifiP2pManager.BUSY ||
@@ -312,7 +316,12 @@ object UltraShareWifiDirect {
                     }
                 })
             } catch (failure: SecurityException) {
+                peerDiscoveryActive = false
                 onError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
+            } catch (failure: RuntimeException) {
+                peerDiscoveryActive = false
+                UltraShareDiagnostics.failure("WIFI_DIRECT_START_SERVICE_DISCOVERY", failure)
+                onError(failure.localizedMessage ?: "تعذر بدء البحث عن دعوة Wi-Fi Direct.")
             }
         }
 
@@ -323,10 +332,12 @@ object UltraShareWifiDirect {
                 onError("على Android 6–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
                 return
             }
+            // Set pending before the async call so stopDiscoveryChecked also serializes
+            // against a discoverPeers request whose callback has not arrived yet.
+            peerDiscoveryActive = true
             try {
                 manager.discoverPeers(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        peerDiscoveryActive = true
                     }
                     override fun onFailure(reason: Int) {
                         peerDiscoveryActive = false
@@ -334,13 +345,19 @@ object UltraShareWifiDirect {
                     }
                 })
             } catch (failure: SecurityException) {
+                peerDiscoveryActive = false
                 onError("يلزم منح إذن الأجهزة القريبة للبحث عبر Wi-Fi Direct.")
+            } catch (failure: RuntimeException) {
+                peerDiscoveryActive = false
+                UltraShareDiagnostics.failure("WIFI_DIRECT_START_PEER_DISCOVERY", failure)
+                onError(failure.localizedMessage ?: "تعذر بدء البحث عبر Wi-Fi Direct.")
             }
         }
 
         @SuppressLint("MissingPermission")
         fun stopDiscovery(onStopped: () -> Unit = {}) {
-            stopDiscoveryChecked { onStopped() }
+            // Do not let legacy call sites race connect/createGroup after a failed stop.
+            stopDiscoveryChecked { stopped -> if (stopped) onStopped() }
         }
 
         /**
@@ -1036,8 +1053,9 @@ object UltraShareWifiDirect {
                         if (info.groupFormed) "GROUP_FORMED" else "GROUP_NOT_FORMED",
                         mapOf("isGroupOwner" to info.isGroupOwner, "groupOwnerHost" to info.groupOwnerAddress?.hostAddress)
                     )
-                    // Android may broadcast CONNECTION_CHANGED while negotiation is
-                    // still pending. A non-formed group is not proof of a disconnect.
+                    // A receiver can own an empty P2P group while it is advertising.
+                    // That is group readiness, NOT a paired peer. Only GroupInfo.clientList
+                    // confirms that another device has actually joined this owner group.
                     if (!info.groupFormed) {
                         if (wasConnected) {
                             wasConnected = false
@@ -1045,23 +1063,53 @@ object UltraShareWifiDirect {
                         }
                         return@requestConnectionInfo
                     }
-                    wasConnected = true
-                    connectionInProgress = false
-                    connectionTimeout?.let(mainHandler::removeCallbacks)
-                    connectionTimeout = null
                     if (info.isGroupOwner) {
-                        onConnected(null, true)
-                    } else {
-                        val host = info.groupOwnerAddress?.hostAddress
-                        if (host != null && UltraShareTransport.isValidPrivateLanHost(host)) {
-                            onConnected(host, false)
-                        } else {
-                            onError("تم اتصال Wi-Fi Direct لكن تعذر تحديد عنوان جهاز الاستقبال.")
+                        try {
+                            manager.requestGroupInfo(channel) { group ->
+                                if (closed) return@requestGroupInfo
+                                val clientCount = group?.clientList?.size ?: 0
+                                UltraShareDiagnostics.event(
+                                    "WIFI_DIRECT",
+                                    if (clientCount > 0) "GROUP_PEER_CONFIRMED" else "GROUP_WAITING_FOR_PEER",
+                                    mapOf("clientCount" to clientCount)
+                                )
+                                if (clientCount == 0) {
+                                    if (wasConnected) {
+                                        wasConnected = false
+                                        onError("غادر الجهاز الآخر مجموعة Wi-Fi Direct. أعد الاقتران لإكمال المشاركة.")
+                                    }
+                                    return@requestGroupInfo
+                                }
+                                wasConnected = true
+                                connectionInProgress = false
+                                connectionTimeout?.let(mainHandler::removeCallbacks)
+                                connectionTimeout = null
+                                onConnected(null, true)
+                            }
+                        } catch (failure: SecurityException) {
+                            onError("يلزم إذن الأجهزة القريبة للتحقق من الجهاز المنضم إلى مجموعة Wi-Fi Direct.")
+                        } catch (failure: RuntimeException) {
+                            UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_INFO", failure)
+                            onError(failure.localizedMessage ?: "تعذر التحقق من الأجهزة المنضمة إلى مجموعة Wi-Fi Direct.")
                         }
+                        return@requestConnectionInfo
+                    }
+                    val host = info.groupOwnerAddress?.hostAddress
+                    if (host != null && UltraShareTransport.isValidPrivateLanHost(host)) {
+                        wasConnected = true
+                        connectionInProgress = false
+                        connectionTimeout?.let(mainHandler::removeCallbacks)
+                        connectionTimeout = null
+                        onConnected(host, false)
+                    } else {
+                        onError("تم اتصال Wi-Fi Direct لكن تعذر تحديد عنوان جهاز الاستقبال.")
                     }
                 }
             } catch (failure: SecurityException) {
                 onError("يلزم إذن الأجهزة القريبة لقراءة اتصال Wi-Fi Direct.")
+            } catch (failure: RuntimeException) {
+                UltraShareDiagnostics.failure("WIFI_DIRECT_CONNECTION_INFO", failure)
+                onError(failure.localizedMessage ?: "تعذر قراءة حالة اتصال Wi-Fi Direct.")
             }
         }
 
@@ -1082,6 +1130,7 @@ object UltraShareWifiDirect {
             groupAttemptTimeout = null
             invitationMatch = null
             invitationRequest = null
+            peerDiscoveryActive = false
             wasConnected = false
             try {
                 val replacement = manager.initialize(
@@ -1123,6 +1172,7 @@ object UltraShareWifiDirect {
             runCatching { manager.clearLocalServices(channel, null) }
             invitationMatch = null
             invitationRequest = null
+            peerDiscoveryActive = false
             localInvitationService = null
             localInvitationId = null
             runCatching { appContext.unregisterReceiver(receiver) }
@@ -1160,6 +1210,10 @@ object UltraShareWifiDirect {
 
 /** Android 6 through 12L require Location services enabled for Wi-Fi Direct service discovery. */
 internal fun requiresWifiDirectLocationService(sdkInt: Int): Boolean = sdkInt in 23..32
+
+/** A formed owner group is paired only after Android reports at least one client. */
+internal fun isConfirmedWifiDirectOwnerPeer(groupFormed: Boolean, isGroupOwner: Boolean, clientCount: Int): Boolean =
+    groupFormed && isGroupOwner && clientCount > 0
 
 /** Rejects delayed callbacks after timeout, completion, closure, or a newer attempt. */
 internal fun isCurrentWifiDirectConnectionAttempt(
