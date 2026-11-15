@@ -1147,7 +1147,7 @@ object UltraShareWifiDirect {
                         connectionInProgress = false
                         connectionTimeout?.let(mainHandler::removeCallbacks)
                         connectionTimeout = null
-                        if (!wasConnected) {
+                        if (shouldEmitWifiDirectConnected(wasConnected)) {
                             wasConnected = true
                             UltraShareDiagnostics.event("WIFI_DIRECT", "GROUP_OWNER_ADDRESS_CONFIRMED", mapOf("groupOwnerHost" to host))
                             onConnected(host, false)
@@ -1203,7 +1203,7 @@ object UltraShareWifiDirect {
                         connectionInProgress = false
                         connectionTimeout?.let(mainHandler::removeCallbacks)
                         connectionTimeout = null
-                        if (!wasConnected) {
+                        if (shouldEmitWifiDirectConnected(wasConnected)) {
                             wasConnected = true
                             onConnected(null, true)
                         }
@@ -1236,7 +1236,7 @@ object UltraShareWifiDirect {
             attempt: Int
         ) {
             if (closed || token != ownerPeerCheckToken || wasConnected) return
-            if (attempt >= 20) {
+            if (!shouldRetryWifiDirectPeerConfirmation(attempt)) {
                 ownerPeerCheckRunnable = null
                 UltraShareDiagnostics.event("WIFI_DIRECT", "GROUP_PEER_CONFIRMATION_TIMEOUT", mapOf("attempts" to attempt))
                 onError("تم إنشاء مجموعة Wi-Fi Direct لكن لم يؤكد Android انضمام الهاتف الآخر خلال 10 ثوانٍ. أبقِ الجهازين قريبين ثم أعد الاقتران.")
@@ -1360,6 +1360,13 @@ object UltraShareWifiDirect {
 
 /** Android 6 through 12L require Location services enabled for Wi-Fi Direct service discovery. */
 internal fun requiresWifiDirectLocationService(sdkInt: Int): Boolean = sdkInt in 23..32
+
+/** Bounds owner-side client confirmation retries without treating an empty group as paired. */
+internal fun shouldRetryWifiDirectPeerConfirmation(attempt: Int, maxAttempts: Int = 20): Boolean =
+    maxAttempts > 0 && attempt in 0 until maxAttempts
+
+/** Emits the connected callback only on a disconnected-to-connected transition. */
+internal fun shouldEmitWifiDirectConnected(wasConnected: Boolean): Boolean = !wasConnected
 
 /** A formed owner group is paired only after Android reports at least one client. */
 internal fun isConfirmedWifiDirectOwnerPeer(groupFormed: Boolean, isGroupOwner: Boolean, clientCount: Int): Boolean =
