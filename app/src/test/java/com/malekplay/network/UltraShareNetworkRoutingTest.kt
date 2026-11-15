@@ -157,6 +157,15 @@ class UltraShareNetworkRoutingTest {
     }
 
     @Test
+    fun identifiesLocalOnlyHotspotInterfaceNameVariants() {
+        assertTrue(UltraShareNetworkRouting.isHotspotInterfaceName("ap0"))
+        assertTrue(UltraShareNetworkRouting.isHotspotInterfaceName("softap0"))
+        assertTrue(UltraShareNetworkRouting.isHotspotInterfaceName("swlan0"))
+        assertFalse(UltraShareNetworkRouting.isHotspotInterfaceName("p2p-wlan0-0"))
+        assertFalse(UltraShareNetworkRouting.isHotspotInterfaceName("wlan0"))
+    }
+
+    @Test
     fun identifiesAndroidWifiDirectInterfaceNames() {
         assertTrue(UltraShareNetworkRouting.isWifiDirectInterfaceName("p2p-wlan0-0"))
         assertTrue(UltraShareNetworkRouting.isWifiDirectInterfaceName("P2P0"))
