@@ -311,6 +311,9 @@ class UltraShareViewModel @Inject constructor(
                     if (removed) {
                         beginLanFallback()
                     } else {
+                        // Allow an explicit retry after cleanup failure; do not leave
+                        // the fallback latch permanently closed for this receive session.
+                        hotspotFallbackStarted = false
                         _state.value = _state.value.copy(
                             invitationId = "",
                             lanFallbackReady = false,
@@ -332,6 +335,7 @@ class UltraShareViewModel @Inject constructor(
             runCatching { UltraShareForegroundService.startHotspot(context) }
                 .onFailure { failure ->
                     UltraShareDiagnostics.failure("HOTSPOT_FALLBACK_START", failure)
+                    hotspotFallbackStarted = false
                     _state.value = _state.value.copy(
                         error = failure.localizedMessage
                             ?: "فشل Wi-Fi Direct وتعذر تشغيل نقطة الاتصال المحلية."
@@ -350,6 +354,7 @@ class UltraShareViewModel @Inject constructor(
                         "FALLBACK_BLOCKED_GROUP_CLEANUP_FAILED",
                         mapOf("reason" to reason.take(160))
                     )
+                    hotspotFallbackStarted = false
                     _state.value = _state.value.copy(
                         invitationId = "",
                         error = "تعذر إيقاف اكتشاف/إعلان Wi-Fi Direct أو إغلاق المجموعة السابقة بأمان؛ لم أشغّل نقطة الاتصال لتجنب تداخل الشبكتين."
