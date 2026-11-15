@@ -1073,7 +1073,12 @@ object UltraShareWifiDirect {
                                     if (clientCount > 0) "GROUP_PEER_CONFIRMED" else "GROUP_WAITING_FOR_PEER",
                                     mapOf("clientCount" to clientCount)
                                 )
-                                if (clientCount == 0) {
+                                if (!isConfirmedWifiDirectOwnerPeer(
+                                        groupFormed = info.groupFormed,
+                                        isGroupOwner = info.isGroupOwner,
+                                        clientCount = clientCount
+                                    )
+                                ) {
                                     if (wasConnected) {
                                         wasConnected = false
                                         onError("غادر الجهاز الآخر مجموعة Wi-Fi Direct. أعد الاقتران لإكمال المشاركة.")
