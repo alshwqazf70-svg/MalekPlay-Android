@@ -23,6 +23,23 @@ internal object UltraSharePairingReadiness {
             UltraShareTransport.isValidPairingSecret(pairingSecret) &&
             !invitationId.isNullOrBlank()
 
+    fun canShowLanQr(
+        receiving: Boolean,
+        controlChannelReady: Boolean,
+        dataChannelReady: Boolean,
+        lanFallbackReady: Boolean,
+        activePeerCount: Int,
+        pairingSecret: String,
+        localAddresses: List<String>
+    ): Boolean =
+        receiving &&
+            controlChannelReady &&
+            dataChannelReady &&
+            lanFallbackReady &&
+            activePeerCount == 0 &&
+            UltraShareTransport.isValidPairingSecret(pairingSecret) &&
+            localAddresses.any(UltraShareTransport::isValidPrivateLanHost)
+
     fun canShowHotspotQr(
         receiving: Boolean,
         controlChannelReady: Boolean,
