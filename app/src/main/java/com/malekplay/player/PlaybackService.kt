@@ -171,6 +171,13 @@ class PlaybackService : MediaSessionService() {
         // The bridge starts lazily only when a local file is handed to a Cast receiver.
         // It exposes tokenized, seekable LAN URLs rather than leaking content:// URIs.
         localExoPlayer = player
+        // Bind audio effects directly to the service-owned ExoPlayer session;
+        // the UI listener is a secondary observer, not the only attachment path.
+        player.addListener(object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                audioEffectsController.attach(audioSessionId)
+            }
+        })
         // Re-evaluate GPU quality whenever Android reports a thermal-state change.
         // Android 6-9 simply use the static low-RAM / memory-class safeguards.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
