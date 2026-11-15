@@ -201,40 +201,54 @@ object UltraShareWifiDirect {
 
         @SuppressLint("MissingPermission")
         fun stopInvitationDiscovery(onStopped: () -> Unit = {}) {
+            stopInvitationDiscoveryChecked { onStopped() }
+        }
+
+        /** Only reports success when Android confirms discovery and request cleanup. */
+        @SuppressLint("MissingPermission")
+        fun stopInvitationDiscoveryChecked(onResult: (Boolean) -> Unit) {
             if (closed) {
-                onStopped()
+                onResult(false)
                 return
             }
             invitationMatch = null
-            fun removeRequestAndComplete() {
+            val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+            fun finish(success: Boolean) {
+                if (completed.compareAndSet(false, true)) onResult(success)
+            }
+            fun removeRequest(stopSucceeded: Boolean) {
                 val request = invitationRequest
                 if (request == null) {
-                    onStopped()
+                    finish(stopSucceeded)
                     return
                 }
-                runCatching {
+                try {
                     manager.removeServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
                         override fun onSuccess() {
                             invitationRequest = null
-                            onStopped()
+                            finish(stopSucceeded)
                         }
                         override fun onFailure(reason: Int) {
-                            invitationRequest = null
-                            onStopped()
+                            UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_REQUEST_REMOVE_FAILED", mapOf("reason" to reason))
+                            finish(false)
                         }
                     })
-                }.onFailure {
-                    invitationRequest = null
-                    onStopped()
+                } catch (failure: RuntimeException) {
+                    UltraShareDiagnostics.failure("WIFI_DIRECT_REMOVE_INVITATION_REQUEST", failure)
+                    finish(false)
                 }
             }
-            runCatching {
+            try {
                 manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() = removeRequestAndComplete()
-                    override fun onFailure(reason: Int) = removeRequestAndComplete()
+                    override fun onSuccess() = removeRequest(true)
+                    override fun onFailure(reason: Int) {
+                        UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_STOP_FAILED", mapOf("reason" to reason))
+                        removeRequest(false)
+                    }
                 })
-            }.onFailure {
-                removeRequestAndComplete()
+            } catch (failure: RuntimeException) {
+                UltraShareDiagnostics.failure("WIFI_DIRECT_STOP_INVITATION_DISCOVERY", failure)
+                removeRequest(false)
             }
         }
 
@@ -314,35 +328,42 @@ object UltraShareWifiDirect {
 
         @SuppressLint("MissingPermission")
         fun stopDiscovery(onStopped: () -> Unit = {}) {
+            stopDiscoveryChecked { onStopped() }
+        }
+
+        /**
+         * Reports success only when the framework confirms discovery has stopped.
+         * ERROR/BUSY is ambiguous, so connection/group creation must not race ahead.
+         */
+        @SuppressLint("MissingPermission")
+        fun stopDiscoveryChecked(onResult: (Boolean) -> Unit) {
             if (closed) {
-                onStopped()
+                onResult(false)
                 return
             }
-            // Do not start connect() while Android is still processing the stop request.
-            // Several OEM P2P stacks reject overlapping discovery/connect operations
-            // with ERROR or BUSY. Treat "not currently discovering" as a completed stop.
             val completed = java.util.concurrent.atomic.AtomicBoolean(false)
-            fun completeStop() {
-                if (completed.compareAndSet(false, true)) onStopped()
+            fun finish(success: Boolean) {
+                if (completed.compareAndSet(false, true)) onResult(success)
             }
             try {
                 manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() = completeStop()
+                    override fun onSuccess() = finish(true)
                     override fun onFailure(reason: Int) {
                         UltraShareDiagnostics.event(
                             "WIFI_DIRECT",
                             "PEER_DISCOVERY_STOP_FAILED",
                             mapOf("reason" to reason)
                         )
-                        completeStop()
+                        finish(false)
                     }
                 })
             } catch (failure: SecurityException) {
+                UltraShareDiagnostics.failure("WIFI_DIRECT_STOP_DISCOVERY_SECURITY", failure)
                 onError("يلزم إذن الأجهزة القريبة لإيقاف البحث قبل الاتصال.")
-                completeStop()
+                finish(false)
             } catch (failure: RuntimeException) {
                 UltraShareDiagnostics.failure("WIFI_DIRECT_STOP_DISCOVERY", failure)
-                completeStop()
+                finish(false)
             }
         }
 
