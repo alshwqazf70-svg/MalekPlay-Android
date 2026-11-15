@@ -389,15 +389,17 @@ object UltraShareDiscovery {
         val routes = context?.let {
             UltraShareNetworkRouting.findNetworksForHost(it, candidate.host)
         } ?: emptyList()
-        // When a Context is supplied, never probe through an unrelated process-default route.
+        // Some Android 9/OEM Wi-Fi Direct implementations do not expose the P2P
+        // Network through ConnectivityManager.allNetworks. The peer host is already
+        // validated as a private LAN address, so try every explicit matching Network
+        // first and then the OS default route rather than discarding the peer sighting.
         if (context != null && routes.isEmpty()) {
             UltraShareDiagnostics.event(
-                "DISCOVERY", "NO_ANDROID_ROUTE_FOR_PEER",
+                "DISCOVERY", "ANDROID_ROUTE_NOT_EXPOSED_TRYING_DEFAULT",
                 mapOf("peerHost" to candidate.host, "dataPort" to candidate.port)
             )
-            return false
         }
-        val attempts: List<android.net.Network?> = if (context == null) listOf(null) else routes
+        val attempts = UltraShareNetworkRouting.orderedRoutesWithDefaultFallback(routes)
         return attempts.any { network ->
             if (!probeEndpoint(candidate.host, UltraShareControlChannel.DEFAULT_PORT, network)) {
                 false
@@ -430,8 +432,17 @@ object UltraShareDiscovery {
     private fun probeEndpoint(host: String, port: Int, network: android.net.Network?): Boolean = runCatching {
         Socket().use { socket ->
             socket.tcpNoDelay = true
+            socket.soTimeout = 700
             network?.bindSocket(socket)
             socket.connect(InetSocketAddress(host, port), 700)
+            // Complete the server's greeting instead of connecting and immediately
+            // closing. The old probe caused the server to write into a closed socket,
+            // producing hundreds of misleading Broken pipe handshake errors.
+            val input = DataInputStream(socket.getInputStream())
+            check(input.readInt() == 0x4D504332) { "MPC2 control listener is unavailable." }
+            check(input.readUnsignedByte() == 1) { "MPC2 control version is unsupported." }
+            val challenge = ByteArray(32)
+            input.readFully(challenge)
             true
         }
     }.onFailure { failure ->
