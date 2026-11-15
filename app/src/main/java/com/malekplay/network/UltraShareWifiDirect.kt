@@ -460,8 +460,13 @@ object UltraShareWifiDirect {
                     if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return@requestGroupInfo
                     if (existingGroup?.isGroupOwner == true) {
                         finishGroupAttempt(token)
-                        wasConnected = true
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "OWNER_GROUP_READY_WAITING_FOR_PEER",
+                            mapOf("clientCount" to existingGroup.clientList.size)
+                        )
                         onCreated()
+                        requestConnectionInfo()
                         return@requestGroupInfo
                     }
                     if (existingGroup != null) {
@@ -535,8 +540,11 @@ object UltraShareWifiDirect {
                     if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return@requestConnectionInfo
                     if (info.groupFormed && info.isGroupOwner) {
                         finishGroupAttempt(token)
-                        wasConnected = true
+                        // Group creation is only receiver readiness. requestConnectionInfo()
+                        // separately confirms a client through GroupInfo.clientList.
+                        UltraShareDiagnostics.event("WIFI_DIRECT", "OWNER_GROUP_READY_WAITING_FOR_PEER")
                         onCreated()
+                        requestConnectionInfo()
                     } else if (attempt < 20) {
                         mainHandler.postDelayed({ awaitReceiverGroup(onCreated, attempt + 1, token) }, 500L)
                     } else {
