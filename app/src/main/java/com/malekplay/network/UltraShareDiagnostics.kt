@@ -42,6 +42,9 @@ object UltraShareDiagnostics {
     // A session ID is what callers carry across async callbacks; index it explicitly so
     // events do not silently fall back into an unrelated process-level log.
     private val sessionsById = java.util.concurrent.ConcurrentHashMap<String, SessionLog>()
+    private val sessionAliases = java.util.concurrent.ConcurrentHashMap<String, SessionLog>()
+    private val eventSequence = java.util.concurrent.atomic.AtomicLong(0L)
+    @Volatile private var activeSession: SessionLog? = null
     private val sessionLock = Any()
     @Volatile private var appContext: Context? = null
 
@@ -67,6 +70,7 @@ object UltraShareDiagnostics {
             val session = SessionLog(UUID.randomUUID().toString(), safeRole, key)
             sessions[key] = session
             sessionsById[session.id] = session
+            if (safeRole != "SERVICE") activeSession = session
             while (sessions.size > MAX_SESSIONS + 1) {
                 sessions.values.filter { it.key != "process" }
                     .minByOrNull { it.createdAtMillis }
@@ -100,7 +104,12 @@ object UltraShareDiagnostics {
                             "role" to safeRole,
                             "stage" to "SESSION",
                             "event" to "STARTED",
-                            "trigger" to safeValue(trigger)
+                            "eventSequence" to nextSequence(),
+                            "elapsedRealtimeMs" to android.os.SystemClock.elapsedRealtime(),
+                            "trigger" to safeValue(trigger),
+                            "sdkInt" to Build.VERSION.SDK_INT,
+                            "manufacturer" to Build.MANUFACTURER,
+                            "deviceModel" to Build.MODEL
                         ))
                     if (uri != null) writeLine(context, uri, initial)
                     else writePrivateLine(session.privateFile!!, initial)
@@ -114,21 +123,24 @@ object UltraShareDiagnostics {
     fun event(stage: String, name: String, details: Map<String, Any?> = emptyMap()) {
         if (appContext == null) return
         val suppliedSessionId = details["sessionId"]?.toString()?.takeIf { it.isNotBlank() }
-        val session = suppliedSessionId?.let(sessionsById::get) ?: run {
-            val key = details["peerHost"]?.toString()?.takeIf { it.isNotBlank() }
-                ?.let(::diagnosticPeerSessionKey)
-                ?: details["host"]?.toString()?.takeIf { it.isNotBlank() }
-                    ?.let(::diagnosticPeerSessionKey)
-                ?: "process"
-            sessionFor(key, if (key == "process") "SERVICE" else "PEER")
-        } ?: return
+        val host = (details["peerHost"] ?: details["host"])?.toString()?.takeIf { it.isNotBlank() }
+        val aliasKey = host?.let(::diagnosticPeerSessionKey)
+        val session = suppliedSessionId?.let(sessionsById::get)
+            ?: aliasKey?.let(sessionAliases::get)
+            ?: activeSession
+            ?: sessionFor("process", "SERVICE")
+            ?: return
+        if (aliasKey != null) sessionAliases[aliasKey] = session
         val key = session.key
         val payload = linkedMapOf<String, Any?>(
             "timestamp" to timestamp(),
             "sessionId" to session.id,
             "role" to session.role,
             "stage" to safeValue(stage),
-            "event" to safeValue(name)
+            "event" to safeValue(name),
+            "eventSequence" to nextSequence(),
+            "elapsedRealtimeMs" to android.os.SystemClock.elapsedRealtime(),
+            "thread" to Thread.currentThread().name
         )
         details.forEach { (detailKey, value) ->
             if (value != null && !detailKey.equals("sessionId", true)) {
@@ -153,10 +165,13 @@ object UltraShareDiagnostics {
         val peer = contextMessage?.let {
             Regex("(?i)(?:peerHost|host)\\s*=\\s*([^;,\\s]+)").find(it)?.groupValues?.getOrNull(1)
         }
-        val session = sessionId?.let(sessionsById::get) ?: run {
-            val key = peer?.let(::diagnosticPeerSessionKey) ?: "process"
-            sessionFor(key, if (key == "process") "SERVICE" else "PEER")
-        } ?: return
+        val aliasKey = peer?.let(::diagnosticPeerSessionKey)
+        val session = sessionId?.let(sessionsById::get)
+            ?: aliasKey?.let(sessionAliases::get)
+            ?: activeSession
+            ?: sessionFor("process", "SERVICE")
+            ?: return
+        if (aliasKey != null) sessionAliases[aliasKey] = session
         val root = rootCause(failure)
         val frame = sequenceOf(failure, root)
             .flatMap { it.stackTrace.asSequence() }
@@ -167,6 +182,9 @@ object UltraShareDiagnostics {
             "role" to session.role,
             "stage" to safeValue(stage),
             "event" to "ERROR",
+            "eventSequence" to nextSequence(),
+            "elapsedRealtimeMs" to android.os.SystemClock.elapsedRealtime(),
+            "thread" to Thread.currentThread().name,
             "exception" to failure.javaClass.name,
             "rootException" to root.javaClass.name,
             "message" to safeValue(contextMessage ?: failure.message.orEmpty()),
@@ -196,12 +214,16 @@ object UltraShareDiagnostics {
     private fun endSessionForKey(key: String, result: String) {
         val session = sessions.remove(key) ?: return
         sessionsById.remove(session.id, session)
+        sessionAliases.entries.removeIf { it.value === session }
+        if (activeSession === session) activeSession = null
         append(session, linkedMapOf(
             "timestamp" to timestamp(),
             "sessionId" to session.id,
             "role" to session.role,
             "stage" to "SESSION",
             "event" to "ENDED",
+            "eventSequence" to nextSequence(),
+            "elapsedRealtimeMs" to android.os.SystemClock.elapsedRealtime(),
             "result" to safeValue(result)
         ))
     }
@@ -355,6 +377,8 @@ object UltraShareDiagnostics {
             .replace(Regex("(?i)bearer\\s+[^\\s]+"), "Bearer [REDACTED]")
         return redacted.take(maxChars)
     }
+
+    private fun nextSequence(): Long = eventSequence.incrementAndGet()
 
     private fun timestamp(): String =
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
