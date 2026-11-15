@@ -42,6 +42,18 @@ class VideoEnhancementPolicyTest {
         assertEquals(null, result.downgradeReason)
     }
 
+    @Test fun android10CapableDeviceKeepsBalancedEnhancementProfile() {
+        val result = VideoEnhancementPolicy.resolve(
+            VideoEnhancementProfile.BALANCED,
+            sdkInt = 29,
+            isLowRamDevice = false,
+            memoryClassMb = 512,
+            thermalStatus = 0
+        )
+        assertEquals(VideoEnhancementProfile.BALANCED, result.effective)
+        assertEquals(null, result.downgradeReason)
+    }
+
     @Test fun invalidWireValueFallsBackToBalanced() {
         assertEquals(VideoEnhancementProfile.BALANCED, VideoEnhancementProfile.fromWireValue("invalid"))
     }
