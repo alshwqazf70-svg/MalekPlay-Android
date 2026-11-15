@@ -62,6 +62,20 @@ class VideoEnhancementPolicyTest {
         assertEquals(true, VideoEnhancementProfile.BALANCED.detailStrength > 0.70f)
     }
 
+    @Test fun lowResolutionVideoUpscalesToCappedFullHdTarget() {
+        val target = VideoUpscaleTargetPolicy.resolve(640, 360, 2960, 1440, 1920)
+        assertEquals(1920, target?.longEdge)
+        assertEquals(933, target?.shortEdge)
+    }
+
+    @Test fun fullHdSourceIsNotUpscaledBeyondItsExistingResolution() {
+        assertEquals(null, VideoUpscaleTargetPolicy.resolve(1920, 1080, 2960, 1440, 1920))
+    }
+
+    @Test fun invalidVideoOrDisplaySizeDisablesUpscalingSafely() {
+        assertEquals(null, VideoUpscaleTargetPolicy.resolve(0, 360, 2960, 1440, 1920))
+    }
+
     @Test fun invalidWireValueFallsBackToBalanced() {
         assertEquals(VideoEnhancementProfile.BALANCED, VideoEnhancementProfile.fromWireValue("invalid"))
     }
