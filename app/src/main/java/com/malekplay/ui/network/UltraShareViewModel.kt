@@ -258,6 +258,28 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
+    /** Stop every Wi-Fi Direct discovery/advertisement operation before releasing its group. */
+    private fun cleanupWifiDirectBeforeFallback(
+        session: UltraShareWifiDirect.Session,
+        onComplete: (Boolean) -> Unit
+    ) {
+        session.stopInvitationDiscoveryChecked { discoveryStopped ->
+            if (!discoveryStopped) {
+                UltraShareDiagnostics.event("WIFI_DIRECT", "FALLBACK_BLOCKED_DISCOVERY_CLEANUP_FAILED")
+                onComplete(false)
+                return@stopInvitationDiscoveryChecked
+            }
+            session.stopInvitationAdvertisementChecked { advertisementStopped ->
+                if (!advertisementStopped) {
+                    UltraShareDiagnostics.event("WIFI_DIRECT", "FALLBACK_BLOCKED_ADVERTISEMENT_CLEANUP_FAILED")
+                    onComplete(false)
+                    return@stopInvitationAdvertisementChecked
+                }
+                session.removeGroup(onComplete)
+            }
+        }
+    }
+
     private fun startHotspotFallback(reason: String) {
         if (hotspotFallbackStarted || !_state.value.receiving) return
         hotspotFallbackStarted = true
@@ -285,15 +307,14 @@ class UltraShareViewModel @Inject constructor(
             if (session == null) {
                 beginLanFallback()
             } else {
-                runCatching { session.stopInvitationAdvertisement() }
-                session.removeGroup { removed ->
+                cleanupWifiDirectBeforeFallback(session) { removed ->
                     if (removed) {
                         beginLanFallback()
                     } else {
                         _state.value = _state.value.copy(
                             invitationId = "",
                             lanFallbackReady = false,
-                            error = "تعذر تنظيف مجموعة Wi-Fi Direct السابقة؛ لم أفعّل مساراً بديلاً قبل التأكد من إغلاقها."
+                            error = "تعذر إيقاف اكتشاف/إعلان Wi-Fi Direct أو إغلاق المجموعة السابقة؛ لم أفعّل مساراً بديلاً قبل تأكيد التنظيف."
                         )
                     }
                 }
@@ -320,8 +341,7 @@ class UltraShareViewModel @Inject constructor(
         if (session == null) {
             beginFallback()
         } else {
-            runCatching { session.stopInvitationAdvertisement() }
-            session.removeGroup { removed ->
+            cleanupWifiDirectBeforeFallback(session) { removed ->
                 if (removed) {
                     beginFallback()
                 } else {
@@ -332,7 +352,7 @@ class UltraShareViewModel @Inject constructor(
                     )
                     _state.value = _state.value.copy(
                         invitationId = "",
-                        error = "تعذر إغلاق مجموعة Wi-Fi Direct السابقة بأمان؛ لم أشغّل نقطة الاتصال لتجنب تداخل الشبكتين. أوقف Wi-Fi Direct من إعدادات الهاتف ثم أعد المحاولة."
+                        error = "تعذر إيقاف اكتشاف/إعلان Wi-Fi Direct أو إغلاق المجموعة السابقة بأمان؛ لم أشغّل نقطة الاتصال لتجنب تداخل الشبكتين."
                     )
                 }
             }
