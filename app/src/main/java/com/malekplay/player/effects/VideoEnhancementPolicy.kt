@@ -74,3 +74,30 @@ object VideoEnhancementPolicy {
         return VideoEnhancementTuning(requested, effective, reason)
     }
 }
+
+/** Display-sized upscaling target with a strict GPU texture budget. */
+data class VideoUpscaleTarget(val longEdge: Int, val shortEdge: Int)
+
+object VideoUpscaleTargetPolicy {
+    fun resolve(
+        sourceWidth: Int,
+        sourceHeight: Int,
+        displayWidth: Int,
+        displayHeight: Int,
+        maxLongEdge: Int
+    ): VideoUpscaleTarget? {
+        if (sourceWidth <= 0 || sourceHeight <= 0 ||
+            displayWidth <= 0 || displayHeight <= 0 || maxLongEdge <= 0
+        ) return null
+
+        val displayLong = maxOf(displayWidth, displayHeight)
+        val displayShort = minOf(displayWidth, displayHeight)
+        val scale = minOf(1f, maxLongEdge.toFloat() / displayLong.toFloat())
+        val targetLong = (displayLong * scale).toInt().coerceAtLeast(1)
+        val targetShort = (displayShort * scale).toInt().coerceAtLeast(1)
+        val sourceLong = maxOf(sourceWidth, sourceHeight)
+        val sourceShort = minOf(sourceWidth, sourceHeight)
+        if (sourceLong >= targetLong || sourceShort >= targetShort) return null
+        return VideoUpscaleTarget(targetLong, targetShort)
+    }
+}
