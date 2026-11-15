@@ -291,6 +291,13 @@ class UltraShareNetworkRoutingTest {
     }
 
     @Test
+    fun rejectsConnectionInfoCallbacksFromOlderQueriesOrClosedSessions() {
+        assertTrue(isCurrentWifiDirectInfoRequest(false, 12, 12))
+        assertFalse(isCurrentWifiDirectInfoRequest(false, 13, 12))
+        assertFalse(isCurrentWifiDirectInfoRequest(true, 12, 12))
+    }
+
+    @Test
     fun rejectsStaleWifiDirectConnectionCallbacks() {
         assertTrue(isCurrentWifiDirectConnectionAttempt(false, true, 7, 7))
         assertFalse(isCurrentWifiDirectConnectionAttempt(true, true, 7, 7))
