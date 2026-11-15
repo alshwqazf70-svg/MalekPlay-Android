@@ -380,6 +380,7 @@ fun EqualizerSheet(
             Modifier
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             Text(
                 stringResource(R.string.player_equalizer),
