@@ -427,7 +427,7 @@ fun EqualizerSheet(
             val frequencyLabels = listOf("31 Hz", "62 Hz", "125 Hz", "250 Hz", "500 Hz", "1 kHz", "2 kHz", "4 kHz", "8 kHz", "16 kHz")
             // These ten controls are software DSP bands, independent of the phone's
             // manufacturer-specific hardware equalizer band count.
-            repeat(10) { index ->
+            repeat(bandCount.coerceIn(0, 10)) { index ->
                 Column(Modifier.padding(vertical = 2.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(frequencyLabels[index], fontSize = 11.sp)
@@ -460,9 +460,9 @@ private fun EffectSlider(
     label: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
-    onChange: (Float) -> Unit,
     enabled: Boolean = true,
-    status: String? = null
+    status: String? = null,
+    onChange: (Float) -> Unit
 ) {
     Column(Modifier.padding(vertical = 4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
