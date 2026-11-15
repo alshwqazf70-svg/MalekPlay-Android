@@ -1,5 +1,6 @@
 package com.malekplay.player.audio
 
+import androidx.media3.common.util.UnstableApi
 import kotlin.math.roundToInt
 
 /**
@@ -9,6 +10,7 @@ import kotlin.math.roundToInt
  * interpolation preserves the preset's shape and endpoints instead of
  * repeating/skipping values when the hardware has more or fewer bands.
  */
+@UnstableApi
 internal object EqualizerBandMapper {
 
     fun map(source: IntArray, requestedBandCount: Int): List<Int> {
