@@ -20,7 +20,7 @@ class SpatialNoiseReductionEffect(
     private val strength: Float = 0.34f
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        SpatialNoiseReductionProgram(context, useHdr, strength.coerceIn(0.10f, 0.48f))
+        SpatialNoiseReductionProgram(context, useHdr, strength.coerceIn(0.12f, 0.52f))
 }
 
 @UnstableApi
@@ -104,33 +104,38 @@ private class SpatialNoiseReductionProgram(
 
             void main() {
                 vec4 center = texture2D(uTexSampler, vTexSamplingCoord);
-                vec3 north = texture2D(uTexSampler, vTexSamplingCoord + vec2(0.0, uTexelSize.y)).rgb;
-                vec3 south = texture2D(uTexSampler, vTexSamplingCoord - vec2(0.0, uTexelSize.y)).rgb;
-                vec3 east = texture2D(uTexSampler, vTexSamplingCoord + vec2(uTexelSize.x, 0.0)).rgb;
-                vec3 west = texture2D(uTexSampler, vTexSamplingCoord - vec2(uTexelSize.x, 0.0)).rgb;
+                vec2 d = uTexelSize;
+                vec3 n  = texture2D(uTexSampler, vTexSamplingCoord + vec2(0.0, d.y)).rgb;
+                vec3 s  = texture2D(uTexSampler, vTexSamplingCoord - vec2(0.0, d.y)).rgb;
+                vec3 e  = texture2D(uTexSampler, vTexSamplingCoord + vec2(d.x, 0.0)).rgb;
+                vec3 w  = texture2D(uTexSampler, vTexSamplingCoord - vec2(d.x, 0.0)).rgb;
+                vec3 ne = texture2D(uTexSampler, vTexSamplingCoord + d).rgb;
+                vec3 nw = texture2D(uTexSampler, vTexSamplingCoord + vec2(-d.x, d.y)).rgb;
+                vec3 se = texture2D(uTexSampler, vTexSamplingCoord + vec2(d.x, -d.y)).rgb;
+                vec3 sw = texture2D(uTexSampler, vTexSamplingCoord - d).rgb;
 
-                // Bilateral-style range weights: neighbors across strong luminance
-                // edges contribute less, preserving text, faces and fine contours.
+                // 9-tap bilateral neighborhood. Luma and chroma distances both
+                // protect edges, while diagonals suppress block and mosquito noise.
                 float centerLuma = luma(center.rgb);
-                float rangeScale = mix(18.0, 9.0, uStrength);
-                // Combine luminance and RGB distance so chroma edges (subtitles,
-                // animation outlines and colored objects) are not washed together.
-                float wN = exp(-(abs(luma(north) - centerLuma) * 0.65 +
-                    length(north - center.rgb) * 0.35) * rangeScale);
-                float wS = exp(-(abs(luma(south) - centerLuma) * 0.65 +
-                    length(south - center.rgb) * 0.35) * rangeScale);
-                float wE = exp(-(abs(luma(east) - centerLuma) * 0.65 +
-                    length(east - center.rgb) * 0.35) * rangeScale);
-                float wW = exp(-(abs(luma(west) - centerLuma) * 0.65 +
-                    length(west - center.rgb) * 0.35) * rangeScale);
+                float rangeScale = mix(24.0, 12.0, uStrength);
+                float wN  = exp(-(abs(luma(n)  - centerLuma) * 0.60 + length(n  - center.rgb) * 0.40) * rangeScale);
+                float wS  = exp(-(abs(luma(s)  - centerLuma) * 0.60 + length(s  - center.rgb) * 0.40) * rangeScale);
+                float wE  = exp(-(abs(luma(e)  - centerLuma) * 0.60 + length(e  - center.rgb) * 0.40) * rangeScale);
+                float wW  = exp(-(abs(luma(w)  - centerLuma) * 0.60 + length(w  - center.rgb) * 0.40) * rangeScale);
+                float wNE = exp(-(abs(luma(ne) - centerLuma) * 0.60 + length(ne - center.rgb) * 0.40) * rangeScale) * 0.7071;
+                float wNW = exp(-(abs(luma(nw) - centerLuma) * 0.60 + length(nw - center.rgb) * 0.40) * rangeScale) * 0.7071;
+                float wSE = exp(-(abs(luma(se) - centerLuma) * 0.60 + length(se - center.rgb) * 0.40) * rangeScale) * 0.7071;
+                float wSW = exp(-(abs(luma(sw) - centerLuma) * 0.60 + length(sw - center.rgb) * 0.40) * rangeScale) * 0.7071;
 
-                vec3 weighted = center.rgb + north * wN + south * wS + east * wE + west * wW;
-                float weightSum = 1.0 + wN + wS + wE + wW;
+                vec3 weighted = center.rgb + n*wN + s*wS + e*wE + w*wW +
+                    ne*wNE + nw*wNW + se*wSE + sw*wSW;
+                float weightSum = 1.0 + wN + wS + wE + wW + wNE + wNW + wSE + wSW;
                 vec3 filtered = weighted / max(weightSum, 0.0001);
 
-                // Keep the denoise amount conservative; profile strength controls
-                // blending, while bilateral weights protect high-contrast detail.
-                float amount = clamp(uStrength, 0.08, 0.42);
+                // Adaptive blend: stronger on flat/noisy areas, reduced near edges.
+                float localVariation = max(max(wN, wS), max(wE, wW));
+                float edgeProtection = smoothstep(0.12, 0.72, length(center.rgb - filtered));
+                float amount = clamp(uStrength, 0.10, 0.52) * (1.0 - edgeProtection * 0.55);
                 gl_FragColor = vec4(mix(center.rgb, filtered, amount), center.a);
             }
         """
@@ -336,7 +341,7 @@ class VideoDetailEnhancementEffect(
     private val strength: Float = 0.78f
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        VideoDetailEnhancementProgram(context, useHdr, strength.coerceIn(0.20f, 1.10f))
+        VideoDetailEnhancementProgram(context, useHdr, strength.coerceIn(0.25f, 1.15f))
 }
 
 @UnstableApi
