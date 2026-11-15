@@ -29,7 +29,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.effect.LanczosResample
 import com.malekplay.player.effects.SpatialNoiseReductionEffect
-import com.malekplay.player.effects.TemporalMotionSmoothingEffect
 import com.malekplay.player.effects.VideoDetailEnhancementEffect
 import com.malekplay.player.effects.VideoEnhancementProfile
 import com.malekplay.player.effects.VideoEnhancementPolicy
