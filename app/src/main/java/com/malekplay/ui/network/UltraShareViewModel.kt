@@ -492,6 +492,17 @@ class UltraShareViewModel @Inject constructor(
                         candidates = verifiedRoutes
                     )
                     UltraShareForegroundService.registerApprovedSendTarget(approvedTarget)
+                    // Every authenticated QR/peer connection is full-duplex: the joining
+                    // phone must also expose its receive listeners. The remote control
+                    // server already knows this phone's source address from the handshake,
+                    // so no second hotspot or public discovery advertisement is required.
+                    if (!UltraShareForegroundService.state.value.receiving) {
+                        UltraShareForegroundService.startReceiving(
+                            context,
+                            secret.trim(),
+                            createHotspot = false
+                        )
+                    }
                     UltraShareForegroundService.registerApprovedPeer(
                         name = peerName,
                         host = connectedHost,
