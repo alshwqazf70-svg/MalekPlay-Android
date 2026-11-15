@@ -703,10 +703,21 @@ class UltraShareViewModel @Inject constructor(
             return
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            _state.value = _state.value.copy(
-                requestingConnection = false,
-                error = "هذا الإصدار من Android لا يدعم الانضمام التلقائي. اتصل بشبكة MalekPlay من إعدادات Wi-Fi ثم امسح رمز QR مرة أخرى."
-            )
+            // Android 8–9 cannot use WifiNetworkSpecifier, but after the user
+            // joins the advertised LocalOnlyHotspot manually the QR's LAN host
+            // is reachable through the system Wi-Fi route and MPC2 can proceed.
+            if (pairing.host.isNotBlank()) {
+                requestConnection(
+                    host = pairing.host,
+                    secret = pairing.pairingSecret,
+                    alternateHosts = pairing.hosts.drop(1)
+                )
+            } else {
+                _state.value = _state.value.copy(
+                    requestingConnection = false,
+                    error = "اتصل أولاً بشبكة MalekPlay من إعدادات Wi-Fi، ثم امسح رمز QR مرة أخرى."
+                )
+            }
             return
         }
 
