@@ -32,12 +32,13 @@ object UltraShareWifiDirect {
     class Session internal constructor(
         context: Context,
         private val manager: WifiP2pManager,
-        private val channel: WifiP2pManager.Channel,
+        initialChannel: WifiP2pManager.Channel,
         private val onPeers: (List<Peer>) -> Unit,
         private val onConnected: (host: String?, isGroupOwner: Boolean) -> Unit,
         private val onError: (String) -> Unit
     ) : Closeable {
         private val appContext = context.applicationContext
+        @Volatile private var channel: WifiP2pManager.Channel = initialChannel
         private var closed = false
         private var localInvitationService: WifiP2pDnsSdServiceInfo? = null
         private var localInvitationId: String? = null
@@ -711,6 +712,43 @@ object UltraShareWifiDirect {
             }
         }
 
+        /**
+         * WifiP2pManager channels can disconnect after Wi-Fi toggles or OEM service
+         * restarts. Reinitialize the channel instead of leaving this Session permanently
+         * unusable; the caller receives an error and can safely retry or enter fallback.
+         */
+        internal fun onChannelDisconnected() {
+            if (closed) return
+            UltraShareDiagnostics.event("WIFI_DIRECT", "CHANNEL_DISCONNECTED")
+            connectionInProgress = false
+            connectionAttemptToken++
+            connectionTimeout?.let(mainHandler::removeCallbacks)
+            connectionTimeout = null
+            groupAttemptToken++
+            groupAttemptTimeout?.let(mainHandler::removeCallbacks)
+            groupAttemptTimeout = null
+            invitationMatch = null
+            invitationRequest = null
+            wasConnected = false
+            try {
+                val replacement = manager.initialize(
+                    appContext,
+                    Looper.getMainLooper(),
+                    WifiP2pManager.ChannelListener { onChannelDisconnected() }
+                )
+                if (replacement == null) {
+                    onError("انقطع اتصال Wi-Fi Direct وتعذرت إعادة تهيئة قناة النظام. أوقف Wi-Fi ثم أعد تشغيله.")
+                } else {
+                    channel = replacement
+                    onError("أعاد Android تهيئة قناة Wi-Fi Direct بعد انقطاعها. أعد المحاولة لإنشاء الاتصال.")
+                }
+            } catch (failure: SecurityException) {
+                onError("انقطعت قناة Wi-Fi Direct ويلزم إذن الأجهزة القريبة لإعادة تهيئتها.")
+            } catch (failure: RuntimeException) {
+                onError(failure.localizedMessage ?: "تعذرت إعادة تهيئة قناة Wi-Fi Direct.")
+            }
+        }
+
         @SuppressLint("MissingPermission")
         override fun close() {
             if (closed) return
@@ -755,9 +793,15 @@ object UltraShareWifiDirect {
     ): Session {
         val manager = context.applicationContext.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
             ?: error("هذا الجهاز لا يدعم Wi-Fi Direct.")
-        val channel = manager.initialize(context.applicationContext, Looper.getMainLooper(), null)
-            ?: error("تعذر تهيئة Wi-Fi Direct على هذا الجهاز.")
-        return Session(context, manager, channel, onPeers, onConnected, onError)
+        var session: Session? = null
+        val channel = manager.initialize(
+            context.applicationContext,
+            Looper.getMainLooper(),
+            WifiP2pManager.ChannelListener { session?.onChannelDisconnected() }
+        ) ?: error("تعذر تهيئة Wi-Fi Direct على هذا الجهاز.")
+        val created = Session(context, manager, channel, onPeers, onConnected, onError)
+        session = created
+        return created
     }
 }
 
