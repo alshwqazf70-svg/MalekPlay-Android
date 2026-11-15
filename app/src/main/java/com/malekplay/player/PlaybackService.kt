@@ -3,9 +3,15 @@ package com.malekplay.player
 import android.app.ActivityManager
 import android.app.PendingIntent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.Build
 import android.os.PowerManager
 import android.content.Intent
+import android.content.Context
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Effect
@@ -26,6 +32,8 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.effect.LanczosResample
 import com.malekplay.player.effects.SpatialNoiseReductionEffect
@@ -89,6 +97,8 @@ class PlaybackService : MediaSessionService() {
     private var thermalPowerManager: PowerManager? = null
     private var thermalStatusListener: PowerManager.OnThermalStatusChangedListener? = null
     private var castMediaHttpServer: CastMediaHttpServer? = null
+    private var audioManager: AudioManager? = null
+    private var audioDeviceCallback: AudioDeviceCallback? = null
     private lateinit var profileStore: NetworkProfileStore
     private lateinit var credentialVault: NetworkCredentialVault
 
@@ -120,11 +130,25 @@ class PlaybackService : MediaSessionService() {
         profileStore = NetworkProfileStore(this)
         credentialVault = NetworkCredentialVault(this)
 
-        // Keep Media3's decoder fallback enabled for devices whose preferred
-        // AVC decoder advertises support but fails during initialization.
+        // Install the software ten-band PCM equalizer in the real Media3 audio path.
+        // Float output is disabled intentionally because the processor currently
+        // guarantees lossless pass-through only for decoded PCM16 samples.
         // buildWithAssSupport wraps this factory, preserving ASS/SSA rendering.
-        val renderersFactory = DefaultRenderersFactory(this)
-            .setEnableDecoderFallback(true)
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioOutputPlaybackParameters: Boolean
+            ): AudioSink {
+                return DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(false)
+                    .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParameters)
+                    .setAudioProcessors(arrayOf(audioEffectsController.softwareEqualizerProcessor))
+                    .build()
+            }
+        }.setEnableDecoderFallback(true)
+
+        registerAudioOutputObserver()
 
         val player = ExoPlayer.Builder(this)
             .setAudioAttributes(
@@ -213,6 +237,7 @@ class PlaybackService : MediaSessionService() {
             bridge.close()
         }
         castMediaHttpServer = null
+        unregisterAudioOutputObserver()
         // Audio effects share the application's active audio session. Their lifetime
         // follows the playback service, not the transient player screen ViewModel.
         audioEffectsController.release()
