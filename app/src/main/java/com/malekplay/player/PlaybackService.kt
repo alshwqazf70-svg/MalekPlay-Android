@@ -33,6 +33,7 @@ import com.malekplay.player.effects.TemporalMotionSmoothingEffect
 import com.malekplay.player.effects.VideoDetailEnhancementEffect
 import com.malekplay.player.effects.VideoEnhancementProfile
 import com.malekplay.player.effects.VideoEnhancementPolicy
+import com.malekplay.player.effects.VideoEnhancementMetrics
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.render.AssVideoEffectRegistry
 import io.github.peerless2012.ass.media.type.AssRenderType
@@ -296,6 +297,25 @@ class PlaybackService : MediaSessionService() {
     }
 
     private val enhancementAnalyticsListener = object : AnalyticsListener {
+        override fun onVideoFrameProcessingOffset(
+            eventTime: AnalyticsListener.EventTime,
+            totalProcessingOffsetUs: Long,
+            frameCount: Int
+        ) {
+            if (!hasAnyVideoEnhancementEnabled() || frameCount <= 0) return
+            val gpu = VideoEnhancementMetrics.snapshot()
+            val averageOffsetUs = totalProcessingOffsetUs / frameCount
+            Log.d(
+                TAG,
+                "Video processing sample: rendererFrames=" + frameCount +
+                    ", avgOffsetUs=" + averageOffsetUs +
+                    ", gpuDraws=" + gpu.processedDraws +
+                    ", lastGpuEffect=" + gpu.lastEffectName +
+                    ", lastPtsUs=" + gpu.lastPresentationTimeUs +
+                    ", shaderFailure=" + (gpu.lastFailure ?: "none")
+            )
+        }
+
         override fun onDroppedVideoFrames(
             eventTime: AnalyticsListener.EventTime,
             droppedFrames: Int,
@@ -383,15 +403,16 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun setVideoMotionSmoothing(enabled: Boolean): Boolean {
-        if (enabled && !isLocalClearVideoSession()) return false
-        // Temporal history blending is intentionally omitted on the Economy tier
-        // to protect legacy/low-memory devices; it is not true frame interpolation.
-        if (enabled && resolveVideoEnhancementTuning().effective.previousFrameWeight <= 0f) return false
-        val previous = videoMotionSmoothingEnabled
-        videoMotionSmoothingEnabled = enabled
-        if (applyVideoEnhancements()) return true
-        videoMotionSmoothingEnabled = previous
-        applyVideoEnhancements()
+        if (!enabled) {
+            videoMotionSmoothingEnabled = false
+            applyVideoEnhancements()
+            return true
+        }
+        // The current temporal shader blends adjacent decoded frames; it does not
+        // synthesize intermediate timestamps or increase output frame rate.
+        // Refuse to advertise this as motion interpolation until a real motion-
+        // compensated frame generator is integrated and device-tested.
+        Log.w(TAG, "True motion interpolation is unavailable; temporal frame blending is not exposed")
         return false
     }
 
@@ -448,6 +469,7 @@ class PlaybackService : MediaSessionService() {
 
         val tuning = resolveVideoEnhancementTuning()
         val profile = tuning.effective
+        VideoEnhancementMetrics.reset()
         if (tuning.downgradeReason != null) {
             Log.w(TAG, "Video enhancement profile capped: ${tuning.downgradeReason}")
         }
@@ -470,9 +492,9 @@ class PlaybackService : MediaSessionService() {
         if (videoUpscalingEnabled || videoNoiseReductionEnabled) {
             effects += VideoDetailEnhancementEffect(profile.detailStrength)
         }
-        if (videoMotionSmoothingEnabled && profile.previousFrameWeight > 0f) {
-            effects += TemporalMotionSmoothingEffect(profile.previousFrameWeight)
-        }
+        // True frame interpolation is deliberately not enabled here. The legacy
+        // temporal blend did not create intermediate frames and has been removed
+        // from the advertised enhancement pipeline.
         val applied = runCatching {
             AssVideoEffectRegistry.setAdditionalEffects(player, effects)
         }.onFailure { error ->
