@@ -139,6 +139,9 @@ object UltraShareWifiDirect {
                 })
             } catch (failure: SecurityException) {
                 onError("يلزم إذن الأجهزة القريبة لإعلان دعوة Wi-Fi Direct.")
+            } catch (failure: RuntimeException) {
+                UltraShareDiagnostics.failure("WIFI_DIRECT_ADVERTISE_INVITATION", failure)
+                onError(failure.localizedMessage ?: "تعذر إعلان دعوة Wi-Fi Direct.")
             }
         }
 
@@ -207,6 +210,9 @@ object UltraShareWifiDirect {
                 })
             } catch (failure: SecurityException) {
                 onError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
+            } catch (failure: RuntimeException) {
+                UltraShareDiagnostics.failure("WIFI_DIRECT_DISCOVER_INVITATION", failure)
+                onError(failure.localizedMessage ?: "تعذر البحث عن دعوة Wi-Fi Direct.")
             }
         }
 
@@ -754,6 +760,13 @@ object UltraShareWifiDirect {
                 connectionTimeout = null
                 connectionAttemptToken++
                 onError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
+            } catch (failure: RuntimeException) {
+                connectionInProgress = false
+                connectionTimeout?.let(mainHandler::removeCallbacks)
+                connectionTimeout = null
+                connectionAttemptToken++
+                UltraShareDiagnostics.failure("WIFI_DIRECT_CONNECT", failure)
+                onError(failure.localizedMessage ?: "تعذر بدء اتصال Wi-Fi Direct.")
             }
         }
 
@@ -1095,6 +1108,9 @@ object UltraShareWifiDirect {
                 }
             } catch (failure: SecurityException) {
                 onError("يلزم إذن الأجهزة القريبة لعرض أجهزة Wi-Fi Direct.")
+            } catch (failure: RuntimeException) {
+                UltraShareDiagnostics.failure("WIFI_DIRECT_REQUEST_PEERS", failure)
+                onError(failure.localizedMessage ?: "تعذر تحديث قائمة أجهزة Wi-Fi Direct.")
             }
         }
 
@@ -1184,11 +1200,13 @@ object UltraShareWifiDirect {
                     ) {
                         ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
                         ownerPeerCheckRunnable = null
-                        wasConnected = true
                         connectionInProgress = false
                         connectionTimeout?.let(mainHandler::removeCallbacks)
                         connectionTimeout = null
-                        onConnected(null, true)
+                        if (!wasConnected) {
+                            wasConnected = true
+                            onConnected(null, true)
+                        }
                     } else if (wasConnected) {
                         wasConnected = false
                         cancelOwnerPeerConfirmation()
