@@ -33,6 +33,7 @@ import com.malekplay.player.effects.VideoDetailEnhancementEffect
 import com.malekplay.player.effects.VideoEnhancementProfile
 import com.malekplay.player.effects.VideoEnhancementPolicy
 import com.malekplay.player.effects.VideoEnhancementMetrics
+import com.malekplay.player.effects.VideoUpscaleTargetPolicy
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.render.AssVideoEffectRegistry
 import io.github.peerless2012.ass.media.type.AssRenderType
@@ -476,15 +477,29 @@ class PlaybackService : MediaSessionService() {
         if (videoUpscalingEnabled) {
             val videoSize = player.videoSize
             val metrics = resources.displayMetrics
-            val targetLong = maxOf(metrics.widthPixels, metrics.heightPixels)
-            val targetShort = minOf(metrics.widthPixels, metrics.heightPixels)
-            val sourceLong = maxOf(videoSize.width, videoSize.height)
-            val sourceShort = minOf(videoSize.width, videoSize.height)
-            // Resample only when the source is smaller than the physical display target.
-            // High-resolution sources remain valid: they still pass through detail enhancement
-            // rather than having the user's request silently rejected.
-            if (sourceLong < targetLong && sourceShort < targetShort) {
-                effects += LanczosResample.scaleToFitWithFlexibleOrientation(targetLong, targetShort)
+            // Keep older GPUs within a predictable texture budget rather than
+            // allocating a native-resolution intermediate surface unconditionally.
+            val maxLongEdge = when (profile) {
+                VideoEnhancementProfile.ECONOMY -> 1280
+                VideoEnhancementProfile.BALANCED -> 1920
+                VideoEnhancementProfile.ULTRA -> 2560
+            }
+            val target = VideoUpscaleTargetPolicy.resolve(
+                sourceWidth = videoSize.width,
+                sourceHeight = videoSize.height,
+                displayWidth = metrics.widthPixels,
+                displayHeight = metrics.heightPixels,
+                maxLongEdge = maxLongEdge
+            )
+            if (target != null) {
+                effects += LanczosResample.scaleToFitWithFlexibleOrientation(
+                    target.longEdge,
+                    target.shortEdge
+                )
+                Log.i(TAG, "Lanczos upscale target=" + target.longEdge + "x" + target.shortEdge +
+                    "; source=" + videoSize.width + "x" + videoSize.height)
+            } else {
+                Log.i(TAG, "Lanczos upscale skipped: source already meets the capped display target")
             }
         }
         if (videoNoiseReductionEnabled) effects += SpatialNoiseReductionEffect(profile.denoiseStrength)
