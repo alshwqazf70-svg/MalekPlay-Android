@@ -595,12 +595,13 @@ object UltraShareWifiDirect {
                         UltraShareDiagnostics.event("WIFI_DIRECT", "CONNECT_REQUEST_REJECTED_BY_FRAMEWORK", mapOf("reason" to reason, "attempt" to attempt))
                         if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
                         if ((reason == WifiP2pManager.BUSY || reason == WifiP2pManager.ERROR) && attempt < 2) {
-                            runCatching { manager.cancelConnect(channel, null) }
-                            mainHandler.postDelayed({
-                                if (!closed && connectionInProgress && token == connectionAttemptToken) {
-                                    connectAttempt(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt + 1)
-                                }
-                            }, 900L * (attempt + 1))
+                            recoverAndRetryConnect(
+                                deviceAddress = deviceAddress,
+                                preferThisDeviceAsGroupOwner = preferThisDeviceAsGroupOwner,
+                                token = token,
+                                attempt = attempt,
+                                reason = reason
+                            )
                         } else {
                             connectionInProgress = false
                             connectionTimeout?.let(mainHandler::removeCallbacks)
@@ -616,6 +617,244 @@ object UltraShareWifiDirect {
                 connectionTimeout = null
                 connectionAttemptToken++
                 onError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
+            }
+        }
+
+        /**
+         * An immediate P2P ERROR/BUSY is not a useful reason to resend the same
+         * connect() call against possibly stale framework state. Cancel negotiation,
+         * inspect any leftover client group, then refresh peers before retrying.
+         * A group-owner group is never removed here: on this side it may be the
+         * receiver's already-established group.
+         */
+        @SuppressLint("MissingPermission")
+        private fun recoverAndRetryConnect(
+            deviceAddress: String,
+            preferThisDeviceAsGroupOwner: Boolean,
+            token: Int,
+            attempt: Int,
+            reason: Int
+        ) {
+            if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
+            UltraShareDiagnostics.event(
+                "WIFI_DIRECT",
+                "CONNECT_RECOVERY_STARTED",
+                mapOf("reason" to reason, "attempt" to attempt)
+            )
+            runCatching { manager.cancelConnect(channel, null) }
+            mainHandler.postDelayed({
+                if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return@postDelayed
+
+                val inspectionFinished = java.util.concurrent.atomic.AtomicBoolean(false)
+                val inspectionTimeout = Runnable {
+                    if (inspectionFinished.compareAndSet(false, true)) {
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "CONNECT_RECOVERY_GROUP_INSPECTION_TIMEOUT",
+                            mapOf("attempt" to attempt)
+                        )
+                        refreshPeersAndRetryConnect(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt)
+                    }
+                }
+                mainHandler.postDelayed(inspectionTimeout, 2_000L)
+
+                try {
+                    manager.requestGroupInfo(channel) { group ->
+                        if (!inspectionFinished.compareAndSet(false, true)) return@requestGroupInfo
+                        mainHandler.removeCallbacks(inspectionTimeout)
+                        if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return@requestGroupInfo
+
+                        if (group?.isGroupOwner == true) {
+                            UltraShareDiagnostics.event(
+                                "WIFI_DIRECT",
+                                "CONNECT_RECOVERY_GROUP_OWNER_ALREADY_ACTIVE",
+                                mapOf("attempt" to attempt)
+                            )
+                            requestConnectionInfo()
+                            return@requestGroupInfo
+                        }
+
+                        if (group != null) {
+                            UltraShareDiagnostics.event(
+                                "WIFI_DIRECT",
+                                "CONNECT_RECOVERY_STALE_CLIENT_GROUP_FOUND",
+                                mapOf("attempt" to attempt)
+                            )
+                            val cleanupFinished = java.util.concurrent.atomic.AtomicBoolean(false)
+                            val cleanupTimeout = Runnable {
+                                if (cleanupFinished.compareAndSet(false, true)) {
+                                    UltraShareDiagnostics.event(
+                                        "WIFI_DIRECT",
+                                        "CONNECT_RECOVERY_GROUP_REMOVE_TIMEOUT",
+                                        mapOf("attempt" to attempt)
+                                    )
+                                    refreshPeersAndRetryConnect(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt)
+                                }
+                            }
+                            mainHandler.postDelayed(cleanupTimeout, 2_000L)
+                            try {
+                                manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                                    override fun onSuccess() {
+                                        if (!cleanupFinished.compareAndSet(false, true)) return
+                                        mainHandler.removeCallbacks(cleanupTimeout)
+                                        UltraShareDiagnostics.event(
+                                            "WIFI_DIRECT",
+                                            "CONNECT_RECOVERY_STALE_GROUP_REMOVED",
+                                            mapOf("attempt" to attempt)
+                                        )
+                                        refreshPeersAndRetryConnect(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt)
+                                    }
+
+                                    override fun onFailure(removeReason: Int) {
+                                        if (!cleanupFinished.compareAndSet(false, true)) return
+                                        mainHandler.removeCallbacks(cleanupTimeout)
+                                        UltraShareDiagnostics.event(
+                                            "WIFI_DIRECT",
+                                            "CONNECT_RECOVERY_GROUP_REMOVE_FAILED",
+                                            mapOf("reason" to removeReason, "attempt" to attempt)
+                                        )
+                                        verifyGroupReleasedThenRetry(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt)
+                                    }
+                                })
+                            } catch (failure: RuntimeException) {
+                                if (cleanupFinished.compareAndSet(false, true)) {
+                                    mainHandler.removeCallbacks(cleanupTimeout)
+                                    UltraShareDiagnostics.event(
+                                        "WIFI_DIRECT",
+                                        "CONNECT_RECOVERY_GROUP_REMOVE_EXCEPTION",
+                                        mapOf("type" to failure.javaClass.simpleName, "attempt" to attempt)
+                                    )
+                                    verifyGroupReleasedThenRetry(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt)
+                                }
+                            }
+                        } else {
+                            UltraShareDiagnostics.event(
+                                "WIFI_DIRECT",
+                                "CONNECT_RECOVERY_NO_STALE_GROUP",
+                                mapOf("attempt" to attempt)
+                            )
+                            refreshPeersAndRetryConnect(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt)
+                        }
+                    }
+                } catch (failure: RuntimeException) {
+                    if (inspectionFinished.compareAndSet(false, true)) {
+                        mainHandler.removeCallbacks(inspectionTimeout)
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "CONNECT_RECOVERY_GROUP_INSPECTION_FAILED",
+                            mapOf("type" to failure.javaClass.simpleName, "attempt" to attempt)
+                        )
+                        refreshPeersAndRetryConnect(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt)
+                    }
+                }
+            }, 500L * (attempt + 1))
+        }
+
+        @SuppressLint("MissingPermission")
+        private fun verifyGroupReleasedThenRetry(
+            deviceAddress: String,
+            preferThisDeviceAsGroupOwner: Boolean,
+            token: Int,
+            attempt: Int
+        ) {
+            if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
+            val verificationFinished = java.util.concurrent.atomic.AtomicBoolean(false)
+            val timeout = Runnable {
+                if (verificationFinished.compareAndSet(false, true)) {
+                    refreshPeersAndRetryConnect(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt)
+                }
+            }
+            mainHandler.postDelayed(timeout, 1_500L)
+            try {
+                manager.requestConnectionInfo(channel) { info ->
+                    if (!verificationFinished.compareAndSet(false, true)) return@requestConnectionInfo
+                    mainHandler.removeCallbacks(timeout)
+                    if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return@requestConnectionInfo
+                    if (info.groupFormed) {
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "CONNECT_RECOVERY_GROUP_STILL_FORMED",
+                            mapOf("isGroupOwner" to info.isGroupOwner, "attempt" to attempt)
+                        )
+                        requestConnectionInfo()
+                    } else {
+                        refreshPeersAndRetryConnect(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt)
+                    }
+                }
+            } catch (failure: RuntimeException) {
+                if (verificationFinished.compareAndSet(false, true)) {
+                    mainHandler.removeCallbacks(timeout)
+                    refreshPeersAndRetryConnect(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt)
+                }
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        private fun refreshPeersAndRetryConnect(
+            deviceAddress: String,
+            preferThisDeviceAsGroupOwner: Boolean,
+            token: Int,
+            attempt: Int
+        ) {
+            if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
+            val refreshFinished = java.util.concurrent.atomic.AtomicBoolean(false)
+            val timeout = Runnable {
+                if (refreshFinished.compareAndSet(false, true) &&
+                    isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)
+                ) {
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        "CONNECT_RECOVERY_PEER_REFRESH_TIMEOUT",
+                        mapOf("attempt" to attempt)
+                    )
+                    connectAttempt(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt + 1)
+                }
+            }
+            mainHandler.postDelayed(timeout, 2_500L)
+            try {
+                manager.requestPeers(channel) { peers ->
+                    if (!refreshFinished.compareAndSet(false, true)) return@requestPeers
+                    mainHandler.removeCallbacks(timeout)
+                    if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return@requestPeers
+                    val refreshedPeer = peers.deviceList.firstOrNull {
+                        it.deviceAddress.equals(deviceAddress, ignoreCase = true)
+                    }
+                    val retryAddress = refreshedPeer?.deviceAddress ?: deviceAddress
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        "CONNECT_RECOVERY_PEERS_REFRESHED",
+                        mapOf(
+                            "peerCount" to peers.deviceList.size,
+                            "targetFound" to (refreshedPeer != null),
+                            "targetStatus" to refreshedPeer?.status,
+                            "attempt" to attempt
+                        )
+                    )
+                    mainHandler.postDelayed({
+                        if (isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) {
+                            UltraShareDiagnostics.event(
+                                "WIFI_DIRECT",
+                                "CONNECT_RECOVERY_RETRY_SCHEDULED",
+                                mapOf("attempt" to attempt + 1, "targetFound" to (refreshedPeer != null))
+                            )
+                            connectAttempt(retryAddress, preferThisDeviceAsGroupOwner, token, attempt + 1)
+                        }
+                    }, 450L)
+                }
+            } catch (failure: RuntimeException) {
+                if (refreshFinished.compareAndSet(false, true)) {
+                    mainHandler.removeCallbacks(timeout)
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        "CONNECT_RECOVERY_PEER_REFRESH_FAILED",
+                        mapOf("type" to failure.javaClass.simpleName, "attempt" to attempt)
+                    )
+                    mainHandler.postDelayed({
+                        if (isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) {
+                            connectAttempt(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt + 1)
+                        }
+                    }, 450L)
+                }
             }
         }
 
