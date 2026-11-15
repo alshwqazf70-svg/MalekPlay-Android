@@ -1,23 +1,19 @@
 package com.malekplay
 
-import android.Manifest
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsSelected
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.rule.GrantPermissionRule
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MainNavigationSmokeTest {
-    @get:Rule(order = 0)
-    val notificationPermission: GrantPermissionRule =
-        GrantPermissionRule.grant(Manifest.permission.POST_NOTIFICATIONS)
-
-    @get:Rule(order = 1)
+    // This navigation-only smoke test does not start a foreground service.
+    // Do not request POST_NOTIFICATIONS here: it is not a runtime permission before API 33.
+    @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
 
     @Test
