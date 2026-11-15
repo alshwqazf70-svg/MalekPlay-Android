@@ -10,9 +10,9 @@ enum class VideoEnhancementProfile(
     val detailStrength: Float,
     val previousFrameWeight: Float
 ) {
-    ECONOMY("economy", 0.16f, 0.34f, 0f),
-    BALANCED("balanced", 0.28f, 0.62f, 0.035f),
-    ULTRA("ultra", 0.40f, 0.88f, 0.05f);
+    ECONOMY("economy", 0.24f, 0.48f, 0f),
+    BALANCED("balanced", 0.38f, 0.78f, 0f),
+    ULTRA("ultra", 0.50f, 1.02f, 0f);
 
     companion object {
         fun fromWireValue(value: String?): VideoEnhancementProfile =
