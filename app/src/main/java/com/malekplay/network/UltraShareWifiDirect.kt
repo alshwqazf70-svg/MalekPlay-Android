@@ -93,6 +93,7 @@ object UltraShareWifiDirect {
                 "هوية دعوة Wi-Fi Direct غير صالحة."
             }
             if (!legacyDiscoveryPrerequisite()) {
+                UltraShareDiagnostics.event("WIFI_DIRECT", "LOCATION_SERVICES_DISABLED", mapOf("sdkInt" to Build.VERSION.SDK_INT, "operation" to "advertise_invitation"))
                 onError("على Android 9–12 يجب تشغيل خدمة الموقع لنشر واكتشاف دعوة Wi-Fi Direct.")
                 return
             }
@@ -143,7 +144,9 @@ object UltraShareWifiDirect {
                 "هوية دعوة Wi-Fi Direct غير صالحة."
             }
             invitationMatch = onMatch
+            UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_REQUESTED", mapOf("sdkInt" to Build.VERSION.SDK_INT))
             if (!legacyDiscoveryPrerequisite()) {
+                UltraShareDiagnostics.event("WIFI_DIRECT", "LOCATION_SERVICES_DISABLED", mapOf("sdkInt" to Build.VERSION.SDK_INT, "operation" to "discover_invitation"))
                 onError("على Android 9–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
                 return
             }
@@ -160,6 +163,7 @@ object UltraShareWifiDirect {
                             status = statusLabel(device.status)
                         )
                         if (peer.deviceAddress.isNotBlank()) {
+                            UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERED", mapOf("deviceName" to peer.name, "deviceStatus" to peer.status))
                             // DNS-SD may report the same TXT record more than once.
                             // Consume the invitation match before invoking UI code so
                             // duplicate callbacks cannot start competing P2P connects.
@@ -261,9 +265,12 @@ object UltraShareWifiDirect {
             if (closed || invitationRequest !== request) return
             try {
                 manager.discoverServices(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() = Unit
+                    override fun onSuccess() {
+                        UltraShareDiagnostics.event("WIFI_DIRECT", "SERVICE_DISCOVERY_STARTED", mapOf("attempt" to attempt))
+                    }
 
                     override fun onFailure(reason: Int) {
+                        UltraShareDiagnostics.event("WIFI_DIRECT", "SERVICE_DISCOVERY_FAILED", mapOf("reason" to reason, "attempt" to attempt))
                         if (closed || invitationRequest !== request) return
                         val retryable = reason == WifiP2pManager.BUSY ||
                             reason == WifiP2pManager.ERROR
@@ -463,6 +470,7 @@ object UltraShareWifiDirect {
             attempt: Int
         ) {
             if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
+            UltraShareDiagnostics.event("WIFI_DIRECT", "CONNECT_REQUESTED", mapOf("preferThisDeviceAsGroupOwner" to preferThisDeviceAsGroupOwner, "attempt" to attempt))
             val config = WifiP2pConfig().apply {
                 this.deviceAddress = deviceAddress
                 // Receiver owns the group; sender explicitly prefers the remote receiver.
@@ -472,6 +480,7 @@ object UltraShareWifiDirect {
             try {
                 manager.connect(channel, config, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
+                        UltraShareDiagnostics.event("WIFI_DIRECT", "CONNECT_REQUEST_ACCEPTED_BY_FRAMEWORK", mapOf("attempt" to attempt))
                         if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
                         connectionTimeout?.let(mainHandler::removeCallbacks)
                         val timeout = Runnable {
@@ -502,6 +511,7 @@ object UltraShareWifiDirect {
                     }
 
                     override fun onFailure(reason: Int) {
+                        UltraShareDiagnostics.event("WIFI_DIRECT", "CONNECT_REQUEST_REJECTED_BY_FRAMEWORK", mapOf("reason" to reason, "attempt" to attempt))
                         if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
                         if ((reason == WifiP2pManager.BUSY || reason == WifiP2pManager.ERROR) && attempt < 2) {
                             runCatching { manager.cancelConnect(channel, null) }
@@ -545,8 +555,8 @@ object UltraShareWifiDirect {
 
         private fun legacyDiscoveryPrerequisite(): Boolean {
             if (!requiresWifiDirectLocationService(Build.VERSION.SDK_INT)) return true
-            // The legacy Wi-Fi Direct location prerequisite is only checked on API 29–32.
-            // Keep an explicit API 28 guard so lint can verify the framework property access.
+            // LocationManager.isLocationEnabled is available from API 28; the
+            // helper limits this check to Android 9–12L for Wi-Fi Direct discovery.
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false
             val location = appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
             return location?.isLocationEnabled == true
@@ -575,6 +585,11 @@ object UltraShareWifiDirect {
             try {
                 manager.requestConnectionInfo(channel) { info ->
                     if (closed) return@requestConnectionInfo
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        if (info.groupFormed) "GROUP_FORMED" else "GROUP_NOT_FORMED",
+                        mapOf("isGroupOwner" to info.isGroupOwner, "groupOwnerHost" to info.groupOwnerAddress?.hostAddress)
+                    )
                     // Android may broadcast CONNECTION_CHANGED while negotiation is
                     // still pending. A non-formed group is not proof of a disconnect.
                     if (!info.groupFormed) {
