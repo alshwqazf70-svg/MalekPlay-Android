@@ -365,6 +365,9 @@ fun EqualizerSheet(
     bassBoost: Int,
     virtualizer: Int,
     loudness: Int,
+    outputRouteLabel: String,
+    processingStatus: String,
+    virtualizerSupported: Boolean,
     onPreset: (EqualizerPreset) -> Unit,
     onBand: (Int, Int) -> Unit,
     onBass: (Int) -> Unit,
@@ -383,52 +386,70 @@ fun EqualizerSheet(
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(vertical = 8.dp)
             )
-            if (!available || bandCount <= 0) {
+            Text(
+                "المخارج المتاحة: $outputRouteLabel",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp
+            )
+            Text(
+                processingStatus,
+                color = MaterialTheme.colorScheme.secondary,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
+            )
+            if (!available) {
                 Text(
-                    "Audio effects are not available for this output.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    "سيتم تفعيل المعالجة عند بدء جلسة تشغيل صوتية. يمكنك ضبط الإعدادات الآن.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
                 )
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    EQUALIZER_PRESETS.forEach { preset ->
-                        Surface(
-                            modifier = Modifier.clickable { onPreset(preset) },
-                            shape = RoundedCornerShape(50),
-                            color = if (presetIndex == preset.ordinal) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.surfaceContainerHigh
-                        ) {
-                            Text(
-                                preset.label,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                fontSize = 11.sp,
-                                color = if (presetIndex == preset.ordinal) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-                // Horizontal band sliders: simpler and more thumb-friendly than a
-                // rotated track, and avoids fighting the sheet's scroll gestures.
-                repeat(bandCount) { index ->
-                    Column(Modifier.padding(vertical = 2.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Band ${index + 1}", fontSize = 11.sp)
-                            Text("${bands.getOrElse(index) { 0 }}", fontSize = 11.sp)
-                        }
-                        Slider(
-                            value = bands.getOrElse(index) { 0 }.toFloat(),
-                            onValueChange = { onBand(index, it.toInt()) },
-                            valueRange = levelRange.first.toFloat()..levelRange.second.toFloat(),
-                            modifier = Modifier.fillMaxWidth()
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                EQUALIZER_PRESETS.forEach { preset ->
+                    Surface(
+                        modifier = Modifier.clickable { onPreset(preset) },
+                        shape = RoundedCornerShape(50),
+                        color = if (presetIndex == preset.ordinal) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceContainerHigh
+                    ) {
+                        Text(
+                            preset.label,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            fontSize = 11.sp,
+                            color = if (presetIndex == preset.ordinal) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
+            Spacer(Modifier.height(10.dp))
+            val frequencyLabels = listOf("31 Hz", "62 Hz", "125 Hz", "250 Hz", "500 Hz", "1 kHz", "2 kHz", "4 kHz", "8 kHz", "16 kHz")
+            // These ten controls are software DSP bands, independent of the phone's
+            // manufacturer-specific hardware equalizer band count.
+            repeat(10) { index ->
+                Column(Modifier.padding(vertical = 2.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(frequencyLabels[index], fontSize = 11.sp)
+                        Text("${bands.getOrElse(index) { 0 } / 100} dB", fontSize = 11.sp)
+                    }
+                    Slider(
+                        value = bands.getOrElse(index) { 0 }.toFloat(),
+                        onValueChange = { onBand(index, it.toInt()) },
+                        valueRange = levelRange.first.toFloat()..levelRange.second.toFloat(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
             Spacer(Modifier.height(12.dp))
             EffectSlider("Bass boost", bassBoost.toFloat(), 0f..1000f) { onBass(it.toInt()) }
-            EffectSlider("Virtualizer", virtualizer.toFloat(), 0f..1000f) { onVirtualizer(it.toInt()) }
-            EffectSlider("Loudness (dB)", loudness.toFloat(), 0f..30f) { onLoudness(it.toInt()) }
+            EffectSlider(
+                label = "Virtualizer",
+                value = virtualizer.toFloat(),
+                range = 0f..1000f,
+                enabled = virtualizerSupported,
+                status = if (available && !virtualizerSupported) "غير مدعوم في جلسة الصوت الحالية" else null
+            ) { onVirtualizer(it.toInt()) }
+            EffectSlider("Loudness (dB)", loudness.toFloat(), 0f..12f) { onLoudness(it.toInt()) }
         }
     }
 }
@@ -438,13 +459,15 @@ private fun EffectSlider(
     label: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
-    onChange: (Float) -> Unit
+    onChange: (Float) -> Unit,
+    enabled: Boolean = true,
+    status: String? = null
 ) {
     Column(Modifier.padding(vertical = 4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, fontSize = 12.sp)
-            Text(value.toInt().toString(), fontSize = 12.sp)
+            Text(status ?: value.toInt().toString(), fontSize = 12.sp, color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
         }
-        Slider(value = value, onValueChange = onChange, valueRange = range, modifier = Modifier.fillMaxWidth())
+        Slider(value = value, onValueChange = onChange, valueRange = range, enabled = enabled, modifier = Modifier.fillMaxWidth())
     }
 }
