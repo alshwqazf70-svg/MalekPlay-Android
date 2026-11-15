@@ -159,6 +159,7 @@ class LegacyUltraShareViewModel @Inject constructor(
     private var pendingInvitation: UltraShareQrCode.PairingDetails? = null
     private var pendingInvitationReady: ((String) -> Unit)? = null
     private var reverseInvitationConnectionInProgress = false
+    private var hotspotFallbackStarted = false
     private var hotspotNetworkCallback: android.net.ConnectivityManager.NetworkCallback? = null
     private val invitationPreferences by lazy {
         context.getSharedPreferences("ultra_share_invitation", Context.MODE_PRIVATE)
@@ -591,14 +592,19 @@ class LegacyUltraShareViewModel @Inject constructor(
                         wifiDirectHost = null,
                         error = message
                     )
+                } else if (_state.value.receiving && !_state.value.wifiDirectInvitationReady &&
+                    !_state.value.hotspotActive && !_state.value.hotspotStarting
+                ) {
+                    // P2P is the primary offline path. If group creation or DNS-SD
+                    // fails before a QR is published, retire that attempt and start
+                    // the supported LocalOnlyHotspot fallback instead of leaving the
+                    // receiver waiting with no usable invitation.
+                    startHotspotFallback(message)
                 } else if (_state.value.receiving) {
-                    // Wi-Fi Direct ERROR(0) is non-fatal: the authenticated TCP
-                    // receiver remains available on the advertised WLAN addresses.
                     _state.value = _state.value.copy(
                         scanning = false,
-                        wifiDirectInvitationReady = false,
                         error = null,
-                        status = "تعذر Wi-Fi Direct على هذا الهاتف؛ الاستقبال مستمر عبر Wi-Fi العادية. $message"
+                        status = "تعذر استمرار Wi-Fi Direct؛ الاستقبال المحلي ما زال يعمل. $message"
                     )
                 } else {
                     _state.value = _state.value.copy(
@@ -608,6 +614,35 @@ class LegacyUltraShareViewModel @Inject constructor(
                 }
             }
         ).also { wifiDirectSession = it }
+    }
+
+    private fun startHotspotFallback(reason: String) {
+        if (hotspotFallbackStarted || !_state.value.receiving || _state.value.pairedSession ||
+            _state.value.hotspotActive || _state.value.hotspotStarting
+        ) return
+        hotspotFallbackStarted = true
+        wifiDirectSession?.stopInvitationAdvertisement()
+        wifiDirectSession?.stopInvitationDiscovery()
+        wifiDirectSession?.removeGroup()
+        _state.value = _state.value.copy(
+            invitationId = null,
+            wifiDirectInvitationReady = false,
+            scanning = false,
+            error = null,
+            status = "تعذر Wi-Fi Direct ($reason)؛ جارٍ تشغيل نقطة الاتصال المحلية البديلة..."
+        )
+        viewModelScope.launch {
+            // Allow the P2P group teardown to reach the framework before requesting
+            // a SoftAP; several OEM stacks reject simultaneous P2P and hotspot modes.
+            delay(900L)
+            runCatching { UltraShareForegroundService.startLocalHotspot(context) }
+                .onFailure { failure ->
+                    _state.value = _state.value.copy(
+                        error = failure.localizedMessage
+                            ?: "تعذر Wi-Fi Direct وتشغيل نقطة الاتصال المحلية البديلة. تحقق من دعم Wi-Fi في الجهاز."
+                    )
+                }
+        }
     }
 
     private fun activateReceiverInvitation(invitationId: String) {
@@ -626,11 +661,7 @@ class LegacyUltraShareViewModel @Inject constructor(
             if (readiness == null || !readiness.controlChannelReady) {
                 val reason = readiness?.controlChannelError
                     ?: "لم يبدأ خادم الاتصال الآمن على المنفذ 38744 خلال 15 ثانية."
-                _state.value = _state.value.copy(
-                    wifiDirectInvitationReady = false,
-                    error = reason,
-                    status = "لم يُعرض رمز QR لأن قناة الاتصال لم تصبح جاهزة. أعد تشغيل الاستقبال."
-                )
+                startHotspotFallback(reason)
                 return@launch
             }
             runCatching {
@@ -643,18 +674,14 @@ class LegacyUltraShareViewModel @Inject constructor(
                             )
                         }
                     }.onFailure { failure ->
-                        _state.value = _state.value.copy(
-                            wifiDirectInvitationReady = false,
-                            status = "قناة الاتصال جاهزة؛ تعذر إعلان Wi-Fi Direct.",
-                            error = failure.localizedMessage
+                        startHotspotFallback(
+                            failure.localizedMessage ?: "تعذر إعلان دعوة Wi-Fi Direct."
                         )
                     }
                 }
             }.onFailure { failure ->
-                _state.value = _state.value.copy(
-                    wifiDirectInvitationReady = false,
-                    status = "قناة الاتصال جاهزة؛ تعذر إنشاء مجموعة Wi-Fi Direct.",
-                    error = failure.localizedMessage
+                startHotspotFallback(
+                    failure.localizedMessage ?: "تعذر إنشاء مجموعة Wi-Fi Direct."
                 )
             }
         }
@@ -663,16 +690,18 @@ class LegacyUltraShareViewModel @Inject constructor(
     fun startReceiving() {
         if (_state.value.receiving) return
         val secret = UltraShareTransport.createPairingSecret()
+        val invitationId = java.util.UUID.randomUUID().toString().replace("-", "")
+        hotspotFallbackStarted = false
         _state.value = _state.value.copy(
             pairingSecret = secret,
-            invitationId = null,
+            invitationId = invitationId,
             wifiDirectInvitationReady = false,
             pairedSession = false,
             receiving = true,
             error = null,
             status = context.getString(R.string.ultra_share_waiting)
         )
-        runCatching { UltraShareForegroundService.startReceiving(context, secret) }
+        runCatching { UltraShareForegroundService.startReceiving(context, secret, createHotspot = false) }
             .onFailure {
                 _state.value = _state.value.copy(
                     receiving = false,
@@ -683,9 +712,11 @@ class LegacyUltraShareViewModel @Inject constructor(
                 )
                 return
             }
-        // QR v4 is advertised only after LocalOnlyHotspot credentials, IPv4 and
-        // the authenticated control listener are all ready. No Wi-Fi Direct group
-        // or NSTACKX invitation is created for this pairing path.
+        // Prefer a real Wi-Fi Direct group so two phones can pair without a router
+        // or internet. The QR is published only after DNS-SD advertises this session.
+        // If the device/OEM cannot form a P2P group, activateReceiverInvitation
+        // reports the failure and startHotspotFallback switches to the LAN QR path.
+        activateReceiverInvitation(invitationId)
     }
 
     private fun connectThroughLocalHotspot(
@@ -877,6 +908,7 @@ class LegacyUltraShareViewModel @Inject constructor(
         wifiDirectSession?.stopInvitationAdvertisement()
         wifiDirectSession?.removeGroup()
         invitationPreferences.edit().remove("active_invitation_id").apply()
+        hotspotFallbackStarted = false
         _state.value = _state.value.copy(
             invitationId = null,
             wifiDirectInvitationReady = false,
@@ -1229,16 +1261,25 @@ fun UltraShareScreen(
     val hotspotSsid = state.hotspotSsid
     val hotspotPassword = state.hotspotPassword
     val qrPayload = if (
-        state.receiving && state.controlChannelReady && state.dataChannelReady && state.hotspotActive &&
-        !state.pairedSession && !hotspotSsid.isNullOrBlank() &&
-        !hotspotPassword.isNullOrBlank() && state.localAddresses.isNotEmpty()
+        state.receiving && state.controlChannelReady && state.dataChannelReady && !state.pairedSession
     ) {
-        UltraShareQrCode.createHotspotReceiverPayload(
-            state.localAddresses,
-            state.pairingSecret,
-            hotspotSsid,
-            hotspotPassword
-        )
+        when {
+            state.wifiDirectInvitationReady && !invitationId.isNullOrBlank() ->
+                UltraShareQrCode.createReceiverPayload(
+                    hosts = state.localAddresses,
+                    pairingSecret = state.pairingSecret,
+                    invitationId = invitationId
+                )
+            state.hotspotActive && !hotspotSsid.isNullOrBlank() &&
+                !hotspotPassword.isNullOrBlank() && state.localAddresses.isNotEmpty() ->
+                UltraShareQrCode.createHotspotReceiverPayload(
+                    state.localAddresses,
+                    state.pairingSecret,
+                    hotspotSsid,
+                    hotspotPassword
+                )
+            else -> null
+        }
     } else null
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
