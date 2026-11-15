@@ -54,6 +54,14 @@ class VideoEnhancementPolicyTest {
         assertEquals(null, result.downgradeReason)
     }
 
+    @Test fun enhancementProfilesUseVisibleFilterStrengthWithoutEnablingFakeInterpolation() {
+        assertEquals(0f, VideoEnhancementProfile.ECONOMY.previousFrameWeight)
+        assertEquals(0f, VideoEnhancementProfile.BALANCED.previousFrameWeight)
+        assertEquals(0f, VideoEnhancementProfile.ULTRA.previousFrameWeight)
+        assertEquals(true, VideoEnhancementProfile.BALANCED.denoiseStrength > 0.30f)
+        assertEquals(true, VideoEnhancementProfile.BALANCED.detailStrength > 0.70f)
+    }
+
     @Test fun invalidWireValueFallsBackToBalanced() {
         assertEquals(VideoEnhancementProfile.BALANCED, VideoEnhancementProfile.fromWireValue("invalid"))
     }
