@@ -567,9 +567,9 @@ object UltraShareWifiDirect {
                     location.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
                         location.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
                 }
-            } catch (_: RuntimeException) {
-                false
             } catch (_: SecurityException) {
+                false
+            } catch (_: RuntimeException) {
                 false
             }
         }
