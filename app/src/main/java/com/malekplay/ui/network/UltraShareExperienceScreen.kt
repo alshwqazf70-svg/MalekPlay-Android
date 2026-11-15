@@ -569,17 +569,24 @@ fun UltraShareExperienceScreen(
     LaunchedEffect(pendingQrPairing) {
         val pairing = pendingQrPairing ?: return@LaunchedEffect
         if (!pairing.hotspotSsid.isNullOrBlank() && !pairing.hotspotPassword.isNullOrBlank()) {
-            val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
-            } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-            val missing = required.filter {
-                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-            }
-            if (missing.isNotEmpty()) {
-                wifiPermission.launch(missing.toTypedArray())
-            } else {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                // Android 8–9 joins the hotspot manually in system Wi-Fi settings;
+                // the subsequent LAN/MPC2 connection needs no Wi-Fi Direct permission.
                 pendingQrPairing = null
                 viewModel.connectHotspotInvitation(pairing)
+            } else {
+                val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+                } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                val missing = required.filter {
+                    ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+                }
+                if (missing.isNotEmpty()) {
+                    wifiPermission.launch(missing.toTypedArray())
+                } else {
+                    pendingQrPairing = null
+                    viewModel.connectHotspotInvitation(pairing)
+                }
             }
         } else if (pairing.invitationId.isNullOrBlank()) {
             pendingQrPairing = null
