@@ -128,6 +128,24 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
         val gain = linearGain
         val effectEnabled = hasAudibleEffect()
         val frameCount = byteCount / (2 * channels)
+        if (!effectEnabled) {
+            // Exact byte-for-byte bypass when every control is neutral.
+            output.put(input)
+            output.flip()
+            buffersProcessed++
+            framesProcessed += frameCount
+            if (buffersProcessed == 1L || buffersProcessed % METRICS_UPDATE_INTERVAL == 0L) {
+                _metrics.value = Metrics(
+                    configured = true,
+                    sampleRateHz = sampleRate,
+                    processedBuffers = buffersProcessed,
+                    processedFrames = framesProcessed,
+                    effectFrames = framesWithEffects,
+                    lastBufferFrameCount = frameCount
+                )
+            }
+            return
+        }
         var frame = 0
         while (input.remaining() >= 2) {
             val channel = frame % channels
