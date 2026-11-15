@@ -278,15 +278,17 @@ class UltraShareViewModel @Inject constructor(
                             )
                         )
                         val routeNetwork = routeNetworks.firstOrNull()
-                        // 192.168.49.x is the conventional Android Wi-Fi Direct group subnet.
-                        // Never send that destination over the unrelated default WLAN when
-                        // Android has not exposed a matching P2P Network; doing so produces
-                        // ENETUNREACH and masks valid WLAN fallback addresses in the QR invite.
+                        // Android 9 and some OEM Android 10 builds may not publish
+                        // the Wi-Fi Direct Network in ConnectivityManager.allNetworks.
+                        // UltraShareControlChannel.request() tries all explicit routes and
+                        // then the OS default route, which can be the active P2P route on
+                        // these devices. Do not discard a valid group-owner address here.
                         if (UltraShareNetworkRouting.isWifiDirectGroupHost(routeHost) && routeNetwork == null) {
-                            lastFailure = IllegalStateException(
-                                "عنوان Wi-Fi Direct غير متاح حالياً؛ لم ينضم الهاتف إلى مجموعة P2P. سنجرب عناوين الشبكة المحلية البديلة إن وُجدت."
+                            UltraShareDiagnostics.event(
+                                "NETWORK_ROUTING",
+                                "P2P_NETWORK_NOT_EXPOSED_TRYING_DEFAULT_ROUTE",
+                                mapOf("host" to routeHost)
                             )
-                            continue
                         }
                         val decision = UltraShareControlChannel.request(
                             host = routeHost,
