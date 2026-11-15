@@ -5,7 +5,6 @@ import androidx.media3.common.audio.AudioProcessor
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.PI
@@ -45,12 +44,12 @@ class TenBandEqualizerAudioProcessorTest {
             input.putShort(sample.toShort())
         }
         input.flip()
-        val originalFirst = input.getShort(0)
+        val originalSample = input.getShort(24)
 
         processor.queueInput(input)
         val output = processor.output.order(ByteOrder.nativeOrder())
 
-        assertNotEquals(originalFirst, output.getShort(0))
+        assertTrue(originalSample != output.getShort(24))
         assertEquals(4_800L, processor.metrics.value.processedFrames)
         assertEquals(4_800L, processor.metrics.value.effectFrames)
         assertTrue(processor.metrics.value.processedBuffers > 0L)
