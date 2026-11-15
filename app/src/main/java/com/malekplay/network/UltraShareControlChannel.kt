@@ -521,7 +521,17 @@ object UltraShareControlChannel {
         output.write(challenge)
         output.flush()
 
-        val requestId = input.readUTF()
+        val requestId = try {
+            input.readUTF()
+        } catch (_: java.io.EOFException) {
+            // Discovery probes read the MPC2 greeting and close without authenticating.
+            // This is not a pairing failure and must not be reported as a broken handshake.
+            UltraShareDiagnostics.event(
+                "CONTROL_CHANNEL", "PRE_AUTH_PROBE_DISCONNECTED",
+                mapOf("peerHost" to peerAddress)
+            )
+            return
+        }
         require(requestId.length in 16..MAX_ID_BYTES &&
             requestId.all { it.isLetterOrDigit() || it == '-' }
         ) { "معرّف طلب الاتصال غير صالح." }
