@@ -284,7 +284,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                         UltraShareNetworkRouting.findNetworksForHost(context, candidate)
                             .map { it as android.net.Network? } + listOf(null)
                     var stopOnProtocolFailure = false
-                    for (route in routes) {
+                    for ((routeIndex, route) in routes.withIndex()) {
                         if (accepted || stopOnProtocolFailure) break
                         for (attempt in 0..2) {
                             try {
@@ -310,9 +310,19 @@ class LegacyUltraShareViewModel @Inject constructor(
                                     )
                                 }
                                 if (decision == UltraShareControlChannel.Decision.REJECTED) {
+                                    UltraShareDiagnostics.event(
+                                        "PAIRING",
+                                        "REVERSED_INVITATION_ROUTE_REJECTED",
+                                        mapOf("routeIndex" to routeIndex, "attempt" to attempt, "host" to candidate)
+                                    )
                                     stopOnProtocolFailure = true
                                     lastFailure = IllegalStateException("رفض الجهاز الآخر طلب الاقتران الآمن.")
                                 } else {
+                                    UltraShareDiagnostics.event(
+                                        "PAIRING",
+                                        "REVERSED_INVITATION_ROUTE_AUTHENTICATED",
+                                        mapOf("routeIndex" to routeIndex, "attempt" to attempt, "host" to candidate)
+                                    )
                                     accepted = true
                                 }
                                 break
@@ -320,6 +330,19 @@ class LegacyUltraShareViewModel @Inject constructor(
                                 throw cancelled
                             } catch (failure: Exception) {
                                 lastFailure = failure
+                                UltraShareDiagnostics.event(
+                                    "PAIRING",
+                                    "REVERSED_INVITATION_ROUTE_FAILED",
+                                    mapOf(
+                                        "routeIndex" to routeIndex,
+                                        "routeBound" to (route != null),
+                                        "networkHandle" to (route?.networkHandle ?: 0L),
+                                        "attempt" to attempt,
+                                        "host" to candidate,
+                                        "failureType" to failure.javaClass.simpleName,
+                                        "ioFailure" to (failure is java.io.IOException)
+                                    )
+                                )
                                 if (failure !is java.io.IOException) {
                                     stopOnProtocolFailure = true
                                     break
