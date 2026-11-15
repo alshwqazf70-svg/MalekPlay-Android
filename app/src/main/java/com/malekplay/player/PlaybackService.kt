@@ -207,6 +207,54 @@ class PlaybackService : MediaSessionService() {
             .build()
     }
 
+    /** Tracks connected output types so the equalizer UI can explain route changes. */
+    private fun registerAudioOutputObserver() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val manager = getSystemService(AudioManager::class.java) ?: return
+        audioManager = manager
+        val callback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+                publishAvailableAudioOutputs(manager)
+            }
+
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+                publishAvailableAudioOutputs(manager)
+            }
+        }
+        audioDeviceCallback = callback
+        manager.registerAudioDeviceCallback(callback, Handler(Looper.getMainLooper()))
+        publishAvailableAudioOutputs(manager)
+    }
+
+    private fun publishAvailableAudioOutputs(manager: AudioManager) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val labels = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).mapNotNull { device ->
+            when (device.type) {
+                AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "سماعة الهاتف"
+                AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET -> "سماعة سلكية"
+                AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "Bluetooth"
+                AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET -> "USB"
+                else -> null
+            }
+        }.distinct()
+        // AudioManager reports connected/available outputs, not necessarily the
+        // currently selected route. The UI deliberately labels this as availability.
+        audioEffectsController.updateOutputRoute(
+            labels.takeIf { it.isNotEmpty() }?.joinToString(" • ")
+                ?: "لا توجد مخارج صوت معروفة"
+        )
+    }
+
+    private fun unregisterAudioOutputObserver() {
+        val manager = audioManager
+        val callback = audioDeviceCallback
+        if (manager != null && callback != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            runCatching { manager.unregisterAudioDeviceCallback(callback) }
+        }
+        audioDeviceCallback = null
+        audioManager = null
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
         mediaSession
 
