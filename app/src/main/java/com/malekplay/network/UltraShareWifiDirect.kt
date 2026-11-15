@@ -462,11 +462,25 @@ object UltraShareWifiDirect {
                         if (!completed.compareAndSet(false, true)) return
                         // ERROR can mean there was no group to remove. Verify that
                         // Android reports no formed group before permitting fallback.
-                        runCatching {
+                        val verificationFinished = java.util.concurrent.atomic.AtomicBoolean(false)
+                        val verificationTimeout = Runnable {
+                            if (verificationFinished.compareAndSet(false, true)) onComplete(false)
+                        }
+                        mainHandler.postDelayed(verificationTimeout, 2_500L)
+                        try {
                             manager.requestConnectionInfo(channel) { info ->
-                                onComplete(!info.groupFormed)
-                            }.onFailure { onComplete(false) }
-                        }.onFailure { onComplete(false) }
+                                mainHandler.removeCallbacks(verificationTimeout)
+                                if (verificationFinished.compareAndSet(false, true)) {
+                                    onComplete(!info.groupFormed)
+                                }
+                            }
+                        } catch (failure: SecurityException) {
+                            mainHandler.removeCallbacks(verificationTimeout)
+                            if (verificationFinished.compareAndSet(false, true)) onComplete(false)
+                        } catch (failure: RuntimeException) {
+                            mainHandler.removeCallbacks(verificationTimeout)
+                            if (verificationFinished.compareAndSet(false, true)) onComplete(false)
+                        }
                     }
                 })
             } catch (failure: SecurityException) {
