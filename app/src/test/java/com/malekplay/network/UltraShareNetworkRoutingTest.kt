@@ -251,6 +251,46 @@ class UltraShareNetworkRoutingTest {
     }
 
     @Test
+    fun ownerPairingRequiresBothAndroidCallbacksAndExpectedClient() {
+        assertTrue(
+            isConfirmedWifiDirectOwnerPeer(
+                groupFormed = true,
+                connectionInfoSaysOwner = true,
+                groupInfoSaysOwner = true,
+                clientCount = 1,
+                expectedClientPresent = true
+            )
+        )
+        assertFalse(
+            isConfirmedWifiDirectOwnerPeer(
+                groupFormed = true,
+                connectionInfoSaysOwner = true,
+                groupInfoSaysOwner = false,
+                clientCount = 1,
+                expectedClientPresent = true
+            )
+        )
+        assertFalse(
+            isConfirmedWifiDirectOwnerPeer(
+                groupFormed = true,
+                connectionInfoSaysOwner = true,
+                groupInfoSaysOwner = true,
+                clientCount = 1,
+                expectedClientPresent = false
+            )
+        )
+        assertFalse(
+            isConfirmedWifiDirectOwnerPeer(
+                groupFormed = false,
+                connectionInfoSaysOwner = true,
+                groupInfoSaysOwner = true,
+                clientCount = 1,
+                expectedClientPresent = true
+            )
+        )
+    }
+
+    @Test
     fun rejectsStaleWifiDirectConnectionCallbacks() {
         assertTrue(isCurrentWifiDirectConnectionAttempt(false, true, 7, 7))
         assertFalse(isCurrentWifiDirectConnectionAttempt(true, true, 7, 7))
