@@ -423,8 +423,8 @@ fun SettingsScreen(
                 SliderRow(
                     title = stringResource(R.string.settings_loudness),
                     value = settings.loudnessGainDb.toFloat(),
-                    range = 0f..30f,
-                    steps = 29,
+                    range = 0f..12f,
+                    steps = 11,
                     display = settings.loudnessGainDb.toString(),
                     onValueChange = { value ->
                         viewModel.update { it.copy(loudnessGainDb = value.toInt()) }
