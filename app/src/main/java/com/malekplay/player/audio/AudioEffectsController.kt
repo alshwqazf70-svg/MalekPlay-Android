@@ -1,8 +1,5 @@
 package com.malekplay.player.audio
 
-import android.media.audiofx.BassBoost
-import android.media.audiofx.Equalizer
-import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Visualizer
 import android.media.audiofx.Virtualizer
 import android.util.Log
@@ -13,39 +10,43 @@ import kotlinx.coroutines.flow.asStateFlow
 
 private const val TAG = "AudioEffects"
 
-/**
- * Owns the platform AudioEffect chain for one audio session.
- *
- * Effects bind to an audio session id and must be rebuilt whenever ExoPlayer
- * reports a new one, so [attach] is safe to call repeatedly.
- */
+/** Owns software DSP and the optional platform virtualizer for one Media3 session. */
 class AudioEffectsController {
 
-    private var equalizer: Equalizer? = null
-    private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
-    private var loudness: LoudnessEnhancer? = null
     private var visualizer: Visualizer? = null
-    // Retain the user's opt-in if the player exposes its audio session later.
     private var visualizerRequested = false
-
     private var currentSessionId = 0
-    private var bands: List<Int> = EqualizerPreset.FLAT.bands.toList()
+    private var bands = List(TenBandEqualizerAudioProcessor.BAND_COUNT) { 0 }
     private var pendingPreset: EqualizerPreset? = null
     private var bassStrength = 0
     private var virtualizerStrength = 0
     private var loudnessGain = 0
 
+    /** This processor is installed in the service's DefaultAudioSink before playback starts. */
+    val softwareEqualizerProcessor = TenBandEqualizerAudioProcessor()
+
     private val _available = MutableStateFlow(false)
     val available: StateFlow<Boolean> = _available.asStateFlow()
 
-    private val _bandCount = MutableStateFlow(0)
+    private val _bandCount = MutableStateFlow(TenBandEqualizerAudioProcessor.BAND_COUNT)
     val bandCount: StateFlow<Int> = _bandCount.asStateFlow()
 
-    private val _levelRange = MutableStateFlow(-1500 to 1500)
+    private val _levelRange = MutableStateFlow(
+        TenBandEqualizerAudioProcessor.MIN_BAND_MB to TenBandEqualizerAudioProcessor.MAX_BAND_MB
+    )
     val levelRange: StateFlow<Pair<Int, Int>> = _levelRange.asStateFlow()
 
-    /** 0..1 per band, refreshed at ~20 Hz for the visualizer bars. */
+    private val _virtualizerSupported = MutableStateFlow(false)
+    val virtualizerSupported: StateFlow<Boolean> = _virtualizerSupported.asStateFlow()
+
+    private val _outputRouteLabel = MutableStateFlow("جارٍ اكتشاف مخرج الصوت")
+    val outputRouteLabel: StateFlow<String> = _outputRouteLabel.asStateFlow()
+
+    val processingMetrics: StateFlow<TenBandEqualizerAudioProcessor.Metrics> =
+        softwareEqualizerProcessor.metrics
+
+    /** 0..1 per band, refreshed at ~10 Hz for the visualizer bars. */
     private val _waveform = MutableStateFlow(FloatArray(32))
     val waveform: StateFlow<FloatArray> = _waveform.asStateFlow()
 
@@ -60,7 +61,6 @@ class AudioEffectsController {
                 val start = i * data.size / bars.size
                 val end = (i + 1) * data.size / bars.size
                 for (j in start until end) {
-                    // PCM waveform samples are unsigned bytes centred around 128.
                     val sample = data[j].toInt() and 0xFF
                     val magnitude = kotlin.math.abs(sample - 128)
                     if (magnitude > peak) peak = magnitude
@@ -73,153 +73,105 @@ class AudioEffectsController {
         override fun onFftDataCapture(viz: Visualizer?, fft: ByteArray?, samplingRate: Int) = Unit
     }
 
-    /** (Re)binds the effect chain to an audio session. */
     @Synchronized
     fun attach(audioSessionId: Int) {
         if (audioSessionId <= 0) {
-            // Media3 can report AUDIO_SESSION_ID_UNSET while the player is being
-            // rebuilt or when an audio track is temporarily unavailable. Do not
-            // leave effects bound to the previous track's session in that window.
-            if (currentSessionId != 0) {
-                val shouldRestartVisualizer = visualizerRequested
-                release()
-                // release() stops capture; keep the user's explicit opt-in so it
-                // resumes automatically when the next valid session is reported.
-                visualizerRequested = shouldRestartVisualizer
-            }
+            if (currentSessionId != 0) releaseSessionEffects()
             return
         }
         if (audioSessionId == currentSessionId) return
-        // Preserve an explicit user request across audio-session replacement.
-        val shouldRestartVisualizer = visualizerRequested
-        release()
-        visualizerRequested = shouldRestartVisualizer
+        val restartVisualizer = visualizerRequested
+        releaseSessionEffects()
+        visualizerRequested = restartVisualizer
         currentSessionId = audioSessionId
-
-        equalizer = runCatching {
-            Equalizer(0, audioSessionId).apply { enabled = true }
-        }.onFailure { Log.w(TAG, "Equalizer unavailable", it) }.getOrNull()
-
-        val eq = equalizer
-        if (eq != null) {
-            _bandCount.value = eq.numberOfBands.toInt().coerceAtMost(MAX_BANDS)
-            val range = eq.bandLevelRange
-            _levelRange.value = range[0].toInt() to range[1].toInt()
-            pendingPreset?.let { bands = mapPreset(it, _bandCount.value) }
-            applyBands(bands)
-        } else {
-            _bandCount.value = 0
-        }
-
-        bassBoost = runCatching {
-            BassBoost(0, audioSessionId).apply {
-                enabled = bassStrength > 0
-                setStrength(bassStrength.toShort())
-            }
-        }.onFailure { Log.w(TAG, "BassBoost unavailable", it) }.getOrNull()
 
         virtualizer = runCatching {
             Virtualizer(0, audioSessionId).apply {
-                enabled = virtualizerStrength > 0
-                setStrength(virtualizerStrength.toShort())
+                _virtualizerSupported.value = strengthSupported
+                if (strengthSupported) {
+                    setStrength(virtualizerStrength.coerceIn(0, 1000).toShort())
+                    enabled = virtualizerStrength > 0
+                } else {
+                    enabled = false
+                }
             }
-        }.onFailure { Log.w(TAG, "Virtualizer unavailable", it) }.getOrNull()
+        }.onFailure {
+            _virtualizerSupported.value = false
+            Log.w(TAG, "Virtualizer unavailable for audio session", it)
+        }.getOrNull()
 
-        loudness = runCatching {
-            // LoudnessEnhancer throws if the target gain is set before a valid session.
-            LoudnessEnhancer(audioSessionId).apply {
-                enabled = loudnessGain > 0
-                setTargetGain(loudnessGain * 100)
-            }
-        }.onFailure { Log.w(TAG, "LoudnessEnhancer unavailable", it) }.getOrNull()
-
-        _available.value = equalizer != null || bassBoost != null ||
-            virtualizer != null || loudness != null
-        if (visualizerRequested) startVisualizerIfReady()
+        _available.value = true // The software DSP is available for decoded PCM.
+        softwareEqualizerProcessor.setBandsMillibels(bands)
+        softwareEqualizerProcessor.setBassBoost(bassStrength)
+        softwareEqualizerProcessor.setLoudnessGain(loudnessGain)
+        if (restartVisualizer) startVisualizerIfReady()
     }
 
     @Synchronized
     fun setBands(values: List<Int>) {
         pendingPreset = null
-        // Persist only the bands supported by this controller; malformed or oversized
-        // settings must never create unbounded work or affect a later audio session.
-        bands = values.take(MAX_BANDS).toList()
-        applyBands(bands)
+        bands = List(TenBandEqualizerAudioProcessor.BAND_COUNT) { index ->
+            values.getOrNull(index)?.coerceIn(
+                TenBandEqualizerAudioProcessor.MIN_BAND_MB,
+                TenBandEqualizerAudioProcessor.MAX_BAND_MB
+            ) ?: 0
+        }
+        softwareEqualizerProcessor.setBandsMillibels(bands)
     }
 
     @Synchronized
     fun applyPreset(preset: EqualizerPreset) {
         pendingPreset = preset
-        val count = _bandCount.value
-        if (count <= 0) {
-            // Keep the full preset until the player exposes its actual band count.
-            bands = preset.bands.toList()
-            return
-        }
-        bands = mapPreset(preset, count)
-        applyBands(bands)
-    }
-
-    private fun mapPreset(preset: EqualizerPreset, count: Int): List<Int> =
-        EqualizerBandMapper.map(preset.bands, count)
-
-    private fun applyBands(values: List<Int>) {
-        val eq = equalizer ?: return
-        val count = _bandCount.value
-        if (count <= 0) return
-        repeat(count) { index ->
-            runCatching {
-                val (minimum, maximum) = _levelRange.value
-                val level = values.getOrElse(index) { 0 }.coerceIn(minimum, maximum)
-                eq.setBandLevel(index.toShort(), level.toShort())
-            }.onFailure { Log.w(TAG, "Band $index rejected", it) }
-        }
+        bands = preset.bands.take(TenBandEqualizerAudioProcessor.BAND_COUNT)
+            .map { it.coerceIn(
+                TenBandEqualizerAudioProcessor.MIN_BAND_MB,
+                TenBandEqualizerAudioProcessor.MAX_BAND_MB
+            ) }
+            .let { values ->
+                List(TenBandEqualizerAudioProcessor.BAND_COUNT) { values.getOrElse(it) { 0 } }
+            }
+        softwareEqualizerProcessor.setBandsMillibels(bands)
     }
 
     @Synchronized
     fun setBassBoost(strength: Int) {
         bassStrength = strength.coerceIn(0, 1000)
-        runCatching {
-            bassBoost?.apply {
-                enabled = bassStrength > 0
-                setStrength(bassStrength.toShort())
-            }
-        }.onFailure { Log.w(TAG, "BassBoost set failed", it) }
+        softwareEqualizerProcessor.setBassBoost(
+            (bassStrength / 1000f * TenBandEqualizerAudioProcessor.MAX_BASS_BOOST_DB).toInt()
+        )
     }
 
     @Synchronized
     fun setVirtualizer(strength: Int) {
         virtualizerStrength = strength.coerceIn(0, 1000)
+        val effect = virtualizer
+        if (effect == null || !_virtualizerSupported.value) {
+            Log.i(TAG, "Virtualizer not applied: effect unsupported for current session")
+            return
+        }
         runCatching {
-            virtualizer?.apply {
-                enabled = virtualizerStrength > 0
-                setStrength(virtualizerStrength.toShort())
-            }
-        }.onFailure { Log.w(TAG, "Virtualizer set failed", it) }
+            effect.setStrength(virtualizerStrength.toShort())
+            effect.enabled = virtualizerStrength > 0
+        }.onFailure { Log.w(TAG, "Virtualizer update failed", it) }
     }
 
     @Synchronized
     fun setLoudness(gainDb: Int) {
-        loudnessGain = gainDb.coerceIn(0, 30)
-        runCatching {
-            loudness?.apply {
-                enabled = loudnessGain > 0
-                setTargetGain(loudnessGain * 100)
-            }
-        }.onFailure { Log.w(TAG, "Loudness set failed", it) }
+        loudnessGain = gainDb.coerceIn(0, TenBandEqualizerAudioProcessor.MAX_LOUDNESS_DB)
+        softwareEqualizerProcessor.setLoudnessGain(loudnessGain)
     }
 
-    /**
-     * Starts waveform capture for the visualizer.
-     * Requires RECORD_AUDIO; the caller must hold it before calling.
-     */
+    /** Called by PlaybackService when Android reports a change in connected outputs. */
+    fun updateOutputRoute(label: String) {
+        _outputRouteLabel.value = label.ifBlank { "مخرج صوت غير معروف" }
+    }
+
     @Synchronized
     fun startVisualizer() {
         visualizerRequested = true
         startVisualizerIfReady()
     }
 
-    /** Starts capture only after ExoPlayer has supplied a valid audio session. */
     private fun startVisualizerIfReady() {
         if (!visualizerRequested || visualizer != null) return
         val session = currentSessionId
@@ -255,24 +207,20 @@ class AudioEffectsController {
 
     @Synchronized
     fun release() {
-        runCatching { equalizer?.release() }
-        runCatching { bassBoost?.release() }
-        runCatching { virtualizer?.release() }
-        runCatching { loudness?.release() }
-        stopVisualizer()
-        equalizer = null
-        bassBoost = null
-        virtualizer = null
-        loudness = null
-        currentSessionId = 0
+        releaseSessionEffects()
         _available.value = false
-        _bandCount.value = 0
+    }
+
+    private fun releaseSessionEffects() {
+        runCatching { virtualizer?.release() }
+        stopVisualizer()
+        virtualizer = null
+        currentSessionId = 0
+        _virtualizerSupported.value = false
+        _available.value = false
     }
 
     companion object {
-        /** Guard against devices reporting an unreasonable band count. */
-        const val MAX_BANDS = 12
-        /** A 10 Hz display is sufficient for reactive bars with lower DSP wakeups. */
         const val VISUALIZER_CAPTURE_RATE_HZ = 10
     }
 }
