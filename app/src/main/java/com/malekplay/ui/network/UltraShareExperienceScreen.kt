@@ -517,8 +517,9 @@ fun UltraShareExperienceScreen(
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) {
-            // The receiver owns one LocalOnlyHotspot. Wi-Fi Direct group creation
-            // is intentionally not started in parallel with that hotspot.
+            // Wi-Fi Direct is the primary no-router transport. The ViewModel starts
+            // the receiver listeners, creates the P2P group and advertises its QR;
+            // LocalOnlyHotspot starts only after a confirmed P2P cleanup on failure.
             viewModel.startReceiving()
         } else {
             pendingReceiverStart = true
@@ -624,9 +625,28 @@ fun UltraShareExperienceScreen(
         }
     }
 
-    val qrPayload = state.localAddresses
-        // Never publish the invitation until the actual batch-data listener,
-        // control listener and hotspot credentials are all ready.
+    val wifiDirectQrPayload = state.invitationId
+        .takeIf {
+            com.malekplay.network.UltraSharePairingReadiness.canShowWifiDirectQr(
+                receiving = state.receiving,
+                controlChannelReady = state.controlChannelReady,
+                dataChannelReady = state.dataChannelReady,
+                activePeerCount = state.activePeers.size,
+                pairingSecret = state.pairingSecret,
+                invitationId = state.invitationId
+            )
+        }
+        ?.let {
+            // Version 3 QR needs no LAN host: the peer discovers the active P2P
+            // group through the short-lived DNS-SD invitation.
+            com.malekplay.network.UltraShareQrCode.createReceiverPayload(
+                emptyList(),
+                state.pairingSecret,
+                it
+            )
+        }
+    val qrPayload = wifiDirectQrPayload ?: state.localAddresses
+        // Hotspot QR is published only after both listeners and hotspot credentials are ready.
         .takeIf {
             com.malekplay.network.UltraSharePairingReadiness.canShowHotspotQr(
                 receiving = state.receiving,
