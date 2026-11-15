@@ -632,7 +632,12 @@ class LegacyUltraShareViewModel @Inject constructor(
         )
         val session = wifiDirectSession
         if (session == null) {
-            startHotspotOnlyAfterP2pCleanup()
+            hotspotFallbackStarted = false
+            _state.value = _state.value.copy(
+                hotspotStarting = false,
+                error = "تعذر التحقق من جلسة Wi-Fi Direct وإغلاق مجموعة P2P؛ لم نشغل نقطة الاتصال لتجنب تعارض الشبكتين. أعد تشغيل الاستقبال ثم حاول مجدداً.",
+                status = "توقف التبديل الآمن لأن جلسة Wi-Fi Direct غير متاحة للتحقق."
+            )
             return
         }
         // Fail closed: never request a LocalOnlyHotspot while P2P teardown is unconfirmed.
