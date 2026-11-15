@@ -144,8 +144,9 @@ class UltraShareNetworkRoutingTest {
         assertTrue(UltraShareNetworkRouting.isInPrefix(first, second, 0))
     }
     @Test
-    fun requiresLocationServicesOnlyForAndroid10Through12L() {
-        assertFalse(requiresWifiDirectLocationService(28)) // Android 9
+    fun requiresLocationServicesForAndroid9Through12LWifiDirectDiscovery() {
+        assertFalse(requiresWifiDirectLocationService(27)) // Android 8.1
+        assertTrue(requiresWifiDirectLocationService(28))  // Android 9
         assertTrue(requiresWifiDirectLocationService(29))  // Android 10
         assertTrue(requiresWifiDirectLocationService(31))  // Android 12
         assertTrue(requiresWifiDirectLocationService(32))  // Android 12L
