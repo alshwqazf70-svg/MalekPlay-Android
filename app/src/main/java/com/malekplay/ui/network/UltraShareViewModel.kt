@@ -655,6 +655,12 @@ class UltraShareViewModel @Inject constructor(
      * the same authenticated MPC2 handshake as every other route.
      */
     fun connectHotspotInvitation(pairing: com.malekplay.network.UltraShareQrCode.PairingDetails) {
+        if (hotspotNetworkCallback != null || controlPairingInProgress || pendingQrPairing != null) {
+            _state.value = _state.value.copy(
+                error = "هناك محاولة اقتران أو جلسة شبكة قائمة بالفعل. أنهِ الجلسة الحالية قبل مسح رمز آخر."
+            )
+            return
+        }
         if (pairing.hotspotSsid.isNullOrBlank() || pairing.hotspotPassword.isNullOrBlank()) {
             requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
             return
@@ -1094,8 +1100,20 @@ class UltraShareViewModel @Inject constructor(
         secret: String,
         fallbackHosts: List<String> = emptyList()
     ) {
+        if (pendingQrPairing != null || qrP2pConnectStarted || controlPairingInProgress ||
+            hotspotNetworkCallback != null
+        ) {
+            _state.value = _state.value.copy(
+                requestingConnection = true,
+                error = "توجد جلسة اقتران أخرى قيد التنفيذ. انتظر نتيجتها قبل مسح رمز جديد."
+            )
+            return
+        }
         if (!UltraShareTransport.isValidPairingSecret(secret)) {
-            _state.value = _state.value.copy(error = "رمز الاقتران داخل QR غير صالح.")
+            _state.value = _state.value.copy(
+                requestingConnection = false,
+                error = "رمز الاقتران داخل QR غير صالح."
+            )
             return
         }
         pendingQrPairing = PendingQrPairing(secret.trim(), fallbackHosts)
