@@ -184,18 +184,25 @@ object UltraShareWifiDirect {
                 manager.clearLocalServices(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         if (closed) return
-                        manager.addLocalService(channel, service, object : WifiP2pManager.ActionListener {
-                            override fun onSuccess() {
-                                if (!closed) {
-                                    localInvitationService = service
-                                    localInvitationId = peerId
-                                    onAdvertised()
+                        try {
+                            manager.addLocalService(channel, service, object : WifiP2pManager.ActionListener {
+                                override fun onSuccess() {
+                                    if (!closed) {
+                                        localInvitationService = service
+                                        localInvitationId = peerId
+                                        onAdvertised()
+                                    }
                                 }
-                            }
-                            override fun onFailure(reason: Int) {
-                                reportError("تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
-                            }
-                        })
+                                override fun onFailure(reason: Int) {
+                                    reportError("تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
+                                }
+                            })
+                        } catch (failure: SecurityException) {
+                            reportError("يلزم إذن الأجهزة القريبة لإعلان دعوة Wi-Fi Direct.")
+                        } catch (failure: RuntimeException) {
+                            UltraShareDiagnostics.failure("WIFI_DIRECT_ADD_LOCAL_INVITATION", failure)
+                            reportError(failure.localizedMessage ?: "تعذر إعلان دعوة Wi-Fi Direct.")
+                        }
                     }
                     override fun onFailure(reason: Int) {
                         reportError("تعذر تحديث إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
@@ -257,16 +264,23 @@ object UltraShareWifiDirect {
                 manager.clearServiceRequests(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         if (closed) return
-                        manager.addServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
-                            override fun onSuccess() {
-                                if (closed) return
-                                invitationRequest = request
-                                startInvitationServiceDiscovery(request, 0)
-                            }
-                            override fun onFailure(reason: Int) {
-                                reportError("تعذر تهيئة البحث عن دعوة Wi-Fi Direct (رمز $reason).")
-                            }
-                        })
+                        try {
+                            manager.addServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
+                                override fun onSuccess() {
+                                    if (closed) return
+                                    invitationRequest = request
+                                    startInvitationServiceDiscovery(request, 0)
+                                }
+                                override fun onFailure(reason: Int) {
+                                    reportError("تعذر تهيئة البحث عن دعوة Wi-Fi Direct (رمز $reason).")
+                                }
+                            })
+                        } catch (failure: SecurityException) {
+                            reportError("يلزم إذن الأجهزة القريبة لإعداد البحث عن دعوة Wi-Fi Direct.")
+                        } catch (failure: RuntimeException) {
+                            UltraShareDiagnostics.failure("WIFI_DIRECT_ADD_INVITATION_REQUEST", failure)
+                            reportError(failure.localizedMessage ?: "تعذر تهيئة البحث عن دعوة Wi-Fi Direct.")
+                        }
                     }
                     override fun onFailure(reason: Int) {
                         reportError("تعذر تنظيف طلبات اكتشاف Wi-Fi Direct (رمز $reason).")
