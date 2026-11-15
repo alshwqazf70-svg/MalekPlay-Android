@@ -1214,6 +1214,16 @@ fun UltraShareScreen(
         }
     }
 
+    // Hotspot/LAN QR formats do not invoke Wi-Fi P2P APIs and must not request
+    // nearby-device/location permissions. Only legacy DNS-SD invitations need them.
+    fun acceptPairingWithRequiredPermissions(pairing: UltraShareQrCode.PairingDetails) {
+        if (pairing.invitationId.isNullOrBlank()) {
+            acceptPairing(pairing)
+        } else {
+            requestWifiDirectAction { acceptPairing(pairing) }
+        }
+    }
+
     val invitationId = state.invitationId
     // Capture delegated Compose state in stable locals so Kotlin can smart-cast it.
     val hotspotSsid = state.hotspotSsid
@@ -1282,10 +1292,13 @@ fun UltraShareScreen(
         val action = pendingWifiDirectAction
         pendingWifiDirectAction = null
         if (!grants.values.all { it }) {
-            Toast.makeText(context, "لم يُمنح إذن Wi-Fi Direct؛ سيحاول MalekPlay الاتصال عبر شبكة Wi-Fi العادية.", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                context,
+                "لم يُمنح إذن Wi-Fi Direct. لم نبدأ اتصالاً مباشراً؛ يمكنك منح الإذن من إعدادات التطبيق ثم إعادة المحاولة.",
+                Toast.LENGTH_LONG
+            ).show()
+            return@rememberLauncherForActivityResult
         }
-        // Even on denial, execute the requested action: its connection path has a
-        // bounded WLAN fallback and must not strand the user on the permission dialog.
         action?.invoke()
     }
     fun requestWifiDirectAction(action: () -> Unit) {
@@ -1311,7 +1324,7 @@ fun UltraShareScreen(
         if (!raw.isNullOrBlank()) {
             runCatching { UltraShareQrCode.parsePayload(raw) }
                 .onSuccess { pairing ->
-                    requestWifiDirectAction { acceptPairing(pairing) }
+                    acceptPairingWithRequiredPermissions(pairing)
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
@@ -1337,7 +1350,7 @@ fun UltraShareScreen(
         } else {
             runCatching { UltraShareQrCode.parsePayload(raw) }
                 .onSuccess { pairing ->
-                    requestWifiDirectAction { acceptPairing(pairing) }
+                    acceptPairingWithRequiredPermissions(pairing)
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
@@ -1369,7 +1382,7 @@ fun UltraShareScreen(
                     }
                 }
                 result.onSuccess { pairing ->
-                    requestWifiDirectAction { acceptPairing(pairing) }
+                    acceptPairingWithRequiredPermissions(pairing)
                     Toast.makeText(context, R.string.ultra_share_scan_success, Toast.LENGTH_SHORT).show()
                 }.onFailure {
                     Toast.makeText(
@@ -2053,4 +2066,3 @@ private fun formatTransferEta(seconds: Long): String {
         else -> "${remainingSeconds}s"
     }
 }
-
