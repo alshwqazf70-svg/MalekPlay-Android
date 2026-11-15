@@ -593,42 +593,60 @@ object UltraShareWifiDirect {
                             reportError("تعذر تحرير مجموعة Wi-Fi Direct السابقة بعد عدة محاولات. أوقف الاتصال المباشر القديم ثم أعد المحاولة.")
                             return@requestGroupInfo
                         }
-                        manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                        try {
+                            manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                                override fun onSuccess() {
+                                    finishGroupAttempt(token)
+                                    mainHandler.postDelayed({
+                                        if (!closed) createGroupAttempt(onCreated, attempt + 1)
+                                    }, 500L)
+                                }
+
+                                override fun onFailure(reason: Int) {
+                                    finishGroupAttempt(token)
+                                    reportError("تعذر إغلاق مجموعة Wi-Fi Direct السابقة (رمز النظام $reason). أوقف الاتصال القديم ثم أعد المحاولة.")
+                                }
+                            })
+                        } catch (failure: SecurityException) {
+                            finishGroupAttempt(token)
+                            reportError("يلزم إذن الأجهزة القريبة لإغلاق مجموعة Wi-Fi Direct السابقة.")
+                        } catch (failure: RuntimeException) {
+                            finishGroupAttempt(token)
+                            UltraShareDiagnostics.failure("WIFI_DIRECT_REMOVE_STALE_GROUP", failure)
+                            reportError(failure.localizedMessage ?: "تعذر إغلاق مجموعة Wi-Fi Direct السابقة.")
+                        }
+                        return@requestGroupInfo
+                    }
+                    try {
+                        manager.createGroup(channel, object : WifiP2pManager.ActionListener {
                             override fun onSuccess() {
-                                finishGroupAttempt(token)
-                                mainHandler.postDelayed({
-                                    if (!closed) createGroupAttempt(onCreated, attempt + 1)
-                                }, 500L)
+                                if (!closed && isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) {
+                                    awaitReceiverGroup(onCreated, 0, token)
+                                }
                             }
 
                             override fun onFailure(reason: Int) {
-                                finishGroupAttempt(token)
-                                reportError("تعذر إغلاق مجموعة Wi-Fi Direct السابقة (رمز النظام $reason). أوقف الاتصال القديم ثم أعد المحاولة.")
+                                if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return
+                                if ((reason == WifiP2pManager.ERROR || reason == WifiP2pManager.BUSY) && attempt < 2) {
+                                    finishGroupAttempt(token)
+                                    runCatching { manager.cancelConnect(channel, null) }
+                                    mainHandler.postDelayed({
+                                        if (!closed) createGroupAttempt(onCreated, attempt + 1)
+                                    }, 1_000L * (attempt + 1))
+                                } else {
+                                    finishGroupAttempt(token)
+                                    reportError(groupFailureMessage(reason))
+                                }
                             }
                         })
-                        return@requestGroupInfo
+                    } catch (failure: SecurityException) {
+                        finishGroupAttempt(token)
+                        reportError("يلزم إذن الأجهزة القريبة لإنشاء مجموعة Wi-Fi Direct.")
+                    } catch (failure: RuntimeException) {
+                        finishGroupAttempt(token)
+                        UltraShareDiagnostics.failure("WIFI_DIRECT_CREATE_GROUP", failure)
+                        reportError(failure.localizedMessage ?: "تعذر على Android بدء إنشاء مجموعة Wi-Fi Direct.")
                     }
-                    manager.createGroup(channel, object : WifiP2pManager.ActionListener {
-                        override fun onSuccess() {
-                            if (!closed && isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) {
-                                awaitReceiverGroup(onCreated, 0, token)
-                            }
-                        }
-
-                        override fun onFailure(reason: Int) {
-                            if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return
-                            if ((reason == WifiP2pManager.ERROR || reason == WifiP2pManager.BUSY) && attempt < 2) {
-                                finishGroupAttempt(token)
-                                runCatching { manager.cancelConnect(channel, null) }
-                                mainHandler.postDelayed({
-                                    if (!closed) createGroupAttempt(onCreated, attempt + 1)
-                                }, 1_000L * (attempt + 1))
-                            } else {
-                                finishGroupAttempt(token)
-                                reportError(groupFailureMessage(reason))
-                            }
-                        }
-                    })
                 }
             } catch (failure: SecurityException) {
                 finishGroupAttempt(token)
