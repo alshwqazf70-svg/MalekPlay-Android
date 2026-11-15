@@ -661,7 +661,11 @@ class LegacyUltraShareViewModel @Inject constructor(
             if (readiness == null || !readiness.controlChannelReady) {
                 val reason = readiness?.controlChannelError
                     ?: "لم يبدأ خادم الاتصال الآمن على المنفذ 38744 خلال 15 ثانية."
-                startHotspotFallback(reason)
+                _state.value = _state.value.copy(
+                    wifiDirectInvitationReady = false,
+                    error = reason,
+                    status = "لم يُعرض رمز QR لأن خادم الاستقبال الآمن لم يصبح جاهزاً. أعد تشغيل الاستقبال."
+                )
                 return@launch
             }
             runCatching {
