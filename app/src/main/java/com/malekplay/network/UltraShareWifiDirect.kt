@@ -93,7 +93,7 @@ object UltraShareWifiDirect {
                 "هوية دعوة Wi-Fi Direct غير صالحة."
             }
             if (!legacyDiscoveryPrerequisite()) {
-                onError("على Android 10–12 يجب تشغيل خدمة الموقع لنشر واكتشاف دعوة Wi-Fi Direct.")
+                onError("على Android 9–12 يجب تشغيل خدمة الموقع لنشر واكتشاف دعوة Wi-Fi Direct.")
                 return
             }
             val service = WifiP2pDnsSdServiceInfo.newInstance(
@@ -144,7 +144,7 @@ object UltraShareWifiDirect {
             }
             invitationMatch = onMatch
             if (!legacyDiscoveryPrerequisite()) {
-                onError("على Android 10–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
+                onError("على Android 9–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
                 return
             }
             try {
@@ -287,7 +287,7 @@ object UltraShareWifiDirect {
         fun discover() {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             if (!legacyDiscoveryPrerequisite()) {
-                onError("على Android 10–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
+                onError("على Android 9–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
                 return
             }
             try {
@@ -651,8 +651,8 @@ object UltraShareWifiDirect {
     }
 }
 
-/** Android 10 through 12L require Location services enabled for Wi-Fi Direct discovery. */
-internal fun requiresWifiDirectLocationService(sdkInt: Int): Boolean = sdkInt in 29..32
+/** Android 9 through 12L require Location services enabled for Wi-Fi Direct service discovery. */
+internal fun requiresWifiDirectLocationService(sdkInt: Int): Boolean = sdkInt in 28..32
 
 /** Rejects delayed callbacks after timeout, completion, closure, or a newer attempt. */
 internal fun isCurrentWifiDirectConnectionAttempt(
