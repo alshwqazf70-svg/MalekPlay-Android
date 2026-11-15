@@ -645,7 +645,7 @@ fun UltraShareExperienceScreen(
                 it
             )
         }
-    val qrPayload = wifiDirectQrPayload ?: state.localAddresses
+    val hotspotQrPayload = state.localAddresses
         // Hotspot QR is published only after both listeners and hotspot credentials are ready.
         .takeIf {
             com.malekplay.network.UltraSharePairingReadiness.canShowHotspotQr(
@@ -668,6 +668,20 @@ fun UltraShareExperienceScreen(
                 password = state.hotspotPassword!!
             )
         }
+    val lanQrPayload = state.localAddresses
+        .takeIf {
+            com.malekplay.network.UltraSharePairingReadiness.canShowLanQr(
+                receiving = state.receiving,
+                controlChannelReady = state.controlChannelReady,
+                dataChannelReady = state.dataChannelReady,
+                lanFallbackReady = state.lanFallbackReady,
+                activePeerCount = state.activePeers.size,
+                pairingSecret = state.pairingSecret,
+                localAddresses = it
+            )
+        }
+        ?.let { UltraShareQrCode.createReceiverPayload(it, state.pairingSecret) }
+    val qrPayload = wifiDirectQrPayload ?: hotspotQrPayload ?: lanQrPayload
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { runCatching { UltraShareQrCode.createBitmap(it) }.getOrNull() }
     }
