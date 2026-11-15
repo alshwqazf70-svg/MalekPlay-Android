@@ -44,6 +44,22 @@ class UltraShareDiagnosticsTest {
     }
 
     @Test
+    fun jsonLineEscapesNewlinesAndPreservesNumericAndBooleanTypes() {
+        val encoded = UltraShareDiagnostics.jsonObject(
+            linkedMapOf(
+                "event" to "PAIRING\nFAILED",
+                "attempt" to 3,
+                "connected" to false,
+                "elapsed" to 12.5
+            )
+        )
+        org.junit.Assert.assertTrue(encoded.contains("\\\\n"))
+        org.junit.Assert.assertTrue(encoded.contains("\"attempt\":3"))
+        org.junit.Assert.assertTrue(encoded.contains("\"connected\":false"))
+        org.junit.Assert.assertTrue(encoded.contains("\"elapsed\":12.5"))
+    }
+
+    @Test
     fun peerDiagnosticKeysNormalizeHostCaseAndWhitespace() {
         assertEquals(
             UltraShareDiagnostics.diagnosticPeerSessionKey("Peer.Example"),
