@@ -78,7 +78,7 @@ internal object UltraShareNetworkRouting {
             }.maxOrNull()
             // OEM builds can expose a different private P2P subnet than 192.168.49.0/24.
             // The dedicated p2p* interface is the stronger route signal.
-            val p2pGroupOwnerRoute = p2pInterface && isPrivateIpv4Address(remote)
+            val p2pGroupOwnerRoute = isP2pGroupOwnerRoute(interfaceName, remote)
             if (matchingLinkPrefix == null && matchingRoutePrefix == null && !p2pGroupOwnerRoute) {
                 return@mapNotNull null
             }
@@ -135,6 +135,10 @@ internal object UltraShareNetworkRouting {
     /** Compatibility helper for call sites that need only the best matching route. */
     fun findNetworkForHost(context: Context, host: String): Network? =
         findNetworksForHost(context, host).firstOrNull()
+
+    /** A private peer address is a P2P candidate only when the route belongs to a p2p interface. */
+    internal fun isP2pGroupOwnerRoute(interfaceName: String, remote: Inet4Address): Boolean =
+        isWifiDirectInterfaceName(interfaceName) && isPrivateIpv4Address(remote)
 
     /** True for RFC1918 IPv4 addresses commonly used by local P2P groups. */
     internal fun isPrivateIpv4Address(address: Inet4Address): Boolean =
