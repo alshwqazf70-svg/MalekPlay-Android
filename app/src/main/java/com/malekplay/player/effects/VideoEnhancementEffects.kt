@@ -119,7 +119,7 @@ private class SpatialNoiseReductionProgram(
                 // 9-tap bilateral neighborhood. Luma and chroma distances both
                 // protect edges, while diagonals suppress block and mosquito noise.
                 float centerLuma = luma(center.rgb);
-                float rangeScale = mix(24.0, 12.0, uStrength);
+                float rangeScale = mix(12.0, 24.0, uStrength);
                 float wN  = exp(-(abs(luma(n)  - centerLuma) * 0.60 + length(n  - center.rgb) * 0.40) * rangeScale);
                 float wS  = exp(-(abs(luma(s)  - centerLuma) * 0.60 + length(s  - center.rgb) * 0.40) * rangeScale);
                 float wE  = exp(-(abs(luma(e)  - centerLuma) * 0.60 + length(e  - center.rgb) * 0.40) * rangeScale);
