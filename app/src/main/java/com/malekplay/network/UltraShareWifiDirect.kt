@@ -45,6 +45,25 @@ object UltraShareWifiDirect {
         private var invitationRequest: WifiP2pDnsSdServiceRequest? = null
         private var invitationMatch: ((Peer) -> Unit)? = null
         private val mainHandler = Handler(Looper.getMainLooper())
+
+        /** Records callback/API failures with the exact MalekPlay call site before surfacing them. */
+        private fun reportError(message: String, stage: String = "WIFI_DIRECT") {
+            val frame = Throwable().stackTrace.firstOrNull {
+                it.className.startsWith("com.malekplay.") &&
+                    !it.className.endsWith("UltraShareWifiDirect\$Session")
+            }
+            UltraShareDiagnostics.event(
+                stage,
+                "FAILURE",
+                mapOf(
+                    "message" to message,
+                    "sourceClass" to frame?.className.orEmpty(),
+                    "sourceMethod" to frame?.methodName.orEmpty(),
+                    "sourceLine" to (frame?.lineNumber ?: -1)
+                )
+            )
+            onError(message)
+        }
         private var connectionInProgress = false
         @Volatile private var peerDiscoveryActive = false
         private var wasConnected = false
@@ -68,7 +87,7 @@ object UltraShareWifiDirect {
                             WifiP2pManager.WIFI_P2P_STATE_DISABLED
                         )
                         if (state != WifiP2pManager.WIFI_P2P_STATE_ENABLED) {
-                            onError("فعّل Wi-Fi وميزة Wi-Fi Direct من إعدادات الجهاز.")
+                            reportError("فعّل Wi-Fi وميزة Wi-Fi Direct من إعدادات الجهاز.")
                         }
                     }
                     WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION -> requestPeers()
@@ -104,7 +123,7 @@ object UltraShareWifiDirect {
             }
             if (!legacyDiscoveryPrerequisite()) {
                 UltraShareDiagnostics.event("WIFI_DIRECT", "LOCATION_SERVICES_DISABLED", mapOf("sdkInt" to Build.VERSION.SDK_INT, "operation" to "advertise_invitation"))
-                onError("على Android 6–12 يجب تشغيل خدمة الموقع لنشر واكتشاف دعوة Wi-Fi Direct.")
+                reportError("على Android 6–12 يجب تشغيل خدمة الموقع لنشر واكتشاف دعوة Wi-Fi Direct.")
                 return
             }
             val service = WifiP2pDnsSdServiceInfo.newInstance(
@@ -129,19 +148,19 @@ object UltraShareWifiDirect {
                                 }
                             }
                             override fun onFailure(reason: Int) {
-                                onError("تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
+                                reportError("تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
                             }
                         })
                     }
                     override fun onFailure(reason: Int) {
-                        onError("تعذر تحديث إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
+                        reportError("تعذر تحديث إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
                     }
                 })
             } catch (failure: SecurityException) {
-                onError("يلزم إذن الأجهزة القريبة لإعلان دعوة Wi-Fi Direct.")
+                reportError("يلزم إذن الأجهزة القريبة لإعلان دعوة Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
                 UltraShareDiagnostics.failure("WIFI_DIRECT_ADVERTISE_INVITATION", failure)
-                onError(failure.localizedMessage ?: "تعذر إعلان دعوة Wi-Fi Direct.")
+                reportError(failure.localizedMessage ?: "تعذر إعلان دعوة Wi-Fi Direct.")
             }
         }
 
@@ -157,14 +176,14 @@ object UltraShareWifiDirect {
                 "هوية دعوة Wi-Fi Direct غير صالحة."
             }
             if (peerDiscoveryActive) {
-                onError("هناك عملية اكتشاف Wi-Fi Direct أخرى نشطة؛ أوقفها وانتظر تأكيد Android قبل البحث عن دعوة QR.")
+                reportError("هناك عملية اكتشاف Wi-Fi Direct أخرى نشطة؛ أوقفها وانتظر تأكيد Android قبل البحث عن دعوة QR.")
                 return
             }
             invitationMatch = onMatch
             UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_REQUESTED", mapOf("sdkInt" to Build.VERSION.SDK_INT))
             if (!legacyDiscoveryPrerequisite()) {
                 UltraShareDiagnostics.event("WIFI_DIRECT", "LOCATION_SERVICES_DISABLED", mapOf("sdkInt" to Build.VERSION.SDK_INT, "operation" to "discover_invitation"))
-                onError("على Android 6–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
+                reportError("على Android 6–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
                 return
             }
             try {
@@ -200,19 +219,19 @@ object UltraShareWifiDirect {
                                 startInvitationServiceDiscovery(request, 0)
                             }
                             override fun onFailure(reason: Int) {
-                                onError("تعذر تهيئة البحث عن دعوة Wi-Fi Direct (رمز $reason).")
+                                reportError("تعذر تهيئة البحث عن دعوة Wi-Fi Direct (رمز $reason).")
                             }
                         })
                     }
                     override fun onFailure(reason: Int) {
-                        onError("تعذر تنظيف طلبات اكتشاف Wi-Fi Direct (رمز $reason).")
+                        reportError("تعذر تنظيف طلبات اكتشاف Wi-Fi Direct (رمز $reason).")
                     }
                 })
             } catch (failure: SecurityException) {
-                onError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
+                reportError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
                 UltraShareDiagnostics.failure("WIFI_DIRECT_DISCOVER_INVITATION", failure)
-                onError(failure.localizedMessage ?: "تعذر البحث عن دعوة Wi-Fi Direct.")
+                reportError(failure.localizedMessage ?: "تعذر البحث عن دعوة Wi-Fi Direct.")
             }
         }
 
@@ -352,17 +371,17 @@ object UltraShareWifiDirect {
                                 }
                             }, 600L * (attempt + 1))
                         } else {
-                            onError("تعذر البحث عن دعوة Wi-Fi Direct (رمز $reason).")
+                            reportError("تعذر البحث عن دعوة Wi-Fi Direct (رمز $reason).")
                         }
                     }
                 })
             } catch (failure: SecurityException) {
                 peerDiscoveryActive = false
-                onError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
+                reportError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
                 peerDiscoveryActive = false
                 UltraShareDiagnostics.failure("WIFI_DIRECT_START_SERVICE_DISCOVERY", failure)
-                onError(failure.localizedMessage ?: "تعذر بدء البحث عن دعوة Wi-Fi Direct.")
+                reportError(failure.localizedMessage ?: "تعذر بدء البحث عن دعوة Wi-Fi Direct.")
             }
         }
 
@@ -370,11 +389,11 @@ object UltraShareWifiDirect {
         fun discover() {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             if (peerDiscoveryActive) {
-                onError("عملية اكتشاف Wi-Fi Direct نشطة بالفعل؛ أوقف البحث الحالي قبل بدء بحث جديد.")
+                reportError("عملية اكتشاف Wi-Fi Direct نشطة بالفعل؛ أوقف البحث الحالي قبل بدء بحث جديد.")
                 return
             }
             if (!legacyDiscoveryPrerequisite()) {
-                onError("على Android 6–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
+                reportError("على Android 6–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
                 return
             }
             // Set pending before the async call so stopDiscoveryChecked also serializes
@@ -386,16 +405,16 @@ object UltraShareWifiDirect {
                     }
                     override fun onFailure(reason: Int) {
                         peerDiscoveryActive = false
-                        onError("تعذر البحث عبر Wi-Fi Direct (رمز الخطأ $reason).")
+                        reportError("تعذر البحث عبر Wi-Fi Direct (رمز الخطأ $reason).")
                     }
                 })
             } catch (failure: SecurityException) {
                 peerDiscoveryActive = false
-                onError("يلزم منح إذن الأجهزة القريبة للبحث عبر Wi-Fi Direct.")
+                reportError("يلزم منح إذن الأجهزة القريبة للبحث عبر Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
                 peerDiscoveryActive = false
                 UltraShareDiagnostics.failure("WIFI_DIRECT_START_PEER_DISCOVERY", failure)
-                onError(failure.localizedMessage ?: "تعذر بدء البحث عبر Wi-Fi Direct.")
+                reportError(failure.localizedMessage ?: "تعذر بدء البحث عبر Wi-Fi Direct.")
             }
         }
 
@@ -442,7 +461,7 @@ object UltraShareWifiDirect {
                 })
             } catch (failure: SecurityException) {
                 UltraShareDiagnostics.failure("WIFI_DIRECT_STOP_DISCOVERY_SECURITY", failure)
-                onError("يلزم إذن الأجهزة القريبة لإيقاف البحث قبل الاتصال.")
+                reportError("يلزم إذن الأجهزة القريبة لإيقاف البحث قبل الاتصال.")
                 finish(false)
             } catch (failure: RuntimeException) {
                 UltraShareDiagnostics.failure("WIFI_DIRECT_STOP_DISCOVERY", failure)
@@ -454,7 +473,7 @@ object UltraShareWifiDirect {
         fun createGroup(onCreated: () -> Unit = {}) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             if (peerDiscoveryActive) {
-                onError("لا يمكن إنشاء مجموعة Wi-Fi Direct أثناء استمرار عملية الاكتشاف؛ انتظر تأكيد إيقافها أولاً.")
+                reportError("لا يمكن إنشاء مجموعة Wi-Fi Direct أثناء استمرار عملية الاكتشاف؛ انتظر تأكيد إيقافها أولاً.")
                 return
             }
             createGroupAttempt(onCreated, 0)
@@ -469,7 +488,7 @@ object UltraShareWifiDirect {
                 if (isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) {
                     groupAttemptTimeout = null
                     groupAttemptToken++
-                    onError("لم يستجب نظام Android لتهيئة مجموعة Wi-Fi Direct خلال 15 ثانية. أوقف أي اتصال مباشر قديم ثم أعد المحاولة.")
+                    reportError("لم يستجب نظام Android لتهيئة مجموعة Wi-Fi Direct خلال 15 ثانية. أوقف أي اتصال مباشر قديم ثم أعد المحاولة.")
                 }
             }
             groupAttemptTimeout = timeout
@@ -495,7 +514,7 @@ object UltraShareWifiDirect {
                         // receiver-owned group intact because it may already serve peers.
                         if (attempt >= 2) {
                             finishGroupAttempt(token)
-                            onError("تعذر تحرير مجموعة Wi-Fi Direct السابقة بعد عدة محاولات. أوقف الاتصال المباشر القديم ثم أعد المحاولة.")
+                            reportError("تعذر تحرير مجموعة Wi-Fi Direct السابقة بعد عدة محاولات. أوقف الاتصال المباشر القديم ثم أعد المحاولة.")
                             return@requestGroupInfo
                         }
                         manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
@@ -508,7 +527,7 @@ object UltraShareWifiDirect {
 
                             override fun onFailure(reason: Int) {
                                 finishGroupAttempt(token)
-                                onError("تعذر إغلاق مجموعة Wi-Fi Direct السابقة (رمز النظام $reason). أوقف الاتصال القديم ثم أعد المحاولة.")
+                                reportError("تعذر إغلاق مجموعة Wi-Fi Direct السابقة (رمز النظام $reason). أوقف الاتصال القديم ثم أعد المحاولة.")
                             }
                         })
                         return@requestGroupInfo
@@ -530,17 +549,17 @@ object UltraShareWifiDirect {
                                 }, 1_000L * (attempt + 1))
                             } else {
                                 finishGroupAttempt(token)
-                                onError(groupFailureMessage(reason))
+                                reportError(groupFailureMessage(reason))
                             }
                         }
                     })
                 }
             } catch (failure: SecurityException) {
                 finishGroupAttempt(token)
-                onError("يلزم إذن الأجهزة القريبة لإنشاء مجموعة Wi-Fi Direct.")
+                reportError("يلزم إذن الأجهزة القريبة لإنشاء مجموعة Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
                 finishGroupAttempt(token)
-                onError(failure.localizedMessage ?: "تعذر تهيئة مجموعة Wi-Fi Direct.")
+                reportError(failure.localizedMessage ?: "تعذر تهيئة مجموعة Wi-Fi Direct.")
             }
         }
 
@@ -568,15 +587,15 @@ object UltraShareWifiDirect {
                         mainHandler.postDelayed({ awaitReceiverGroup(onCreated, attempt + 1, token) }, 500L)
                     } else {
                         finishGroupAttempt(token)
-                        onError("لم تكتمل تهيئة مجموعة Wi-Fi Direct خلال 10 ثوانٍ. أوقف نقطة الاتصال أو أي اتصال مباشر آخر ثم أعد المحاولة.")
+                        reportError("لم تكتمل تهيئة مجموعة Wi-Fi Direct خلال 10 ثوانٍ. أوقف نقطة الاتصال أو أي اتصال مباشر آخر ثم أعد المحاولة.")
                     }
                 }
             } catch (failure: SecurityException) {
                 finishGroupAttempt(token)
-                onError("يلزم إذن الأجهزة القريبة للتحقق من إنشاء مجموعة Wi-Fi Direct.")
+                reportError("يلزم إذن الأجهزة القريبة للتحقق من إنشاء مجموعة Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
                 finishGroupAttempt(token)
-                onError(failure.localizedMessage ?: "تعذر التحقق من إنشاء مجموعة Wi-Fi Direct.")
+                reportError(failure.localizedMessage ?: "تعذر التحقق من إنشاء مجموعة Wi-Fi Direct.")
             }
         }
 
@@ -636,11 +655,11 @@ object UltraShareWifiDirect {
         fun connect(deviceAddress: String, preferThisDeviceAsGroupOwner: Boolean) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             if (peerDiscoveryActive) {
-                onError("لا يمكن بدء اتصال Wi-Fi Direct أثناء استمرار الاكتشاف؛ أوقف عملية البحث وانتظر تأكيد Android أولاً.")
+                reportError("لا يمكن بدء اتصال Wi-Fi Direct أثناء استمرار الاكتشاف؛ أوقف عملية البحث وانتظر تأكيد Android أولاً.")
                 return
             }
             if (!deviceAddress.matches(Regex("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}"))) {
-                onError("عنوان جهاز Wi-Fi Direct غير صالح؛ أعد البحث عن الأجهزة.")
+                reportError("عنوان جهاز Wi-Fi Direct غير صالح؛ أعد البحث عن الأجهزة.")
                 return
             }
             if (connectionInProgress) return
@@ -657,7 +676,7 @@ object UltraShareWifiDirect {
                     connectionTimeout = null
                     // Invalidate any requestPeers callback that arrives after this timeout.
                     connectionAttemptToken++
-                    onError("لم يستجب Android لتحديث قائمة أجهزة Wi-Fi Direct. أعد البحث ثم حاول الاتصال مجدداً.")
+                    reportError("لم يستجب Android لتحديث قائمة أجهزة Wi-Fi Direct. أعد البحث ثم حاول الاتصال مجدداً.")
                 }
             }
             connectionTimeout = peerRefreshTimeout
@@ -682,7 +701,7 @@ object UltraShareWifiDirect {
                 connectionTimeout?.let(mainHandler::removeCallbacks)
                 connectionTimeout = null
                 connectionAttemptToken++
-                onError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
+                reportError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
             }
         }
 
@@ -726,7 +745,7 @@ object UltraShareWifiDirect {
                                     }, 800L * (attempt + 1))
                                 } else {
                                     connectionAttemptToken++
-                                    onError("انتهت مهلة اتصال Wi-Fi Direct بعد محاولات متعددة. تأكد من بقاء الجهازين قريبين ثم أعد المحاولة.")
+                                    reportError("انتهت مهلة اتصال Wi-Fi Direct بعد محاولات متعددة. تأكد من بقاء الجهازين قريبين ثم أعد المحاولة.")
                                 }
                             }
                         }
@@ -750,7 +769,7 @@ object UltraShareWifiDirect {
                             connectionTimeout?.let(mainHandler::removeCallbacks)
                             connectionTimeout = null
                             connectionAttemptToken++
-                            onError(connectFailureMessage(reason))
+                            reportError(connectFailureMessage(reason))
                         }
                     }
                 })
@@ -759,14 +778,14 @@ object UltraShareWifiDirect {
                 connectionTimeout?.let(mainHandler::removeCallbacks)
                 connectionTimeout = null
                 connectionAttemptToken++
-                onError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
+                reportError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
                 connectionInProgress = false
                 connectionTimeout?.let(mainHandler::removeCallbacks)
                 connectionTimeout = null
                 connectionAttemptToken++
                 UltraShareDiagnostics.failure("WIFI_DIRECT_CONNECT", failure)
-                onError(failure.localizedMessage ?: "تعذر بدء اتصال Wi-Fi Direct.")
+                reportError(failure.localizedMessage ?: "تعذر بدء اتصال Wi-Fi Direct.")
             }
         }
 
@@ -1107,10 +1126,10 @@ object UltraShareWifiDirect {
                     }.filter { it.deviceAddress.isNotBlank() })
                 }
             } catch (failure: SecurityException) {
-                onError("يلزم إذن الأجهزة القريبة لعرض أجهزة Wi-Fi Direct.")
+                reportError("يلزم إذن الأجهزة القريبة لعرض أجهزة Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
                 UltraShareDiagnostics.failure("WIFI_DIRECT_REQUEST_PEERS", failure)
-                onError(failure.localizedMessage ?: "تعذر تحديث قائمة أجهزة Wi-Fi Direct.")
+                reportError(failure.localizedMessage ?: "تعذر تحديث قائمة أجهزة Wi-Fi Direct.")
             }
         }
 
@@ -1128,7 +1147,7 @@ object UltraShareWifiDirect {
                         cancelOwnerPeerConfirmation()
                         if (wasConnected) {
                             wasConnected = false
-                            onError("انقطع اتصال Wi-Fi Direct. أعد الاتصال أو استخدم مسار الشبكة المحلية الاحتياطي.")
+                            reportError("انقطع اتصال Wi-Fi Direct. أعد الاتصال أو استخدم مسار الشبكة المحلية الاحتياطي.")
                         }
                         return@requestConnectionInfo
                     }
@@ -1153,14 +1172,14 @@ object UltraShareWifiDirect {
                             onConnected(host, false)
                         }
                     } else {
-                        onError("تم اتصال Wi-Fi Direct لكن تعذر تحديد عنوان جهاز الاستقبال.")
+                        reportError("تم اتصال Wi-Fi Direct لكن تعذر تحديد عنوان جهاز الاستقبال.")
                     }
                 }
             } catch (failure: SecurityException) {
-                onError("يلزم إذن الأجهزة القريبة لقراءة اتصال Wi-Fi Direct.")
+                reportError("يلزم إذن الأجهزة القريبة لقراءة اتصال Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
                 UltraShareDiagnostics.failure("WIFI_DIRECT_CONNECTION_INFO", failure)
-                onError(failure.localizedMessage ?: "تعذر قراءة حالة اتصال Wi-Fi Direct.")
+                reportError(failure.localizedMessage ?: "تعذر قراءة حالة اتصال Wi-Fi Direct.")
             }
         }
 
@@ -1210,7 +1229,7 @@ object UltraShareWifiDirect {
                     } else if (wasConnected) {
                         wasConnected = false
                         cancelOwnerPeerConfirmation()
-                        onError("غادر الجهاز الآخر مجموعة Wi-Fi Direct. أعد الاقتران لإكمال المشاركة.")
+                        reportError("غادر الجهاز الآخر مجموعة Wi-Fi Direct. أعد الاقتران لإكمال المشاركة.")
                     } else {
                         scheduleOwnerPeerConfirmation(info, token, attempt)
                     }
@@ -1239,7 +1258,7 @@ object UltraShareWifiDirect {
             if (!shouldRetryWifiDirectPeerConfirmation(attempt)) {
                 ownerPeerCheckRunnable = null
                 UltraShareDiagnostics.event("WIFI_DIRECT", "GROUP_PEER_CONFIRMATION_TIMEOUT", mapOf("attempts" to attempt))
-                onError("تم إنشاء مجموعة Wi-Fi Direct لكن لم يؤكد Android انضمام الهاتف الآخر خلال 10 ثوانٍ. أبقِ الجهازين قريبين ثم أعد الاقتران.")
+                reportError("تم إنشاء مجموعة Wi-Fi Direct لكن لم يؤكد Android انضمام الهاتف الآخر خلال 10 ثوانٍ. أبقِ الجهازين قريبين ثم أعد الاقتران.")
                 return
             }
             ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
@@ -1289,15 +1308,15 @@ object UltraShareWifiDirect {
                     WifiP2pManager.ChannelListener { onChannelDisconnected() }
                 )
                 if (replacement == null) {
-                    onError("انقطع اتصال Wi-Fi Direct وتعذرت إعادة تهيئة قناة النظام. أوقف Wi-Fi ثم أعد تشغيله.")
+                    reportError("انقطع اتصال Wi-Fi Direct وتعذرت إعادة تهيئة قناة النظام. أوقف Wi-Fi ثم أعد تشغيله.")
                 } else {
                     channel = replacement
-                    onError("أعاد Android تهيئة قناة Wi-Fi Direct بعد انقطاعها. أعد المحاولة لإنشاء الاتصال.")
+                    reportError("أعاد Android تهيئة قناة Wi-Fi Direct بعد انقطاعها. أعد المحاولة لإنشاء الاتصال.")
                 }
             } catch (failure: SecurityException) {
-                onError("انقطعت قناة Wi-Fi Direct ويلزم إذن الأجهزة القريبة لإعادة تهيئتها.")
+                reportError("انقطعت قناة Wi-Fi Direct ويلزم إذن الأجهزة القريبة لإعادة تهيئتها.")
             } catch (failure: RuntimeException) {
-                onError(failure.localizedMessage ?: "تعذرت إعادة تهيئة قناة Wi-Fi Direct.")
+                reportError(failure.localizedMessage ?: "تعذرت إعادة تهيئة قناة Wi-Fi Direct.")
             }
         }
 
