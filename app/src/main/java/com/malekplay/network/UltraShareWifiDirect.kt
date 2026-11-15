@@ -459,17 +459,14 @@ object UltraShareWifiDirect {
                     }
                     override fun onFailure(reason: Int) {
                         mainHandler.removeCallbacks(timeout)
-                        if (completed.compareAndSet(false, true)) {
-                            // ERROR can mean there was no group to remove. Verify that
-                            // Android reports no formed group before permitting fallback.
-                            runCatching {
-                                manager.requestConnectionInfo(channel) { info ->
-                                    if (completed.compareAndSet(false, true)) {
-                                        onComplete(!info.groupFormed)
-                                    }
-                                }
-                            }
-                        }
+                        if (!completed.compareAndSet(false, true)) return
+                        // ERROR can mean there was no group to remove. Verify that
+                        // Android reports no formed group before permitting fallback.
+                        runCatching {
+                            manager.requestConnectionInfo(channel) { info ->
+                                onComplete(!info.groupFormed)
+                            }.onFailure { onComplete(false) }
+                        }.onFailure { onComplete(false) }
                     }
                 })
             } catch (failure: SecurityException) {
