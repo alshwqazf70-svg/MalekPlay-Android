@@ -46,6 +46,7 @@ object UltraShareWifiDirect {
         private var invitationMatch: ((Peer) -> Unit)? = null
         private val mainHandler = Handler(Looper.getMainLooper())
         private var connectionInProgress = false
+        @Volatile private var peerDiscoveryActive = false
         private var wasConnected = false
         private var connectionAttemptToken = 0
         private var connectionTimeout: Runnable? = null
@@ -238,9 +239,16 @@ object UltraShareWifiDirect {
                     finish(false)
                 }
             }
+            if (!peerDiscoveryActive) {
+                removeRequest(true)
+                return
+            }
             try {
                 manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() = removeRequest(true)
+                    override fun onSuccess() {
+                        peerDiscoveryActive = false
+                        removeRequest(true)
+                    }
                     override fun onFailure(reason: Int) {
                         UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_STOP_FAILED", mapOf("reason" to reason))
                         removeRequest(false)
@@ -283,6 +291,7 @@ object UltraShareWifiDirect {
             try {
                 manager.discoverServices(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
+                        peerDiscoveryActive = true
                         UltraShareDiagnostics.event("WIFI_DIRECT", "SERVICE_DISCOVERY_STARTED", mapOf("attempt" to attempt))
                     }
 
@@ -316,8 +325,11 @@ object UltraShareWifiDirect {
             }
             try {
                 manager.discoverPeers(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() = Unit
+                    override fun onSuccess() {
+                        peerDiscoveryActive = true
+                    }
                     override fun onFailure(reason: Int) {
+                        peerDiscoveryActive = false
                         onError("تعذر البحث عبر Wi-Fi Direct (رمز الخطأ $reason).")
                     }
                 })
@@ -345,9 +357,18 @@ object UltraShareWifiDirect {
             fun finish(success: Boolean) {
                 if (completed.compareAndSet(false, true)) onResult(success)
             }
+            // If this Session never started discovery (or it already stopped), there is
+            // no P2P discovery operation to serialize against group creation/connect.
+            if (!peerDiscoveryActive) {
+                finish(true)
+                return
+            }
             try {
                 manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() = finish(true)
+                    override fun onSuccess() {
+                        peerDiscoveryActive = false
+                        finish(true)
+                    }
                     override fun onFailure(reason: Int) {
                         UltraShareDiagnostics.event(
                             "WIFI_DIRECT",
