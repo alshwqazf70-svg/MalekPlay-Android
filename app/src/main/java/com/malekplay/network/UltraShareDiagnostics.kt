@@ -280,9 +280,14 @@ object UltraShareDiagnostics {
         val context = appContext ?: return
         val encoded = jsonObject(payload)
         writer.execute {
-            val target = session.uri
-            if (target != null) writeLine(context, target, encoded)
-            else session.privateFile?.let { writePrivateLine(it, encoded) }
+            runCatching {
+                val target = session.uri
+                if (target != null) writeLine(context, target, encoded)
+                else session.privateFile?.let { writePrivateLine(it, encoded) }
+                    ?: error("Diagnostic session has no writable output")
+                // Keep the same redacted, ordered JSONL event stream available in Logcat.
+                Log.d(TAG, encoded)
+            }.onFailure { Log.e(TAG, "Unable to persist diagnostic event", it) }
         }
     }
 
