@@ -8,6 +8,21 @@ internal object UltraSharePairingReadiness {
     fun isDataListenerReady(actualPort: Int, expectedPort: Int): Boolean =
         expectedPort in 1..65535 && actualPort == expectedPort
 
+    fun canShowWifiDirectQr(
+        receiving: Boolean,
+        controlChannelReady: Boolean,
+        dataChannelReady: Boolean,
+        activePeerCount: Int,
+        pairingSecret: String,
+        invitationId: String?
+    ): Boolean =
+        receiving &&
+            controlChannelReady &&
+            dataChannelReady &&
+            activePeerCount == 0 &&
+            UltraShareTransport.isValidPairingSecret(pairingSecret) &&
+            !invitationId.isNullOrBlank()
+
     fun canShowHotspotQr(
         receiving: Boolean,
         controlChannelReady: Boolean,
