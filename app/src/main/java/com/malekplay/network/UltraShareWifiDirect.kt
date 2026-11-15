@@ -147,6 +147,10 @@ object UltraShareWifiDirect {
             require(peerId.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
                 "هوية دعوة Wi-Fi Direct غير صالحة."
             }
+            if (peerDiscoveryActive) {
+                onError("هناك عملية اكتشاف Wi-Fi Direct أخرى نشطة؛ أوقفها وانتظر تأكيد Android قبل البحث عن دعوة QR.")
+                return
+            }
             invitationMatch = onMatch
             UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_REQUESTED", mapOf("sdkInt" to Build.VERSION.SDK_INT))
             if (!legacyDiscoveryPrerequisite()) {
@@ -350,6 +354,10 @@ object UltraShareWifiDirect {
         @SuppressLint("MissingPermission")
         fun discover() {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
+            if (peerDiscoveryActive) {
+                onError("عملية اكتشاف Wi-Fi Direct نشطة بالفعل؛ أوقف البحث الحالي قبل بدء بحث جديد.")
+                return
+            }
             if (!legacyDiscoveryPrerequisite()) {
                 onError("على Android 6–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
                 return
