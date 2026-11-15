@@ -90,6 +90,10 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT ||
             inputAudioFormat.sampleRate <= 0 || inputAudioFormat.channelCount <= 0
         ) {
+            sampleRate = 0
+            channelCount = 0
+            states = emptyArray()
+            _metrics.value = Metrics(configured = false)
             return AudioProcessor.AudioFormat.NOT_SET
         }
         sampleRate = inputAudioFormat.sampleRate
@@ -99,11 +103,7 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
         framesProcessed = 0L
         framesWithEffects = 0L
         rebuildCoefficients()
-        _metrics.value = _metrics.value.copy(
-            configured = true,
-            sampleRateHz = sampleRate,
-            lastBufferFrameCount = 0
-        )
+        _metrics.value = Metrics(configured = true, sampleRateHz = sampleRate)
         return inputAudioFormat
     }
 
