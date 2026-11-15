@@ -214,7 +214,9 @@ object UltraShareDiagnostics {
     private fun endSessionForKey(key: String, result: String) {
         val session = sessions.remove(key) ?: return
         sessionsById.remove(session.id, session)
-        sessionAliases.entries.removeIf { it.value === session }
+        sessionAliases.entries.toList().forEach { entry ->
+            if (entry.value === session) sessionAliases.remove(entry.key, session)
+        }
         if (activeSession === session) activeSession = null
         append(session, linkedMapOf(
             "timestamp" to timestamp(),
