@@ -3,16 +3,16 @@ package com.malekplay.player.audio
 import kotlin.math.roundToInt
 
 /**
- * Resamples preset gains to the actual number of bands exposed by the device.
+ * Resamples preset gains to the requested number of bands exposed by the software equalizer.
  *
- * Android devices commonly expose different equalizer band counts. Linear
+ * The software equalizer has a fixed ten-band control surface. Linear
  * interpolation preserves the preset's shape and endpoints instead of
  * repeating/skipping values when the hardware has more or fewer bands.
  */
 internal object EqualizerBandMapper {
 
     fun map(source: IntArray, requestedBandCount: Int): List<Int> {
-        val count = requestedBandCount.coerceIn(0, AudioEffectsController.MAX_BANDS)
+        val count = requestedBandCount.coerceIn(0, TenBandEqualizerAudioProcessor.BAND_COUNT)
         if (count == 0) return emptyList()
         if (source.isEmpty()) return List(count) { 0 }
         if (source.size == 1 || count == 1) {
