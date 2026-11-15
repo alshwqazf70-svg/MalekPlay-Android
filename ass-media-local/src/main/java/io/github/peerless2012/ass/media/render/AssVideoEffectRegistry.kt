@@ -23,8 +23,14 @@ object AssVideoEffectRegistry {
         managers.remove(player)
     }
 
+    /**
+     * Returns false when the ASS overlay manager is not attached. The caller must
+     * not report GPU effects as active when there is no renderer pipeline to receive them.
+     */
     @Synchronized
-    fun setAdditionalEffects(player: ExoPlayer, effects: List<Effect>) {
-        managers[player]?.setAdditionalEffects(effects)
+    fun setAdditionalEffects(player: ExoPlayer, effects: List<Effect>): Boolean {
+        val manager = managers[player] ?: return false
+        manager.setAdditionalEffects(effects)
+        return true
     }
 }
