@@ -73,6 +73,19 @@ class UltraShareNetworkRoutingTest {
     }
 
     @Test
+    fun ownerSideConfirmsExpectedClientInsteadOfAnyConnectedDevice() {
+        val expected = "AA:BB:CC:DD:EE:FF"
+        assertTrue(
+            listOf("11:22:33:44:55:66", "aa:bb:cc:dd:ee:ff")
+                .any { isExpectedWifiDirectPeer(expected, it) }
+        )
+        assertFalse(
+            listOf("11:22:33:44:55:66", "22:33:44:55:66:77")
+                .any { isExpectedWifiDirectPeer(expected, it) }
+        )
+    }
+
+    @Test
     fun confirmsOnlyTheSelectedWifiDirectGroupOwnerMac() {
         assertTrue(isExpectedWifiDirectPeer("AA:BB:CC:DD:EE:FF", "aa:bb:cc:dd:ee:ff"))
         assertFalse(isExpectedWifiDirectPeer("AA:BB:CC:DD:EE:FF", "11:22:33:44:55:66"))
