@@ -1233,6 +1233,39 @@ fun UltraShareScreen(
         else if (!state.receiving) secret = ""
     }
 
+    // Independent on-device QR scanner: does not require Google Play Services scanner modules.
+    var pendingWifiDirectAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val wifiDirectPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val action = pendingWifiDirectAction
+        pendingWifiDirectAction = null
+        if (!grants.values.all { it }) {
+            Toast.makeText(
+                context,
+                "لم يُمنح إذن Wi-Fi Direct. لم نبدأ اتصالاً مباشراً؛ يمكنك منح الإذن من إعدادات التطبيق ثم إعادة المحاولة.",
+                Toast.LENGTH_LONG
+            ).show()
+            return@rememberLauncherForActivityResult
+        }
+        action?.invoke()
+    }
+    fun requestWifiDirectAction(action: () -> Unit) {
+        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        val missing = required.filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) action()
+        else {
+            pendingWifiDirectAction = action
+            wifiDirectPermissionLauncher.launch(missing.toTypedArray())
+        }
+    }
+
     fun acceptPairing(pairing: UltraShareQrCode.PairingDetails) {
         secret = pairing.pairingSecret
         host = pairing.host
@@ -1329,38 +1362,6 @@ fun UltraShareScreen(
         ActivityResultContracts.CreateDocument("*/*")
     ) { uri -> if (uri != null) viewModel.exportReceived(uri) }
 
-    // Independent on-device QR scanner: does not require Google Play Services scanner modules.
-    var pendingWifiDirectAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    val wifiDirectPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants ->
-        val action = pendingWifiDirectAction
-        pendingWifiDirectAction = null
-        if (!grants.values.all { it }) {
-            Toast.makeText(
-                context,
-                "لم يُمنح إذن Wi-Fi Direct. لم نبدأ اتصالاً مباشراً؛ يمكنك منح الإذن من إعدادات التطبيق ثم إعادة المحاولة.",
-                Toast.LENGTH_LONG
-            ).show()
-            return@rememberLauncherForActivityResult
-        }
-        action?.invoke()
-    }
-    fun requestWifiDirectAction(action: () -> Unit) {
-        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
-        } else {
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-        val missing = required.filter {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (missing.isEmpty()) action()
-        else {
-            pendingWifiDirectAction = action
-            wifiDirectPermissionLauncher.launch(missing.toTypedArray())
-        }
-    }
     fun requestWifiDirectScan() {
         requestWifiDirectAction { viewModel.scanWifiDirectPeers() }
     }
