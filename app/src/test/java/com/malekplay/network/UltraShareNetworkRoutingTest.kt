@@ -199,6 +199,15 @@ class UltraShareNetworkRoutingTest {
         assertTrue(UltraShareNetworkRouting.isInPrefix(first, second, 0))
     }
     @Test
+    fun acceptsPrivatePeerAsP2pRouteOnlyOnP2pInterface() {
+        val privatePeer = InetAddress.getByName("192.168.43.1") as Inet4Address
+        val publicPeer = InetAddress.getByName("8.8.8.8") as Inet4Address
+        assertTrue(UltraShareNetworkRouting.isP2pGroupOwnerRoute("p2p-wlan0-0", privatePeer))
+        assertFalse(UltraShareNetworkRouting.isP2pGroupOwnerRoute("wlan0", privatePeer))
+        assertFalse(UltraShareNetworkRouting.isP2pGroupOwnerRoute("p2p-wlan0-0", publicPeer))
+    }
+
+    @Test
     fun recognizesPrivateGroupOwnerAddressOnNonDefaultP2pSubnet() {
         assertTrue(
             UltraShareNetworkRouting.isPrivateIpv4Address(
