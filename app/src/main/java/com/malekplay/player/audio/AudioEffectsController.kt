@@ -18,7 +18,6 @@ class AudioEffectsController {
     private var visualizerRequested = false
     private var currentSessionId = 0
     private var bands = List(TenBandEqualizerAudioProcessor.BAND_COUNT) { 0 }
-    private var pendingPreset: EqualizerPreset? = null
     private var bassStrength = 0
     private var virtualizerStrength = 0
     private var loudnessGain = 0
@@ -76,7 +75,11 @@ class AudioEffectsController {
     @Synchronized
     fun attach(audioSessionId: Int) {
         if (audioSessionId <= 0) {
-            if (currentSessionId != 0) releaseSessionEffects()
+            if (currentSessionId != 0) {
+                val restartVisualizer = visualizerRequested
+                releaseSessionEffects()
+                visualizerRequested = restartVisualizer
+            }
             return
         }
         if (audioSessionId == currentSessionId) return
@@ -109,7 +112,6 @@ class AudioEffectsController {
 
     @Synchronized
     fun setBands(values: List<Int>) {
-        pendingPreset = null
         bands = List(TenBandEqualizerAudioProcessor.BAND_COUNT) { index ->
             values.getOrNull(index)?.coerceIn(
                 TenBandEqualizerAudioProcessor.MIN_BAND_MB,
@@ -121,7 +123,6 @@ class AudioEffectsController {
 
     @Synchronized
     fun applyPreset(preset: EqualizerPreset) {
-        pendingPreset = preset
         bands = preset.bands.take(TenBandEqualizerAudioProcessor.BAND_COUNT)
             .map { it.coerceIn(
                 TenBandEqualizerAudioProcessor.MIN_BAND_MB,
