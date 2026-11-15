@@ -334,7 +334,7 @@ fun HomeScreen(
                     Text(
                         text = stringResource(R.string.home_library_tagline),
                         modifier = Modifier.padding(horizontal = 10.dp),
-                        color = MalekPlayColors.TextMuted,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall
                     )
                     Box(Modifier.width(26.dp).height(2.dp).background(Neon.copy(alpha = 0.55f), CircleShape))
@@ -391,7 +391,7 @@ private fun HomeHeader(
             }
             Text(
                 text = stringResource(R.string.home_library_tagline),
-                color = MalekPlayColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -673,14 +673,14 @@ private fun SectionHeading(
         ) {
             Text(
                 text = title,
-                color = MalekPlayColors.TextPrimary,
+                color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
             if (subtitle != null) {
                 Text(
                     text = subtitle,
-                    color = MalekPlayColors.TextMuted,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -749,7 +749,7 @@ private fun ActionTile(action: HomeAction) {
         Spacer(Modifier.height(9.dp))
         Text(
             text = action.title,
-            color = MalekPlayColors.TextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
@@ -841,7 +841,7 @@ private fun MediaPosterCard(
         ) {
             Text(
                 text = item.media.displayTitle,
-                color = MalekPlayColors.TextPrimary,
+                color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
@@ -849,7 +849,7 @@ private fun MediaPosterCard(
             )
             Text(
                 text = formatDuration(item.media.durationMs),
-                color = MalekPlayColors.TextMuted,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1
             )
@@ -917,13 +917,13 @@ private fun EmptyVideos() {
         )
         Text(
             text = stringResource(R.string.home_empty_videos_title),
-            color = MalekPlayColors.TextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold
         )
         Text(
             text = stringResource(R.string.home_empty_videos_body),
-            color = MalekPlayColors.TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall
         )
     }
@@ -961,13 +961,13 @@ private fun EmptyLibrary(onOpenLibrary: () -> Unit) {
         }
         Text(
             text = stringResource(R.string.lib_empty_title),
-            color = MalekPlayColors.TextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )
         Text(
             text = stringResource(R.string.lib_empty_body),
-            color = MalekPlayColors.TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall
         )
         Text(
@@ -1029,13 +1029,13 @@ private fun AudioPanel(
         ) {
             Text(
                 text = stringResource(R.string.nav_music),
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 text = stringResource(R.string.home_stat_audio, count),
-                color = MalekPlayColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall
             )
         }
