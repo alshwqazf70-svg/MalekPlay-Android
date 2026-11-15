@@ -193,7 +193,7 @@ class UltraShareViewModel @Inject constructor(
                 // receiver service and P2P group remain alive. Re-publish the ephemeral
                 // invitation on the retained group instead of leaving a dead QR session.
                 if (serviceState.receiving && !serviceState.hotspotActive &&
-                    !serviceState.hotspotStarting && !_state.value.invitationId.let { it.isNotBlank() } &&
+                    !serviceState.hotspotStarting && _state.value.invitationId.isBlank() &&
                     !wifiDirectPrimaryAttempt && !hotspotFallbackStarted
                 ) {
                     wifiDirectPrimaryAttempt = true
@@ -999,24 +999,24 @@ class UltraShareViewModel @Inject constructor(
                 }
                 if (pending == null && receiving && wifiDirectPrimaryAttempt) {
                     startHotspotFallback(message)
-                    return@open
-                }
-                _state.value = _state.value.copy(
-                    wifiDirectScanning = false,
-                    wifiDirectHost = null,
-                    invitationId = if (receiving) "" else _state.value.invitationId,
-                    requestingConnection = if (pending != null) fallbackHosts.isNotEmpty() else _state.value.requestingConnection,
-                    error = if (pending != null && fallbackHosts.isNotEmpty()) null else message,
-                    status = if (pending != null && fallbackHosts.isNotEmpty())
-                        "تعذر إكمال Wi-Fi Direct؛ ننتقل الآن إلى مسار الشبكة المحلية الآمن..."
-                    else _state.value.status
-                )
-                if (pending != null && fallbackHosts.isNotEmpty()) {
-                    requestConnection(
-                        host = fallbackHosts.first(),
-                        secret = pending.secret,
-                        alternateHosts = fallbackHosts.drop(1)
+                } else {
+                    _state.value = _state.value.copy(
+                        wifiDirectScanning = false,
+                        wifiDirectHost = null,
+                        invitationId = if (receiving) "" else _state.value.invitationId,
+                        requestingConnection = if (pending != null) fallbackHosts.isNotEmpty() else _state.value.requestingConnection,
+                        error = if (pending != null && fallbackHosts.isNotEmpty()) null else message,
+                        status = if (pending != null && fallbackHosts.isNotEmpty())
+                            "تعذر إكمال Wi-Fi Direct؛ ننتقل الآن إلى مسار الشبكة المحلية الآمن..."
+                        else _state.value.status
                     )
+                    if (pending != null && fallbackHosts.isNotEmpty()) {
+                        requestConnection(
+                            host = fallbackHosts.first(),
+                            secret = pending.secret,
+                            alternateHosts = fallbackHosts.drop(1)
+                        )
+                    }
                 }
             }
         ).also { wifiDirectSession = it }
