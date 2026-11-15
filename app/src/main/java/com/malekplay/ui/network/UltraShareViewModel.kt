@@ -777,11 +777,8 @@ class UltraShareViewModel @Inject constructor(
                         connectedHost.set(peerHost)
                         paired.set(true)
                         viewModel.hotspotNetworkPaired = true
-                        UltraShareForegroundService.startReceiving(
-                            viewModel.context,
-                            pairing.pairingSecret,
-                            createHotspot = false
-                        )
+                        // requestConnection() has already enabled this device's
+                        // reverse receive listeners after authenticating MPC2.
                         val remoteDataReady = viewModel._state.value.peerDataChannelReady
                         viewModel._state.value = viewModel._state.value.copy(
                             approvedPeerHost = peerHost,
