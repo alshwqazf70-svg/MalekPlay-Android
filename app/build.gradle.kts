@@ -27,6 +27,11 @@ android {
         localeFilters += setOf("ar", "en")
     }
 
+    // Room MigrationTestHelper loads exported schema JSON from the androidTest assets.
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
