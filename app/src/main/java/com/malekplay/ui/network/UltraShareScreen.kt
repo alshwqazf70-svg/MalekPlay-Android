@@ -540,7 +540,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                             invitationTimeout = null
                             wifiDirectSession?.stopInvitationDiscovery()
                             if (pairing != null && UltraShareTransport.isValidPairingSecret(pairing.pairingSecret)) {
-                                UltraShareForegroundService.startReceiving(context, pairing.pairingSecret)
+                                UltraShareForegroundService.startReceiving(context, pairing.pairingSecret, createHotspot = false)
                                 _state.value = _state.value.copy(
                                     wifiDirectHost = null,
                                     scanning = false,
