@@ -1198,7 +1198,20 @@ class UltraShareViewModel @Inject constructor(
                 error = null,
                 status = "تمت قراءة الدعوة؛ جارٍ العثور على الجهاز وإنشاء اتصال مباشر آمن..."
             )
-            session.discoverInvitation(invitationId) { peer ->
+            // QR service discovery must not overlap a regular discoverPeers request.
+            // Wait for the framework's stop callback before installing DNS-SD requests.
+            session.stopDiscoveryChecked { stopped ->
+                if (pendingQrPairing == null || wifiDirectSession !== session) return@stopDiscoveryChecked
+                if (!stopped) {
+                    pendingQrPairing = null
+                    qrP2pConnectStarted = false
+                    _state.value = _state.value.copy(
+                        requestingConnection = false,
+                        error = "لم يؤكد Android إيقاف البحث السابق؛ لم نبدأ اكتشاف دعوة QR بالتزامن. أوقف البحث ثم أعد المحاولة."
+                    )
+                    return@stopDiscoveryChecked
+                }
+                session.discoverInvitation(invitationId) { peer ->
                 if (pendingQrPairing != null && !qrP2pConnectStarted) {
                     qrP2pConnectStarted = true
                     _state.value = _state.value.copy(
@@ -1228,6 +1241,7 @@ class UltraShareViewModel @Inject constructor(
                         }
                         session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
                     }
+                }
                 }
             }
             viewModelScope.launch {
@@ -1344,11 +1358,22 @@ class UltraShareViewModel @Inject constructor(
     fun stopWifiDirectDiscovery() {
         wifiDirectScanTimeout?.cancel()
         wifiDirectScanTimeout = null
-        runCatching { wifiDirectSession?.stopDiscovery() }
-        _state.value = _state.value.copy(
-            wifiDirectScanning = false,
-            status = "تم إيقاف البحث عبر Wi-Fi Direct."
-        )
+        val session = wifiDirectSession
+        if (session == null) {
+            _state.value = _state.value.copy(
+                wifiDirectScanning = false,
+                status = "لا توجد عملية اكتشاف Wi-Fi Direct نشطة."
+            )
+            return
+        }
+        session.stopDiscoveryChecked { stopped ->
+            _state.value = _state.value.copy(
+                wifiDirectScanning = false,
+                error = if (stopped) null else "لم يؤكد Android إيقاف اكتشاف Wi-Fi Direct؛ لن نبدأ عملية P2P أخرى حتى تستقر حالة النظام.",
+                status = if (stopped) "تم إيقاف البحث عبر Wi-Fi Direct."
+                    else "تعذر تأكيد إيقاف البحث عبر Wi-Fi Direct."
+            )
+        }
     }
 
     fun scanBluetoothPeers() {
