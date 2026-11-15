@@ -167,4 +167,11 @@ class UltraShareNetworkRoutingTest {
         assertFalse(isCurrentWifiDirectConnectionAttempt(false, true, 8, 7))
     }
 
+    @Test
+    fun rejectsStaleWifiDirectGroupSetupCallbacks() {
+        assertTrue(isCurrentWifiDirectGroupAttempt(false, 7, 7))
+        assertFalse(isCurrentWifiDirectGroupAttempt(true, 7, 7))
+        assertFalse(isCurrentWifiDirectGroupAttempt(false, 8, 7))
+    }
+
 }
