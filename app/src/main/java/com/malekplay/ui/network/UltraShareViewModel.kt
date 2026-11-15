@@ -266,20 +266,38 @@ class UltraShareViewModel @Inject constructor(
         qrP2pConnectStarted = false
         val session = wifiDirectSession
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            val hasExistingLan = (
-                _state.value.localAddresses + UltraShareForegroundService.state.value.localAddresses
-            ).any(UltraShareTransport::isValidPrivateLanHost)
-            _state.value = _state.value.copy(
-                invitationId = "",
-                lanFallbackReady = hasExistingLan,
-                wifiDirectHost = null,
-                wifiDirectScanning = false,
-                error = if (hasExistingLan) null
-                    else "تعذر Wi-Fi Direct، وهذا الإصدار لا يدعم نقطة الاتصال المحلية داخل التطبيق. اتصل الهاتفان بشبكة Wi-Fi نفسها ثم أعد المحاولة.",
-                status = if (hasExistingLan)
-                    "تعذر Wi-Fi Direct؛ نستخدم شبكة Wi-Fi الحالية كبديل. يجب أن يكون الهاتف الآخر على الشبكة نفسها."
-                else "تعذر Wi-Fi Direct ولا توجد شبكة محلية بديلة متاحة."
-            )
+            val beginLanFallback: () -> Unit = {
+                val hasExistingLan = (
+                    _state.value.localAddresses + UltraShareForegroundService.state.value.localAddresses
+                ).any(UltraShareTransport::isValidPrivateLanHost)
+                _state.value = _state.value.copy(
+                    invitationId = "",
+                    lanFallbackReady = hasExistingLan,
+                    wifiDirectHost = null,
+                    wifiDirectScanning = false,
+                    error = if (hasExistingLan) null
+                        else "تعذر Wi-Fi Direct، وهذا الإصدار لا يدعم نقطة الاتصال المحلية داخل التطبيق. اتصل الهاتفان بشبكة Wi-Fi نفسها ثم أعد المحاولة.",
+                    status = if (hasExistingLan)
+                        "تعذر Wi-Fi Direct؛ نستخدم شبكة Wi-Fi الحالية كبديل. يجب أن يكون الهاتف الآخر على الشبكة نفسها."
+                    else "تعذر Wi-Fi Direct ولا توجد شبكة محلية بديلة متاحة."
+                )
+            }
+            if (session == null) {
+                beginLanFallback()
+            } else {
+                runCatching { session.stopInvitationAdvertisement() }
+                session.removeGroup { removed ->
+                    if (removed) {
+                        beginLanFallback()
+                    } else {
+                        _state.value = _state.value.copy(
+                            invitationId = "",
+                            lanFallbackReady = false,
+                            error = "تعذر تنظيف مجموعة Wi-Fi Direct السابقة؛ لم أفعّل مساراً بديلاً قبل التأكد من إغلاقها."
+                        )
+                    }
+                }
+            }
             return
         }
         val beginFallback: () -> Unit = {
