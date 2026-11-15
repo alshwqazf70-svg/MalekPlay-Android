@@ -115,6 +115,9 @@ class UltraShareViewModel @Inject constructor(
     private data class PendingQrPairing(val secret: String, val hosts: List<String>)
     private var pendingQrPairing: PendingQrPairing? = null
     private var qrP2pConnectStarted = false
+    private var wifiDirectPrimaryAttempt = false
+    private var hotspotFallbackStarted = false
+    private var wifiDirectCleanupInProgress = false
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
         @Volatile private var retainedHotspotNetworkCallback:
@@ -191,33 +194,87 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun startReceiving() {
-        if (_state.value.receiving) return
+        if (_state.value.receiving || UltraShareForegroundService.state.value.receiving) return
+        if (wifiDirectCleanupInProgress) {
+            _state.value = _state.value.copy(
+                error = "يجري إغلاق جلسة Wi-Fi Direct السابقة؛ انتظر اكتمال التنظيف ثم أعد المحاولة."
+            )
+            return
+        }
         UltraShareDiagnostics.beginSession("RECEIVER", "start_receiving")
         UltraShareDiagnostics.event("PAIRING", "RECEIVER_WAITING_FOR_PEER")
         val secret = UltraShareTransport.createPairingSecret()
+        wifiDirectPrimaryAttempt = true
+        hotspotFallbackStarted = false
         _state.value = _state.value.copy(
             pairingSecret = secret,
             invitationId = "",
             receiving = true,
             controlChannelReady = false,
             dataChannelReady = false,
+            hotspotSsid = null,
+            hotspotPassword = null,
+            hotspotActive = false,
+            hotspotStarting = false,
             progress = null,
             error = null,
-            status = context.getString(R.string.ultra_share_waiting)
+            status = "جارٍ تجهيز Wi-Fi Direct كمسار استقبال أساسي..."
         )
-        runCatching { UltraShareForegroundService.startReceiving(context, secret) }
-            // The active receiver uses the LocalOnlyHotspot QR path. NSTACKX is
-            // initialized only after an authenticated peer selects its actual route.
-            .onFailure {
-                UltraShareDiagnostics.failure("RECEIVER_START", it)
-                UltraShareDiagnostics.endSession("receiver_start_failed")
-                _state.value = _state.value.copy(
-                    receiving = false,
-                    pairingSecret = "",
-                    invitationId = "",
-                    error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
-                )
+        runCatching {
+            // Start the authenticated control/data listeners only. Wi-Fi Direct
+            // group ownership is established first; LocalOnlyHotspot is fallback-only.
+            UltraShareForegroundService.startReceiving(context, secret, createHotspot = false)
+            advertiseCurrentWifiDirectInvitation()
+        }.onFailure {
+            UltraShareDiagnostics.failure("RECEIVER_P2P_START", it)
+            startHotspotFallback(it.localizedMessage ?: "تعذر بدء Wi-Fi Direct.")
+        }
+    }
+
+    private fun startHotspotFallback(reason: String) {
+        if (hotspotFallbackStarted || !_state.value.receiving) return
+        hotspotFallbackStarted = true
+        wifiDirectPrimaryAttempt = false
+        pendingQrPairing = null
+        qrP2pConnectStarted = false
+        val session = wifiDirectSession
+        val beginFallback: () -> Unit = {
+            _state.value = _state.value.copy(
+                invitationId = "",
+                wifiDirectHost = null,
+                wifiDirectScanning = false,
+                error = null,
+                status = "تعذر Wi-Fi Direct؛ جارٍ تشغيل نقطة الاتصال المحلية كمسار بديل..."
+            )
+            runCatching { UltraShareForegroundService.startHotspot(context) }
+                .onFailure { failure ->
+                    UltraShareDiagnostics.failure("HOTSPOT_FALLBACK_START", failure)
+                    _state.value = _state.value.copy(
+                        error = failure.localizedMessage
+                            ?: "فشل Wi-Fi Direct وتعذر تشغيل نقطة الاتصال المحلية."
+                    )
+                }
+        }
+        if (session == null) {
+            beginFallback()
+        } else {
+            runCatching { session.stopInvitationAdvertisement() }
+            session.removeGroup { removed ->
+                if (removed) {
+                    beginFallback()
+                } else {
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        "FALLBACK_BLOCKED_GROUP_CLEANUP_FAILED",
+                        mapOf("reason" to reason.take(160))
+                    )
+                    _state.value = _state.value.copy(
+                        invitationId = "",
+                        error = "تعذر إغلاق مجموعة Wi-Fi Direct السابقة بأمان؛ لم أشغّل نقطة الاتصال لتجنب تداخل الشبكتين. أوقف Wi-Fi Direct من إعدادات الهاتف ثم أعد المحاولة."
+                    )
+                }
             }
+        }
     }
 
     fun requestConnection(
@@ -541,7 +598,14 @@ class UltraShareViewModel @Inject constructor(
         hotspotNetworkPaired = false
         UltraShareForegroundService.stopReceiving(context)
         runCatching { wifiDirectSession?.stopInvitationAdvertisement() }
-        runCatching { wifiDirectSession?.removeGroup() }
+        wifiDirectCleanupInProgress = wifiDirectSession != null
+        runCatching {
+            wifiDirectSession?.removeGroup {
+                wifiDirectCleanupInProgress = false
+            }
+        }.onFailure { wifiDirectCleanupInProgress = false }
+        wifiDirectPrimaryAttempt = false
+        hotspotFallbackStarted = false
         _state.value = _state.value.copy(
             receiving = false,
             controlChannelReady = false,
@@ -911,6 +975,10 @@ class UltraShareViewModel @Inject constructor(
                     pendingQrPairing = null
                     qrP2pConnectStarted = false
                 }
+                if (pending == null && receiving && wifiDirectPrimaryAttempt) {
+                    startHotspotFallback(message)
+                    return@open
+                }
                 _state.value = _state.value.copy(
                     wifiDirectScanning = false,
                     wifiDirectHost = null,
@@ -977,9 +1045,15 @@ class UltraShareViewModel @Inject constructor(
                 }
             }
         }.onFailure { failure ->
-            _state.value = _state.value.copy(
-                error = failure.localizedMessage ?: "تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct."
-            )
+            if (wifiDirectPrimaryAttempt && _state.value.receiving) {
+                startHotspotFallback(
+                    failure.localizedMessage ?: "تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct."
+                )
+            } else {
+                _state.value = _state.value.copy(
+                    error = failure.localizedMessage ?: "تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct."
+                )
+            }
         }
     }
 
