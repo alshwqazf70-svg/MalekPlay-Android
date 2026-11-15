@@ -127,6 +127,15 @@ fun AudioPlayerScreen(
     val eqAvailable by viewModel.audioEffects.available.collectAsStateWithLifecycle()
     val bandCount by viewModel.audioEffects.bandCount.collectAsStateWithLifecycle()
     val levelRange by viewModel.audioEffects.levelRange.collectAsStateWithLifecycle()
+    val virtualizerSupported by viewModel.audioEffects.virtualizerSupported.collectAsStateWithLifecycle()
+    val outputRouteLabel by viewModel.audioEffects.outputRouteLabel.collectAsStateWithLifecycle()
+    val processingMetrics by viewModel.audioEffects.processingMetrics.collectAsStateWithLifecycle()
+    val processingStatus = when {
+        !processingMetrics.configured -> "مسار المعالجة ينتظر صوت PCM مدعوماً؛ قد لا تعمل المؤثرات مع إخراج الصوت المشفّر المباشر."
+        processingMetrics.effectFrames > 0L -> "تعمل المؤثرات فعلياً: تمت معالجة ${processingMetrics.effectFrames} إطاراً صوتياً."
+        processingMetrics.processedFrames > 0L -> "مسار الصوت متصل؛ لم يتم تفعيل تأثير غير مسطح بعد."
+        else -> "لم تصل إطارات صوتية إلى معالج المؤثرات حتى الآن."
+    }
     val waveform by viewModel.audioEffects.waveform.collectAsStateWithLifecycle()
 
     var media by remember { mutableStateOf<DomainMedia?>(null) }
@@ -593,6 +602,9 @@ fun AudioPlayerScreen(
                 bassBoost = settings.bassBoostStrength,
                 virtualizer = settings.virtualizerStrength,
                 loudness = settings.loudnessGainDb,
+                outputRouteLabel = outputRouteLabel,
+                processingStatus = processingStatus,
+                virtualizerSupported = virtualizerSupported,
                 onPreset = { preset ->
                     viewModel.audioEffects.applyPreset(preset)
                     settingsViewModel.update { it.copy(equalizerPresetIndex = preset.ordinal) }
