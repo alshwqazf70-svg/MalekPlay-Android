@@ -447,8 +447,8 @@ fun EqualizerSheet(
                 label = "Virtualizer",
                 value = virtualizer.toFloat(),
                 range = 0f..1000f,
-                enabled = virtualizerSupported,
-                status = if (available && !virtualizerSupported) "غير مدعوم في جلسة الصوت الحالية" else null
+                enabled = !available || virtualizerSupported,
+                status = when { !available -> "سيتم فحص الدعم عند بدء التشغيل"; !virtualizerSupported -> "غير مدعوم في جلسة الصوت الحالية"; else -> null }
             ) { onVirtualizer(it.toInt()) }
             EffectSlider("Loudness (dB)", loudness.toFloat(), 0f..12f) { onLoudness(it.toInt()) }
         }
