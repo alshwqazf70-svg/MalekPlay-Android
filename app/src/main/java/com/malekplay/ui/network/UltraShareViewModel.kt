@@ -77,6 +77,7 @@ data class UltraShareUiState(
     val hotspotPassword: String? = null,
     val hotspotStarting: Boolean = false,
     val hotspotActive: Boolean = false,
+    val lanFallbackReady: Boolean = false,
     val pendingConnection: UltraShareControlChannel.Request? = null,
     val approvedPeerHost: String? = null,
     val requestingConnection: Boolean = false,
@@ -183,6 +184,12 @@ class UltraShareViewModel @Inject constructor(
                     hotspotPassword = serviceState.hotspotPassword,
                     hotspotStarting = serviceState.hotspotStarting,
                     hotspotActive = serviceState.hotspotActive,
+                    lanFallbackReady = current.lanFallbackReady || (
+                        Build.VERSION.SDK_INT < Build.VERSION_CODES.O &&
+                            hotspotFallbackStarted &&
+                            serviceState.receiving &&
+                            serviceState.localAddresses.any(UltraShareTransport::isValidPrivateLanHost)
+                        ),
                     pendingConnection = serviceState.pendingConnection,
                     activePeers = serviceState.activePeers,
                     reconnectablePeers = serviceState.reconnectablePeers,
@@ -235,6 +242,7 @@ class UltraShareViewModel @Inject constructor(
             hotspotPassword = null,
             hotspotActive = false,
             hotspotStarting = false,
+            lanFallbackReady = false,
             progress = null,
             error = null,
             status = "جارٍ تجهيز Wi-Fi Direct كمسار استقبال أساسي..."
@@ -257,6 +265,23 @@ class UltraShareViewModel @Inject constructor(
         pendingQrPairing = null
         qrP2pConnectStarted = false
         val session = wifiDirectSession
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            val hasExistingLan = (
+                _state.value.localAddresses + UltraShareForegroundService.state.value.localAddresses
+            ).any(UltraShareTransport::isValidPrivateLanHost)
+            _state.value = _state.value.copy(
+                invitationId = "",
+                lanFallbackReady = hasExistingLan,
+                wifiDirectHost = null,
+                wifiDirectScanning = false,
+                error = if (hasExistingLan) null
+                    else "تعذر Wi-Fi Direct، وهذا الإصدار لا يدعم نقطة الاتصال المحلية داخل التطبيق. اتصل الهاتفان بشبكة Wi-Fi نفسها ثم أعد المحاولة.",
+                status = if (hasExistingLan)
+                    "تعذر Wi-Fi Direct؛ نستخدم شبكة Wi-Fi الحالية كبديل. يجب أن يكون الهاتف الآخر على الشبكة نفسها."
+                else "تعذر Wi-Fi Direct ولا توجد شبكة محلية بديلة متاحة."
+            )
+            return
+        }
         val beginFallback: () -> Unit = {
             _state.value = _state.value.copy(
                 invitationId = "",
@@ -643,6 +668,7 @@ class UltraShareViewModel @Inject constructor(
             controlChannelReady = false,
             pairingSecret = "",
             invitationId = "",
+            lanFallbackReady = false,
             localAddresses = emptyList(),
             progress = if (_state.value.sending) UltraShareForegroundService.state.value.sendProgress else null,
             status = context.getString(R.string.ultra_share_stopped)
