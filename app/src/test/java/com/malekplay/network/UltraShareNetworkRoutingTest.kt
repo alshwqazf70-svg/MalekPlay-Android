@@ -49,6 +49,39 @@ class UltraShareNetworkRoutingTest {
     }
 
     @Test
+    fun pinsQrWifiDirectInvitationToConfirmedGroupOwnerAddress() {
+        assertEquals(
+            listOf("192.168.49.1"),
+            UltraShareNetworkRouting.invitationHostCandidates(
+                confirmedHost = "192.168.49.1",
+                advertisedHosts = listOf("192.168.43.1", "192.168.1.20"),
+                pinToConfirmedHost = true
+            )
+        )
+    }
+
+    @Test
+    fun permitsAdvertisedFallbackHostsOnlyOutsidePinnedP2pInvitation() {
+        assertEquals(
+            listOf("192.168.49.1", "192.168.43.1", "192.168.1.20"),
+            UltraShareNetworkRouting.invitationHostCandidates(
+                confirmedHost = "192.168.49.1",
+                advertisedHosts = listOf("192.168.43.1", "192.168.1.20", "192.168.43.1"),
+                pinToConfirmedHost = false
+            )
+        )
+    }
+
+    @Test
+    fun confirmsOnlyTheSelectedWifiDirectGroupOwnerMac() {
+        assertTrue(isExpectedWifiDirectPeer("AA:BB:CC:DD:EE:FF", "aa:bb:cc:dd:ee:ff"))
+        assertFalse(isExpectedWifiDirectPeer("AA:BB:CC:DD:EE:FF", "11:22:33:44:55:66"))
+        assertFalse(isExpectedWifiDirectPeer("AA:BB:CC:DD:EE:FF", null))
+        assertFalse(isExpectedWifiDirectPeer(null, "AA:BB:CC:DD:EE:FF"))
+        assertFalse(isExpectedWifiDirectPeer("not-a-mac", "AA:BB:CC:DD:EE:FF"))
+    }
+
+    @Test
     fun preservesPreferredNetworkThenAttemptsEveryDistinctAlternative() {
         assertEquals(
             listOf("preferred-p2p", "wlan", "hotspot"),
