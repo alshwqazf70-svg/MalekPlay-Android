@@ -1250,17 +1250,18 @@ fun UltraShareScreen(
         }
         action?.invoke()
     }
-    fun requestWifiDirectAction(action: () -> Unit) {
+    val requestWifiDirectAction: (() -> Unit) -> Unit = { action ->
         val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
         } else {
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
         }
-        val missing = required.filter {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        val missing = required.filter { permission ->
+            ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED
         }
-        if (missing.isEmpty()) action()
-        else {
+        if (missing.isEmpty()) {
+            action()
+        } else {
             pendingWifiDirectAction = action
             wifiDirectPermissionLauncher.launch(missing.toTypedArray())
         }
