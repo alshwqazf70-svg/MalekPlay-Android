@@ -119,17 +119,25 @@ object UltraShareBleDiscovery {
                     return
                 }
                 scanner = currentScanner
-                advertiser = current.bluetoothLeAdvertiser
                 peers = emptyList()
                 onPeers(emptyList())
                 val filter = ScanFilter.Builder().setServiceData(SERVICE_UUID, byteArrayOf()).build()
                 val settings = ScanSettings.Builder()
                     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                     .build()
+                // Scanning is the required seeker capability. Advertising is only
+                // an optional visibility hint: a phone that denies ADVERTISE (or has
+                // no advertiser hardware) must still be able to discover nearby peers.
                 currentScanner.startScan(listOf(filter), settings, scanCallback)
                 scanning = true
                 onScanning(true)
 
+                val canAdvertise = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S ||
+                    androidx.core.content.ContextCompat.checkSelfPermission(
+                        appContext,
+                        android.Manifest.permission.BLUETOOTH_ADVERTISE
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                advertiser = current.bluetoothLeAdvertiser.takeIf { canAdvertise }
                 advertiser?.let { activeAdvertiser ->
                     val advertiseSettings = AdvertiseSettings.Builder()
                         .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
@@ -149,7 +157,7 @@ object UltraShareBleDiscovery {
                     }.onFailure {
                         onError("تعذر بدء إعلان BLE؛ سيستمر مسح الأجهزة القريبة.")
                     }
-                } ?: onError("هذا الجهاز يدعم مسح BLE لكنه لا يدعم الإعلان عن نفسه.")
+                }
             } catch (failure: SecurityException) {
                 stop()
                 onError("يلزم منح أذونات Bluetooth Scan وConnect وAdvertise لاستخدام BLE.")
