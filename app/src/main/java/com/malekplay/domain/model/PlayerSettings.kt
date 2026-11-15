@@ -20,14 +20,18 @@ enum class ViewMode { LIST, GRID }
 
 /** Built-in equalizer presets, index-aligned with [EQUALIZER_PRESETS]. */
 enum class EqualizerPreset(val label: String, val bands: IntArray) {
-    CUSTOM("Custom", intArrayOf(0, 0, 0, 0, 0)),
-    FLAT("Flat", intArrayOf(0, 0, 0, 0, 0)),
-    BASS_BOOST("Bass boost", intArrayOf(900, 600, 200, 0, 0)),
-    TREBLE_BOOST("Treble boost", intArrayOf(0, 0, 0, 500, 800)),
-    VOCAL("Vocal", intArrayOf(-300, 200, 600, 200, -300)),
-    CINEMA("Cinema", intArrayOf(400, 300, 0, 300, 500)),
-    PODCAST("Podcast", intArrayOf(-400, -100, 300, 200, -200)),
-    LOUDNESS("Loudness", intArrayOf(700, 400, -200, 300, 600));
+    // Keep the first eight ordinals stable for settings backups from earlier builds.
+    CUSTOM("Custom", intArrayOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
+    FLAT("Flat", intArrayOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
+    BASS_BOOST("Bass", intArrayOf(600, 600, 500, 300, 100, 0, 0, 0, 0, 0)),
+    TREBLE_BOOST("Treble", intArrayOf(0, 0, 0, 0, 0, 100, 300, 500, 600, 500)),
+    VOCAL("Voice", intArrayOf(-200, -100, 0, 300, 500, 400, 200, -100, -200, -300)),
+    CINEMA("Cinema", intArrayOf(300, 400, 200, 0, -100, 100, 300, 400, 500, 300)),
+    PODCAST("Podcast", intArrayOf(-300, -100, 200, 400, 500, 300, 0, -100, -200, -300)),
+    LOUDNESS("Loudness", intArrayOf(500, 300, 100, 0, 100, 200, 300, 200, 100, 0)),
+    CLASSICAL("Classical", intArrayOf(300, 200, 100, 0, -100, -100, 100, 200, 300, 400)),
+    POP("Pop", intArrayOf(-100, 100, 300, 400, 100, -100, 100, 300, 400, 300)),
+    ROCK("Rock", intArrayOf(500, 300, -100, -300, -100, 200, 400, 500, 600, 500));
 
     companion object {
         fun fromIndex(index: Int): EqualizerPreset =
@@ -70,7 +74,7 @@ data class PlayerSettings(
 
     // Audio effects
     val equalizerPresetIndex: Int = EqualizerPreset.FLAT.ordinal,
-    val equalizerBands: List<Int> = List(5) { 0 },
+    val equalizerBands: List<Int> = List(10) { 0 },
     val bassBoostStrength: Int = 0,
     val virtualizerStrength: Int = 0,
     val loudnessGainDb: Int = 0,
