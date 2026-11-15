@@ -541,6 +541,11 @@ object UltraShareWifiDirect {
         @SuppressLint("MissingPermission")
         fun createGroup(onCreated: () -> Unit = {}) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
+            // Explicit receiver group creation is a new owner-side pairing flow,
+            // not a continuation of a previous client connection attempt.
+            cancelClientPeerConfirmation()
+            expectedPeerDeviceAddress = null
+            wasConnected = false
             if (peerDiscoveryActive) {
                 reportError("لا يمكن إنشاء مجموعة Wi-Fi Direct أثناء استمرار عملية الاكتشاف؛ انتظر تأكيد إيقافها أولاً.")
                 return
@@ -1442,7 +1447,7 @@ object UltraShareWifiDirect {
                     ownerPeerCheckTimeout = null
                     ownerPeerCheckInFlight = false
                     val clientAddresses = group?.clientList
-                        ?.mapNotNull { it.deviceAddress?.takeIf(String::isNotBlank) }
+                        ?.mapNotNull { address -> address.deviceAddress?.takeIf { it.isNotBlank() } }
                         .orEmpty()
                     val clientCount = clientAddresses.size
                     val expectedPeer = expectedPeerDeviceAddress
