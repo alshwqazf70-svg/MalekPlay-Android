@@ -360,6 +360,16 @@ class UltraShareViewModel @Inject constructor(
             )
             return
         }
+        val existingReceiver = UltraShareForegroundService.state.value
+        if (existingReceiver.receiving && existingReceiver.pairingSecret.isNotBlank() &&
+            existingReceiver.pairingSecret != secret.trim()
+        ) {
+            _state.value = _state.value.copy(
+                requestingConnection = false,
+                error = "لديك جلسة استقبال نشطة برمز مختلف. أوقف الجلسة الحالية أولاً حتى لا تتعارض مفاتيح الاستقبال بين الجهازين."
+            )
+            return
+        }
         controlPairingInProgress = true
         val discoveredCandidates = candidates.ifEmpty {
             _state.value.discoveredPeers.firstOrNull { peer ->
