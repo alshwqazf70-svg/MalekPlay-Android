@@ -156,6 +156,21 @@ class UltraSharePairingReadinessTest {
         ))
     }
 
+    @Test fun ownerPeerConfirmationRetriesAreBounded() {
+        assertTrue(shouldRetryWifiDirectPeerConfirmation(0))
+        assertTrue(shouldRetryWifiDirectPeerConfirmation(19))
+        assertFalse(shouldRetryWifiDirectPeerConfirmation(20))
+        assertFalse(shouldRetryWifiDirectPeerConfirmation(-1))
+        assertFalse(shouldRetryWifiDirectPeerConfirmation(0, maxAttempts = 0))
+        assertTrue(shouldRetryWifiDirectPeerConfirmation(2, maxAttempts = 3))
+        assertFalse(shouldRetryWifiDirectPeerConfirmation(3, maxAttempts = 3))
+    }
+
+    @Test fun connectedCallbackIsEmittedOnlyForANewConnectionTransition() {
+        assertTrue(shouldEmitWifiDirectConnected(wasConnected = false))
+        assertFalse(shouldEmitWifiDirectConnected(wasConnected = true))
+    }
+
     @Test fun listenerReadinessRequiresTheExpectedBoundPort() {
         assertTrue(UltraSharePairingReadiness.isDataListenerReady(38742, 38742))
         assertFalse(UltraSharePairingReadiness.isDataListenerReady(0, 38742))
