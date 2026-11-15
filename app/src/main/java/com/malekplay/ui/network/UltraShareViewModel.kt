@@ -1370,13 +1370,16 @@ class UltraShareViewModel @Inject constructor(
             wifiDirectScanTimeout = viewModelScope.launch {
                 delay(15_000)
                 if (_state.value.wifiDirectScanning) {
-                    runCatching { session.stopDiscovery() }
-                    _state.value = _state.value.copy(
-                        wifiDirectScanning = false,
-                        status = if (_state.value.wifiDirectPeers.isEmpty())
-                            "انتهى البحث عبر Wi-Fi Direct دون العثور على أجهزة."
-                        else "انتهى البحث عبر Wi-Fi Direct."
-                    )
+                    session.stopDiscoveryChecked { stopped ->
+                        _state.value = _state.value.copy(
+                            wifiDirectScanning = false,
+                            error = if (stopped) null else "انتهت مهلة البحث لكن Android لم يؤكد إيقاف عملية Wi-Fi Direct؛ لن نبدأ اكتشافاً آخر حتى تستقر الحالة.",
+                            status = if (!stopped) "تعذر تأكيد إيقاف البحث عبر Wi-Fi Direct."
+                            else if (_state.value.wifiDirectPeers.isEmpty())
+                                "انتهى البحث عبر Wi-Fi Direct دون العثور على أجهزة."
+                            else "انتهى البحث عبر Wi-Fi Direct."
+                        )
+                    }
                 }
             }
         } catch (failure: Exception) {
