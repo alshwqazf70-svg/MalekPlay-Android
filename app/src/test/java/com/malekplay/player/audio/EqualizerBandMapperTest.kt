@@ -29,9 +29,9 @@ class EqualizerBandMapperTest {
     }
 
     @Test
-    fun capsDeviceBandCountToSupportedMaximum() {
+    fun capsRequestedBandCountToTenSoftwareBands() {
         assertEquals(
-            AudioEffectsController.MAX_BANDS,
+            TenBandEqualizerAudioProcessor.BAND_COUNT,
             EqualizerBandMapper.map(intArrayOf(0, 100), 100).size
         )
     }
