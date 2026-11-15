@@ -61,7 +61,7 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
     private var states = emptyArray<Array<FilterState>>()
     private var buffersProcessed = 0L
     private var framesProcessed = 0L
-    private var framesWithEffects = 0L
+    @Volatile private var framesWithEffects = 0L
 
     private val _metrics = MutableStateFlow(Metrics())
     val metrics: StateFlow<Metrics> = _metrics.asStateFlow()
@@ -70,17 +70,20 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
         requestedBandsMb = IntArray(BAND_COUNT) { index ->
             values.getOrNull(index)?.coerceIn(MIN_BAND_MB, MAX_BAND_MB) ?: 0
         }
+        resetEffectMetrics()
         rebuildCoefficients()
     }
 
     fun setBassBoost(value: Int) {
         bassBoostDb = value.coerceIn(0, MAX_BASS_BOOST_DB)
+        resetEffectMetrics()
         rebuildCoefficients()
     }
 
     fun setLoudnessGain(value: Int) {
         loudnessGainDb = value.coerceIn(0, MAX_LOUDNESS_DB)
         linearGain = 10f.pow(loudnessGainDb / 20f)
+        resetEffectMetrics()
     }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
@@ -92,6 +95,9 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
         sampleRate = inputAudioFormat.sampleRate
         channelCount = inputAudioFormat.channelCount
         states = Array(channelCount) { Array(BAND_COUNT) { FilterState() } }
+        buffersProcessed = 0L
+        framesProcessed = 0L
+        framesWithEffects = 0L
         rebuildCoefficients()
         _metrics.value = _metrics.value.copy(
             configured = true,
@@ -215,6 +221,12 @@ class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
 
     private fun hasAudibleEffect(): Boolean =
         loudnessGainDb > 0 || bassBoostDb > 0 || requestedBandsMb.any { it != 0 }
+
+    @Synchronized
+    private fun resetEffectMetrics() {
+        framesWithEffects = 0L
+        _metrics.value = _metrics.value.copy(effectFrames = 0L)
+    }
 
     private fun clearFilterState() {
         states.forEach { channel -> channel.forEach(FilterState::clear) }
