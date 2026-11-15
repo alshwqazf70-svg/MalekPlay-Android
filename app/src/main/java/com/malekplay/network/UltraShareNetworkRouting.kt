@@ -59,7 +59,9 @@ internal object UltraShareNetworkRouting {
                 val prefix = route.destination.prefixLength
                 prefix.takeIf { it in 1..32 && isInPrefix(remote, routeAddress, it) }
             }.maxOrNull()
-            val p2pGroupOwnerRoute = p2pInterface && isAndroidWifiDirectGroupAddress(remote)
+            // OEM builds can expose a different private P2P subnet than 192.168.49.0/24.
+            // The dedicated p2p* interface is the stronger route signal.
+            val p2pGroupOwnerRoute = p2pInterface && isPrivateIpv4Address(remote)
             if (matchingLinkPrefix == null && matchingRoutePrefix == null && !p2pGroupOwnerRoute) {
                 return@mapNotNull null
             }
@@ -92,6 +94,10 @@ internal object UltraShareNetworkRouting {
     /** Compatibility helper for call sites that need only the best matching route. */
     fun findNetworkForHost(context: Context, host: String): Network? =
         findNetworksForHost(context, host).firstOrNull()
+
+    /** True for RFC1918 IPv4 addresses commonly used by local P2P groups. */
+    internal fun isPrivateIpv4Address(address: Inet4Address): Boolean =
+        address.isSiteLocalAddress
 
     /** True when the host belongs to Android's conventional Wi-Fi Direct group subnet. */
     fun isWifiDirectGroupHost(host: String): Boolean = runCatching {
