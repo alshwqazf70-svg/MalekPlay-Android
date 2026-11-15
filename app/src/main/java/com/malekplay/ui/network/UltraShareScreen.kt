@@ -623,23 +623,45 @@ class LegacyUltraShareViewModel @Inject constructor(
         hotspotFallbackStarted = true
         wifiDirectSession?.stopInvitationAdvertisement()
         wifiDirectSession?.stopInvitationDiscovery()
-        wifiDirectSession?.removeGroup()
         _state.value = _state.value.copy(
             invitationId = null,
             wifiDirectInvitationReady = false,
             scanning = false,
             error = null,
-            status = "تعذر Wi-Fi Direct ($reason)؛ جارٍ تشغيل نقطة الاتصال المحلية البديلة..."
+            status = "تعذر Wi-Fi Direct ($reason)؛ جارٍ التأكد من إغلاق مجموعة P2P قبل تشغيل نقطة الاتصال..."
         )
+        val session = wifiDirectSession
+        if (session == null) {
+            startHotspotOnlyAfterP2pCleanup()
+            return
+        }
+        // Fail closed: never request a LocalOnlyHotspot while P2P teardown is unconfirmed.
+        session.removeGroup { removed ->
+            if (removed) {
+                startHotspotOnlyAfterP2pCleanup()
+            } else {
+                hotspotFallbackStarted = false
+                _state.value = _state.value.copy(
+                    hotspotStarting = false,
+                    error = "تعذر التأكد من إغلاق مجموعة Wi-Fi Direct؛ أوقفنا التبديل لمنع تعارض الشبكتين. أوقف Wi-Fi Direct من إعدادات الهاتف ثم أعد المحاولة.",
+                    status = "لم يتم تشغيل نقطة الاتصال لأن حالة مجموعة P2P غير مؤكدة."
+                )
+            }
+        }
+    }
+
+    private fun startHotspotOnlyAfterP2pCleanup() {
+        if (!_state.value.receiving || _state.value.pairedSession ||
+            _state.value.hotspotActive || _state.value.hotspotStarting
+        ) return
         viewModelScope.launch {
-            // Allow the P2P group teardown to reach the framework before requesting
-            // a SoftAP; several OEM stacks reject simultaneous P2P and hotspot modes.
-            delay(900L)
             runCatching { UltraShareForegroundService.startLocalHotspot(context) }
                 .onFailure { failure ->
+                    hotspotFallbackStarted = false
                     _state.value = _state.value.copy(
+                        hotspotStarting = false,
                         error = failure.localizedMessage
-                            ?: "تعذر Wi-Fi Direct وتشغيل نقطة الاتصال المحلية البديلة. تحقق من دعم Wi-Fi في الجهاز."
+                            ?: "تعذر تشغيل نقطة الاتصال المحلية البديلة. تحقق من دعم Wi-Fi في الجهاز."
                     )
                 }
         }
