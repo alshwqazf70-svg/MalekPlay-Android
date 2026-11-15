@@ -62,9 +62,11 @@ internal object UltraShareNetworkRouting {
             runCatching { manager.activeNetwork }.getOrNull()
         } else null
 
-        manager.allNetworks.mapNotNull { network ->
+        val allNetworks = manager.allNetworks
+        val routeMatches = allNetworks.mapNotNull { network ->
             val properties = manager.getLinkProperties(network) ?: return@mapNotNull null
-            val p2pInterface = isWifiDirectInterfaceName(properties.interfaceName.orEmpty())
+            val interfaceName = properties.interfaceName.orEmpty()
+            val p2pInterface = isWifiDirectInterfaceName(interfaceName)
             val matchingLinkPrefix = properties.linkAddresses.mapNotNull { link ->
                 val local = link.address as? Inet4Address ?: return@mapNotNull null
                 link.prefixLength.takeIf { isInPrefix(remote, local, it) }
@@ -95,13 +97,37 @@ internal object UltraShareNetworkRouting {
                 matchingRoutePrefix != null -> 2
                 else -> 1
             }
+            val reason = when {
+                p2pGroupOwnerRoute -> "p2p-private"
+                matchingRoutePrefix != null -> "route-prefix"
+                else -> "link-prefix"
+            }
             val score = matchRank * 100 + transportRank * 10 + prefixRank
-            Triple(network, score, prefixRank)
-        }.sortedWith(
-            compareByDescending<Triple<Network, Int, Int>> { it.second }
-                .thenByDescending { it.third }
-                .thenBy { if (it.first == active) 0 else 1 }
-        ).take(4).map { it.first }
+            Triple(network, score, prefixRank) to "$interfaceName:$reason:$prefixRank"
+        }
+        val orderedMatches = routeMatches.sortedWith(
+            compareByDescending<Pair<Triple<Network, Int, Int>, String>> { it.first.second }
+                .thenByDescending { it.first.third }
+                .thenBy { if (it.first.first == active) 0 else 1 }
+        ).take(4)
+        UltraShareDiagnostics.event(
+            "NETWORK_ROUTING",
+            "HOST_ROUTE_SCAN",
+            mapOf(
+                "host" to host,
+                "networkCount" to allNetworks.size,
+                "candidateCount" to orderedMatches.size,
+                "activeNetworkPresent" to (active != null),
+                "candidateInterfaces" to orderedMatches.joinToString("|") { it.second },
+                "observedInterfaces" to allNetworks.take(8).joinToString("|") { network ->
+                    val name = manager.getLinkProperties(network)?.interfaceName.orEmpty().ifBlank { "unknown" }
+                    val capabilities = manager.getNetworkCapabilities(network)
+                    val wifi = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+                    "$name:wifi=$wifi"
+                }
+            )
+        )
+        orderedMatches.map { it.first.first }
     }.onFailure { failure ->
         UltraShareDiagnostics.failure("NETWORK_ROUTE_DISCOVERY", failure, "host=" + host)
     }.getOrDefault(emptyList())
