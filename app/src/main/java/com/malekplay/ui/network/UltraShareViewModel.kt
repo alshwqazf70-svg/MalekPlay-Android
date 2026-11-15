@@ -115,6 +115,10 @@ class UltraShareViewModel @Inject constructor(
     private data class PendingQrPairing(val secret: String, val hosts: List<String>)
     private var pendingQrPairing: PendingQrPairing? = null
     private var qrP2pConnectStarted = false
+    // UI's requestingConnection also covers Wi-Fi Network requests and P2P discovery.
+    // Keep the actual MPC2 handshake guard independent so those flows can hand off
+    // into requestConnection without blocking themselves.
+    private var controlPairingInProgress = false
     private var wifiDirectPrimaryAttempt = false
     private var hotspotFallbackStarted = false
     private var wifiDirectCleanupInProgress = false
@@ -300,16 +304,20 @@ class UltraShareViewModel @Inject constructor(
         preferredNetwork: android.net.Network? = null,
         onConnectionEstablished: ((String) -> Unit)? = null
     ) {
-        if (_state.value.requestingConnection) {
+        if (controlPairingInProgress) {
             UltraShareDiagnostics.event("PAIRING", "DUPLICATE_PAIRING_ATTEMPT_IGNORED", mapOf("host" to host.trim()))
             return
         }
         UltraShareDiagnostics.beginSession("SENDER", "pairing_attempt")
         UltraShareDiagnostics.event("PAIRING", "CONNECTION_REQUESTED", mapOf("host" to host.trim(), "candidateCount" to candidates.size, "alternateHostCount" to alternateHosts.size))
         if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
-            _state.value = _state.value.copy(error = "أدخل عنوان الجهاز ورمز الاقتران الصحيح أولاً.")
+            _state.value = _state.value.copy(
+                requestingConnection = false,
+                error = "أدخل عنوان الجهاز ورمز الاقتران الصحيح أولاً."
+            )
             return
         }
+        controlPairingInProgress = true
         val discoveredCandidates = candidates.ifEmpty {
             _state.value.discoveredPeers.firstOrNull { peer ->
                 peer.host == host.trim() || peer.candidates.any { it.host == host.trim() }
@@ -511,6 +519,8 @@ class UltraShareViewModel @Inject constructor(
                     requestingConnection = false,
                     error = failure.localizedMessage ?: "تعذر إتمام طلب الاتصال."
                 )
+            } finally {
+                controlPairingInProgress = false
             }
         }
     }
