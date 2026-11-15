@@ -161,7 +161,7 @@ class SettingsRepository(private val context: Context) {
         equalizerBands = parseBands(this[Keys.EQ_BANDS]),
         bassBoostStrength = (this[Keys.BASS_BOOST] ?: 0).coerceIn(0, 1000),
         virtualizerStrength = (this[Keys.VIRTUALIZER] ?: 0).coerceIn(0, 1000),
-        loudnessGainDb = (this[Keys.LOUDNESS] ?: 0).coerceIn(0, 30),
+        loudnessGainDb = (this[Keys.LOUDNESS] ?: 0).coerceIn(0, 12),
 
         sortMode = runCatching { SortMode.valueOf(this[Keys.SORT_MODE] ?: "NEWEST") }
             .getOrDefault(SortMode.NEWEST),
@@ -195,19 +195,29 @@ class SettingsRepository(private val context: Context) {
         this[Keys.GESTURE_VERTICAL_R] = s.gestureVerticalRight.name
 
         this[Keys.EQ_PRESET] = s.equalizerPresetIndex.coerceIn(0, EqualizerPreset.entries.lastIndex)
-        this[Keys.EQ_BANDS] = s.equalizerBands.joinToString(",")
+        this[Keys.EQ_BANDS] = List(10) { index -> s.equalizerBands.getOrNull(index)?.coerceIn(-1200, 1200) ?: 0 }.joinToString(",")
         this[Keys.BASS_BOOST] = s.bassBoostStrength.coerceIn(0, 1000)
         this[Keys.VIRTUALIZER] = s.virtualizerStrength.coerceIn(0, 1000)
-        this[Keys.LOUDNESS] = s.loudnessGainDb.coerceIn(0, 30)
+        this[Keys.LOUDNESS] = s.loudnessGainDb.coerceIn(0, 12)
 
         this[Keys.SORT_MODE] = s.sortMode.name
         this[Keys.VIEW_MODE] = s.viewMode.name
     }
 
     private fun parseBands(raw: String?): List<Int> {
-        if (raw.isNullOrBlank()) return List(5) { 0 }
+        if (raw.isNullOrBlank()) return List(10) { 0 }
         val parsed = raw.split(',').mapNotNull { it.trim().toIntOrNull() }
-        // Always expose exactly 5 bands; pad or truncate to stay in range.
-        return List(5) { index -> parsed.getOrNull(index)?.coerceIn(-1500, 1500) ?: 0 }
+        // Migrate the old five-band preference smoothly into the ten-band DSP.
+        if (parsed.size == 5) {
+            return List(10) { index ->
+                val position = index * 4f / 9f
+                val lower = position.toInt()
+                val upper = (lower + 1).coerceAtMost(4)
+                val fraction = position - lower
+                (parsed[lower] * (1f - fraction) + parsed[upper] * fraction)
+                    .toInt().coerceIn(-1200, 1200)
+            }
+        }
+        return List(10) { index -> parsed.getOrNull(index)?.coerceIn(-1200, 1200) ?: 0 }
     }
 }
