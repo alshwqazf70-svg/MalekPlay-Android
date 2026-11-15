@@ -1432,7 +1432,12 @@ object UltraShareWifiDirect {
         ) {
             if (closed || token != ownerPeerCheckToken || ownerPeerCheckInFlight) return
             ownerPeerCheckInFlight = true
+            // Each request owns its timeout/callback pair. OEM P2P callbacks can
+            // arrive after the timeout; without this gate an old callback can clear
+            // a newer request's state or complete a later pairing attempt.
+            val completed = java.util.concurrent.atomic.AtomicBoolean(false)
             val timeout = Runnable {
+                if (!completed.compareAndSet(false, true)) return@Runnable
                 if (token != ownerPeerCheckToken || closed) return@Runnable
                 ownerPeerCheckInFlight = false
                 ownerPeerCheckTimeout = null
@@ -1442,9 +1447,10 @@ object UltraShareWifiDirect {
             mainHandler.postDelayed(timeout, 1_500L)
             try {
                 manager.requestGroupInfo(channel) { group ->
+                    if (!completed.compareAndSet(false, true)) return@requestGroupInfo
+                    mainHandler.removeCallbacks(timeout)
                     if (closed || token != ownerPeerCheckToken) return@requestGroupInfo
-                    ownerPeerCheckTimeout?.let(mainHandler::removeCallbacks)
-                    ownerPeerCheckTimeout = null
+                    if (ownerPeerCheckTimeout === timeout) ownerPeerCheckTimeout = null
                     ownerPeerCheckInFlight = false
                     val clientAddresses = group?.clientList
                         ?.mapNotNull { address -> address.deviceAddress?.takeIf { it.isNotBlank() } }
@@ -1456,17 +1462,26 @@ object UltraShareWifiDirect {
                     } else {
                         clientAddresses.any { isExpectedWifiDirectPeer(expectedPeer, it) }
                     }
+                    val groupOwnerConfirmed = group?.isGroupOwner == true
                     UltraShareDiagnostics.event(
                         "WIFI_DIRECT",
-                        if (expectedClientPresent) "GROUP_PEER_CONFIRMED" else "GROUP_WAITING_FOR_PEER",
+                        if (expectedClientPresent && groupOwnerConfirmed) "GROUP_PEER_CONFIRMED" else "GROUP_WAITING_FOR_PEER",
                         mapOf(
                             "clientCount" to clientCount,
                             "expectedPeerPresent" to !expectedPeer.isNullOrBlank(),
                             "expectedClientPresent" to expectedClientPresent,
+                            "groupOwnerConfirmed" to groupOwnerConfirmed,
                             "attempt" to attempt
                         )
                     )
-                    if (info.groupFormed && info.isGroupOwner && expectedClientPresent) {
+                    if (isConfirmedWifiDirectOwnerPeer(
+                            groupFormed = info.groupFormed,
+                            connectionInfoSaysOwner = info.isGroupOwner,
+                            groupInfoSaysOwner = groupOwnerConfirmed,
+                            clientCount = clientCount,
+                            expectedClientPresent = expectedClientPresent
+                        )
+                    ) {
                         ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
                         ownerPeerCheckRunnable = null
                         connectionInProgress = false
@@ -1485,17 +1500,21 @@ object UltraShareWifiDirect {
                     }
                 }
             } catch (failure: SecurityException) {
-                ownerPeerCheckTimeout?.let(mainHandler::removeCallbacks)
-                ownerPeerCheckTimeout = null
-                ownerPeerCheckInFlight = false
-                UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_INFO_SECURITY", failure)
-                scheduleOwnerPeerConfirmation(info, token, attempt)
+                if (completed.compareAndSet(false, true)) {
+                    mainHandler.removeCallbacks(timeout)
+                    if (ownerPeerCheckTimeout === timeout) ownerPeerCheckTimeout = null
+                    ownerPeerCheckInFlight = false
+                    UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_INFO_SECURITY", failure)
+                    scheduleOwnerPeerConfirmation(info, token, attempt)
+                }
             } catch (failure: RuntimeException) {
-                ownerPeerCheckTimeout?.let(mainHandler::removeCallbacks)
-                ownerPeerCheckTimeout = null
-                ownerPeerCheckInFlight = false
-                UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_INFO", failure)
-                scheduleOwnerPeerConfirmation(info, token, attempt)
+                if (completed.compareAndSet(false, true)) {
+                    mainHandler.removeCallbacks(timeout)
+                    if (ownerPeerCheckTimeout === timeout) ownerPeerCheckTimeout = null
+                    ownerPeerCheckInFlight = false
+                    UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_INFO", failure)
+                    scheduleOwnerPeerConfirmation(info, token, attempt)
+                }
             }
         }
 
@@ -1660,7 +1679,18 @@ internal fun shouldRetryWifiDirectPeerConfirmation(attempt: Int, maxAttempts: In
 /** Emits the connected callback only on a disconnected-to-connected transition. */
 internal fun shouldEmitWifiDirectConnected(wasConnected: Boolean): Boolean = !wasConnected
 
-/** A formed owner group is paired only after Android reports at least one client. */
+/** A formed owner group is paired only when both Android callbacks agree on role and peer. */
+internal fun isConfirmedWifiDirectOwnerPeer(
+    groupFormed: Boolean,
+    connectionInfoSaysOwner: Boolean,
+    groupInfoSaysOwner: Boolean,
+    clientCount: Int,
+    expectedClientPresent: Boolean
+): Boolean =
+    groupFormed && connectionInfoSaysOwner && groupInfoSaysOwner &&
+        clientCount > 0 && expectedClientPresent
+
+/** Compatibility predicate retained for older unit-test callers. */
 internal fun isConfirmedWifiDirectOwnerPeer(groupFormed: Boolean, isGroupOwner: Boolean, clientCount: Int): Boolean =
     groupFormed && isGroupOwner && clientCount > 0
 
