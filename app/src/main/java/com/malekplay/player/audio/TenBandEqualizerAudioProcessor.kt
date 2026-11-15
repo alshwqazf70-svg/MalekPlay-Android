@@ -24,7 +24,7 @@ import kotlin.math.tanh
  * and unsupported PCM formats are not modified, and the UI can inspect metrics
  * to avoid claiming that an effect was applied when no PCM frames were processed.
  */
-@OptIn(UnstableApi::class)
+@UnstableApi
 class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
 
     data class Metrics(
