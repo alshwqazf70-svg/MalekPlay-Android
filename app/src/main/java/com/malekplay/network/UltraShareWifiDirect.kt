@@ -94,7 +94,7 @@ object UltraShareWifiDirect {
             }
             if (!legacyDiscoveryPrerequisite()) {
                 UltraShareDiagnostics.event("WIFI_DIRECT", "LOCATION_SERVICES_DISABLED", mapOf("sdkInt" to Build.VERSION.SDK_INT, "operation" to "advertise_invitation"))
-                onError("على Android 9–12 يجب تشغيل خدمة الموقع لنشر واكتشاف دعوة Wi-Fi Direct.")
+                onError("على Android 6–12 يجب تشغيل خدمة الموقع لنشر واكتشاف دعوة Wi-Fi Direct.")
                 return
             }
             val service = WifiP2pDnsSdServiceInfo.newInstance(
@@ -147,7 +147,7 @@ object UltraShareWifiDirect {
             UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_REQUESTED", mapOf("sdkInt" to Build.VERSION.SDK_INT))
             if (!legacyDiscoveryPrerequisite()) {
                 UltraShareDiagnostics.event("WIFI_DIRECT", "LOCATION_SERVICES_DISABLED", mapOf("sdkInt" to Build.VERSION.SDK_INT, "operation" to "discover_invitation"))
-                onError("على Android 9–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
+                onError("على Android 6–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
                 return
             }
             try {
@@ -294,7 +294,7 @@ object UltraShareWifiDirect {
         fun discover() {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             if (!legacyDiscoveryPrerequisite()) {
-                onError("على Android 9–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
+                onError("على Android 6–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
                 return
             }
             try {
@@ -555,11 +555,23 @@ object UltraShareWifiDirect {
 
         private fun legacyDiscoveryPrerequisite(): Boolean {
             if (!requiresWifiDirectLocationService(Build.VERSION.SDK_INT)) return true
-            // LocationManager.isLocationEnabled is available from API 28; the
-            // helper limits this check to Android 9–12L for Wi-Fi Direct discovery.
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false
             val location = appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-            return location?.isLocationEnabled == true
+                ?: return false
+            return try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    location.isLocationEnabled
+                } else {
+                    // API 23–27 has no LocationManager.isLocationEnabled property.
+                    // Wi-Fi Direct discovery on these releases requires at least one
+                    // location provider to be enabled as well as runtime location permission.
+                    location.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                        location.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+                }
+            } catch (_: RuntimeException) {
+                false
+            } catch (_: SecurityException) {
+                false
+            }
         }
 
         @SuppressLint("MissingPermission")
