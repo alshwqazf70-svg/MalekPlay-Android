@@ -678,8 +678,8 @@ object UltraShareWifiDirect {
     }
 }
 
-/** Android 9 through 12L require Location services enabled for Wi-Fi Direct service discovery. */
-internal fun requiresWifiDirectLocationService(sdkInt: Int): Boolean = sdkInt in 28..32
+/** Android 6 through 12L require Location services enabled for Wi-Fi Direct service discovery. */
+internal fun requiresWifiDirectLocationService(sdkInt: Int): Boolean = sdkInt in 23..32
 
 /** Rejects delayed callbacks after timeout, completion, closure, or a newer attempt. */
 internal fun isCurrentWifiDirectConnectionAttempt(
