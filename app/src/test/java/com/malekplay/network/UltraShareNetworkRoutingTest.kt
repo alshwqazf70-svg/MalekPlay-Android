@@ -144,6 +144,33 @@ class UltraShareNetworkRoutingTest {
         assertTrue(UltraShareNetworkRouting.isInPrefix(first, second, 0))
     }
     @Test
+    fun recognizesPrivateGroupOwnerAddressOnNonDefaultP2pSubnet() {
+        assertTrue(
+            UltraShareNetworkRouting.isPrivateIpv4Address(
+                InetAddress.getByName("192.168.43.1") as Inet4Address
+            )
+        )
+        assertTrue(
+            UltraShareNetworkRouting.isPrivateIpv4Address(
+                InetAddress.getByName("10.0.0.1") as Inet4Address
+            )
+        )
+        assertFalse(
+            UltraShareNetworkRouting.isPrivateIpv4Address(
+                InetAddress.getByName("8.8.8.8") as Inet4Address
+            )
+        )
+    }
+
+    @Test
+    fun labelsMissingAndUnknownP2pRadioStates() {
+        assertEquals("MISSING", wifiP2pRadioStateName(Int.MIN_VALUE))
+        assertEquals("UNKNOWN", wifiP2pRadioStateName(99))
+        assertEquals("ENABLED", wifiP2pRadioStateName(2))
+        assertEquals("DISABLED", wifiP2pRadioStateName(1))
+    }
+
+    @Test
     fun requiresLocationServicesForAndroid6Through12LWifiDirectDiscovery() {
         assertTrue(requiresWifiDirectLocationService(23))  // Android 6
         assertTrue(requiresWifiDirectLocationService(24))  // Android 7
