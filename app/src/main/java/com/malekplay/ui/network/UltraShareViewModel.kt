@@ -1132,12 +1132,24 @@ class UltraShareViewModel @Inject constructor(
     }
 
     fun disableWifiDirectInvitation() {
-        runCatching { wifiDirectSession?.stopInvitationAdvertisement() }
-        runCatching { wifiDirectSession?.removeGroup() }
-        _state.value = _state.value.copy(
-            invitationId = "",
-            status = "تم تعطيل دعوة Wi-Fi Direct؛ يمكنك استخدام رمز QR عبر الشبكة المحلية."
-        )
+        val session = wifiDirectSession
+        if (session == null) {
+            _state.value = _state.value.copy(
+                invitationId = "",
+                status = "تم تعطيل دعوة Wi-Fi Direct؛ يمكنك استخدام رمز QR عبر الشبكة المحلية."
+            )
+            return
+        }
+        _state.value = _state.value.copy(status = "جارٍ إيقاف اكتشاف وإعلان Wi-Fi Direct وإغلاق المجموعة...")
+        cleanupWifiDirectBeforeFallback(session) { cleaned ->
+            _state.value = _state.value.copy(
+                invitationId = "",
+                error = if (cleaned) null else "تعذر تأكيد إيقاف جميع عمليات Wi-Fi Direct؛ أعد المحاولة قبل تشغيل مسار اتصال آخر.",
+                status = if (cleaned)
+                    "تم تعطيل دعوة Wi-Fi Direct وإغلاق المجموعة؛ يمكنك استخدام رمز QR عبر الشبكة المحلية."
+                else "لم يكتمل تنظيف Wi-Fi Direct؛ لم نعلن نجاح إيقاف الدعوة."
+            )
+        }
     }
 
     fun advertiseCurrentWifiDirectInvitation() {
