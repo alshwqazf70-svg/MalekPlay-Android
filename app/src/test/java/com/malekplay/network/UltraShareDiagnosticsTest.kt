@@ -53,7 +53,7 @@ class UltraShareDiagnosticsTest {
                 "elapsed" to 12.5
             )
         )
-        org.junit.Assert.assertTrue(encoded.contains("\\\\n"))
+        org.junit.Assert.assertTrue(encoded.contains("\\n"))
         org.junit.Assert.assertTrue(encoded.contains("\"attempt\":3"))
         org.junit.Assert.assertTrue(encoded.contains("\"connected\":false"))
         org.junit.Assert.assertTrue(encoded.contains("\"elapsed\":12.5"))
