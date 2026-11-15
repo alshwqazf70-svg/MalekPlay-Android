@@ -410,8 +410,7 @@ fun UltraShareExperienceScreen(
         val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             arrayOf(
                 Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_ADVERTISE
+                Manifest.permission.BLUETOOTH_CONNECT
             )
         } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
         val missing = required.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
@@ -429,8 +428,7 @@ fun UltraShareExperienceScreen(
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(
                     Manifest.permission.NEARBY_WIFI_DEVICES,
                     Manifest.permission.BLUETOOTH_SCAN,
-                    Manifest.permission.BLUETOOTH_CONNECT,
-                    Manifest.permission.BLUETOOTH_ADVERTISE
+                    Manifest.permission.BLUETOOTH_CONNECT
                 )
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> arrayOf(
                     Manifest.permission.ACCESS_FINE_LOCATION,
