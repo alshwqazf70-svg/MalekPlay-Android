@@ -189,6 +189,21 @@ class UltraShareViewModel @Inject constructor(
                         serviceState.activePeers.any { it.host == approved }
                     }
                 )
+                // A navigation-scoped ViewModel can be recreated while the foreground
+                // receiver service and P2P group remain alive. Re-publish the ephemeral
+                // invitation on the retained group instead of leaving a dead QR session.
+                if (serviceState.receiving && !serviceState.hotspotActive &&
+                    !serviceState.hotspotStarting && !_state.value.invitationId.let { it.isNotBlank() } &&
+                    !wifiDirectPrimaryAttempt && !hotspotFallbackStarted
+                ) {
+                    wifiDirectPrimaryAttempt = true
+                    viewModelScope.launch {
+                        delay(350L)
+                        if (_state.value.receiving && _state.value.invitationId.isBlank()) {
+                            advertiseCurrentWifiDirectInvitation()
+                        }
+                    }
+                }
             }
         }
     }
@@ -285,6 +300,10 @@ class UltraShareViewModel @Inject constructor(
         preferredNetwork: android.net.Network? = null,
         onConnectionEstablished: ((String) -> Unit)? = null
     ) {
+        if (_state.value.requestingConnection) {
+            UltraShareDiagnostics.event("PAIRING", "DUPLICATE_PAIRING_ATTEMPT_IGNORED", mapOf("host" to host.trim()))
+            return
+        }
         UltraShareDiagnostics.beginSession("SENDER", "pairing_attempt")
         UltraShareDiagnostics.event("PAIRING", "CONNECTION_REQUESTED", mapOf("host" to host.trim(), "candidateCount" to candidates.size, "alternateHostCount" to alternateHosts.size))
         if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
@@ -296,6 +315,9 @@ class UltraShareViewModel @Inject constructor(
                 peer.host == host.trim() || peer.candidates.any { it.host == host.trim() }
             }?.candidates.orEmpty()
         }
+        // Claim the pairing slot synchronously before launching, so rapid QR scans
+        // or duplicate callbacks cannot create overlapping control-channel sessions.
+        _state.value = _state.value.copy(requestingConnection = true)
         viewModelScope.launch {
             _state.value = _state.value.copy(
                 requestingConnection = true,
