@@ -473,13 +473,27 @@ class PlaybackService : MediaSessionService() {
         if (videoMotionSmoothingEnabled && profile.previousFrameWeight > 0f) {
             effects += TemporalMotionSmoothingEffect(profile.previousFrameWeight)
         }
-        return runCatching {
+        val applied = runCatching {
             AssVideoEffectRegistry.setAdditionalEffects(player, effects)
         }.onFailure { error ->
             Log.e(TAG, "Failed to apply local video enhancement effects", error)
+        }.getOrDefault(false)
+        if (!applied) {
+            // Do not leave the UI claiming that an effect is active when the ASS
+            // renderer bridge has not attached to this ExoPlayer instance.
+            Log.e(TAG, "Video enhancement bridge is not attached; refusing a false-success state")
             disableAllVideoEnhancements()
-            runCatching { AssVideoEffectRegistry.setAdditionalEffects(player, emptyList()) }
-        }.isSuccess
+            return false
+        }
+        Log.i(
+            TAG,
+            "Video effects applied: " + effects.joinToString { it.javaClass.simpleName } +
+                "; source=" + player.videoSize.width + "x" + player.videoSize.height +
+                "; profile=" + profile.wireValue +
+                "; api=" + Build.VERSION.SDK_INT +
+                "; downgrade=" + (tuning.downgradeReason ?: "none")
+        )
+        return true
     }
 
     /** Progress belongs to the playback service, so it continues after player UI closes. */
