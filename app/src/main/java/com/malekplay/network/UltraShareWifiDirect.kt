@@ -48,6 +48,12 @@ object UltraShareWifiDirect {
         private var connectionInProgress = false
         @Volatile private var peerDiscoveryActive = false
         private var wasConnected = false
+        // Owner-side peer confirmation is retried because Android may report GROUP_FORMED
+        // before GroupInfo.clientList is populated on some OEM P2P stacks.
+        private var ownerPeerCheckToken = 0
+        private var ownerPeerCheckInFlight = false
+        private var ownerPeerCheckRunnable: Runnable? = null
+        private var ownerPeerCheckTimeout: Runnable? = null
         private var connectionAttemptToken = 0
         private var connectionTimeout: Runnable? = null
         private var groupAttemptToken = 0
@@ -1102,10 +1108,8 @@ object UltraShareWifiDirect {
                         if (info.groupFormed) "GROUP_FORMED" else "GROUP_NOT_FORMED",
                         mapOf("isGroupOwner" to info.isGroupOwner, "groupOwnerHost" to info.groupOwnerAddress?.hostAddress)
                     )
-                    // A receiver can own an empty P2P group while it is advertising.
-                    // That is group readiness, NOT a paired peer. Only GroupInfo.clientList
-                    // confirms that another device has actually joined this owner group.
                     if (!info.groupFormed) {
+                        cancelOwnerPeerConfirmation()
                         if (wasConnected) {
                             wasConnected = false
                             onError("انقطع اتصال Wi-Fi Direct. أعد الاتصال أو استخدم مسار الشبكة المحلية الاحتياطي.")
@@ -1113,48 +1117,25 @@ object UltraShareWifiDirect {
                         return@requestConnectionInfo
                     }
                     if (info.isGroupOwner) {
-                        try {
-                            manager.requestGroupInfo(channel) { group ->
-                                if (closed) return@requestGroupInfo
-                                val clientCount = group?.clientList?.size ?: 0
-                                UltraShareDiagnostics.event(
-                                    "WIFI_DIRECT",
-                                    if (clientCount > 0) "GROUP_PEER_CONFIRMED" else "GROUP_WAITING_FOR_PEER",
-                                    mapOf("clientCount" to clientCount)
-                                )
-                                if (!isConfirmedWifiDirectOwnerPeer(
-                                        groupFormed = info.groupFormed,
-                                        isGroupOwner = info.isGroupOwner,
-                                        clientCount = clientCount
-                                    )
-                                ) {
-                                    if (wasConnected) {
-                                        wasConnected = false
-                                        onError("غادر الجهاز الآخر مجموعة Wi-Fi Direct. أعد الاقتران لإكمال المشاركة.")
-                                    }
-                                    return@requestGroupInfo
-                                }
-                                wasConnected = true
-                                connectionInProgress = false
-                                connectionTimeout?.let(mainHandler::removeCallbacks)
-                                connectionTimeout = null
-                                onConnected(null, true)
-                            }
-                        } catch (failure: SecurityException) {
-                            onError("يلزم إذن الأجهزة القريبة للتحقق من الجهاز المنضم إلى مجموعة Wi-Fi Direct.")
-                        } catch (failure: RuntimeException) {
-                            UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_INFO", failure)
-                            onError(failure.localizedMessage ?: "تعذر التحقق من الأجهزة المنضمة إلى مجموعة Wi-Fi Direct.")
+                        // Do not equate an empty owner group with a paired device. Poll
+                        // GroupInfo briefly because GROUP_FORMED can precede clientList updates.
+                        if (!ownerPeerCheckInFlight && ownerPeerCheckRunnable == null) {
+                            ownerPeerCheckToken++
+                            requestOwnerPeerConfirmation(info, ownerPeerCheckToken, 0)
                         }
                         return@requestConnectionInfo
                     }
+                    cancelOwnerPeerConfirmation()
                     val host = info.groupOwnerAddress?.hostAddress
                     if (host != null && UltraShareTransport.isValidPrivateLanHost(host)) {
-                        wasConnected = true
                         connectionInProgress = false
                         connectionTimeout?.let(mainHandler::removeCallbacks)
                         connectionTimeout = null
-                        onConnected(host, false)
+                        if (!wasConnected) {
+                            wasConnected = true
+                            UltraShareDiagnostics.event("WIFI_DIRECT", "GROUP_OWNER_ADDRESS_CONFIRMED", mapOf("groupOwnerHost" to host))
+                            onConnected(host, false)
+                        }
                     } else {
                         onError("تم اتصال Wi-Fi Direct لكن تعذر تحديد عنوان جهاز الاستقبال.")
                     }
@@ -1165,6 +1146,102 @@ object UltraShareWifiDirect {
                 UltraShareDiagnostics.failure("WIFI_DIRECT_CONNECTION_INFO", failure)
                 onError(failure.localizedMessage ?: "تعذر قراءة حالة اتصال Wi-Fi Direct.")
             }
+        }
+
+        @SuppressLint("MissingPermission")
+        private fun requestOwnerPeerConfirmation(
+            info: android.net.wifi.p2p.WifiP2pInfo,
+            token: Int,
+            attempt: Int
+        ) {
+            if (closed || token != ownerPeerCheckToken || ownerPeerCheckInFlight) return
+            ownerPeerCheckInFlight = true
+            val timeout = Runnable {
+                if (token != ownerPeerCheckToken || closed) return@Runnable
+                ownerPeerCheckInFlight = false
+                ownerPeerCheckTimeout = null
+                scheduleOwnerPeerConfirmation(info, token, attempt)
+            }
+            ownerPeerCheckTimeout = timeout
+            mainHandler.postDelayed(timeout, 1_500L)
+            try {
+                manager.requestGroupInfo(channel) { group ->
+                    if (closed || token != ownerPeerCheckToken) return@requestGroupInfo
+                    ownerPeerCheckTimeout?.let(mainHandler::removeCallbacks)
+                    ownerPeerCheckTimeout = null
+                    ownerPeerCheckInFlight = false
+                    val clientCount = group?.clientList?.size ?: 0
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        if (clientCount > 0) "GROUP_PEER_CONFIRMED" else "GROUP_WAITING_FOR_PEER",
+                        mapOf("clientCount" to clientCount, "attempt" to attempt)
+                    )
+                    if (isConfirmedWifiDirectOwnerPeer(
+                            groupFormed = info.groupFormed,
+                            isGroupOwner = info.isGroupOwner,
+                            clientCount = clientCount
+                        )
+                    ) {
+                        ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
+                        ownerPeerCheckRunnable = null
+                        wasConnected = true
+                        connectionInProgress = false
+                        connectionTimeout?.let(mainHandler::removeCallbacks)
+                        connectionTimeout = null
+                        onConnected(null, true)
+                    } else if (wasConnected) {
+                        wasConnected = false
+                        cancelOwnerPeerConfirmation()
+                        onError("غادر الجهاز الآخر مجموعة Wi-Fi Direct. أعد الاقتران لإكمال المشاركة.")
+                    } else {
+                        scheduleOwnerPeerConfirmation(info, token, attempt)
+                    }
+                }
+            } catch (failure: SecurityException) {
+                ownerPeerCheckTimeout?.let(mainHandler::removeCallbacks)
+                ownerPeerCheckTimeout = null
+                ownerPeerCheckInFlight = false
+                UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_INFO_SECURITY", failure)
+                scheduleOwnerPeerConfirmation(info, token, attempt)
+            } catch (failure: RuntimeException) {
+                ownerPeerCheckTimeout?.let(mainHandler::removeCallbacks)
+                ownerPeerCheckTimeout = null
+                ownerPeerCheckInFlight = false
+                UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_INFO", failure)
+                scheduleOwnerPeerConfirmation(info, token, attempt)
+            }
+        }
+
+        private fun scheduleOwnerPeerConfirmation(
+            info: android.net.wifi.p2p.WifiP2pInfo,
+            token: Int,
+            attempt: Int
+        ) {
+            if (closed || token != ownerPeerCheckToken || wasConnected) return
+            if (attempt >= 20) {
+                ownerPeerCheckRunnable = null
+                UltraShareDiagnostics.event("WIFI_DIRECT", "GROUP_PEER_CONFIRMATION_TIMEOUT", mapOf("attempts" to attempt))
+                onError("تم إنشاء مجموعة Wi-Fi Direct لكن لم يؤكد Android انضمام الهاتف الآخر خلال 10 ثوانٍ. أبقِ الجهازين قريبين ثم أعد الاقتران.")
+                return
+            }
+            ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
+            val next = Runnable {
+                if (!closed && token == ownerPeerCheckToken && !wasConnected) {
+                    ownerPeerCheckRunnable = null
+                    requestOwnerPeerConfirmation(info, token, attempt + 1)
+                }
+            }
+            ownerPeerCheckRunnable = next
+            mainHandler.postDelayed(next, 500L)
+        }
+
+        private fun cancelOwnerPeerConfirmation() {
+            ownerPeerCheckToken++
+            ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
+            ownerPeerCheckRunnable = null
+            ownerPeerCheckTimeout?.let(mainHandler::removeCallbacks)
+            ownerPeerCheckTimeout = null
+            ownerPeerCheckInFlight = false
         }
 
         /**
@@ -1186,6 +1263,7 @@ object UltraShareWifiDirect {
             invitationRequest = null
             peerDiscoveryActive = false
             wasConnected = false
+            cancelOwnerPeerConfirmation()
             try {
                 val replacement = manager.initialize(
                     appContext,
