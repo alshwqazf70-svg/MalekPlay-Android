@@ -4,6 +4,7 @@ import android.media.audiofx.Visualizer
 import android.media.audiofx.Virtualizer
 import android.util.Log
 import com.malekplay.domain.model.EqualizerPreset
+import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 private const val TAG = "AudioEffects"
 
 /** Owns software DSP and the optional platform virtualizer for one Media3 session. */
+@UnstableApi
 class AudioEffectsController {
 
     private var virtualizer: Virtualizer? = null
