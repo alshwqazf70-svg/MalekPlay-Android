@@ -31,13 +31,17 @@ object UltraShareDiagnostics {
         val role: String,
         val key: String,
         val createdAtMillis: Long = System.currentTimeMillis(),
-        @Volatile var uri: Uri? = null
+        @Volatile var uri: Uri? = null,
+        @Volatile var privateFile: java.io.File? = null
     )
 
     private val writer = Executors.newSingleThreadExecutor { task ->
         Thread(task, "MalekPlay-Diagnostics").apply { isDaemon = true }
     }
     private val sessions = java.util.concurrent.ConcurrentHashMap<String, SessionLog>()
+    // A session ID is what callers carry across async callbacks; index it explicitly so
+    // events do not silently fall back into an unrelated process-level log.
+    private val sessionsById = java.util.concurrent.ConcurrentHashMap<String, SessionLog>()
     private val sessionLock = Any()
     @Volatile private var appContext: Context? = null
 
@@ -62,11 +66,13 @@ object UltraShareDiagnostics {
             sessions[key]?.let { return it.id }
             val session = SessionLog(UUID.randomUUID().toString(), safeRole, key)
             sessions[key] = session
+            sessionsById[session.id] = session
             while (sessions.size > MAX_SESSIONS + 1) {
                 sessions.values.filter { it.key != "process" }
                     .minByOrNull { it.createdAtMillis }
                     ?.let { expired ->
                         if (sessions.remove(expired.key, expired)) {
+                            sessionsById.remove(expired.id, expired)
                             append(expired, linkedMapOf(
                                 "timestamp" to timestamp(),
                                 "sessionId" to expired.id,
@@ -82,11 +88,13 @@ object UltraShareDiagnostics {
             writer.execute {
                 runCatching {
                     val context = appContext ?: return@runCatching
-                    val uri = createPublicLog(context, safeRole, session.id)
-                    session.uri = uri
-                    writeLine(
-                        context, uri,
-                        jsonObject(linkedMapOf(
+                    val uri = runCatching { createPublicLog(context, safeRole, session.id) }.getOrNull()
+                    if (uri != null) {
+                        session.uri = uri
+                    } else {
+                        session.privateFile = createPrivateLog(context, safeRole, session.id)
+                    }
+                    val initial = jsonObject(linkedMapOf(
                             "timestamp" to timestamp(),
                             "sessionId" to session.id,
                             "role" to safeRole,
@@ -94,7 +102,8 @@ object UltraShareDiagnostics {
                             "event" to "STARTED",
                             "trigger" to safeValue(trigger)
                         ))
-                    )
+                    if (uri != null) writeLine(context, uri, initial)
+                    else writePrivateLine(session.privateFile!!, initial)
                     Log.i(TAG, "Diagnostic session started: " + session.id + " (" + safeRole + ")")
                 }.onFailure { Log.e(TAG, "Unable to create public diagnostic log", it) }
             }
@@ -104,14 +113,16 @@ object UltraShareDiagnostics {
 
     fun event(stage: String, name: String, details: Map<String, Any?> = emptyMap()) {
         if (appContext == null) return
-        val key = details["sessionId"]?.toString()?.takeIf { it.isNotBlank() }
-            ?.let { normalizeSessionKey("id:" + it) }
-            ?: details["peerHost"]?.toString()?.takeIf { it.isNotBlank() }
+        val suppliedSessionId = details["sessionId"]?.toString()?.takeIf { it.isNotBlank() }
+        val session = suppliedSessionId?.let(sessionsById::get) ?: run {
+            val key = details["peerHost"]?.toString()?.takeIf { it.isNotBlank() }
                 ?.let(::diagnosticPeerSessionKey)
-            ?: details["host"]?.toString()?.takeIf { it.isNotBlank() }
-                ?.let(::diagnosticPeerSessionKey)
-            ?: "process"
-        val session = sessionFor(key, if (key == "process") "SERVICE" else "PEER") ?: return
+                ?: details["host"]?.toString()?.takeIf { it.isNotBlank() }
+                    ?.let(::diagnosticPeerSessionKey)
+                ?: "process"
+            sessionFor(key, if (key == "process") "SERVICE" else "PEER")
+        } ?: return
+        val key = session.key
         val payload = linkedMapOf<String, Any?>(
             "timestamp" to timestamp(),
             "sessionId" to session.id,
@@ -132,13 +143,20 @@ object UltraShareDiagnostics {
         }
     }
 
-    fun failure(stage: String, failure: Throwable, contextMessage: String? = null) {
+    fun failure(
+        stage: String,
+        failure: Throwable,
+        contextMessage: String? = null,
+        sessionId: String? = null
+    ) {
         if (appContext == null) return
         val peer = contextMessage?.let {
             Regex("(?i)(?:peerHost|host)\\s*=\\s*([^;,\\s]+)").find(it)?.groupValues?.getOrNull(1)
         }
-        val key = peer?.let(::diagnosticPeerSessionKey) ?: "process"
-        val session = sessionFor(key, if (key == "process") "SERVICE" else "PEER") ?: return
+        val session = sessionId?.let(sessionsById::get) ?: run {
+            val key = peer?.let(::diagnosticPeerSessionKey) ?: "process"
+            sessionFor(key, if (key == "process") "SERVICE" else "PEER")
+        } ?: return
         val root = rootCause(failure)
         val frame = sequenceOf(failure, root)
             .flatMap { it.stackTrace.asSequence() }
@@ -177,6 +195,7 @@ object UltraShareDiagnostics {
 
     private fun endSessionForKey(key: String, result: String) {
         val session = sessions.remove(key) ?: return
+        sessionsById.remove(session.id, session)
         append(session, linkedMapOf(
             "timestamp" to timestamp(),
             "sessionId" to session.id,
@@ -203,8 +222,9 @@ object UltraShareDiagnostics {
         val context = appContext ?: return
         val encoded = jsonObject(payload)
         writer.execute {
-            val target = session.uri ?: return@execute
-            writeLine(context, target, encoded)
+            val target = session.uri
+            if (target != null) writeLine(context, target, encoded)
+            else session.privateFile?.let { writePrivateLine(it, encoded) }
         }
     }
 
@@ -263,6 +283,20 @@ object UltraShareDiagnostics {
                 }
             } ?: error("Unable to open diagnostic output stream")
         }.onFailure { Log.e(TAG, "Diagnostic event write failed", it) }
+    }
+
+    private fun createPrivateLog(context: Context, role: String, id: String): java.io.File {
+        val directory = java.io.File(context.filesDir, "ultrashare-diagnostics").apply {
+            check(exists() || mkdirs()) { "Unable to create private diagnostics directory" }
+        }
+        return java.io.File(directory, FILE_PREFIX + role + "-" + id.take(8) + ".jsonl")
+    }
+
+    private fun writePrivateLine(file: java.io.File, payload: String) {
+        java.io.FileOutputStream(file, true).bufferedWriter(StandardCharsets.UTF_8).use { stream ->
+            stream.append(payload).append('\n')
+            stream.flush()
+        }
     }
 
     @SuppressLint("NewApi")
