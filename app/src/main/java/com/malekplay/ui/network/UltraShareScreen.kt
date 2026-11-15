@@ -288,6 +288,17 @@ class LegacyUltraShareViewModel @Inject constructor(
                         if (accepted || stopOnProtocolFailure) break
                         for (attempt in 0..2) {
                             try {
+                                UltraShareDiagnostics.event(
+                                    "PAIRING",
+                                    "INVITATION_ROUTE_ATTEMPT",
+                                    mapOf(
+                                        "routeIndex" to routeIndex,
+                                        "routeBound" to (route != null),
+                                        "networkHandle" to (route?.networkHandle ?: 0L),
+                                        "attempt" to attempt,
+                                        "host" to candidate
+                                    )
+                                )
                                 val decision = withContext(Dispatchers.IO) {
                                     UltraShareControlChannel.request(
                                         host = candidate,
@@ -432,15 +443,38 @@ class LegacyUltraShareViewModel @Inject constructor(
                                     )
                                 }
                                 if (decision == UltraShareControlChannel.Decision.REJECTED) {
+                                    UltraShareDiagnostics.event(
+                                        "PAIRING",
+                                        "INVITATION_ROUTE_REJECTED",
+                                        mapOf("routeIndex" to routeIndex, "attempt" to attempt, "host" to candidate)
+                                    )
                                     candidateFailure = IllegalStateException("رفض جهاز الاستقبال طلب الاقتران.")
                                     break
                                 }
+                                UltraShareDiagnostics.event(
+                                    "PAIRING",
+                                    "INVITATION_ROUTE_AUTHENTICATED",
+                                    mapOf("routeIndex" to routeIndex, "attempt" to attempt, "host" to candidate)
+                                )
                                 candidateAccepted = true
                                 break
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (failure: Exception) {
                                 candidateFailure = failure
+                                UltraShareDiagnostics.event(
+                                    "PAIRING",
+                                    "INVITATION_ROUTE_FAILED",
+                                    mapOf(
+                                        "routeIndex" to routeIndex,
+                                        "routeBound" to (route != null),
+                                        "networkHandle" to (route?.networkHandle ?: 0L),
+                                        "attempt" to attempt,
+                                        "host" to candidate,
+                                        "failureType" to failure.javaClass.simpleName,
+                                        "ioFailure" to (failure is java.io.IOException)
+                                    )
+                                )
                                 // A rejected credential/protocol response is not a
                                 // route failure; do not retry it on another interface.
                                 val retryableNetworkFailure = failure is java.io.IOException
