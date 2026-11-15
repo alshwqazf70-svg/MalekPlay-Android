@@ -2,6 +2,7 @@ package com.malekplay.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.media3.common.util.UnstableApi
 import com.malekplay.data.local.ExternalPlaybackProgressStore
 import com.malekplay.data.local.MalekPlayDatabase
 import com.malekplay.data.local.dao.MediaDao
@@ -118,5 +119,6 @@ object AppModule {
     /** One effect chain shared by every screen so EQ settings follow the session. */
     @Provides
     @Singleton
+    @UnstableApi
     fun provideAudioEffectsController(): AudioEffectsController = AudioEffectsController()
 }
