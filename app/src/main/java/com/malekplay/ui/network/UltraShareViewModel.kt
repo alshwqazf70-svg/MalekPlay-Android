@@ -1182,9 +1182,9 @@ class UltraShareViewModel @Inject constructor(
                 UltraShareDiagnostics.event("WIFI_DIRECT", "GROUP_CREATE_ABORTED_DISCOVERY_STOP_UNCONFIRMED")
                 if (wifiDirectPrimaryAttempt && _state.value.receiving) startHotspotFallback(message)
                 else _state.value = _state.value.copy(error = message, status = "لم يتم إنشاء مجموعة Wi-Fi Direct.")
-                return@stopDiscoveryChecked
+                return@stopInvitationDiscoveryChecked
             }
-            if (wifiDirectSession !== session || !_state.value.receiving) return@stopDiscoveryChecked
+            if (wifiDirectSession !== session || !_state.value.receiving) return@stopInvitationDiscoveryChecked
             session.createGroup {
                 if (wifiDirectSession !== session || !_state.value.receiving) return@createGroup
                 session.advertiseInvitation(invitationId) {
@@ -1489,9 +1489,9 @@ class UltraShareViewModel @Inject constructor(
                     error = "لم يؤكد Android إيقاف اكتشاف Wi-Fi Direct وتنظيف طلب الدعوة؛ لم نبدأ الاتصال لتجنب تعارض عمليات P2P.",
                     status = "تعذر بدء الاتصال المباشر."
                 )
-                return@stopDiscoveryChecked
+                return@stopInvitationDiscoveryChecked
             }
-            if (wifiDirectSession !== session) return@stopDiscoveryChecked
+            if (wifiDirectSession !== session) return@stopInvitationDiscoveryChecked
             runCatching {
                 session.connect(
                     peer.deviceAddress,
