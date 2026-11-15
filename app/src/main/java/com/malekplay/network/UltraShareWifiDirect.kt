@@ -224,6 +224,9 @@ object UltraShareWifiDirect {
             }
             fun removeRequest(stopSucceeded: Boolean) {
                 val request = invitationRequest
+                // Invalidate delayed DNS-SD retry callbacks immediately, before the
+                // asynchronous removeServiceRequest callback returns.
+                invitationRequest = null
                 if (request == null) {
                     finish(stopSucceeded)
                     return
