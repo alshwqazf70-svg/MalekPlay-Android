@@ -138,6 +138,24 @@ class UltraSharePairingReadinessTest {
         assertFalse(ready(hosts = listOf("8.8.8.8")))
     }
 
+    @Test fun ownerGroupIsNotPairedUntilAndroidReportsAClient() {
+        assertFalse(isConfirmedWifiDirectOwnerPeer(
+            groupFormed = false, isGroupOwner = true, clientCount = 1
+        ))
+        assertFalse(isConfirmedWifiDirectOwnerPeer(
+            groupFormed = true, isGroupOwner = false, clientCount = 1
+        ))
+        assertFalse(isConfirmedWifiDirectOwnerPeer(
+            groupFormed = true, isGroupOwner = true, clientCount = 0
+        ))
+        assertTrue(isConfirmedWifiDirectOwnerPeer(
+            groupFormed = true, isGroupOwner = true, clientCount = 1
+        ))
+        assertTrue(isConfirmedWifiDirectOwnerPeer(
+            groupFormed = true, isGroupOwner = true, clientCount = 2
+        ))
+    }
+
     @Test fun listenerReadinessRequiresTheExpectedBoundPort() {
         assertTrue(UltraSharePairingReadiness.isDataListenerReady(38742, 38742))
         assertFalse(UltraSharePairingReadiness.isDataListenerReady(0, 38742))
