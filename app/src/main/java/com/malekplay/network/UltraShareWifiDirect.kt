@@ -441,13 +441,43 @@ object UltraShareWifiDirect {
         }
 
         @SuppressLint("MissingPermission")
-        fun removeGroup() {
-            if (closed) return
-            runCatching {
+        fun removeGroup(onComplete: (Boolean) -> Unit = {}) {
+            if (closed) {
+                onComplete(false)
+                return
+            }
+            val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+            val timeout = Runnable {
+                if (completed.compareAndSet(false, true)) onComplete(false)
+            }
+            mainHandler.postDelayed(timeout, 5_000L)
+            try {
                 manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() = Unit
-                    override fun onFailure(reason: Int) = Unit
+                    override fun onSuccess() {
+                        mainHandler.removeCallbacks(timeout)
+                        if (completed.compareAndSet(false, true)) onComplete(true)
+                    }
+                    override fun onFailure(reason: Int) {
+                        mainHandler.removeCallbacks(timeout)
+                        if (completed.compareAndSet(false, true)) {
+                            // ERROR can mean there was no group to remove. Verify that
+                            // Android reports no formed group before permitting fallback.
+                            runCatching {
+                                manager.requestConnectionInfo(channel) { info ->
+                                    if (completed.compareAndSet(false, true)) {
+                                        onComplete(!info.groupFormed)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 })
+            } catch (failure: SecurityException) {
+                mainHandler.removeCallbacks(timeout)
+                if (completed.compareAndSet(false, true)) onComplete(false)
+            } catch (failure: RuntimeException) {
+                mainHandler.removeCallbacks(timeout)
+                if (completed.compareAndSet(false, true)) onComplete(false)
             }
         }
 
