@@ -1136,16 +1136,25 @@ class UltraShareViewModel @Inject constructor(
         val invitationId = _state.value.invitationId.ifBlank {
             java.util.UUID.randomUUID().toString().replace("-", "")
         }
-        runCatching {
-            val session = ensureWifiDirectSession()
-            session.stopDiscovery()
-            _state.value = _state.value.copy(
-                error = null,
-                status = "جارٍ نشر دعوة الاقتران المباشر..."
-            )
-            // Advertising a DNS-SD invitation alone does not create a Wi-Fi Direct
-            // group. The receiver must own a P2P group before another phone can join it.
+        val session = runCatching { ensureWifiDirectSession() }.getOrElse { failure ->
+            _state.value = _state.value.copy(error = failure.localizedMessage ?: "تعذر تهيئة Wi-Fi Direct.")
+            return
+        }
+        _state.value = _state.value.copy(
+            error = null,
+            status = "جارٍ إيقاف الاكتشاف وتجهيز مجموعة الاقتران المباشر..."
+        )
+        session.stopDiscoveryChecked { stopped ->
+            if (!stopped) {
+                val message = "لم يؤكد Android إيقاف اكتشاف Wi-Fi Direct؛ لم ننشئ المجموعة لتجنب تعارض عمليات P2P."
+                UltraShareDiagnostics.event("WIFI_DIRECT", "GROUP_CREATE_ABORTED_DISCOVERY_STOP_UNCONFIRMED")
+                if (wifiDirectPrimaryAttempt && _state.value.receiving) startHotspotFallback(message)
+                else _state.value = _state.value.copy(error = message, status = "لم يتم إنشاء مجموعة Wi-Fi Direct.")
+                return@stopDiscoveryChecked
+            }
+            if (wifiDirectSession !== session || !_state.value.receiving) return@stopDiscoveryChecked
             session.createGroup {
+                if (wifiDirectSession !== session || !_state.value.receiving) return@createGroup
                 session.advertiseInvitation(invitationId) {
                     UltraShareForegroundService.refreshLocalAddresses(context)
                     _state.value = _state.value.copy(
@@ -1154,16 +1163,6 @@ class UltraShareViewModel @Inject constructor(
                         status = "مجموعة Wi-Fi Direct جاهزة ودعوة QR منشورة؛ يمكن للهاتف الآخر الانضمام مباشرة."
                     )
                 }
-            }
-        }.onFailure { failure ->
-            if (wifiDirectPrimaryAttempt && _state.value.receiving) {
-                startHotspotFallback(
-                    failure.localizedMessage ?: "تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct."
-                )
-            } else {
-                _state.value = _state.value.copy(
-                    error = failure.localizedMessage ?: "تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct."
-                )
             }
         }
     }
@@ -1205,19 +1204,29 @@ class UltraShareViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         status = "تم العثور على جهاز الاستقبال؛ جارٍ إنشاء الاتصال المباشر..."
                     )
-                    session.stopInvitationDiscovery {
-                        if (pendingQrPairing != null) {
-                            runCatching {
-                                session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
-                            }.onFailure { failure ->
-                                _state.value = _state.value.copy(
-                                    requestingConnection = false,
-                                    error = failure.localizedMessage ?: "تعذر الاتصال بجهاز الدعوة."
-                                )
+                    session.stopInvitationDiscoveryChecked { stopped ->
+                        if (pendingQrPairing == null || wifiDirectSession !== session) return@stopInvitationDiscoveryChecked
+                        if (!stopped) {
+                            val pending = pendingQrPairing ?: return@stopInvitationDiscoveryChecked
+                            val fallback = pending.hosts.firstOrNull {
+                                UltraShareTransport.isValidPrivateLanHost(it) &&
+                                    !UltraShareNetworkRouting.isWifiDirectGroupHost(it)
+                            }
+                            if (fallback != null) {
                                 pendingQrPairing = null
                                 qrP2pConnectStarted = false
+                                requestConnection(fallback, pending.secret, alternateHosts = pending.hosts.filter { it != fallback })
+                            } else {
+                                pendingQrPairing = null
+                                qrP2pConnectStarted = false
+                                _state.value = _state.value.copy(
+                                    requestingConnection = false,
+                                    error = "لم يؤكد Android إيقاف اكتشاف دعوة Wi-Fi Direct؛ لم نبدأ اتصالاً متزامناً. أعد المحاولة أو استخدم اتصال الشبكة المحلية."
+                                )
                             }
+                            return@stopInvitationDiscoveryChecked
                         }
+                        session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
                     }
                 }
             }
@@ -1414,15 +1423,24 @@ class UltraShareViewModel @Inject constructor(
             error = null,
             status = "جارٍ الاتصال بـ " + peer.name + " عبر Wi-Fi Direct..."
         )
-        runCatching {
-            session.connect(
-                peer.deviceAddress,
-                preferThisDeviceAsGroupOwner = UltraShareForegroundService.state.value.receiving
-            )
-        }
-            .onFailure {
+        session.stopDiscoveryChecked { stopped ->
+            if (!stopped) {
+                _state.value = _state.value.copy(
+                    error = "لم يؤكد Android إيقاف اكتشاف Wi-Fi Direct؛ لم نبدأ الاتصال لتجنب تعارض عمليات P2P.",
+                    status = "تعذر بدء الاتصال المباشر."
+                )
+                return@stopDiscoveryChecked
+            }
+            if (wifiDirectSession !== session) return@stopDiscoveryChecked
+            runCatching {
+                session.connect(
+                    peer.deviceAddress,
+                    preferThisDeviceAsGroupOwner = UltraShareForegroundService.state.value.receiving
+                )
+            }.onFailure {
                 _state.value = _state.value.copy(error = it.localizedMessage ?: "تعذر الاتصال بالجهاز.")
             }
+        }
     }
 
     fun send(uri: Uri, host: String, secret: String) {
