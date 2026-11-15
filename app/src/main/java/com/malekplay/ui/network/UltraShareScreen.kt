@@ -1084,18 +1084,22 @@ class LegacyUltraShareViewModel @Inject constructor(
             error = null,
             status = "جارٍ الاتصال بـ " + peer.name + " عبر Wi-Fi Direct..."
         )
-        // Discovery is no longer needed once the user has chosen a peer.
-        // Stop it before negotiation so it cannot keep consuming radio time.
-        session.stopDiscovery()
-        runCatching {
-            session.connect(
-                peer.deviceAddress,
-                preferThisDeviceAsGroupOwner = UltraShareForegroundService.state.value.receiving
-            )
-        }
-            .onFailure {
-                _state.value = _state.value.copy(error = it.localizedMessage ?: "تعذر الاتصال بالجهاز.")
+        // Wait for Android's stopPeerDiscovery callback before connect(). Calling
+        // both APIs back-to-back can race on OEM Wi-Fi P2P stacks and return ERROR/BUSY.
+        session.stopDiscovery {
+            if (wifiDirectSession !== session) return@stopDiscovery
+            runCatching {
+                session.connect(
+                    peer.deviceAddress,
+                    preferThisDeviceAsGroupOwner = UltraShareForegroundService.state.value.receiving
+                )
+            }.onFailure {
+                _state.value = _state.value.copy(
+                    scanning = false,
+                    error = it.localizedMessage ?: "تعذر الاتصال بالجهاز."
+                )
             }
+        }
     }
 
     fun send(uri: Uri, host: String, secret: String) {
