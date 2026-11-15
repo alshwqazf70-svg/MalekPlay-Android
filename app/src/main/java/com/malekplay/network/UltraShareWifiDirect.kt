@@ -730,3 +730,10 @@ internal fun isCurrentWifiDirectConnectionAttempt(
     currentToken: Int,
     callbackToken: Int
 ): Boolean = !sessionClosed && connectionInProgress && currentToken == callbackToken
+
+/** Rejects delayed group-setup callbacks after timeout, closure, or a newer attempt. */
+internal fun isCurrentWifiDirectGroupAttempt(
+    sessionClosed: Boolean,
+    currentToken: Int,
+    callbackToken: Int
+): Boolean = !sessionClosed && currentToken == callbackToken
