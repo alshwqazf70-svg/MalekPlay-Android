@@ -54,7 +54,9 @@ private class SpatialNoiseReductionProgram(
             program.bindAttributesAndUniforms()
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             GlUtil.checkGlError()
+            VideoEnhancementMetrics.recordProcessed("spatial_denoise", presentationTimeUs)
         } catch (error: GlUtil.GlException) {
+            VideoEnhancementMetrics.recordFailure("spatial_denoise", error)
             throw VideoFrameProcessingException(error, presentationTimeUs)
         }
     }
@@ -244,9 +246,11 @@ private class TemporalMotionSmoothingProgram(
                 )
             }
             GlUtil.checkGlError()
+            VideoEnhancementMetrics.recordProcessed("temporal_blend", presentationTimeUs)
             hasPreviousFrame = true
             lastPresentationTimeUs = presentationTimeUs
         } catch (error: GlUtil.GlException) {
+            VideoEnhancementMetrics.recordFailure("temporal_blend", error)
             throw VideoFrameProcessingException(error, presentationTimeUs)
         }
     }
@@ -386,7 +390,9 @@ private class VideoDetailEnhancementProgram(
             program.bindAttributesAndUniforms()
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             GlUtil.checkGlError()
+            VideoEnhancementMetrics.recordProcessed("detail_sharpen", presentationTimeUs)
         } catch (error: GlUtil.GlException) {
+            VideoEnhancementMetrics.recordFailure("detail_sharpen", error)
             throw VideoFrameProcessingException(error, presentationTimeUs)
         }
     }
