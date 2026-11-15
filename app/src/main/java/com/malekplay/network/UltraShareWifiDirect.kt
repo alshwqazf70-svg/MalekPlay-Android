@@ -274,8 +274,21 @@ object UltraShareWifiDirect {
 
         @SuppressLint("MissingPermission")
         fun stopInvitationDiscovery(onStopped: () -> Unit = {}) {
-            // Legacy callers may continue only after Android confirms the stop/cleanup.
-            stopInvitationDiscoveryChecked { stopped -> if (stopped) onStopped() }
+            // Never silently strand the caller: connect() is allowed only after
+            // Android confirms discovery/request cleanup, and a blocked transition
+            // must be visible in both diagnostics and the UI.
+            stopInvitationDiscoveryChecked { stopped ->
+                if (stopped) {
+                    onStopped()
+                } else if (!closed) {
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        "DISCOVERY_STOP_BLOCKED_CONNECT",
+                        mapOf("operation" to "invitation_service_discovery")
+                    )
+                    reportError("تعذر تأكيد إيقاف اكتشاف دعوة Wi-Fi Direct؛ لم نبدأ الاتصال لتجنب تعارض عمليات الشبكة. أعد المحاولة.")
+                }
+            }
         }
 
         /** Only reports success when Android confirms discovery and request cleanup. */
@@ -458,7 +471,19 @@ object UltraShareWifiDirect {
         @SuppressLint("MissingPermission")
         fun stopDiscovery(onStopped: () -> Unit = {}) {
             // Do not let legacy call sites race connect/createGroup after a failed stop.
-            stopDiscoveryChecked { stopped -> if (stopped) onStopped() }
+            // A false result must not leave the UI indefinitely waiting in "connecting".
+            stopDiscoveryChecked { stopped ->
+                if (stopped) {
+                    onStopped()
+                } else if (!closed) {
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        "DISCOVERY_STOP_BLOCKED_CONNECT",
+                        mapOf("operation" to "peer_discovery")
+                    )
+                    reportError("تعذر تأكيد إيقاف بحث Wi-Fi Direct؛ لم نبدأ الاتصال لتجنب تعارض عمليات الشبكة. أوقف البحث ثم أعد المحاولة.")
+                }
+            }
         }
 
         /**
