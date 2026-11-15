@@ -1251,7 +1251,7 @@ object UltraShareWifiDirect {
             )
             try {
                 manager.requestConnectionInfo(channel) { info ->
-                    if (closed || requestToken != connectionInfoRequestToken) {
+                    if (!isCurrentWifiDirectInfoRequest(closed, connectionInfoRequestToken, requestToken)) {
                         UltraShareDiagnostics.event(
                             "WIFI_DIRECT",
                             "STALE_CONNECTION_INFO_CALLBACK_IGNORED",
@@ -1722,6 +1722,13 @@ internal fun isConfirmedWifiDirectOwnerPeer(
 /** Compatibility predicate retained for older unit-test callers. */
 internal fun isConfirmedWifiDirectOwnerPeer(groupFormed: Boolean, isGroupOwner: Boolean, clientCount: Int): Boolean =
     groupFormed && isGroupOwner && clientCount > 0
+
+/** Rejects delayed connection-info callbacks after a newer framework query or session closure. */
+internal fun isCurrentWifiDirectInfoRequest(
+    sessionClosed: Boolean,
+    currentToken: Int,
+    callbackToken: Int
+): Boolean = !sessionClosed && currentToken == callbackToken
 
 /** Rejects delayed callbacks after timeout, completion, closure, or a newer attempt. */
 internal fun isCurrentWifiDirectConnectionAttempt(
