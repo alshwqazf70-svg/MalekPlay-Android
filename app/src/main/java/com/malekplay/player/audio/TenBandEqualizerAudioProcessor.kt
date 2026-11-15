@@ -3,6 +3,7 @@ package com.malekplay.player.audio
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
+import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +24,7 @@ import kotlin.math.tanh
  * and unsupported PCM formats are not modified, and the UI can inspect metrics
  * to avoid claiming that an effect was applied when no PCM frames were processed.
  */
+@OptIn(UnstableApi::class)
 class TenBandEqualizerAudioProcessor : BaseAudioProcessor() {
 
     data class Metrics(
