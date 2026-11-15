@@ -19,6 +19,79 @@ class UltraSharePairingReadinessTest {
         receiving, control, data, hotspot, peers, secret, ssid, password, hosts
     )
 
+    @Test fun wifiDirectQrWaitsForActiveGroupInvitationAndBothListeners() {
+        assertTrue(
+            UltraSharePairingReadiness.canShowWifiDirectQr(
+                receiving = true,
+                controlChannelReady = true,
+                dataChannelReady = true,
+                activePeerCount = 0,
+                pairingSecret = "123456789",
+                invitationId = "ephemeral-peer-123"
+            )
+        )
+        assertFalse(
+            UltraSharePairingReadiness.canShowWifiDirectQr(
+                receiving = true,
+                controlChannelReady = false,
+                dataChannelReady = true,
+                activePeerCount = 0,
+                pairingSecret = "123456789",
+                invitationId = "ephemeral-peer-123"
+            )
+        )
+        assertFalse(
+            UltraSharePairingReadiness.canShowWifiDirectQr(
+                receiving = true,
+                controlChannelReady = true,
+                dataChannelReady = false,
+                activePeerCount = 0,
+                pairingSecret = "123456789",
+                invitationId = "ephemeral-peer-123"
+            )
+        )
+        assertFalse(
+            UltraSharePairingReadiness.canShowWifiDirectQr(
+                receiving = false,
+                controlChannelReady = true,
+                dataChannelReady = true,
+                activePeerCount = 0,
+                pairingSecret = "123456789",
+                invitationId = "ephemeral-peer-123"
+            )
+        )
+        assertFalse(
+            UltraSharePairingReadiness.canShowWifiDirectQr(
+                receiving = true,
+                controlChannelReady = true,
+                dataChannelReady = true,
+                activePeerCount = 1,
+                pairingSecret = "123456789",
+                invitationId = "ephemeral-peer-123"
+            )
+        )
+        assertFalse(
+            UltraSharePairingReadiness.canShowWifiDirectQr(
+                receiving = true,
+                controlChannelReady = true,
+                dataChannelReady = true,
+                activePeerCount = 0,
+                pairingSecret = "bad",
+                invitationId = "ephemeral-peer-123"
+            )
+        )
+        assertFalse(
+            UltraSharePairingReadiness.canShowWifiDirectQr(
+                receiving = true,
+                controlChannelReady = true,
+                dataChannelReady = true,
+                activePeerCount = 0,
+                pairingSecret = "123456789",
+                invitationId = null
+            )
+        )
+    }
+
     @Test fun qrWaitsForBothControlAndDataListeners() {
         assertTrue(ready())
         assertFalse(ready(control = false))
