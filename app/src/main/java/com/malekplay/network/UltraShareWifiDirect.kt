@@ -1670,7 +1670,7 @@ object UltraShareWifiDirect {
             if (!shouldRetryWifiDirectPeerConfirmation(attempt)) {
                 ownerPeerCheckRunnable = null
                 UltraShareDiagnostics.event("WIFI_DIRECT", "GROUP_PEER_CONFIRMATION_TIMEOUT", mapOf("attempts" to attempt))
-                reportError("تم إنشاء مجموعة Wi-Fi Direct لكن لم يؤكد Android انضمام الهاتف الآخر خلال 10 ثوانٍ. أبقِ الجهازين قريبين ثم أعد الاقتران.")
+                reportError("تم إنشاء مجموعة Wi-Fi Direct لكن لم يؤكد Android انضمام الهاتف الآخر خلال 35 ثانية. أبقِ الجهازين قريبين ثم أعد الاقتران.")
                 return
             }
             ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
@@ -1819,7 +1819,7 @@ internal fun requiresWifiDirectLocationService(sdkInt: Int): Boolean =
     UltraSharePlatformCompatibility.requiresLocationServicesForWifiDirect(sdkInt)
 
 /** Bounds owner-side client confirmation retries without treating an empty group as paired. */
-internal fun shouldRetryWifiDirectPeerConfirmation(attempt: Int, maxAttempts: Int = 20): Boolean =
+internal fun shouldRetryWifiDirectPeerConfirmation(attempt: Int, maxAttempts: Int = 70): Boolean =
     maxAttempts > 0 && attempt in 0 until maxAttempts
 
 /** Emits the connected callback only on a disconnected-to-connected transition. */
