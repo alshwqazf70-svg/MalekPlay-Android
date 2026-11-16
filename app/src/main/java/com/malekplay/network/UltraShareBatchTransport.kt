@@ -152,6 +152,11 @@ object UltraShareBatchTransport {
                             } catch (_: DiscoveryProbeConnection) {
                                 // A deliberate reachability probe is not a failed transfer.
                             } catch (failure: Exception) {
+                                UltraShareDiagnostics.failure(
+                                    "DATA_RECEIVE_SESSION",
+                                    failure,
+                                    "peerHost=" + peer
+                                )
                                 onPeerError(peer, failure)
                             } finally {
                                 runCatching { socket.close() }
@@ -183,6 +188,11 @@ object UltraShareBatchTransport {
         if (!UltraShareControlChannel.hasAnyActiveSession(host)) {
             throw IOException("انتهت قناة الموافقة؛ يجب إعادة الاتصال قبل بدء نقل V2.")
         }
+        UltraShareDiagnostics.event(
+            "DATA_SEND",
+            "SOURCE_PREPARATION_STARTED",
+            mapOf("peerHost" to host, "fileCount" to sources.size)
+        )
         val prepared = sources.map { source ->
             require(source.sizeBytes in 0..UltraShareTransport.MAX_FILE_BYTES)
             val name = UltraShareTransport.sanitizeFileName(source.name)
@@ -207,35 +217,82 @@ object UltraShareBatchTransport {
         val manifest = UltraShareBatchProtocol.Manifest(
             java.util.UUID.randomUUID().toString(), prepared.map { it.second }
         )
+        UltraShareDiagnostics.event(
+            "DATA_SEND",
+            "SOURCE_PREPARATION_COMPLETED",
+            mapOf(
+                "peerHost" to host,
+                "batchId" to manifest.batchId,
+                "fileCount" to manifest.entries.size,
+                "totalBytes" to manifest.entries.sumOf { it.sizeBytes }
+            )
+        )
         val target = java.net.InetAddress.getByName(host)
         // Keep the preferred Network first, exhaust all distinct Android routes,
         // then try the process-default route exactly as the preflight probe does.
         val routeCandidates = UltraShareNetworkRouting.orderedRoutesWithDefaultFallback(
             (listOfNotNull(network) + networks).distinct().take(4)
         )
+        UltraShareDiagnostics.event(
+            "DATA_SEND",
+            "ROUTE_CANDIDATES_READY",
+            mapOf("peerHost" to host, "routeCount" to routeCandidates.size, "port" to port)
+        )
         var connectedSocket: Socket? = null
         var connectFailure: IOException? = null
-        for (route in routeCandidates) {
+        for ((routeIndex, route) in routeCandidates.withIndex()) {
             currentCoroutineContext().ensureActive()
             val candidate = Socket()
+            UltraShareDiagnostics.event(
+                "DATA_SEND",
+                "ROUTE_ATTEMPT",
+                mapOf(
+                    "peerHost" to host,
+                    "routeIndex" to routeIndex,
+                    "networkHandle" to (route?.networkHandle ?: 0L)
+                )
+            )
             try {
                 route?.bindSocket(candidate)
                 candidate.connect(InetSocketAddress(target, port), HANDSHAKE_TIMEOUT_MS)
                 connectedSocket = candidate
+                UltraShareDiagnostics.event(
+                    "DATA_SEND",
+                    "TCP_CONNECTED",
+                    mapOf(
+                        "peerHost" to host,
+                        "routeIndex" to routeIndex,
+                        "networkHandle" to (route?.networkHandle ?: 0L),
+                        "localAddress" to candidate.localAddress?.hostAddress
+                    )
+                )
                 break
             } catch (failure: IOException) {
+                UltraShareDiagnostics.failure(
+                    "DATA_SEND_ROUTE_" + routeIndex,
+                    failure,
+                    "peerHost=" + host + ";port=" + port + ";networkHandle=" + (route?.networkHandle ?: 0L)
+                )
                 runCatching { candidate.close() }
                 connectFailure = failure
             }
         }
-        val socket = connectedSocket ?: throw (connectFailure
-            ?: IOException("تعذر الاتصال بأي مسار شبكة متاح."))
+        val socket = connectedSocket ?: run {
+            val failure = connectFailure ?: IOException("تعذر الاتصال بأي مسار شبكة متاح.")
+            UltraShareDiagnostics.failure(
+                "DATA_SEND_TCP_CONNECT",
+                failure,
+                "peerHost=" + host + ";port=" + port + ";routeCount=" + routeCandidates.size
+            )
+            throw failure
+        }
         socket.use {
             // A fresh socket is bound to each candidate before connect; failed routes
             // are closed before the next route is attempted.
             configure(socket)
             val input = DataInputStream(BufferedInputStream(socket.getInputStream(), BUFFER_BYTES))
             val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_BYTES))
+            UltraShareDiagnostics.event("DATA_SEND", "TCP_HANDSHAKE_STARTED", mapOf("peerHost" to host))
             check(input.readInt() == HANDSHAKE_MAGIC) { "الجهاز الآخر لا يدعم جلسة بيانات V2." }
             val challenge = ByteArray(CHALLENGE_BYTES).also(input::readFully)
             val secret = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
@@ -246,6 +303,7 @@ object UltraShareBatchTransport {
             output.write(hmac(secret, challenge))
             output.flush()
             check(input.readBoolean()) { "رفض الجهاز المستقبل رمز الاقتران." }
+            UltraShareDiagnostics.event("DATA_SEND", "DATA_AUTHENTICATED", mapOf("peerHost" to host))
             val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(input::readFully).also { noncePrefixToWipe = it }
             val sendKey = deriveKey(secret, challenge, "client-to-server").also { sendKeyToWipe = it }
             val receiveKey = deriveKey(secret, challenge, "server-to-client").also { receiveKeyToWipe = it }
@@ -253,8 +311,22 @@ object UltraShareBatchTransport {
             var receiveSequence = 0L
 
             writeFrame(output, sendKey, noncePrefix, sendSequence++, UltraShareBatchProtocol.encode(manifest))
+            UltraShareDiagnostics.event(
+                "DATA_SEND",
+                "MANIFEST_SENT",
+                mapOf("peerHost" to host, "batchId" to manifest.batchId, "fileCount" to manifest.entries.size)
+            )
             val offsetsPayload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 32 * 1024)
             val offsets = decodeOffsets(offsetsPayload, manifest)
+            UltraShareDiagnostics.event(
+                "DATA_SEND",
+                "RESUME_OFFSETS_RECEIVED",
+                mapOf(
+                    "peerHost" to host,
+                    "batchId" to manifest.batchId,
+                    "resumedBytes" to offsets.values.sum()
+                )
+            )
             val outcomes = ArrayList<UltraShareBatchProtocol.FileResult>(manifest.entries.size)
 
             prepared.forEachIndexed { index, (source, entry, _) ->
