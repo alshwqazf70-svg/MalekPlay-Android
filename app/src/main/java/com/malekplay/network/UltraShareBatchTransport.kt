@@ -613,6 +613,10 @@ object UltraShareBatchTransport {
         val outcomes = ArrayList<FileOutcome>(manifest.entries.size)
         for ((index, entry) in manifest.entries.withIndex()) {
             val (partial, offset) = partials.getValue(entry.id)
+            val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
+            val checkpoint = File(stateDirectory, ".ultrashare-v2-$identity.resume")
+            val checkpointTemp = File(stateDirectory, ".ultrashare-v2-$identity.resume.tmp")
+            val digestHex = entry.sha256.joinToString("") { "%02x".format(it) }
             var transferred = offset
             if (completedFiles[entry.id] == null) {
                 UltraShareDiagnostics.event(
