@@ -303,8 +303,8 @@ class LegacyUltraShareViewModel @Inject constructor(
                                     UltraShareControlChannel.request(
                                         host = candidate,
                                         pairingSecret = secret,
-                                        peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlayerer Android" }
-                                            ?: "MalekPlayerer Android",
+                                        peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" }
+                                            ?: "MalekPlayer Android",
                                         network = route,
                                         peerId = UltraShareDiscovery.localPeerId(context)
                                     )
@@ -356,7 +356,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                 if (accepted) {
                     val remotePeerId = UltraShareControlChannel.sessionPeerId(host)
                     val remotePeerName = UltraShareControlChannel.sessionPeerName(host)
-                        ?: "جهاز MalekPlayerer"
+                        ?: "جهاز MalekPlayer"
                     val sessionId = remotePeerId?.takeIf { it.isNotBlank() }
                         ?: java.util.UUID.randomUUID().toString()
                     UltraShareForegroundService.registerApprovedPeer(
@@ -459,8 +459,8 @@ class LegacyUltraShareViewModel @Inject constructor(
                                     UltraShareControlChannel.request(
                                         host = candidate,
                                         pairingSecret = pairing.pairingSecret,
-                                        peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlayerer Android" }
-                                            ?: "MalekPlayerer Android",
+                                        peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" }
+                                            ?: "MalekPlayer Android",
                                         network = route,
                                         peerId = UltraShareDiscovery.localPeerId(context)
                                     )
@@ -531,7 +531,7 @@ class LegacyUltraShareViewModel @Inject constructor(
             if (connectedHost != null) {
                 val remotePeerId = UltraShareControlChannel.sessionPeerId(connectedHost)
                 val remotePeerName = UltraShareControlChannel.sessionPeerName(connectedHost)
-                    ?: "جهاز MalekPlayerer"
+                    ?: "جهاز MalekPlayer"
                 // Keep a reconnect target only when the remote peer supplied a
                 // verified stable identity; never invent an ID for rediscovery.
                 UltraShareForegroundService.registerApprovedPeer(
@@ -826,7 +826,7 @@ class LegacyUltraShareViewModel @Inject constructor(
             completeInvitationConnection(
                 host = pairing.host,
                 message = "تم التحقق من الاقتران عبر اتصال Wi-Fi اليدوي.",
-                connectionFailureHint = "على Android 9 أو أقدم، اتصل أولاً بشبكة MalekPlayerer الظاهرة في رمز QR من إعدادات Wi-Fi، ثم امسح الرمز مرة أخرى."
+                connectionFailureHint = "على Android 9 أو أقدم، اتصل أولاً بشبكة MalekPlayer الظاهرة في رمز QR من إعدادات Wi-Fi، ثم امسح الرمز مرة أخرى."
             )
             return
         }
@@ -842,7 +842,7 @@ class LegacyUltraShareViewModel @Inject constructor(
         _state.value = _state.value.copy(
             scanning = true,
             error = null,
-            status = "جارٍ طلب الانضمام إلى شبكة MalekPlayerer من Android..."
+            status = "جارٍ طلب الانضمام إلى شبكة MalekPlayer من Android..."
         )
         val specifier = android.net.wifi.WifiNetworkSpecifier.Builder()
             .setSsid(ssid)
@@ -863,11 +863,11 @@ class LegacyUltraShareViewModel @Inject constructor(
                 if (!connectionStarted.compareAndSet(false, true)) return
                 viewModelScope.launch {
                     _state.value = _state.value.copy(
-                        status = "اتصل Android بشبكة MalekPlayerer؛ جارٍ التحقق من خادم الاستقبال..."
+                        status = "اتصل Android بشبكة MalekPlayer؛ جارٍ التحقق من خادم الاستقبال..."
                     )
                     completeInvitationConnection(
                         host,
-                        "تم الانضمام إلى شبكة MalekPlayerer عبر Android.",
+                        "تم الانضمام إلى شبكة MalekPlayer عبر Android.",
                         network
                     )
                 }
@@ -876,7 +876,7 @@ class LegacyUltraShareViewModel @Inject constructor(
             override fun onUnavailable() {
                 _state.value = _state.value.copy(
                     scanning = false,
-                    error = "لم يكتمل الانضمام إلى شبكة MalekPlayerer. وافق على طلب Wi-Fi الذي عرضه Android وتأكد من بقاء نقطة الاتصال مفتوحة."
+                    error = "لم يكتمل الانضمام إلى شبكة MalekPlayer. وافق على طلب Wi-Fi الذي عرضه Android وتأكد من بقاء نقطة الاتصال مفتوحة."
                 )
             }
 
@@ -884,7 +884,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                 if (!_state.value.pairedSession) {
                     _state.value = _state.value.copy(
                         scanning = false,
-                        error = "انقطع اتصال شبكة MalekPlayerer قبل اكتمال الاقتران."
+                        error = "انقطع اتصال شبكة MalekPlayer قبل اكتمال الاقتران."
                     )
                 }
             }
@@ -896,7 +896,7 @@ class LegacyUltraShareViewModel @Inject constructor(
             hotspotNetworkCallback = null
             _state.value = _state.value.copy(
                 scanning = false,
-                error = failure.localizedMessage ?: "تعذر طلب الانضمام إلى شبكة MalekPlayerer."
+                error = failure.localizedMessage ?: "تعذر طلب الانضمام إلى شبكة MalekPlayer."
             )
         }
     }
@@ -1475,7 +1475,7 @@ fun UltraShareScreen(
                     if (externalQr != null) {
                         Toast.makeText(
                             context,
-                            "تم التعرف على رمز Zapya/Kuaiya، لكن بياناته لا تكفي لمصادقة MalekPlayererer أو الانضمام التلقائي. استخدم رمز MalekPlayererer للاتصال الآمن.",
+                            "تم التعرف على رمز Zapya/Kuaiya، لكن بياناته لا تكفي لمصادقة MalekPlayer أو الانضمام التلقائي. استخدم رمز MalekPlayer للاتصال الآمن.",
                             Toast.LENGTH_LONG
                         ).show()
                     } else {
@@ -1507,7 +1507,7 @@ fun UltraShareScreen(
     fun scanQrWithCamera() {
         val options = ScanOptions().apply {
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt("وجّه الكاميرا نحو رمز QR الخاص بـ MalekPlayerer")
+            setPrompt("وجّه الكاميرا نحو رمز QR الخاص بـ MalekPlayer")
             setBeepEnabled(false)
             setOrientationLocked(false)
         }
@@ -1720,7 +1720,7 @@ fun UltraShareScreen(
                         OutlinedButton(
                             onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                clipboard?.setPrimaryClip(ClipData.newPlainText("MalekPlayerer Ultra Share", activeQrPayload))
+                                clipboard?.setPrimaryClip(ClipData.newPlainText("MalekPlayer Ultra Share", activeQrPayload))
                                 Toast.makeText(context, R.string.ultra_share_pairing_copied, Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -1807,7 +1807,7 @@ fun UltraShareScreen(
                     }
                 }
                 Text(
-                    "فعّل Wi-Fi Direct على الجهازين. يفضّل MalekPlayerer جعل جهاز الاستقبال مالك مجموعة الاتصال.",
+                    "فعّل Wi-Fi Direct على الجهازين. يفضّل MalekPlayer جعل جهاز الاستقبال مالك مجموعة الاتصال.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall
                 )
@@ -2115,7 +2115,7 @@ fun UltraShareScreen(
                     Text(formatTransferBytes(received.sizeBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (received.publishedUri != null) {
                         Text(
-                            "حُفظ تلقائياً في التنزيلات / MalekPlayerer / Received",
+                            "حُفظ تلقائياً في التنزيلات / MalekPlayer / Received",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
@@ -2176,7 +2176,7 @@ fun UltraShareScreen(
             onClick = {
                 val report = UltraShareControlChannel.diagnosticReport()
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("MalekPlayerer connection diagnostics", report))
+                clipboard.setPrimaryClip(ClipData.newPlainText("MalekPlayer connection diagnostics", report))
                 Toast.makeText(context, "تم نسخ تقرير تشخيص الاتصال. أرسله هنا.", Toast.LENGTH_LONG).show()
             },
             modifier = Modifier.fillMaxWidth()
