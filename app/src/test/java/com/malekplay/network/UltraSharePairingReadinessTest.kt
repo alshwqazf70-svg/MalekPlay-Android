@@ -7,6 +7,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UltraSharePairingReadinessTest {
+    @Test fun invitationHostHintsRemainStableOnlyForTheSameSessionId() {
+        val stored = listOf("192.168.1.10", "192.168.49.1")
+        val refreshed = listOf("192.168.1.11")
+        assertEquals(
+            stored,
+            UltraSharePairingReadiness.stableInvitationHosts(
+                "invite-1", "invite-1", stored, refreshed
+            )
+        )
+        assertEquals(
+            refreshed,
+            UltraSharePairingReadiness.stableInvitationHosts(
+                "invite-1", "invite-2", stored, refreshed
+            )
+        )
+        assertEquals(
+            emptyList<String>(),
+            UltraSharePairingReadiness.stableInvitationHosts(
+                "invite-1", "invite-1", emptyList(), refreshed
+            )
+        )
+    }
+
     @Test fun qrPayloadRemainsByteForByteStableAfterFirstPublication() {
         val first = "malekplay://share?invitation=stable&host=192.168.49.1"
         assertEquals(first, UltraSharePairingReadiness.stableQrPayload(null, first))
