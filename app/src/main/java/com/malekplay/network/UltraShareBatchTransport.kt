@@ -814,7 +814,7 @@ object UltraShareBatchTransport {
         }
 
     /** Advances to a resume offset while including the existing prefix in source verification. */
-    private suspend fun skipAndDigest(
+    internal suspend fun skipAndDigest(
         input: java.io.InputStream,
         count: Long,
         digest: MessageDigest
