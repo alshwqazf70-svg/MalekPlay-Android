@@ -166,6 +166,13 @@ class UltraShareNetworkRoutingTest {
     }
 
     @Test
+    fun neverTreatsWifiDirectInterfaceAsOrdinaryLanFallback() {
+        assertTrue(UltraShareNetworkRouting.isWifiDirectInterfaceName("p2p-wlan0-0"))
+        assertFalse(UltraShareNetworkRouting.isWifiDirectInterfaceName("wlan0"))
+        assertFalse(UltraShareNetworkRouting.isWifiDirectInterfaceName("ap0"))
+    }
+
+    @Test
     fun identifiesAndroidWifiDirectInterfaceNames() {
         assertTrue(UltraShareNetworkRouting.isWifiDirectInterfaceName("p2p-wlan0-0"))
         assertTrue(UltraShareNetworkRouting.isWifiDirectInterfaceName("P2P0"))

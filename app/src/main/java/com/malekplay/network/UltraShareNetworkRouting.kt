@@ -136,6 +136,42 @@ internal object UltraShareNetworkRouting {
     fun findNetworkForHost(context: Context, host: String): Network? =
         findNetworksForHost(context, host).firstOrNull()
 
+    /**
+     * A QR v3 invitation may contain addresses from the receiver's old P2P group.
+     * They must not be used as a LAN fallback before the new group is joined.
+     * Accept a fallback only when Android exposes a matching Wi-Fi/Ethernet route
+     * on a non-P2P interface. The authenticated MPC2 handshake remains mandatory.
+     */
+    fun findNonP2pLanFallbackHost(context: Context, hosts: List<String>): String? =
+        hosts.asSequence()
+            .map { it.trim() }
+            .filter { UltraShareTransport.isValidPrivateLanHost(it) }
+            .distinct()
+            .firstOrNull { hasNonP2pLanRoute(context, it) }
+
+    private fun hasNonP2pLanRoute(context: Context, host: String): Boolean = runCatching {
+        val remote = InetAddress.getByName(host) as? Inet4Address ?: return@runCatching false
+        val manager = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? ConnectivityManager ?: return@runCatching false
+        manager.allNetworks.any { network ->
+            val properties = manager.getLinkProperties(network) ?: return@any false
+            val interfaceName = properties.interfaceName.orEmpty()
+            val capabilities = manager.getNetworkCapabilities(network)
+            val localTransport = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
+            val linkMatch = properties.linkAddresses.any { link ->
+                val local = link.address as? Inet4Address ?: return@any false
+                link.prefixLength in 1..32 && isInPrefix(remote, local, link.prefixLength)
+            }
+            val routeMatch = properties.routes.any { route ->
+                val destination = route.destination.address as? Inet4Address ?: return@any false
+                val prefix = route.destination.prefixLength
+                prefix in 1..32 && isInPrefix(remote, destination, prefix)
+            }
+            !isWifiDirectInterfaceName(interfaceName) && localTransport && (linkMatch || routeMatch)
+        }
+    }.getOrDefault(false)
+
     /** A private peer address is a P2P candidate only when the route belongs to a p2p interface. */
     internal fun isP2pGroupOwnerRoute(interfaceName: String, remote: Inet4Address): Boolean =
         isWifiDirectInterfaceName(interfaceName) && isPrivateIpv4Address(remote)
