@@ -70,6 +70,7 @@ object UltraShareWifiDirect {
         // Owner-side peer confirmation is retried because Android may report GROUP_FORMED
         // before GroupInfo.clientList is populated on some OEM P2P stacks.
         private var ownerPeerCheckToken = 0
+        private var ownerPeerCheckDeadlineElapsedMs = 0L
         private var ownerPeerCheckInFlight = false
         private var ownerPeerCheckRunnable: Runnable? = null
         private var ownerPeerCheckTimeout: Runnable? = null
@@ -1396,6 +1397,8 @@ object UltraShareWifiDirect {
                         // GroupInfo briefly because GROUP_FORMED can precede clientList updates.
                         if (!ownerPeerCheckInFlight && ownerPeerCheckRunnable == null) {
                             ownerPeerCheckToken++
+                            ownerPeerCheckDeadlineElapsedMs =
+                                android.os.SystemClock.elapsedRealtime() + 35_000L
                             requestOwnerPeerConfirmation(info, ownerPeerCheckToken, 0)
                         }
                         return@requestConnectionInfo
@@ -1574,6 +1577,12 @@ object UltraShareWifiDirect {
             attempt: Int
         ) {
             if (closed || token != ownerPeerCheckToken || ownerPeerCheckInFlight) return
+            val remainingMs = ownerPeerCheckDeadlineElapsedMs -
+                android.os.SystemClock.elapsedRealtime()
+            if (remainingMs <= 0L) {
+                scheduleOwnerPeerConfirmation(info, token, attempt)
+                return
+            }
             ownerPeerCheckInFlight = true
             // Each request owns its timeout/callback pair. OEM P2P callbacks can
             // arrive after the timeout; without this gate an old callback can clear
@@ -1587,7 +1596,7 @@ object UltraShareWifiDirect {
                 scheduleOwnerPeerConfirmation(info, token, attempt)
             }
             ownerPeerCheckTimeout = timeout
-            mainHandler.postDelayed(timeout, 1_500L)
+            mainHandler.postDelayed(timeout, minOf(1_500L, remainingMs))
             try {
                 manager.requestGroupInfo(channel) { group ->
                     if (!completed.compareAndSet(false, true)) return@requestGroupInfo
@@ -1627,6 +1636,7 @@ object UltraShareWifiDirect {
                     ) {
                         ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
                         ownerPeerCheckRunnable = null
+                        ownerPeerCheckDeadlineElapsedMs = 0L
                         connectionInProgress = false
                         connectionTimeout?.let(mainHandler::removeCallbacks)
                         connectionTimeout = null
@@ -1667,8 +1677,11 @@ object UltraShareWifiDirect {
             attempt: Int
         ) {
             if (closed || token != ownerPeerCheckToken || wasConnected) return
-            if (!shouldRetryWifiDirectPeerConfirmation(attempt)) {
+            val remainingMs = ownerPeerCheckDeadlineElapsedMs -
+                android.os.SystemClock.elapsedRealtime()
+            if (!shouldRetryWifiDirectPeerConfirmation(attempt) || remainingMs <= 0L) {
                 ownerPeerCheckRunnable = null
+                ownerPeerCheckDeadlineElapsedMs = 0L
                 UltraShareDiagnostics.event("WIFI_DIRECT", "GROUP_PEER_CONFIRMATION_TIMEOUT", mapOf("attempts" to attempt))
                 reportError("تم إنشاء مجموعة Wi-Fi Direct لكن لم يؤكد Android انضمام الهاتف الآخر خلال 35 ثانية. أبقِ الجهازين قريبين ثم أعد الاقتران.")
                 return
@@ -1681,11 +1694,12 @@ object UltraShareWifiDirect {
                 }
             }
             ownerPeerCheckRunnable = next
-            mainHandler.postDelayed(next, 500L)
+            mainHandler.postDelayed(next, minOf(500L, remainingMs))
         }
 
         private fun cancelOwnerPeerConfirmation() {
             ownerPeerCheckToken++
+            ownerPeerCheckDeadlineElapsedMs = 0L
             ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
             ownerPeerCheckRunnable = null
             ownerPeerCheckTimeout?.let(mainHandler::removeCallbacks)
