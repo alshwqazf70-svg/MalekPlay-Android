@@ -687,9 +687,11 @@ class UltraShareViewModel @Inject constructor(
     )
     var current: Throwable? = failure
     while (current != null && visited.add(current)) {
+        // Retry only immediate route/startup failures. A timeout may mean the
+        // receiver is waiting for the user's approval; replaying that request would
+        // create duplicate prompts and extend the decision window unexpectedly.
         if (current is java.net.ConnectException ||
-            current is java.net.NoRouteToHostException ||
-            current is java.net.SocketTimeoutException
+            current is java.net.NoRouteToHostException
         ) return true
         current = current.cause
     }

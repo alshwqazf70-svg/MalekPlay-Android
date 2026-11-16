@@ -22,7 +22,7 @@ class UltraShareWifiDirectPolicyTest {
                 java.io.IOException("route failed", java.net.NoRouteToHostException("unreachable"))
             )
         )
-        assertTrue(isRetryableUltraSharePairingFailure(java.net.SocketTimeoutException("startup timeout")))
+        assertFalse(isRetryableUltraSharePairingFailure(java.net.SocketTimeoutException("approval timeout")))
         assertFalse(isRetryableUltraSharePairingFailure(IllegalArgumentException("invalid QR")))
         assertFalse(isRetryableUltraSharePairingFailure(SecurityException("permission denied")))
     }
