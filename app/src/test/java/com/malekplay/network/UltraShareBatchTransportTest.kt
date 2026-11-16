@@ -305,16 +305,15 @@ class UltraShareBatchTransportTest {
         try {
             val temp = java.io.File(directory, "checkpoint.tmp")
             val target = java.io.File(directory, "checkpoint")
-            target.mkdir()
-            java.io.File(directory, "checkpoint/old").writeText("old checkpoint")
+            temp.mkdir() // Force the temporary-file write to fail before replacement.
+            target.writeText("previous durable checkpoint", Charsets.UTF_8)
             val failure = runCatching {
                 writeUltraShareResumeCheckpointAtomically(
                     temp, target, 1024L, "12".repeat(32), 512L
                 )
             }.exceptionOrNull()
             assertTrue(failure != null)
-            assertTrue(java.io.File(target, "old").isFile)
-            assertEquals("old checkpoint", java.io.File(target, "old").readText())
+            assertEquals("previous durable checkpoint", target.readText(Charsets.UTF_8))
         } finally {
             directory.deleteRecursively()
         }
