@@ -322,8 +322,10 @@ object UltraShareBatchTransport {
             output.flush()
             check(input.readBoolean()) { "رفض الجهاز المستقبل رمز الاقتران." }
             UltraShareDiagnostics.event("DATA_SEND", "DATA_AUTHENTICATED", mapOf("peerHost" to host))
-            readPhase = "SESSION"
-            socket.soTimeout = SESSION_TIMEOUT_MS
+            // The receiver may hash existing completed files before it can answer
+            // with resume offsets; allow slow storage to finish that preflight.
+            readPhase = "RESUME_SCAN"
+            socket.soTimeout = FILE_VERIFY_TIMEOUT_MS
             val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(input::readFully).also { noncePrefixToWipe = it }
             val sendKey = deriveKey(secret, challenge, "client-to-server").also { sendKeyToWipe = it }
             val receiveKey = deriveKey(secret, challenge, "server-to-client").also { receiveKeyToWipe = it }
@@ -338,6 +340,8 @@ object UltraShareBatchTransport {
             )
             val offsetsPayload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 32 * 1024)
             val offsets = decodeOffsets(offsetsPayload, manifest)
+            readPhase = "SESSION"
+            socket.soTimeout = SESSION_TIMEOUT_MS
             UltraShareDiagnostics.event(
                 "DATA_SEND",
                 "RESUME_OFFSETS_RECEIVED",
