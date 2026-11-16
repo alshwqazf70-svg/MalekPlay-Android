@@ -549,19 +549,49 @@ class UltraShareViewModel @Inject constructor(
                             listOfNotNull(preferredNetwork) +
                                 UltraShareNetworkRouting.findNetworksForHost(context, dataHost)
                         ).distinct()
-                        val dataReady = UltraShareDiscovery.probeDataEndpoint(
-                            dataHost,
-                            com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT,
-                            networks
-                        )
-                        UltraShareDiagnostics.event("DATA_CHANNEL", if (dataReady) "PROBE_SUCCEEDED" else "PROBE_FAILED", mapOf("host" to dataHost, "port" to com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT, "networkCount" to networks.size))
+                        // The batch listener is started independently from the control
+                        // listener. It can become ready a moment later, especially when
+                        // the QR scanner had to become the temporary group owner.
+                        // Probe on IO (never the Compose main thread) and briefly retry
+                        // the authenticated peer's primary endpoint before declaring it down.
+                        var dataReady = false
+                        val maxProbeAttempts = if (dataHost == connectedHost) 3 else 1
+                        for (attempt in 0 until maxProbeAttempts) {
+                            dataReady = withContext(Dispatchers.IO) {
+                                UltraShareDiscovery.probeDataEndpoint(
+                                    dataHost,
+                                    com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT,
+                                    networks
+                                )
+                            }
+                            UltraShareDiagnostics.event(
+                                "DATA_CHANNEL",
+                                if (dataReady) "PROBE_SUCCEEDED" else "PROBE_FAILED",
+                                mapOf(
+                                    "host" to dataHost,
+                                    "port" to com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT,
+                                    "networkCount" to networks.size,
+                                    "attempt" to attempt
+                                )
+                            )
+                            if (dataReady) break
+                            if (attempt < maxProbeAttempts - 1) {
+                                UltraShareDiagnostics.event(
+                                    "DATA_CHANNEL",
+                                    "PROBE_RETRY_SCHEDULED",
+                                    mapOf("host" to dataHost, "nextAttempt" to attempt + 1)
+                                )
+                                delay(300L * (attempt + 1))
+                            }
+                        }
                         if (dataReady) {
                             val transport = when {
                                 UltraShareNetworkRouting.isWifiDirectGroupHost(dataHost) ->
                                     UltraShareNegotiation.Transport.WIFI_DIRECT
                                 preferredNetwork != null ->
                                     UltraShareNegotiation.Transport.HOTSPOT
-                                else -> UltraShareNegotiation.Transport.WLAN
+                                else ->
+                                    UltraShareNegotiation.Transport.WLAN
                             }
                             dataRoutes += UltraShareNegotiation.Candidate(
                                 transport = transport,
