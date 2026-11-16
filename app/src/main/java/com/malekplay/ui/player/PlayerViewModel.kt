@@ -97,8 +97,6 @@ data class PlaybackStats(
     val containerBitrate: Long = 0L
 )
 
-@UnstableApi
-@HiltViewModel
 data class VideoEnhancementDiagnostics(
     val bridgeAttached: Boolean = false,
     val upscalingSubmitted: Boolean = false,
@@ -114,6 +112,8 @@ data class VideoEnhancementDiagnostics(
     val upscalingEnabled: Boolean = false,
     val noiseReductionEnabled: Boolean = false
 )
+@UnstableApi
+@HiltViewModel
 class PlayerViewModel @Inject constructor(
     @ApplicationContext private val app: Context,
     private val mediaRepository: MediaRepository,

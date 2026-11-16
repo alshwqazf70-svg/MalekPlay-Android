@@ -946,15 +946,6 @@ fun VideoPlayerScreen(
                     }
                 )
                 DropdownMenuItem(
-                    text = {
-                        Text(stringResource(
-                        ))
-                    },
-                    onClick = {
-                        showMenu = false
-                    }
-                )
-                DropdownMenuItem(
                     text = { Text(stringResource(R.string.player_video_diagnostics)) },
                     onClick = { showMenu = false; showVideoDiagnostics = true }
                 )
