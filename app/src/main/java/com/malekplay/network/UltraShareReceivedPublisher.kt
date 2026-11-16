@@ -180,7 +180,7 @@ object UltraShareReceivedPublisher {
         else -> relativePath
     }
 
-    private fun uniqueFile(directory: File, name: String): File {
+    internal fun uniqueFile(directory: File, name: String): File {
         if (!File(directory, name).exists()) return File(directory, name)
         val dot = name.lastIndexOf('.')
         val base = if (dot > 0) name.substring(0, dot) else name
