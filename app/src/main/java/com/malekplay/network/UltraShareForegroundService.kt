@@ -356,8 +356,10 @@ class UltraShareForegroundService : Service() {
                                         receiveProgress = null,
                                         receivedFile = published,
                                         status = if (publishedUri != null) {
-                                            "تم الاستلام والحفظ تلقائياً في التنزيلات: ${received.fileName}"
-                                        } else getString(R.string.ultra_share_received, received.fileName),
+                                            "تم الاستلام والحفظ تلقائياً في التنزيلات/MalekPlayer/Received: ${received.fileName}"
+                                        } else {
+                                            "تم الاستلام والحفظ في مجلد MalekPlayer/Received داخل ملفات التطبيق: ${received.fileName}"
+                                        },
                                         error = null
                                     ) }
                             } catch (cancelled: CancellationException) {
@@ -482,7 +484,11 @@ class UltraShareForegroundService : Service() {
                                             )
                                             updateState { current -> current.copy(
                                                 receivedFile = received.copy(publishedUri = publishedUri),
-                                                status = "استُلم ${received.fileName} ضمن دفعة V2 من $peer",
+                                                status = if (publishedUri != null) {
+                                                "استُلم ${received.fileName} وحُفظ في التنزيلات/MalekPlayer/Received"
+                                            } else {
+                                                "استُلم ${received.fileName} وحُفظ في مجلد MalekPlayer/Received داخل ملفات التطبيق"
+                                            },
                                                 error = null
                                             ) }
                                         } catch (cancelled: CancellationException) {
