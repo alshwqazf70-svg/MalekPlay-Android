@@ -20,7 +20,12 @@ class SpatialNoiseReductionEffect(
     private val strength: Float = 0.34f
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        SpatialNoiseReductionProgram(context, useHdr, strength.coerceIn(0.12f, 0.52f))
+        try {
+            SpatialNoiseReductionProgram(context, useHdr, strength.coerceIn(0.12f, 0.52f))
+        } catch (error: Exception) {
+            VideoEnhancementMetrics.recordFailure("spatial_denoise_init", error)
+            throw error
+        }
 }
 
 @UnstableApi
@@ -55,7 +60,7 @@ private class SpatialNoiseReductionProgram(
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             GlUtil.checkGlError()
             VideoEnhancementMetrics.recordProcessed("spatial_denoise", presentationTimeUs)
-        } catch (error: GlUtil.GlException) {
+        } catch (error: Exception) {
             VideoEnhancementMetrics.recordFailure("spatial_denoise", error)
             throw VideoFrameProcessingException(error, presentationTimeUs)
         }
@@ -154,7 +159,12 @@ class VideoDetailEnhancementEffect(
     private val strength: Float = 0.78f
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        VideoDetailEnhancementProgram(context, useHdr, strength.coerceIn(0.25f, 1.15f))
+        try {
+            VideoDetailEnhancementProgram(context, useHdr, strength.coerceIn(0.25f, 1.15f))
+        } catch (error: Exception) {
+            VideoEnhancementMetrics.recordFailure("detail_sharpen_init", error)
+            throw error
+        }
 }
 
 @UnstableApi
@@ -200,7 +210,7 @@ private class VideoDetailEnhancementProgram(
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             GlUtil.checkGlError()
             VideoEnhancementMetrics.recordProcessed("detail_sharpen", presentationTimeUs)
-        } catch (error: GlUtil.GlException) {
+        } catch (error: Exception) {
             VideoEnhancementMetrics.recordFailure("detail_sharpen", error)
             throw VideoFrameProcessingException(error, presentationTimeUs)
         }
