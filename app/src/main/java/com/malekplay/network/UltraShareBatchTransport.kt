@@ -48,7 +48,11 @@ object UltraShareBatchTransport {
     const val DEFAULT_MAX_PEERS = 4
     const val DEFAULT_PORT = UltraShareTransport.DEFAULT_PORT + 1
     private const val BUFFER_BYTES = 1024 * 1024
-    private const val FRAME_BYTES = 256 * 1024
+    // 512 KiB halves per-frame crypto/framing overhead versus the previous 256 KiB.
+    // It remains below the protocol's bounded frame limit on low-memory devices.
+    private const val FRAME_BYTES = 512 * 1024
+    private const val PROGRESS_UPDATE_INTERVAL_BYTES = 1024L * 1024L
+    private const val PROGRESS_UPDATE_INTERVAL_NANOS = 100_000_000L
     // A checkpoint is committed only after the corresponding partial bytes are fsynced.
     private const val RESUME_CHECKPOINT_INTERVAL_BYTES = 4L * 1024L * 1024L
     private const val HANDSHAKE_TIMEOUT_MS = 8_000
@@ -372,6 +376,8 @@ object UltraShareBatchTransport {
                 )
                 var transferred = offset
                 val started = System.nanoTime()
+                var lastProgressAt = started
+                var lastProgressBytes = offset
                 val streamedDigest = MessageDigest.getInstance("SHA-256")
                 resolver.openInputStream(source.uri)?.use { raw ->
                     BufferedInputStream(raw, BUFFER_BYTES).use { stream ->
@@ -392,10 +398,18 @@ object UltraShareBatchTransport {
                             streamedDigest.update(buffer, 0, read)
                             writeFrame(output, sendKey, noncePrefix, sendSequence++, frame.toByteArray(), flush = false)
                             transferred += read
-                            onProgress(FileProgress(
-                                entry.id, entry.name, transferred, entry.sizeBytes,
-                                rate(transferred - offset, started), false
-                            ))
+                            val progressNow = System.nanoTime()
+                            if (transferred - lastProgressBytes >= PROGRESS_UPDATE_INTERVAL_BYTES ||
+                                progressNow - lastProgressAt >= PROGRESS_UPDATE_INTERVAL_NANOS ||
+                                transferred == entry.sizeBytes
+                            ) {
+                                onProgress(FileProgress(
+                                    entry.id, entry.name, transferred, entry.sizeBytes,
+                                    rate(transferred - offset, started), false
+                                ))
+                                lastProgressAt = progressNow
+                                lastProgressBytes = transferred
+                            }
                         }
                         check(stream.read() == -1) { "تغير حجم الملف أثناء الإرسال: ${entry.name}" }
                     }
@@ -636,6 +650,8 @@ object UltraShareBatchTransport {
                     var lastCheckpointOffset = offset
                     try {
                         val startedAt = System.nanoTime()
+                        var lastProgressAt = startedAt
+                        var lastProgressBytes = offset
                         while (transferred < entry.sizeBytes) {
                             currentCoroutineContext().ensureActive()
                             val remaining = entry.sizeBytes - transferred
@@ -672,10 +688,18 @@ object UltraShareBatchTransport {
                                     )
                                 )
                             }
-                            onProgress(FileProgress(
-                                entry.id, entry.name, transferred, entry.sizeBytes,
-                                rate(transferred - offset, startedAt), true
-                            ))
+                            val progressNow = System.nanoTime()
+                            if (transferred - lastProgressBytes >= PROGRESS_UPDATE_INTERVAL_BYTES ||
+                                progressNow - lastProgressAt >= PROGRESS_UPDATE_INTERVAL_NANOS ||
+                                transferred == entry.sizeBytes
+                            ) {
+                                onProgress(FileProgress(
+                                    entry.id, entry.name, transferred, entry.sizeBytes,
+                                    rate(transferred - offset, startedAt), true
+                                ))
+                                lastProgressAt = progressNow
+                                lastProgressBytes = transferred
+                            }
                         }
                     } catch (failure: Throwable) {
                         streamFailure = failure
