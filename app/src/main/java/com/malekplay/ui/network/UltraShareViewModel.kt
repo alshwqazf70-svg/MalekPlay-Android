@@ -231,10 +231,13 @@ class UltraShareViewModel @Inject constructor(
         if (payload.isBlank() || payload.length > 16_384) return
         val current = _state.value
         if (!current.receiving || current.activePeers.isNotEmpty() ||
-            current.receiverQrPayload != null ||
             !UltraShareTransport.isValidPairingSecret(current.pairingSecret)
         ) return
-        _state.value = current.copy(receiverQrPayload = payload)
+        val stablePayload = com.malekplay.network.UltraSharePairingReadiness.stableQrPayload(
+            current.receiverQrPayload, payload
+        ) ?: return
+        if (stablePayload == current.receiverQrPayload) return
+        _state.value = current.copy(receiverQrPayload = stablePayload)
         UltraShareDiagnostics.event(
             "PAIRING_QR", "QR_PUBLISHED_STABLE",
             mapOf("invitationId" to current.invitationId, "payloadLength" to payload.length)
