@@ -166,6 +166,47 @@ class UltraShareBatchTransportTest {
     }
 
     @Test
+    fun largeInterruptedTransferResumesFromDurableOffsetWithExactSha256() {
+        val directory = Files.createTempDirectory("ultrashare-large-resume").toFile()
+        try {
+            // Exercise a multi-megabyte file and a resume point that is not aligned
+            // to the sender's normal frame size.
+            val payload = ByteArray(16 * 1024 * 1024 + 137) { index ->
+                ((index * 31 + index / 251) % 256).toByte()
+            }
+            val partial = java.io.File(directory, "large-transfer.part")
+            val interruptedAt = 7 * 1024 * 1024 + 333
+
+            java.io.FileOutputStream(partial).use { output ->
+                output.write(payload, 0, interruptedAt)
+                output.fd.sync()
+            }
+
+            val resumeOffset = UltraShareBatchTransport.resumableFileOffset(
+                partial,
+                payload.size.toLong()
+            )
+            org.junit.Assert.assertEquals(interruptedAt.toLong(), resumeOffset)
+
+            java.io.RandomAccessFile(partial, "rw").use { output ->
+                output.seek(resumeOffset)
+                output.write(payload, resumeOffset.toInt(), payload.size - resumeOffset.toInt())
+                output.fd.sync()
+            }
+
+            val expectedDigest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(payload)
+            val actualDigest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(partial.readBytes())
+
+            org.junit.Assert.assertEquals(payload.size.toLong(), partial.length())
+            org.junit.Assert.assertArrayEquals(expectedDigest, actualDigest)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun oversizedOrInvalidPartialIsNeverUsedAsResumeOffset() {
         val directory = Files.createTempDirectory("ultrashare-invalid-resume").toFile()
         try {
