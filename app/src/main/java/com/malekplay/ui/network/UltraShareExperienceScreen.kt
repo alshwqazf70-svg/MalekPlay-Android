@@ -667,12 +667,18 @@ fun UltraShareExperienceScreen(
         }
         ?.let { UltraShareQrCode.createReceiverPayload(it, state.pairingSecret) }
     val candidateQrPayload = wifiDirectQrPayload ?: hotspotQrPayload ?: lanQrPayload
-    LaunchedEffect(candidateQrPayload) {
-        candidateQrPayload?.let(viewModel::latchReceiverQrPayload)
+    LaunchedEffect(candidateQrPayload, state.receiverQrPayload) {
+        val stable = com.malekplay.network.UltraSharePairingReadiness.stableQrPayload(
+            state.receiverQrPayload, candidateQrPayload
+        )
+        if (state.receiverQrPayload == null && stable != null) {
+            viewModel.latchReceiverQrPayload(stable)
+        }
     }
-    // The ViewModel owns the issued invitation bytes. Volatile service flags or
-    // address refreshes may change candidates, but cannot make the displayed QR blink.
-    val qrPayload = state.receiverQrPayload
+    // Keep the payload latched in the ViewModel, but hide the QR while a peer is paired.
+    val qrPayload = state.receiverQrPayload.takeIf {
+        state.receiving && state.activePeers.isEmpty()
+    }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { runCatching { UltraShareQrCode.createBitmap(it) }.getOrNull() }
     }
