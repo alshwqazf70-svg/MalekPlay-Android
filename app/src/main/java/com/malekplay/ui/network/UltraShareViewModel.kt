@@ -1281,12 +1281,13 @@ class UltraShareViewModel @Inject constructor(
             return
         }
         val activeReceiver = UltraShareForegroundService.state.value
-        if (activeReceiver.receiving && activeReceiver.pairingSecret.isNotBlank() &&
-            activeReceiver.pairingSecret != secret.trim()
-        ) {
+        if (activeReceiver.receiving) {
             _state.value = _state.value.copy(
                 requestingConnection = false,
-                error = "هناك جلسة استقبال نشطة برمز مختلف. أوقفها قبل الانضمام إلى رمز QR آخر."
+                error = if (activeReceiver.pairingSecret == secret.trim())
+                    "هذا الهاتف يستقبل بالفعل باستخدام رمز QR نفسه؛ لا حاجة لمسح الرمز مرة أخرى."
+                else
+                    "هناك جلسة استقبال نشطة. أوقفها قبل الانضمام إلى رمز QR آخر."
             )
             return
         }
@@ -1305,12 +1306,28 @@ class UltraShareViewModel @Inject constructor(
             session.stopDiscoveryChecked { stopped ->
                 if (pendingQrPairing == null || wifiDirectSession !== session) return@stopDiscoveryChecked
                 if (!stopped) {
+                    val pending = pendingQrPairing ?: return@stopDiscoveryChecked
+                    val safeFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(
+                        context,
+                        pending.hosts
+                    )
                     pendingQrPairing = null
                     qrP2pConnectStarted = false
-                    _state.value = _state.value.copy(
-                        requestingConnection = false,
-                        error = "لم يؤكد Android إيقاف البحث السابق؛ لم نبدأ اكتشاف دعوة QR بالتزامن. أوقف البحث ثم أعد المحاولة."
-                    )
+                    session.stopInvitationDiscovery()
+                    val fallback = safeFallbacks.firstOrNull()
+                    if (fallback != null) {
+                        UltraShareDiagnostics.event("PAIRING", "DISCOVERY_STOP_FAILED_USING_VERIFIED_LAN")
+                        requestConnection(
+                            host = fallback,
+                            secret = pending.secret,
+                            alternateHosts = safeFallbacks.drop(1)
+                        )
+                    } else {
+                        _state.value = _state.value.copy(
+                            requestingConnection = false,
+                            error = "لم يؤكد Android إيقاف البحث السابق، ولا يوجد مسار شبكة محلية غير P2P يمكن التحقق منه. أوقف البحث ثم أعد المحاولة."
+                        )
+                    }
                     return@stopDiscoveryChecked
                 }
                 session.discoverInvitation(invitationId) { peer ->
