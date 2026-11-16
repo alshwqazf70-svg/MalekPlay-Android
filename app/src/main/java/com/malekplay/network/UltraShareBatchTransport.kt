@@ -1034,13 +1034,10 @@ internal fun writeFileAtomically(
         output.write(content)
         output.fd.sync()
     }
-    // POSIX rename replaces an existing destination atomically on the same
-    // filesystem. A failed commit therefore never deletes the previous file.
-    try {
-        android.system.Os.rename(temp.absolutePath, target.absolutePath)
-    } catch (failure: android.system.ErrnoException) {
-        throw IOException(failureMessage, failure)
-    }
+    // Both files are constrained to the same directory, so Android's
+    // same-filesystem rename replaces the destination without a delete gap.
+    // If rename fails, the previous destination remains untouched.
+    check(temp.renameTo(target)) { failureMessage }
 }
 
 internal fun writeUltraShareReceiptAtomically(temp: File, marker: File, content: String) {
