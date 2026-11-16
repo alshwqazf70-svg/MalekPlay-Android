@@ -18,7 +18,7 @@ import java.util.EnumMap
 
 /** Versioned QR payloads carry a one-session secret, optional LAN fallbacks and an ephemeral peer invitation ID. */
 object UltraShareQrCode {
-    private const val SCHEMA = "malekplay"
+    private const val SCHEMA = "MalekPlayer"
     private const val AUTHORITY = "ultra-share"
     private const val VERSION = "1"
     private const val MULTI_HOST_VERSION = "2"
@@ -96,10 +96,10 @@ object UltraShareQrCode {
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
-        require(safeHosts.isNotEmpty()) { "لا يوجد عنوان صالح لنقطة اتصال MalekPlay." }
+        require(safeHosts.isNotEmpty()) { "لا يوجد عنوان صالح لنقطة اتصال MalekPlayerer." }
         require(UltraShareTransport.isValidPairingSecret(pairingSecret)) { "رمز الاقتران غير صالح." }
-        require(ssid.isNotBlank() && ssid.length <= 32) { "اسم شبكة MalekPlay غير صالح." }
-        require(password.length in 8..63) { "كلمة مرور شبكة MalekPlay غير صالحة." }
+        require(ssid.isNotBlank() && ssid.length <= 32) { "اسم شبكة MalekPlayerer غير صالح." }
+        require(password.length in 8..63) { "كلمة مرور شبكة MalekPlayerer غير صالحة." }
         return Uri.Builder()
             .scheme(SCHEMA)
             .authority(AUTHORITY)
@@ -144,7 +144,7 @@ object UltraShareQrCode {
     fun parsePayload(payload: String): PairingDetails {
         val uri = Uri.parse(payload)
         require(uri.scheme == SCHEMA && uri.authority == AUTHORITY) {
-            "رمز QR ليس رمز اقتران MalekPlayer Ultra Share."
+            "رمز QR ليس رمز اقتران MalekPlayererer Ultra Share."
         }
         val version = uri.getQueryParameter("v")
         require(version == VERSION || version == MULTI_HOST_VERSION || version == INVITATION_VERSION || version == HOTSPOT_VERSION) {
@@ -166,7 +166,7 @@ object UltraShareQrCode {
             .toIntOrNull() ?: throw IllegalArgumentException("منفذ الاقتران غير صالح.")
         val secret = requireNotNull(uri.getQueryParameter("secret")) { "رمز الاقتران غير موجود في رمز QR." }
         require(UltraShareTransport.isValidPairingSecret(secret)) { "رمز الاقتران في QR غير صالح." }
-        require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ MalekPlayer Ultra Share غير متوافق." }
+        require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ MalekPlayererer Ultra Share غير متوافق." }
         val hotspotSsid = if (version == HOTSPOT_VERSION) {
             requireNotNull(uri.getQueryParameter("ssid")) { "اسم شبكة Wi-Fi غير موجود في QR." }
                 .also { require(it.isNotBlank() && it.length <= 32) { "اسم شبكة Wi-Fi غير صالح." } }
