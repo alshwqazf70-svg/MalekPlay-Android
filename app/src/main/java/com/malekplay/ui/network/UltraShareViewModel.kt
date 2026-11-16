@@ -211,9 +211,10 @@ class UltraShareViewModel @Inject constructor(
                 // A navigation-scoped ViewModel can be recreated while the foreground
                 // receiver service and P2P group remain alive. Re-publish the ephemeral
                 // invitation on the retained group instead of leaving a dead QR session.
-                if (serviceState.receiving && !serviceState.hotspotActive &&
-                    !serviceState.hotspotStarting && _state.value.invitationId.isBlank() &&
-                    !wifiDirectPrimaryAttempt && !hotspotFallbackStarted
+                if (serviceState.receiving && serviceState.activePeers.isEmpty() &&
+                    !serviceState.hotspotActive && !serviceState.hotspotStarting &&
+                    _state.value.invitationId.isBlank() && !wifiDirectPrimaryAttempt &&
+                    !hotspotFallbackStarted
                 ) {
                     wifiDirectPrimaryAttempt = true
                     viewModelScope.launch {
