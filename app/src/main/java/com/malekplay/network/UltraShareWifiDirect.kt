@@ -641,6 +641,11 @@ object UltraShareWifiDirect {
 
                             override fun onFailure(reason: Int) {
                                 if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return
+                                UltraShareDiagnostics.event(
+                                    "WIFI_DIRECT",
+                                    "CREATE_GROUP_REJECTED_BY_FRAMEWORK",
+                                    mapOf("reason" to reason, "reasonName" to groupFailureStage(reason), "attempt" to attempt)
+                                )
                                 if ((reason == WifiP2pManager.ERROR || reason == WifiP2pManager.BUSY) && attempt < 2) {
                                     finishGroupAttempt(token)
                                     runCatching { manager.cancelConnect(channel, null) }
@@ -860,8 +865,18 @@ object UltraShareWifiDirect {
                             if (isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) {
                                 connectionInProgress = false
                                 connectionTimeout = null
+                                UltraShareDiagnostics.event(
+                                    "WIFI_DIRECT",
+                                    "CONNECT_WAIT_TIMEOUT",
+                                    mapOf("attempt" to attempt, "peerDeviceAddress" to deviceAddress, "timeoutMs" to 30_000)
+                                )
                                 runCatching { manager.cancelConnect(channel, null) }
                                 if (attempt < 2) {
+                                    UltraShareDiagnostics.event(
+                                        "WIFI_DIRECT",
+                                        "CONNECT_RETRY_SCHEDULED",
+                                        mapOf("attempt" to attempt, "nextAttempt" to attempt + 1, "delayMs" to (800L * (attempt + 1)))
+                                    )
                                     mainHandler.postDelayed({
                                         if (!closed && !connectionInProgress && token == connectionAttemptToken) {
                                             connectionInProgress = true
@@ -886,7 +901,16 @@ object UltraShareWifiDirect {
                     }
 
                     override fun onFailure(reason: Int) {
-                        UltraShareDiagnostics.event("WIFI_DIRECT", "CONNECT_REQUEST_REJECTED_BY_FRAMEWORK", mapOf("reason" to reason, "attempt" to attempt))
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "CONNECT_REQUEST_REJECTED_BY_FRAMEWORK",
+                            mapOf(
+                                "reason" to reason,
+                                "reasonName" to connectFailureStage(reason),
+                                "attempt" to attempt,
+                                "peerDeviceAddress" to deviceAddress
+                            )
+                        )
                         if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
                         if ((reason == WifiP2pManager.BUSY || reason == WifiP2pManager.ERROR) && attempt < 2) {
                             recoverAndRetryConnect(
