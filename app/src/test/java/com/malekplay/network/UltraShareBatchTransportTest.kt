@@ -110,6 +110,43 @@ class UltraShareBatchTransportTest {
     }
 
     @Test
+    fun durableReceiptIsCommittedBeforePublicationAndCanBeReadBack() {
+        val directory = Files.createTempDirectory("ultrashare-receipt").toFile()
+        try {
+            val temporary = java.io.File(directory, "receipt.tmp")
+            val marker = java.io.File(directory, "receipt.done")
+            val content = "1234:" + "ab".repeat(32) + ":movie.mp4"
+
+            writeUltraShareReceiptAtomically(temporary, marker, content)
+
+            org.junit.Assert.assertTrue(marker.isFile)
+            org.junit.Assert.assertEquals(content, marker.readText(Charsets.UTF_8))
+            org.junit.Assert.assertFalse(temporary.exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun receiptCommitRejectsTemporaryFileOutsideMarkerDirectory() {
+        val first = Files.createTempDirectory("ultrashare-receipt-temp").toFile()
+        val second = Files.createTempDirectory("ultrashare-receipt-marker").toFile()
+        try {
+            val failure = runCatching {
+                writeUltraShareReceiptAtomically(
+                    java.io.File(first, "receipt.tmp"),
+                    java.io.File(second, "receipt.done"),
+                    "receipt"
+                )
+            }.exceptionOrNull()
+            org.junit.Assert.assertTrue(failure is IllegalArgumentException)
+        } finally {
+            first.deleteRecursively()
+            second.deleteRecursively()
+        }
+    }
+
+    @Test
     fun resumeStartsAtZeroWhenPartialFileIsMissing() {
         val directory = Files.createTempDirectory("ultrashare-resume-missing").toFile()
         try {
