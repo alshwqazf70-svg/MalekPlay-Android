@@ -7,6 +7,14 @@ import org.junit.Test
 
 class UltraShareWifiDirectPolicyTest {
     @Test
+    fun ownerWaitsLongEnoughForSlowAndroidNineAndTenDnsSdPairing() {
+        assertTrue(shouldRetryWifiDirectPeerConfirmation(0))
+        assertTrue(shouldRetryWifiDirectPeerConfirmation(69))
+        assertFalse(shouldRetryWifiDirectPeerConfirmation(70))
+        assertFalse(shouldRetryWifiDirectPeerConfirmation(-1))
+    }
+
+    @Test
     fun peerRefreshTimeoutAndCallbackCannotStartTwoConnectAttempts() {
         val finished = AtomicBoolean(false)
         assertTrue(claimWifiDirectPeerRefreshCompletion(finished))
