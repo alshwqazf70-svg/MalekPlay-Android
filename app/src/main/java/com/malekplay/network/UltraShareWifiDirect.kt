@@ -839,51 +839,65 @@ object UltraShareWifiDirect {
             // later 30-second group-negotiation timeout so the session cannot remain
             // permanently stuck in connectionInProgress.
             connectionTimeout?.let(mainHandler::removeCallbacks)
+            val peerRefreshFinished = java.util.concurrent.atomic.AtomicBoolean(false)
             val peerRefreshTimeout = Runnable {
-                if (isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) {
-                    connectionInProgress = false
+                if (claimWifiDirectPeerRefreshCompletion(peerRefreshFinished) &&
+                    isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)
+                ) {
                     connectionTimeout = null
-                    expectedPeerDeviceAddress = null
-                    cancelClientPeerConfirmation()
-                    // Invalidate any requestPeers callback that arrives after this timeout.
-                    connectionAttemptToken++
-                    reportError("لم يستجب Android لتحديث قائمة أجهزة Wi-Fi Direct. أعد البحث ثم حاول الاتصال مجدداً.")
+                    // DNS-SD supplied this exact, freshly observed peer address. Do not
+                    // abort a valid QR invitation merely because an OEM never answers
+                    // requestPeers(); proceed with the address already authenticated by
+                    // the invitation TXT record and let connect() report the real result.
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        "PEER_REFRESH_TIMEOUT_USING_DNSSD_ADDRESS",
+                        mapOf("attempt" to 0)
+                    )
+                    connectAttempt(deviceAddress, preferThisDeviceAsGroupOwner, token, 0)
                 }
             }
             connectionTimeout = peerRefreshTimeout
             mainHandler.postDelayed(peerRefreshTimeout, 5_000L)
             try {
                 // Refresh the peer list immediately before connecting; old peer entries
-                // can remain visible after an invitation has already failed.
+                // can remain visible after an invitation has already failed. DNS-SD's
+                // exact matched address remains a valid fallback if the list is delayed.
                 manager.requestPeers(channel) { peers ->
+                    if (!claimWifiDirectPeerRefreshCompletion(peerRefreshFinished)) return@requestPeers
                     if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return@requestPeers
                     connectionTimeout?.let(mainHandler::removeCallbacks)
                     connectionTimeout = null
                     val currentPeer = peers.deviceList.firstOrNull {
                         it.deviceAddress.equals(deviceAddress, ignoreCase = true)
                     }
-                    // A DNS-SD TXT match is itself a fresh peer sighting. Some OEM
-                    // stacks omit service-discovered peers from requestPeers briefly.
                     val targetAddress = currentPeer?.deviceAddress ?: deviceAddress
                     connectAttempt(targetAddress, preferThisDeviceAsGroupOwner, token, 0)
                 }
             } catch (failure: SecurityException) {
-                connectionInProgress = false
-                connectionTimeout?.let(mainHandler::removeCallbacks)
-                connectionTimeout = null
-                expectedPeerDeviceAddress = null
-                cancelClientPeerConfirmation()
-                connectionAttemptToken++
-                reportError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
+                if (claimWifiDirectPeerRefreshCompletion(peerRefreshFinished)) {
+                    connectionInProgress = false
+                    connectionTimeout?.let(mainHandler::removeCallbacks)
+                    connectionTimeout = null
+                    expectedPeerDeviceAddress = null
+                    cancelClientPeerConfirmation()
+                    connectionAttemptToken++
+                    reportError("يلزم إذن الأجهزة القريبة للاتصال عبر Wi-Fi Direct.")
+                }
             } catch (failure: RuntimeException) {
-                connectionInProgress = false
-                connectionTimeout?.let(mainHandler::removeCallbacks)
-                connectionTimeout = null
-                expectedPeerDeviceAddress = null
-                cancelClientPeerConfirmation()
-                connectionAttemptToken++
-                UltraShareDiagnostics.failure("WIFI_DIRECT_PEER_PREFLIGHT", failure)
-                reportError(failure.localizedMessage ?: "تعذر تحديث قائمة أجهزة Wi-Fi Direct قبل الاتصال.")
+                if (claimWifiDirectPeerRefreshCompletion(peerRefreshFinished) &&
+                    isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)
+                ) {
+                    connectionTimeout?.let(mainHandler::removeCallbacks)
+                    connectionTimeout = null
+                    UltraShareDiagnostics.failure("WIFI_DIRECT_PEER_PREFLIGHT", failure)
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        "PEER_REFRESH_ERROR_USING_DNSSD_ADDRESS",
+                        mapOf("attempt" to 0, "error" to failure.javaClass.simpleName)
+                    )
+                    connectAttempt(deviceAddress, preferThisDeviceAsGroupOwner, token, 0)
+                }
             }
         }
 
@@ -1832,6 +1846,11 @@ internal fun isCurrentWifiDirectInfoRequest(
     currentToken: Int,
     callbackToken: Int
 ): Boolean = !sessionClosed && currentToken == callbackToken
+
+/** Ensures timeout, callback, and synchronous failure can complete peer preflight only once. */
+internal fun claimWifiDirectPeerRefreshCompletion(
+    finished: java.util.concurrent.atomic.AtomicBoolean
+): Boolean = finished.compareAndSet(false, true)
 
 /** Rejects delayed callbacks after timeout, completion, closure, or a newer attempt. */
 internal fun isCurrentWifiDirectConnectionAttempt(
