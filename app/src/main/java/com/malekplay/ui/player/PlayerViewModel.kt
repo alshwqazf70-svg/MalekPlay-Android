@@ -99,6 +99,21 @@ data class PlaybackStats(
 
 @UnstableApi
 @HiltViewModel
+data class VideoEnhancementDiagnostics(
+    val bridgeAttached: Boolean = false,
+    val upscalingSubmitted: Boolean = false,
+    val denoiseDraws: Long = 0L,
+    val detailDraws: Long = 0L,
+    val totalShaderDraws: Long = 0L,
+    val lastEffect: String = "none",
+    val lastFailure: String? = null,
+    val lastPresentationTimeUs: Long = -1L,
+    val rendererFrames: Long = 0L,
+    val averageProcessingOffsetUs: Long = 0L,
+    val droppedFrames: Long = 0L,
+    val upscalingEnabled: Boolean = false,
+    val noiseReductionEnabled: Boolean = false
+)
 class PlayerViewModel @Inject constructor(
     @ApplicationContext private val app: Context,
     private val mediaRepository: MediaRepository,
@@ -166,11 +181,11 @@ class PlayerViewModel @Inject constructor(
     val videoUpscalingEnabled: StateFlow<Boolean> = _videoUpscalingEnabled.asStateFlow()
     private val _videoNoiseReductionEnabled = MutableStateFlow(false)
     val videoNoiseReductionEnabled: StateFlow<Boolean> = _videoNoiseReductionEnabled.asStateFlow()
-    private val _videoMotionSmoothingEnabled = MutableStateFlow(false)
-    val videoMotionSmoothingEnabled: StateFlow<Boolean> = _videoMotionSmoothingEnabled.asStateFlow()
     private val _videoEnhancementProfile = MutableStateFlow(VideoEnhancementProfile.BALANCED)
     val videoEnhancementProfile: StateFlow<VideoEnhancementProfile> = _videoEnhancementProfile.asStateFlow()
     private val _videoUpscalingError = MutableStateFlow<String?>(null)
+    private val _videoEnhancementDiagnostics = MutableStateFlow(VideoEnhancementDiagnostics())
+    val videoEnhancementDiagnostics: StateFlow<VideoEnhancementDiagnostics> = _videoEnhancementDiagnostics.asStateFlow()
     val videoUpscalingError: StateFlow<String?> = _videoUpscalingError.asStateFlow()
     val stats: StateFlow<PlaybackStats> = _stats.asStateFlow()
 
@@ -305,7 +320,6 @@ class PlayerViewModel @Inject constructor(
             // background setting carried into the next item.
             _videoUpscalingEnabled.value = false
             _videoNoiseReductionEnabled.value = false
-            _videoMotionSmoothingEnabled.value = false
             // The player already points at the new item here. Do not save its
             // position under the previous item's id.
             val nextMediaId = mediaItem?.mediaId
@@ -328,7 +342,6 @@ class PlayerViewModel @Inject constructor(
             if (tracks.groups.none { it.isSelected && it.type == C.TRACK_TYPE_VIDEO }) {
                 _videoUpscalingEnabled.value = false
                 _videoNoiseReductionEnabled.value = false
-                _videoMotionSmoothingEnabled.value = false
             }
             refreshVideoEffectState()
         }
@@ -337,7 +350,6 @@ class PlayerViewModel @Inject constructor(
             if (deviceInfo.playbackType == androidx.media3.common.DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                 _videoUpscalingEnabled.value = false
                 _videoNoiseReductionEnabled.value = false
-                _videoMotionSmoothingEnabled.value = false
             }
             refreshVideoEffectState()
         }
@@ -389,13 +401,16 @@ class PlayerViewModel @Inject constructor(
     private fun startTicker() {
         if (tickerJob?.isActive == true) return
         tickerJob = viewModelScope.launch {
+            var diagnosticPolls = 0
             while (isActive) {
                 val player = _controller.value ?: break
                 if (!player.isPlaying) {
                     publishPlayerSnapshot(player)
+                    refreshVideoEffectState()
                     break
                 }
                 publishPlayerSnapshot(player)
+                if (++diagnosticPolls % 4 == 0) refreshVideoEffectState()
                 delay(TICK_INTERVAL_MS)
             }
         }
@@ -422,10 +437,23 @@ class PlayerViewModel @Inject constructor(
                     state.getBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, false)
                 _videoNoiseReductionEnabled.value =
                     state.getBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, false)
-                _videoMotionSmoothingEnabled.value =
-                    state.getBoolean(PlaybackVideoEffects.KEY_STATE_MOTION_SMOOTHING, false)
                 _videoEnhancementProfile.value = VideoEnhancementProfile.fromWireValue(
                     state.getString(PlaybackVideoEffects.KEY_STATE_PROFILE)
+                )
+                _videoEnhancementDiagnostics.value = VideoEnhancementDiagnostics(
+                    bridgeAttached = state.getBoolean(PlaybackVideoEffects.KEY_DIAG_BRIDGE_ATTACHED, false),
+                    upscalingSubmitted = state.getBoolean(PlaybackVideoEffects.KEY_DIAG_UPSCALE_SUBMITTED, false),
+                    denoiseDraws = state.getLong(PlaybackVideoEffects.KEY_DIAG_DENOISE_DRAWS, 0L),
+                    detailDraws = state.getLong(PlaybackVideoEffects.KEY_DIAG_DETAIL_DRAWS, 0L),
+                    totalShaderDraws = state.getLong(PlaybackVideoEffects.KEY_DIAG_TOTAL_DRAWS, 0L),
+                    lastEffect = state.getString(PlaybackVideoEffects.KEY_DIAG_LAST_EFFECT).orEmpty(),
+                    lastFailure = state.getString(PlaybackVideoEffects.KEY_DIAG_LAST_FAILURE),
+                    lastPresentationTimeUs = state.getLong(PlaybackVideoEffects.KEY_DIAG_LAST_PTS_US, -1L),
+                    rendererFrames = state.getLong(PlaybackVideoEffects.KEY_DIAG_RENDERER_FRAMES, 0L),
+                    averageProcessingOffsetUs = state.getLong(PlaybackVideoEffects.KEY_DIAG_AVG_OFFSET_US, 0L),
+                    droppedFrames = state.getLong(PlaybackVideoEffects.KEY_DIAG_DROPPED_FRAMES, 0L),
+                    upscalingEnabled = state.getBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, false),
+                    noiseReductionEnabled = state.getBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, false)
                 )
             },
             ContextCompat.getMainExecutor(app)
@@ -439,8 +467,6 @@ class PlayerViewModel @Inject constructor(
     fun setVideoNoiseReductionEnabled(enabled: Boolean) =
         setVideoEffectEnabled(PlaybackVideoEffects.ACTION_NOISE_REDUCTION, enabled) { _videoNoiseReductionEnabled.value = it }
 
-    fun setVideoMotionSmoothingEnabled(enabled: Boolean) =
-        setVideoEffectEnabled(PlaybackVideoEffects.ACTION_MOTION_SMOOTHING, enabled) { _videoMotionSmoothingEnabled.value = it }
 
     /** Applies a requested quality preset; the service may cap it for device safety. */
     fun setVideoEnhancementProfile(profile: VideoEnhancementProfile) {

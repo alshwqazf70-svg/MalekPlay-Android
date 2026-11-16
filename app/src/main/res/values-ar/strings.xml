@@ -378,10 +378,25 @@
     <string name="player_gpu_upscaling_unavailable">تعذر تفعيل تحسين التحجيم لهذا الفيديو؛ قد يكون محمياً أو يبث إلى جهاز خارجي أو لا يحتاج إلى رفع الدقة.</string>
     <string name="player_noise_reduction_on">تقليل الضوضاء: يعمل (GPU)</string>
     <string name="player_noise_reduction_off">تقليل الضوضاء: متوقف</string>
-    <string name="player_motion_smoothing_on">تنعيم الحركة: يعمل (دمج زمني خفيف)</string>
-    <string name="player_motion_smoothing_off">تنعيم الحركة: متوقف</string>
     <string name="player_video_quality_economy">جودة الصورة: اقتصادي</string>
     <string name="player_video_quality_balanced">جودة الصورة: متوازن</string>
     <string name="player_video_quality_ultra">جودة الصورة: فائق</string>
     <string name="player_video_effect_unavailable">هذا التأثير غير متاح للفيديو الحالي أو لطريقة التشغيل الحالية.</string>
+
+    <string name="player_video_diagnostics">تشخيص تحسين الفيديو</string>
+    <string name="player_diag_bridge_ready">جسر المؤثرات: متصل</string>
+    <string name="player_diag_bridge_missing">جسر المؤثرات: غير متصل</string>
+    <string name="player_diag_lanczos_submitted">تحسين Lanczos: أُرسل إلى مسار Media3</string>
+    <string name="player_diag_lanczos_not_submitted">تحسين Lanczos: غير مفعّل أو غير مطلوب لهذه الدقة</string>
+    <string name="player_diag_denoise_draws">إطارات تقليل الضوضاء المعالجة فعلياً: %1$d</string>
+    <string name="player_diag_detail_draws">إطارات تحسين التفاصيل المعالجة فعلياً: %1$d</string>
+    <string name="player_diag_total_draws">إجمالي عمليات GPU المخصصة الناجحة: %1$d</string>
+    <string name="player_diag_renderer_frames">إطارات الفيديو التي أبلغ عنها Media3: %1$d</string>
+    <string name="player_diag_processing_offset">متوسط تأخير المعالجة: %1$d ميكروثانية</string>
+    <string name="player_diag_dropped_frames">الإطارات المتساقطة: %1$d</string>
+    <string name="player_diag_last_effect">آخر مؤثر عالج إطاراً: %1$s</string>
+    <string name="player_diag_last_failure">آخر خطأ GPU: %1$s</string>
+    <string name="player_diag_waiting_first_frame">تم تفعيل المسار، لكننا ننتظر أول إطار مؤكد من مؤثرات GPU.</string>
+    <string name="player_diag_lanczos_note">ملاحظة: Media3 لا يكشف عداد رسم Lanczos الداخلي؛ نعرض حالة إرساله للمسار ولا ندّعي عدّ إطاراته.</string>
+
 </resources>

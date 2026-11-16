@@ -91,6 +91,10 @@ class PlaybackService : MediaSessionService() {
     private var localExoPlayer: ExoPlayer? = null
     private var videoUpscalingEnabled = false
     private var videoNoiseReductionEnabled = false
+    @Volatile private var videoEffectsBridgeAttached = false
+    @Volatile private var lastRendererFrameCount = 0L
+    @Volatile private var lastAverageProcessingOffsetUs = 0L
+    @Volatile private var droppedVideoFramesTotal = 0L
     private var videoEnhancementProfile = VideoEnhancementProfile.BALANCED
     private var performanceQualityCap: VideoEnhancementProfile? = null
     private var thermalPowerManager: PowerManager? = null
@@ -362,6 +366,18 @@ class PlaybackService : MediaSessionService() {
         putBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, videoUpscalingEnabled)
         putBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, videoNoiseReductionEnabled)
         putString(PlaybackVideoEffects.KEY_STATE_PROFILE, videoEnhancementProfile.wireValue)
+        val metrics = VideoEnhancementMetrics.snapshot()
+        putBoolean(PlaybackVideoEffects.KEY_DIAG_UPSCALE_SUBMITTED, videoUpscalingEnabled && videoEffectsBridgeAttached)
+        putLong(PlaybackVideoEffects.KEY_DIAG_DENOISE_DRAWS, metrics.denoiseDraws)
+        putLong(PlaybackVideoEffects.KEY_DIAG_DETAIL_DRAWS, metrics.detailDraws)
+        putLong(PlaybackVideoEffects.KEY_DIAG_TOTAL_DRAWS, metrics.processedDraws)
+        putString(PlaybackVideoEffects.KEY_DIAG_LAST_EFFECT, metrics.lastEffectName)
+        putString(PlaybackVideoEffects.KEY_DIAG_LAST_FAILURE, metrics.lastFailure)
+        putLong(PlaybackVideoEffects.KEY_DIAG_LAST_PTS_US, metrics.lastPresentationTimeUs)
+        putLong(PlaybackVideoEffects.KEY_DIAG_RENDERER_FRAMES, lastRendererFrameCount)
+        putLong(PlaybackVideoEffects.KEY_DIAG_AVG_OFFSET_US, lastAverageProcessingOffsetUs)
+        putLong(PlaybackVideoEffects.KEY_DIAG_DROPPED_FRAMES, droppedVideoFramesTotal)
+        putBoolean(PlaybackVideoEffects.KEY_DIAG_BRIDGE_ATTACHED, videoEffectsBridgeAttached)
     }
 
     private val videoEffectRouteListener = object : Player.Listener {
@@ -382,6 +398,8 @@ class PlaybackService : MediaSessionService() {
             if (!hasAnyVideoEnhancementEnabled() || frameCount <= 0) return
             val gpu = VideoEnhancementMetrics.snapshot()
             val averageOffsetUs = totalProcessingOffsetUs / frameCount
+            lastRendererFrameCount += frameCount.toLong()
+            lastAverageProcessingOffsetUs = averageOffsetUs
             Log.d(
                 TAG,
                 "Video processing sample: rendererFrames=" + frameCount +
@@ -399,6 +417,7 @@ class PlaybackService : MediaSessionService() {
             elapsedMs: Long
         ) {
             if (!hasAnyVideoEnhancementEnabled() || droppedFrames <= 0) return
+            droppedVideoFramesTotal += droppedFrames.toLong()
             // Ignore isolated frame drops; react only to a sustained/burst regression.
             if ((droppedFrames >= 3 && elapsedMs <= 1_500L) ||
                 (droppedFrames >= 8 && elapsedMs <= 5_000L)
@@ -511,13 +530,16 @@ class PlaybackService : MediaSessionService() {
     private fun disableAllVideoEnhancements() {
         videoUpscalingEnabled = false
         videoNoiseReductionEnabled = false
+        videoEffectsBridgeAttached = false
     }
 
     private fun applyVideoEnhancements(): Boolean {
         val player = localExoPlayer ?: return false
         if (!hasAnyVideoEnhancementEnabled()) {
-            AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
-            return true
+            videoEffectsBridgeAttached = runCatching {
+                AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
+            }.getOrDefault(false)
+            return videoEffectsBridgeAttached
         }
         if (!isLocalClearVideoSession()) {
             disableAllVideoEnhancements()
@@ -573,6 +595,7 @@ class PlaybackService : MediaSessionService() {
         }.onFailure { error ->
             Log.e(TAG, "Failed to apply local video enhancement effects", error)
         }.getOrDefault(false)
+        videoEffectsBridgeAttached = applied
         if (!applied) {
             // Do not leave the UI claiming that an effect is active when the ASS
             // renderer bridge has not attached to this ExoPlayer instance.

@@ -197,9 +197,9 @@ fun VideoPlayerScreen(
     val isBuffering by viewModel.isBuffering.collectAsStateWithLifecycle()
     val videoUpscalingEnabled by viewModel.videoUpscalingEnabled.collectAsStateWithLifecycle()
     val videoNoiseReductionEnabled by viewModel.videoNoiseReductionEnabled.collectAsStateWithLifecycle()
-    val videoMotionSmoothingEnabled by viewModel.videoMotionSmoothingEnabled.collectAsStateWithLifecycle()
     val videoEnhancementProfile by viewModel.videoEnhancementProfile.collectAsStateWithLifecycle()
     val videoUpscalingError by viewModel.videoUpscalingError.collectAsStateWithLifecycle()
+    val videoEnhancementDiagnostics by viewModel.videoEnhancementDiagnostics.collectAsStateWithLifecycle()
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
     val durationMs by viewModel.durationMs.collectAsStateWithLifecycle()
     val bufferedMs by viewModel.bufferedMs.collectAsStateWithLifecycle()
@@ -355,7 +355,6 @@ fun VideoPlayerScreen(
         onDispose {
             viewModel.setVideoUpscalingEnabled(false)
             viewModel.setVideoNoiseReductionEnabled(false)
-            viewModel.setVideoMotionSmoothingEnabled(false)
         }
     }
 
@@ -388,6 +387,7 @@ fun VideoPlayerScreen(
     var showBookmarks by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var showVideoDiagnostics by remember { mutableStateOf(false) }
     var showTranslationLanguages by remember { mutableStateOf(false) }
     var showOnlineSubtitles by remember { mutableStateOf(false) }
     var showDlnaPicker by remember { mutableStateOf(false) }
@@ -948,20 +948,47 @@ fun VideoPlayerScreen(
                 DropdownMenuItem(
                     text = {
                         Text(stringResource(
-                            if (videoMotionSmoothingEnabled) R.string.player_motion_smoothing_on
-                            else R.string.player_motion_smoothing_off
                         ))
                     },
                     onClick = {
                         showMenu = false
-                        viewModel.setVideoMotionSmoothingEnabled(!videoMotionSmoothingEnabled)
                     }
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.player_video_diagnostics)) },
+                    onClick = { showMenu = false; showVideoDiagnostics = true }
                 )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.player_bookmarks)) },
                     onClick = { showMenu = false; showBookmarks = true }
                 )
             }
+        }
+
+        if (showVideoDiagnostics) {
+            val diagnostics = videoEnhancementDiagnostics
+            AlertDialog(
+                onDismissRequest = { showVideoDiagnostics = false },
+                title = { Text(stringResource(R.string.player_video_diagnostics)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(if (diagnostics.bridgeAttached) R.string.player_diag_bridge_ready else R.string.player_diag_bridge_missing))
+                        Text(stringResource(if (diagnostics.upscalingSubmitted) R.string.player_diag_lanczos_submitted else R.string.player_diag_lanczos_not_submitted))
+                        Text(stringResource(R.string.player_diag_denoise_draws, diagnostics.denoiseDraws))
+                        Text(stringResource(R.string.player_diag_detail_draws, diagnostics.detailDraws))
+                        Text(stringResource(R.string.player_diag_total_draws, diagnostics.totalShaderDraws))
+                        Text(stringResource(R.string.player_diag_renderer_frames, diagnostics.rendererFrames))
+                        Text(stringResource(R.string.player_diag_processing_offset, diagnostics.averageProcessingOffsetUs))
+                        Text(stringResource(R.string.player_diag_dropped_frames, diagnostics.droppedFrames))
+                        Text(stringResource(R.string.player_diag_last_effect, diagnostics.lastEffect))
+                        diagnostics.lastFailure?.let { Text(stringResource(R.string.player_diag_last_failure, it), color = MaterialTheme.colorScheme.error) }
+                        if (diagnostics.totalShaderDraws == 0L && (diagnostics.noiseReductionEnabled || diagnostics.upscalingEnabled))
+                            Text(stringResource(R.string.player_diag_waiting_first_frame), color = MaterialTheme.colorScheme.tertiary)
+                        Text(stringResource(R.string.player_diag_lanczos_note), style = MaterialTheme.typography.bodySmall)
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showVideoDiagnostics = false }) { Text(stringResource(R.string.lib_done)) } }
+            )
         }
 
         if (showSpeed) {
