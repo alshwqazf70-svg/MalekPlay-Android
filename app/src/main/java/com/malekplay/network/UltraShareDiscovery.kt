@@ -208,9 +208,9 @@ object UltraShareDiscovery {
             }
         }
 
-        var activeRoutes = findBroadcastRoutes(context)
-        var activeFingerprint = routeFingerprint(activeRoutes)
-        var sockets = openSockets(activeRoutes)
+        val initialRoutes = findBroadcastRoutes(context)
+        var activeFingerprint = routeFingerprint(initialRoutes)
+        var sockets = openSockets(initialRoutes)
         try {
             while (true) {
                 currentCoroutineContext().ensureActive()
@@ -226,9 +226,8 @@ object UltraShareDiscovery {
                         )
                     )
                     sockets.forEach { runCatching { it.close() } }
-                    activeRoutes = latestRoutes
                     activeFingerprint = latestFingerprint
-                    sockets = openSockets(activeRoutes)
+                    sockets = openSockets(latestRoutes)
                     UltraShareDiagnostics.event(
                         "DISCOVERY",
                         "DISCOVERY_SOCKETS_REBOUND",
