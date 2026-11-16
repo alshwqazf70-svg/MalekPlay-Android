@@ -1146,6 +1146,53 @@ fun UltraShareExperienceScreen(
                         remoteHost = host.ifBlank { state.activePeers.firstOrNull()?.host.orEmpty() },
                         selectedMediaCount = selectedUris.size
                     )
+                    val connectedHosts = (
+                        state.activePeers.map { it.host } + state.approvedSenderPeerHosts
+                    ).toSet()
+                    val reconnectableHosts = (
+                        state.reconnectablePeers.map { it.host } + state.reconnectableSenderPeerHosts
+                    ).distinct().filterNot { it in connectedHosts }
+                    if (reconnectableHosts.isNotEmpty()) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2025)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(9.dp)
+                            ) {
+                                Text(
+                                    "انقطع الاتصال بجهاز محفوظ",
+                                    color = Color(0xFFFFB4A9),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "يمكنك محاولة إعادة الاتصال دون إعادة اختيار الملفات. إذا تغيّرت شبكة Wi-Fi أو انتهت جلسة الطرف الآخر، افتح الاستقبال لديه وامسح رمز QR جديداً.",
+                                    color = MalekPlayColors.TextSecondary,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                reconnectableHosts.forEach { disconnectedHost ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            disconnectedHost,
+                                            modifier = Modifier.weight(1f),
+                                            color = MalekPlayColors.TextPrimary,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            maxLines = 1
+                                        )
+                                        OutlinedButton(
+                                            onClick = { viewModel.reconnectPeer(disconnectedHost) },
+                                            enabled = !state.requestingConnection && !state.sending
+                                        ) { Text("إعادة الاتصال") }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     state.peerTransfers.forEach { transfer ->
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
