@@ -973,8 +973,10 @@ fun VideoPlayerScreen(
                         Text(stringResource(R.string.player_diag_dropped_frames, diagnostics.droppedFrames))
                         Text(stringResource(R.string.player_diag_last_effect, diagnostics.lastEffect))
                         diagnostics.lastFailure?.let { Text(stringResource(R.string.player_diag_last_failure, it), color = MaterialTheme.colorScheme.error) }
-                        if (diagnostics.totalShaderDraws == 0L && (diagnostics.noiseReductionEnabled || diagnostics.upscalingEnabled))
-                            Text(stringResource(R.string.player_diag_waiting_first_frame), color = MaterialTheme.colorScheme.tertiary)
+                        if (diagnostics.totalShaderDraws == 0L && (diagnostics.noiseReductionEnabled || diagnostics.upscalingEnabled)) {
+                            val message = if (diagnostics.rendererFrames > 0L) R.string.player_diag_gpu_pipeline_stalled else R.string.player_diag_waiting_first_frame
+                            Text(stringResource(message), color = if (diagnostics.rendererFrames > 0L) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary)
+                        }
                         Text(stringResource(R.string.player_diag_lanczos_note), style = MaterialTheme.typography.bodySmall)
                     }
                 },

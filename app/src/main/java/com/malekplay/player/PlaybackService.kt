@@ -441,6 +441,10 @@ class PlaybackService : MediaSessionService() {
     private val localVideoEffectListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             performanceQualityCap = null
+            VideoEnhancementMetrics.reset()
+            lastRendererFrameCount = 0L
+            lastAverageProcessingOffsetUs = 0L
+            droppedVideoFramesTotal = 0L
             // Effects are opt-in per video. Do not keep a GPU pipeline running
             // after the user advances to another item.
             disableAllVideoEnhancements()
@@ -482,6 +486,7 @@ class PlaybackService : MediaSessionService() {
     private fun setVideoUpscaling(enabled: Boolean): Boolean {
         if (enabled && !isLocalClearVideoSession()) return false
         val previous = videoUpscalingEnabled
+        if (enabled && !hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.reset()
         videoUpscalingEnabled = enabled
         if (applyVideoEnhancements()) return true
         videoUpscalingEnabled = previous
@@ -492,6 +497,7 @@ class PlaybackService : MediaSessionService() {
     private fun setVideoNoiseReduction(enabled: Boolean): Boolean {
         if (enabled && !isLocalClearVideoSession()) return false
         val previous = videoNoiseReductionEnabled
+        if (enabled && !hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.reset()
         videoNoiseReductionEnabled = enabled
         if (applyVideoEnhancements()) return true
         videoNoiseReductionEnabled = previous
@@ -556,7 +562,6 @@ class PlaybackService : MediaSessionService() {
 
         val tuning = resolveVideoEnhancementTuning()
         val profile = tuning.effective
-        VideoEnhancementMetrics.reset()
         if (tuning.downgradeReason != null) {
             Log.w(TAG, "Video enhancement profile capped: ${tuning.downgradeReason}")
         }
