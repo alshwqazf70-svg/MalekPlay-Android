@@ -168,8 +168,8 @@ class UltraSharePairingReadinessTest {
 
     @Test fun ownerPeerConfirmationRetriesAreBounded() {
         assertTrue(shouldRetryWifiDirectPeerConfirmation(0))
-        assertTrue(shouldRetryWifiDirectPeerConfirmation(19))
-        assertFalse(shouldRetryWifiDirectPeerConfirmation(20))
+        assertTrue(shouldRetryWifiDirectPeerConfirmation(69))
+        assertFalse(shouldRetryWifiDirectPeerConfirmation(70))
         assertFalse(shouldRetryWifiDirectPeerConfirmation(-1))
         assertFalse(shouldRetryWifiDirectPeerConfirmation(0, maxAttempts = 0))
         assertTrue(shouldRetryWifiDirectPeerConfirmation(2, maxAttempts = 3))
