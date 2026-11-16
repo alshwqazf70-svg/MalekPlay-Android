@@ -1,10 +1,20 @@
 package com.malekplay.network
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UltraSharePairingReadinessTest {
+    @Test fun qrPayloadRemainsByteForByteStableAfterFirstPublication() {
+        val first = "malekplay://share?invitation=stable&host=192.168.49.1"
+        assertEquals(first, UltraSharePairingReadiness.stableQrPayload(null, first))
+        assertEquals(first, UltraSharePairingReadiness.stableQrPayload(first, "malekplay://share?invitation=rotated"))
+        assertEquals(first, UltraSharePairingReadiness.stableQrPayload(first, null))
+        assertNull(UltraSharePairingReadiness.stableQrPayload(null, null))
+    }
+
     private fun ready(
         receiving: Boolean = true,
         control: Boolean = true,
