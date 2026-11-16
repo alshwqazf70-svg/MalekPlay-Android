@@ -644,7 +644,7 @@ object UltraShareWifiDirect {
                                 UltraShareDiagnostics.event(
                                     "WIFI_DIRECT",
                                     "CREATE_GROUP_REJECTED_BY_FRAMEWORK",
-                                    mapOf("reason" to reason, "reasonName" to groupFailureStage(reason), "attempt" to attempt)
+                                    mapOf("reason" to reason, "attempt" to attempt)
                                 )
                                 if ((reason == WifiP2pManager.ERROR || reason == WifiP2pManager.BUSY) && attempt < 2) {
                                     finishGroupAttempt(token)
@@ -906,7 +906,6 @@ object UltraShareWifiDirect {
                             "CONNECT_REQUEST_REJECTED_BY_FRAMEWORK",
                             mapOf(
                                 "reason" to reason,
-                                "reasonName" to connectFailureStage(reason),
                                 "attempt" to attempt,
                                 "peerDeviceAddress" to deviceAddress
                             )
