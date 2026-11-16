@@ -52,11 +52,7 @@ object UltraShareReceivedPublisher {
 
             // defaultReceiveDirectory() is already an app-owned persistent
             // MalekPlayer/Received folder. Keep the verified file there as fallback.
-            val fallback = File(
-                app.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-                    ?: File(app.filesDir, "downloads"),
-                relativePath.removePrefix("${Environment.DIRECTORY_DOWNLOADS}/")
-            )
+            val fallback = UltraShareTransport.defaultReceiveDirectory(app)
             check(fallback.isDirectory || fallback.mkdirs()) {
                 "تعذر إنشاء مجلد MalekPlayer/Received لحفظ الملف المستلم."
             }
@@ -141,10 +137,9 @@ object UltraShareReceivedPublisher {
         ) return null
 
         return try {
-            val directory = File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "MalekPlayer/Received"
-            )
+            val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val subdirectory = relativePath.removePrefix("${Environment.DIRECTORY_DOWNLOADS}/")
+            val directory = if (subdirectory.isBlank()) downloads else File(downloads, subdirectory)
             check(directory.isDirectory || directory.mkdirs()) {
                 "تعذر إنشاء مجلد التنزيلات."
             }
