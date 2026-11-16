@@ -34,7 +34,7 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * First LAN transport for MalekPlay Ultra Share.
+ * First LAN transport for MalekPlayer Ultra Share.
  *
  * The receiver accepts one authenticated transfer per invocation. The 256-bit
  * pairing secret is exchanged out-of-band (the QR/pairing UI is added separately).
@@ -327,7 +327,7 @@ object UltraShareTransport {
             val input = DataInputStream(BufferedInputStream(socket.getInputStream(), SOCKET_BUFFER_BYTES))
             val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), SOCKET_BUFFER_BYTES))
 
-            check(input.readInt() == MAGIC) { "الجهاز الآخر لا يشغّل MalekPlay Ultra Share." }
+            check(input.readInt() == MAGIC) { "الجهاز الآخر لا يشغّل MalekPlayer Ultra Share." }
             val challenge = ByteArray(CHALLENGE_BYTES).also(input::readFully)
             val secret = derivePairingKey(pairingSecret, challenge)
             val proof = hmac(secret, challenge)
@@ -614,7 +614,7 @@ object UltraShareTransport {
     fun defaultReceiveDirectory(context: android.content.Context): File {
         val base = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?: File(context.filesDir, "downloads")
-        return File(base, "MalekPlayer/Received")
+        return File(base, "MalekPlayerer/Received")
     }
 
     private fun resolvePrivateLanAddress(host: String): InetAddress {
@@ -688,7 +688,7 @@ object UltraShareTransport {
         }
 
     private fun deriveSessionKey(secret: ByteArray, challenge: ByteArray, direction: String): ByteArray {
-        val label = "MalekPlay Ultra Share v1/$direction".toByteArray(Charsets.UTF_8)
+        val label = "MalekPlayer Ultra Share v1/$direction".toByteArray(Charsets.UTF_8)
         return hmac(secret, challenge + label)
     }
 
