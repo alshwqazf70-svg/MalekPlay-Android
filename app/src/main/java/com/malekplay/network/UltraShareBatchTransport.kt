@@ -1029,8 +1029,12 @@ internal fun writeUltraShareReceiptAtomically(temp: File, marker: File, content:
         output.write(content.toByteArray(Charsets.UTF_8))
         output.fd.sync()
     }
-    // File.renameTo replacement behavior varies by filesystem; remove an older
-    // invalid receipt explicitly so the synced temporary file can be committed.
-    if (marker.exists()) check(marker.delete()) { "تعذر استبدال سجل الاستلام القديم." }
-    check(temp.renameTo(marker)) { "تعذر حفظ سجل اكتمال الملف." }
+    // POSIX rename replaces an existing destination atomically on the same
+    // filesystem. Unlike delete-then-rename, a failed commit never destroys the
+    // previous durable receipt.
+    try {
+        android.system.Os.rename(temp.absolutePath, marker.absolutePath)
+    } catch (failure: android.system.ErrnoException) {
+        throw IOException("تعذر حفظ سجل اكتمال الملف دون فقدان السجل السابق.", failure)
+    }
 }

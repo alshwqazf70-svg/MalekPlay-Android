@@ -587,10 +587,9 @@ object UltraShareTransport {
                         markerOutput.write(markerContent.toByteArray(Charsets.UTF_8))
                         markerOutput.fd.sync()
                     }
-                    if (receiptMarker.exists()) check(receiptMarker.delete()) {
-                        "تعذر تحديث سجل الاستلام."
-                    }
-                    check(markerTemp.renameTo(receiptMarker)) { "تعذر حفظ سجل الاستلام." }
+                    // Keep the previous durable marker intact until the replacement
+                    // has been fully written, synced and atomically renamed into place.
+                    writeUltraShareReceiptAtomically(markerTemp, receiptMarker, markerContent)
                     try {
                         check(partial.renameTo(target)) {
                             "تم استلام الملف لكن تعذر نقله إلى مجلد الملفات المكتملة."

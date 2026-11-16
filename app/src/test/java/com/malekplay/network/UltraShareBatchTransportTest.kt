@@ -207,12 +207,36 @@ class UltraShareBatchTransportTest {
             val temporary = java.io.File(directory, "receipt.tmp")
             val marker = java.io.File(directory, "receipt.done")
             val content = "1234:" + "ab".repeat(32) + ":movie.mp4"
+            marker.writeText("previous durable receipt", Charsets.UTF_8)
 
             writeUltraShareReceiptAtomically(temporary, marker, content)
 
             org.junit.Assert.assertTrue(marker.isFile)
             org.junit.Assert.assertEquals(content, marker.readText(Charsets.UTF_8))
             org.junit.Assert.assertFalse(temporary.exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun failedReceiptWritePreservesThePreviousDurableMarker() {
+        val directory = Files.createTempDirectory("ultrashare-receipt-preserve").toFile()
+        try {
+            val temporary = java.io.File(directory, "receipt.tmp")
+            val marker = java.io.File(directory, "receipt.done")
+            marker.writeText("previous durable receipt", Charsets.UTF_8)
+            assertTrue(temporary.mkdir())
+
+            val failure = runCatching {
+                writeUltraShareReceiptAtomically(temporary, marker, "replacement receipt")
+            }.exceptionOrNull()
+
+            org.junit.Assert.assertTrue(failure != null)
+            org.junit.Assert.assertEquals(
+                "previous durable receipt",
+                marker.readText(Charsets.UTF_8)
+            )
         } finally {
             directory.deleteRecursively()
         }
