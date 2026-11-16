@@ -1731,7 +1731,8 @@ internal fun wifiP2pRadioStateName(state: Int): String = when (state) {
 }
 
 /** Android 6 through 12L require Location services enabled for Wi-Fi Direct service discovery. */
-internal fun requiresWifiDirectLocationService(sdkInt: Int): Boolean = sdkInt in 23..32
+internal fun requiresWifiDirectLocationService(sdkInt: Int): Boolean =
+    UltraSharePlatformCompatibility.requiresLocationServicesForWifiDirect(sdkInt)
 
 /** Bounds owner-side client confirmation retries without treating an empty group as paired. */
 internal fun shouldRetryWifiDirectPeerConfirmation(attempt: Int, maxAttempts: Int = 20): Boolean =
