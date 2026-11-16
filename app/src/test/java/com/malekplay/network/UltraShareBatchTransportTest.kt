@@ -93,6 +93,23 @@ class UltraShareBatchTransportTest {
     }
 
     @Test
+    fun resumeDigestIncludesBytesSkippedBeforeTheTransferOffset() = runBlocking {
+        val payload = ByteArray(8193) { (it % 251).toByte() }
+        val expected = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(payload)
+        val actual = java.security.MessageDigest.getInstance("SHA-256")
+
+        UltraShareBatchTransport.skipAndDigest(
+            java.io.ByteArrayInputStream(payload),
+            4096L,
+            actual
+        )
+        actual.update(payload, 4096, payload.size - 4096)
+
+        org.junit.Assert.assertArrayEquals(expected, actual.digest())
+    }
+
+    @Test
     fun resumeStartsAtZeroWhenPartialFileIsMissing() {
         val directory = Files.createTempDirectory("ultrashare-resume-missing").toFile()
         try {
