@@ -340,11 +340,11 @@ static void OnDFileRename(DFileRenamePara *renamePara)
     name = (name == NULL) ? renamePara->initFileName : name + 1;
     dot = strrchr(name, '.');
     if (dot == NULL || dot == name) dot = name + strlen(name);
-    prefixLength = (size_t)(dot - renamePara->initFileName);
+    prefixLength = (size_t)(dot - name);
     extension = dot;
     for (suffix = 1; suffix < 10000; ++suffix) {
         int written = snprintf(renamePara->newFileName, sizeof(renamePara->newFileName),
-            "%.*s (%u)%s", (int)prefixLength, renamePara->initFileName, suffix, extension);
+            "%.*s (%u)%s", (int)prefixLength, name, suffix, extension);
         if (written > 0 && (size_t)written < sizeof(renamePara->newFileName)) return;
     }
     renamePara->newFileName[0] = '\0';
