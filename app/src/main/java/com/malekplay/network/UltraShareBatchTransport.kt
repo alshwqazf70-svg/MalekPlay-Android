@@ -49,6 +49,8 @@ object UltraShareBatchTransport {
     const val DEFAULT_PORT = UltraShareTransport.DEFAULT_PORT + 1
     private const val BUFFER_BYTES = 1024 * 1024
     private const val FRAME_BYTES = 256 * 1024
+    // A checkpoint is committed only after the corresponding partial bytes are fsynced.
+    private const val RESUME_CHECKPOINT_INTERVAL_BYTES = 4L * 1024L * 1024L
     private const val HANDSHAKE_TIMEOUT_MS = 8_000
     private const val SESSION_TIMEOUT_MS = 30_000
     // Verification and publication may take longer than an ordinary data-frame gap,
@@ -563,6 +565,8 @@ object UltraShareBatchTransport {
         val partials = manifest.entries.map { entry ->
             val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
             val partial = File(stateDirectory, ".ultrashare-v2-$identity.part")
+            val checkpoint = File(stateDirectory, ".ultrashare-v2-$identity.resume")
+            val checkpointTemp = File(stateDirectory, ".ultrashare-v2-$identity.resume.tmp")
             val receipt = File(stateDirectory, ".ultrashare-v2-$identity.received")
             val digestHex = entry.sha256.joinToString("") { "%02x".format(it) }
             val completed = receipt.takeIf { it.isFile }?.let { marker ->
@@ -587,7 +591,7 @@ object UltraShareBatchTransport {
             }
             if (completed != null) completedFiles[entry.id] = completed
             val offset = if (completed != null) entry.sizeBytes
-                else resumableFileOffset(partial, entry.sizeBytes)
+                else resumableFileOffset(partial, checkpoint, entry.sizeBytes, digestHex)
             UltraShareDiagnostics.event(
                 "DATA_RECEIVE",
                 "FILE_RESUME_STATE",
@@ -633,6 +637,7 @@ object UltraShareBatchTransport {
                 )
                 FileOutputStream(partial, offset > 0L).use { file ->
                     var streamFailure: Throwable? = null
+                    var lastCheckpointOffset = offset
                     try {
                         val startedAt = System.nanoTime()
                         while (transferred < entry.sizeBytes) {
@@ -649,6 +654,28 @@ object UltraShareBatchTransport {
                             val bytes = ByteArray(length).also(frame::readFully)
                             file.write(bytes)
                             transferred += length
+                            if (transferred - lastCheckpointOffset >= RESUME_CHECKPOINT_INTERVAL_BYTES ||
+                                transferred == entry.sizeBytes
+                            ) {
+                                // Ordering is intentional: data reaches stable storage before
+                                // the checkpoint that authorizes a future resume can replace
+                                // the previous checkpoint.
+                                file.fd.sync()
+                                writeUltraShareResumeCheckpointAtomically(
+                                    checkpointTemp, checkpoint, entry.sizeBytes, digestHex, transferred
+                                )
+                                lastCheckpointOffset = transferred
+                                UltraShareDiagnostics.event(
+                                    "DATA_RECEIVE",
+                                    "RESUME_CHECKPOINT_COMMITTED",
+                                    mapOf(
+                                        "peerHost" to peerHost,
+                                        "batchId" to manifest.batchId,
+                                        "fileId" to entry.id,
+                                        "durableBytes" to transferred
+                                    )
+                                )
+                            }
                             onProgress(FileProgress(
                                 entry.id, entry.name, transferred, entry.sizeBytes,
                                 rate(transferred - offset, startedAt), true
@@ -736,6 +763,8 @@ object UltraShareBatchTransport {
                         )
                     )
                     runCatching { partial.delete() }
+                    runCatching { checkpoint.delete() }
+                    runCatching { checkpointTemp.delete() }
                     outcomes += FileOutcome(
                         entry.id, entry.name, null, UltraShareBatchProtocol.FileStatus.FAILED,
                         transferred, "فشل التحقق من بصمة الملف."
@@ -781,6 +810,10 @@ object UltraShareBatchTransport {
                     )
                     try {
                         check(partial.renameTo(target)) { "تعذر تثبيت الملف المستلم." }
+                        // The published file is now protected by the durable receipt;
+                        // the partial-resume metadata is no longer needed.
+                        runCatching { checkpoint.delete() }
+                        runCatching { checkpointTemp.delete() }
                     } catch (failure: Exception) {
                         runCatching { marker.delete() }
                         throw failure
@@ -1015,6 +1048,65 @@ object UltraShareBatchTransport {
 
 private class DiscoveryProbeConnection : Exception("Discovery reachability probe")
 
+
+/**
+ * Returns only a checkpointed offset. Bytes beyond the checkpoint are discarded,
+ * because a crash may have extended the partial file without committing a matching
+ * durable checkpoint. Missing/invalid metadata deliberately restarts that file at 0.
+ */
+internal fun resumableFileOffset(
+    partial: File,
+    checkpoint: File,
+    expectedSizeBytes: Long,
+    expectedDigestHex: String
+): Long {
+    require(expectedSizeBytes in 0..UltraShareTransport.MAX_FILE_BYTES)
+    require(expectedDigestHex.matches(Regex("[0-9a-f]{64}")))
+    require(partial.parentFile?.canonicalFile == checkpoint.parentFile?.canonicalFile)
+    val fields = runCatching { checkpoint.readText(Charsets.UTF_8).split(':') }.getOrNull()
+    val offset = fields?.takeIf {
+        it.size == 3 && it[0] == expectedSizeBytes.toString() && it[1] == expectedDigestHex
+    }?.get(2)?.toLongOrNull()
+    val valid = partial.isFile && offset != null && offset in 0..expectedSizeBytes &&
+        partial.length() >= offset
+    if (!valid) {
+        if (partial.isFile) {
+            java.io.RandomAccessFile(partial, "rw").use { file ->
+                file.setLength(0L)
+                file.fd.sync()
+            }
+        }
+        runCatching { checkpoint.delete() }
+        return 0L
+    }
+    if (partial.length() != offset) {
+        java.io.RandomAccessFile(partial, "rw").use { file ->
+            file.setLength(offset)
+            file.fd.sync()
+        }
+    }
+    return offset
+}
+
+/** Commits a resume checkpoint only after the caller has fsynced the partial data. */
+internal fun writeUltraShareResumeCheckpointAtomically(
+    temp: File,
+    checkpoint: File,
+    expectedSizeBytes: Long,
+    digestHex: String,
+    durableOffset: Long
+) {
+    require(temp.parentFile?.canonicalFile == checkpoint.parentFile?.canonicalFile)
+    require(expectedSizeBytes in 0..UltraShareTransport.MAX_FILE_BYTES)
+    require(digestHex.matches(Regex("[0-9a-f]{64}")))
+    require(durableOffset in 0..expectedSizeBytes)
+    writeFileAtomically(
+        temp,
+        checkpoint,
+        "$expectedSizeBytes:$digestHex:$durableOffset".toByteArray(Charsets.UTF_8),
+        "تعذر تثبيت نقطة استئناف الملف بأمان."
+    )
+}
 
 /**
  * Writes a completed-transfer receipt through a synced temporary file and atomic rename.
