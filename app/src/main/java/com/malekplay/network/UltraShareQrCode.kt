@@ -18,7 +18,7 @@ import java.util.EnumMap
 
 /** Versioned QR payloads carry a one-session secret, optional LAN fallbacks and an ephemeral peer invitation ID. */
 object UltraShareQrCode {
-    private const val SCHEMA = "MalekPlayer"
+    private const val SCHEMA = "malekplay"
     private const val AUTHORITY = "ultra-share"
     private const val VERSION = "1"
     private const val MULTI_HOST_VERSION = "2"
