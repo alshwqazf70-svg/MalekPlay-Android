@@ -92,6 +92,7 @@ class PlaybackService : MediaSessionService() {
     private var videoUpscalingEnabled = false
     private var videoNoiseReductionEnabled = false
     @Volatile private var videoEffectsBridgeAttached = false
+    @Volatile private var videoLanczosSubmitted = false
     @Volatile private var lastRendererFrameCount = 0L
     @Volatile private var lastAverageProcessingOffsetUs = 0L
     @Volatile private var droppedVideoFramesTotal = 0L
@@ -367,7 +368,7 @@ class PlaybackService : MediaSessionService() {
         putBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, videoNoiseReductionEnabled)
         putString(PlaybackVideoEffects.KEY_STATE_PROFILE, videoEnhancementProfile.wireValue)
         val metrics = VideoEnhancementMetrics.snapshot()
-        putBoolean(PlaybackVideoEffects.KEY_DIAG_UPSCALE_SUBMITTED, videoUpscalingEnabled && videoEffectsBridgeAttached)
+        putBoolean(PlaybackVideoEffects.KEY_DIAG_UPSCALE_SUBMITTED, videoLanczosSubmitted && videoEffectsBridgeAttached)
         putLong(PlaybackVideoEffects.KEY_DIAG_DENOISE_DRAWS, metrics.denoiseDraws)
         putLong(PlaybackVideoEffects.KEY_DIAG_DETAIL_DRAWS, metrics.detailDraws)
         putLong(PlaybackVideoEffects.KEY_DIAG_TOTAL_DRAWS, metrics.processedDraws)
@@ -531,6 +532,7 @@ class PlaybackService : MediaSessionService() {
         videoUpscalingEnabled = false
         videoNoiseReductionEnabled = false
         videoEffectsBridgeAttached = false
+        videoLanczosSubmitted = false
     }
 
     private fun applyVideoEnhancements(): Boolean {
@@ -558,6 +560,7 @@ class PlaybackService : MediaSessionService() {
             Log.w(TAG, "Video enhancement profile capped: ${tuning.downgradeReason}")
         }
         val effects = ArrayList<Effect>(4)
+        videoLanczosSubmitted = false
         if (videoUpscalingEnabled) {
             val videoSize = player.videoSize
             val metrics = resources.displayMetrics
@@ -580,6 +583,7 @@ class PlaybackService : MediaSessionService() {
                     target.longEdge,
                     target.shortEdge
                 )
+                videoLanczosSubmitted = true
                 Log.i(TAG, "Lanczos upscale target=" + target.longEdge + "x" + target.shortEdge +
                     "; source=" + videoSize.width + "x" + videoSize.height)
             } else {
