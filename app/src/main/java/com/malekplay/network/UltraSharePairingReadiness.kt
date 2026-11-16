@@ -5,6 +5,16 @@ package com.malekplay.network
  * and the temporary hotspot are actually ready.
  */
 internal object UltraSharePairingReadiness {
+    /** Reuses stored route hints only for the exact same ephemeral invitation. */
+    fun stableInvitationHosts(
+        storedInvitationId: String?,
+        invitationId: String,
+        storedHosts: List<String>,
+        currentHosts: List<String>
+    ): List<String> =
+        if (invitationId.isNotBlank() && storedInvitationId == invitationId) storedHosts
+        else currentHosts
+
     /** Keeps the first invitation bytes stable across transient network/address updates. */
     fun stableQrPayload(existing: String?, candidate: String?): String? =
         existing?.takeIf { it.isNotBlank() } ?: candidate?.takeIf { it.isNotBlank() }
