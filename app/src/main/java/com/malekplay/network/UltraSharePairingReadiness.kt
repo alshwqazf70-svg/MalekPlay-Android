@@ -5,6 +5,10 @@ package com.malekplay.network
  * and the temporary hotspot are actually ready.
  */
 internal object UltraSharePairingReadiness {
+    /** Keeps the first invitation bytes stable across transient network/address updates. */
+    fun stableQrPayload(existing: String?, candidate: String?): String? =
+        existing?.takeIf { it.isNotBlank() } ?: candidate?.takeIf { it.isNotBlank() }
+
     fun isDataListenerReady(actualPort: Int, expectedPort: Int): Boolean =
         expectedPort in 1..65535 && actualPort == expectedPort
 
