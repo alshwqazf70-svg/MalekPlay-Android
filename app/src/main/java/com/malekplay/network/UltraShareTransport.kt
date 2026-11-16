@@ -218,7 +218,10 @@ object UltraShareTransport {
         }
     }
 
-    /** Accept any syntactically valid file MIME except Android packages and PDF documents. */
+    /** Ultra Share transfers ordinary files without media-type or extension filtering. */
+    fun isSupportedShareMimeType(raw: String): Boolean {
+        val candidate = raw.trim().lowercase(Locale.ROOT)
+        val token = "[A-Za-z0-9!#    /** Accept any syntactically valid file MIME except Android packages and PDF documents. */
     fun isSupportedShareMimeType(raw: String): Boolean {
         val candidate = raw.trim().lowercase(Locale.ROOT)
         val token = "[A-Za-z0-9!#$&^_.+-]+"
@@ -242,6 +245,16 @@ object UltraShareTransport {
         "application/vnd.android.package-archive"
     )
     private val BLOCKED_SHARE_EXTENSIONS = setOf("apk", "pdf")
+^_.+-]+"
+        return candidate.length in 3..160 && Regex("^$token/$token$").matches(candidate)
+    }
+
+    /** Any named file is eligible; unknown provider MIME types use application/octet-stream. */
+    fun isAllowedShareFile(fileName: String, mimeType: String): Boolean =
+        fileName.isNotBlank() && isSupportedShareMimeType(mimeType)
+
+    @Deprecated("Use isSupportedShareMimeType; filename-aware checks use isAllowedShareFile.")
+    fun isSupportedMediaMimeType(raw: String): Boolean = isSupportedShareMimeType(raw)
 
     /**
      * A resume file belongs to the exact content, not just its visible name and size.
