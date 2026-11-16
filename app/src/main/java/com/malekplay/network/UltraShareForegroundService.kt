@@ -70,7 +70,9 @@ data class UltraShareServiceState(
     val pendingConnection: UltraShareControlChannel.Request? = null,
     val activePeers: List<UltraSharePeerSession> = emptyList(),
     val reconnectablePeers: List<UltraSharePeerSession> = emptyList(),
-    val peerTransfers: List<UltraSharePeerTransfer> = emptyList()
+    val peerTransfers: List<UltraSharePeerTransfer> = emptyList(),
+    /** Authenticated outbound MPC2 peers; distinct from inbound activePeers. */
+    val approvedSenderPeerHosts: List<String> = emptyList()
 )
 
 internal data class UltraShareApprovedSendTarget(
@@ -2441,6 +2443,11 @@ class UltraShareForegroundService : Service() {
                 approvedSendTargetsByHost[target.host] = target
                 reconnectableSendTargetsByHost[target.host] = target
             }
+            mutableState.update { current ->
+                current.copy(
+                    approvedSenderPeerHosts = approvedSendTargets().map { it.host }
+                )
+            }
         }
 
         internal fun approvedSendTargets(): List<UltraShareApprovedSendTarget> =
@@ -2457,6 +2464,11 @@ class UltraShareForegroundService : Service() {
 
         internal fun removeApprovedSendTarget(host: String) {
             synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost.remove(host) }
+            mutableState.update { current ->
+                current.copy(
+                    approvedSenderPeerHosts = approvedSendTargets().map { it.host }
+                )
+            }
         }
         val state = mutableState.asStateFlow()
 
