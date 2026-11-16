@@ -337,6 +337,17 @@ object UltraShareDiscovery {
                         val message = packet.data.copyOfRange(packet.offset, packet.offset + packet.length)
                             .toString(Charsets.UTF_8)
                         val host = source.hostAddress ?: return@forEach
+                        // Broadcast discovery can loop an offer back to the same process on
+                        // Android 9/10, especially on Samsung P2P interfaces. Never treat
+                        // one of this device's own interface addresses as a remote peer.
+                        if (context != null && UltraShareNetworkRouting.isLocalAddress(context, host)) {
+                            UltraShareDiagnostics.event(
+                                "DISCOVERY",
+                                "SELF_DISCOVERY_OFFER_IGNORED",
+                                mapOf("host" to host)
+                            )
+                            return@forEach
+                        }
                         val v2 = UltraShareNegotiation.decode(message)
                         if (v2 != null) {
                             val testedCandidates = probeCandidates(
