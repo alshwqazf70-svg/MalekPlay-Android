@@ -216,7 +216,16 @@ class UltraShareForegroundService : Service() {
                 }
                 dfileServerSessions.keys.toList().forEach(::closeDFileServerForPeer)
                 stopLocalHotspot()
-                updateState { current -> current.copy(activePeers = emptyList(), pendingConnection = null) }
+                updateState { current -> current.copy(
+                    receiving = false,
+                    pairingSecret = "",
+                    localAddresses = emptyList(),
+                    controlChannelReady = false,
+                    dataChannelReady = false,
+                    controlChannelError = null,
+                    pendingConnection = null,
+                    activePeers = emptyList()
+                ) }
                 return START_NOT_STICKY
             }
             ACTION_ACCEPT_CONNECTION -> {
