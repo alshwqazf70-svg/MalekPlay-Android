@@ -329,11 +329,24 @@ object UltraShareBatchTransport {
             )
             val outcomes = ArrayList<UltraShareBatchProtocol.FileResult>(manifest.entries.size)
 
-            prepared.forEachIndexed { index, (source, entry, _) ->
+            prepared.forEachIndexed { index, (source, entry, preparedDigest) ->
                 currentCoroutineContext().ensureActive()
                 val offset = offsets.getValue(entry.id)
+                UltraShareDiagnostics.event(
+                    "DATA_SEND",
+                    "FILE_SEND_STARTED",
+                    mapOf(
+                        "peerHost" to host,
+                        "batchId" to manifest.batchId,
+                        "fileId" to entry.id,
+                        "fileName" to entry.name,
+                        "sizeBytes" to entry.sizeBytes,
+                        "resumeOffset" to offset
+                    )
+                )
                 var transferred = offset
                 val started = System.nanoTime()
+                val streamedDigest = MessageDigest.getInstance("SHA-256")
                 resolver.openInputStream(source.uri)?.use { raw ->
                     BufferedInputStream(raw, BUFFER_BYTES).use { stream ->
                         skipFully(stream, offset)
@@ -350,6 +363,7 @@ object UltraShareBatchTransport {
                                 data.writeInt(read)
                                 data.write(buffer, 0, read)
                             }
+                            streamedDigest.update(buffer, 0, read)
                             writeFrame(output, sendKey, noncePrefix, sendSequence++, frame.toByteArray(), flush = false)
                             transferred += read
                             onProgress(FileProgress(
@@ -360,9 +374,41 @@ object UltraShareBatchTransport {
                         check(stream.read() == -1) { "تغير حجم الملف أثناء الإرسال: ${entry.name}" }
                     }
                 } ?: error("تعذر إعادة فتح الملف: ${entry.name}")
+                val actualDigest = streamedDigest.digest()
+                if (!MessageDigest.isEqual(preparedDigest, actualDigest)) {
+                    UltraShareDiagnostics.event(
+                        "DATA_SEND",
+                        "SOURCE_DIGEST_CHANGED",
+                        mapOf(
+                            "peerHost" to host,
+                            "batchId" to manifest.batchId,
+                            "fileId" to entry.id,
+                            "fileName" to entry.name,
+                            "expectedBytes" to entry.sizeBytes,
+                            "sentBytes" to transferred
+                        )
+                    )
+                    throw IOException("تغير محتوى الملف أثناء الإرسال؛ أوقفنا النقل لحماية سلامة الملف: ${entry.name}")
+                }
+                UltraShareDiagnostics.event(
+                    "DATA_SEND",
+                    "FILE_SOURCE_DIGEST_VERIFIED",
+                    mapOf("peerHost" to host, "batchId" to manifest.batchId, "fileId" to entry.id)
+                )
                 val end = ByteArrayOutputStream()
                 DataOutputStream(end).use { data -> data.writeByte(TYPE_FILE_END); data.writeShort(index) }
                 writeFrame(output, sendKey, noncePrefix, sendSequence++, end.toByteArray())
+                UltraShareDiagnostics.event(
+                    "DATA_SEND",
+                    "FILE_STREAM_SENT",
+                    mapOf(
+                        "peerHost" to host,
+                        "batchId" to manifest.batchId,
+                        "fileId" to entry.id,
+                        "fileName" to entry.name,
+                        "sizeBytes" to entry.sizeBytes
+                    )
+                )
                 outcomes += UltraShareBatchProtocol.FileResult(
                     entry.id, UltraShareBatchProtocol.FileStatus.COMPLETED,
                     entry.sizeBytes
@@ -373,10 +419,21 @@ object UltraShareBatchTransport {
                 readFrame(input, receiveKey, noncePrefix, receiveSequence, UltraShareBatchProtocol.MAX_MANIFEST_BYTES), manifest
             )
             val byId = results.associateBy { it.fileId }
-            BatchOutcome(manifest.batchId, manifest.entries.map { entry ->
+            val batchOutcome = BatchOutcome(manifest.batchId, manifest.entries.map { entry ->
                 val result = byId.getValue(entry.id)
                 FileOutcome(entry.id, entry.name, null, result.status, result.transferredBytes, result.error)
             })
+            UltraShareDiagnostics.event(
+                "DATA_SEND",
+                "BATCH_SEND_COMPLETED",
+                mapOf(
+                    "peerHost" to host,
+                    "batchId" to manifest.batchId,
+                    "completedFiles" to batchOutcome.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED },
+                    "failedFiles" to batchOutcome.files.count { it.status != UltraShareBatchProtocol.FileStatus.COMPLETED }
+                )
+            )
+            batchOutcome
             } finally {
                 noncePrefixToWipe?.fill(0)
                 sendKeyToWipe?.fill(0)
