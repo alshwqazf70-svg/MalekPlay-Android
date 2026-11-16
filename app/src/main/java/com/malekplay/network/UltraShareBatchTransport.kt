@@ -1021,20 +1021,33 @@ private class DiscoveryProbeConnection : Exception("Discovery reachability probe
  * The receipt is committed before the data file is renamed, avoiding an untracked
  * completed file if the process is killed during finalization.
  */
-internal fun writeUltraShareReceiptAtomically(temp: File, marker: File, content: String) {
-    require(temp.parentFile?.canonicalFile == marker.parentFile?.canonicalFile) {
-        "يجب أن يكون ملف سجل النقل المؤقت والنهائي في المجلد نفسه."
+internal fun writeFileAtomically(
+    temp: File,
+    target: File,
+    content: ByteArray,
+    failureMessage: String
+) {
+    require(temp.parentFile?.canonicalFile == target.parentFile?.canonicalFile) {
+        "يجب أن يكون الملف المؤقت والملف النهائي في المجلد نفسه."
     }
     FileOutputStream(temp).use { output ->
-        output.write(content.toByteArray(Charsets.UTF_8))
+        output.write(content)
         output.fd.sync()
     }
     // POSIX rename replaces an existing destination atomically on the same
-    // filesystem. Unlike delete-then-rename, a failed commit never destroys the
-    // previous durable receipt.
+    // filesystem. A failed commit therefore never deletes the previous file.
     try {
-        android.system.Os.rename(temp.absolutePath, marker.absolutePath)
+        android.system.Os.rename(temp.absolutePath, target.absolutePath)
     } catch (failure: android.system.ErrnoException) {
-        throw IOException("تعذر حفظ سجل اكتمال الملف دون فقدان السجل السابق.", failure)
+        throw IOException(failureMessage, failure)
     }
+}
+
+internal fun writeUltraShareReceiptAtomically(temp: File, marker: File, content: String) {
+    writeFileAtomically(
+        temp,
+        marker,
+        content.toByteArray(Charsets.UTF_8),
+        "تعذر حفظ سجل اكتمال الملف دون فقدان السجل السابق."
+    )
 }

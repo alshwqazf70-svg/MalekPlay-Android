@@ -322,12 +322,12 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val target = File(dir, fileName)
         val temporary = File.createTempFile("subtitle-", ".part", dir)
         try {
-            FileOutputStream(temporary).use { output ->
-                output.write(bytes)
-                output.fd.sync()
-            }
-            if (target.exists() && !target.delete()) error("تعذر استبدال ملف الترجمة القديم")
-            if (!temporary.renameTo(target)) error("تعذر اعتماد ملف الترجمة بعد التنزيل")
+            writeFileAtomically(
+                temporary,
+                target,
+                bytes,
+                "تعذر اعتماد ملف الترجمة بعد التنزيل دون فقدان النسخة السابقة."
+            )
             return target
         } finally {
             if (temporary.exists()) temporary.delete()
