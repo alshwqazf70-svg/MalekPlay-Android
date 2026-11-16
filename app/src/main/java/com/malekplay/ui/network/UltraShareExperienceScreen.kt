@@ -136,7 +136,7 @@ fun UltraShareExperienceScreen(
                 Toast.makeText(context, "تمت قراءة الدعوة؛ جارٍ العثور على الجهاز والاتصال به تلقائياً.", Toast.LENGTH_SHORT).show()
             }
             .onFailure {
-                Toast.makeText(context, "رمز QR غير صالح أو لا يخص MalekPlay.", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "رمز QR غير صالح أو لا يخص MalekPlayerer.", Toast.LENGTH_LONG).show()
             }
     }
 
@@ -340,7 +340,7 @@ fun UltraShareExperienceScreen(
             if (pairing != null && !pairing.hotspotSsid.isNullOrBlank()) {
                 Toast.makeText(
                     context,
-                    "يلزم إذن الأجهزة القريبة للانضمام تلقائياً إلى شبكة MalekPlay. امنح الإذن ثم أعد مسح QR.",
+                    "يلزم إذن الأجهزة القريبة للانضمام تلقائياً إلى شبكة MalekPlayerer. امنح الإذن ثم أعد مسح QR.",
                     Toast.LENGTH_LONG
                 ).show()
             } else if (pairing != null && pairing.hosts.isNotEmpty()) {
@@ -388,7 +388,7 @@ fun UltraShareExperienceScreen(
     fun scanQr() {
         qrScanner.launch(ScanOptions().apply {
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt("امسح رمز QR الخاص بجهاز MalekPlay")
+            setPrompt("امسح رمز QR الخاص بجهاز MalekPlayerer")
             setBeepEnabled(false)
             setOrientationLocked(false)
         })
@@ -785,7 +785,7 @@ fun UltraShareExperienceScreen(
                         icon = { Icon(Icons.Filled.Send, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
                         onClick = {
                             val share = Intent(Intent.ACTION_SEND).setType("text/plain")
-                                .putExtra(Intent.EXTRA_TEXT, "انضم إليّ عبر MalekPlay لمشاركة الملفات محلياً.")
+                                .putExtra(Intent.EXTRA_TEXT, "انضم إليّ عبر MalekPlayerer لمشاركة الملفات محلياً.")
                             runCatching { context.startActivity(Intent.createChooser(share, "دعوة الأصدقاء")) }
                                 .onFailure { Toast.makeText(context, "تعذر فتح قائمة المشاركة.", Toast.LENGTH_SHORT).show() }
                         }
@@ -907,7 +907,7 @@ fun UltraShareExperienceScreen(
                         qrPayload = qrPayload,
                         onCopyQr = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                            clipboard?.setPrimaryClip(ClipData.newPlainText("MalekPlay pairing", qrPayload.orEmpty()))
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("MalekPlayerer pairing", qrPayload.orEmpty()))
                             Toast.makeText(context, "تم نسخ بيانات الاقتران.", Toast.LENGTH_SHORT).show()
                         },
                         onStartHotspot = ::startHotspot,
@@ -1131,7 +1131,7 @@ fun UltraShareExperienceScreen(
                     UltraShareSessionRoom(
                         state = state,
                         activeMode = if (state.sending || host.isNotBlank() || selectedUris.isNotEmpty()) "send" else "receive",
-                        localDeviceName = Build.MODEL?.take(40)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                        localDeviceName = Build.MODEL?.take(40)?.ifBlank { "MalekPlayerer Android" } ?: "MalekPlayerer Android",
                         remoteHost = host.ifBlank { state.activePeers.firstOrNull()?.host.orEmpty() },
                         selectedMediaCount = selectedUris.size
                     )
