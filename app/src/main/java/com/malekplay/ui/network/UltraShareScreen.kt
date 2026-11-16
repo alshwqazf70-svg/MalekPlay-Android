@@ -1439,10 +1439,6 @@ fun UltraShareScreen(
         }
     }
 
-    val invitationId = state.invitationId
-    // Capture delegated Compose state in stable locals so Kotlin can smart-cast it.
-    val hotspotSsid = state.hotspotSsid
-    val hotspotPassword = state.hotspotPassword
     // Render the latched payload instead of deriving it from volatile service flags.
     val qrPayload = state.receiverQrPayload.takeIf { state.receiving && !state.pairedSession }
     val qrBitmap = remember(qrPayload) {
