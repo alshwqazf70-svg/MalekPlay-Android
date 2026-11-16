@@ -194,8 +194,8 @@ class UltraShareViewModel @Inject constructor(
                     activePeers = serviceState.activePeers,
                     reconnectablePeers = serviceState.reconnectablePeers,
                     peerTransfers = serviceState.peerTransfers,
-                    approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
-                    approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host },
+                    approvedSenderPeerCount = serviceState.approvedSenderPeerHosts.size,
+                    approvedSenderPeerHosts = serviceState.approvedSenderPeerHosts,
                     approvedPeerHost = current.approvedPeerHost?.takeIf { approved ->
                         serviceState.activePeers.any { it.host == approved }
                     }
