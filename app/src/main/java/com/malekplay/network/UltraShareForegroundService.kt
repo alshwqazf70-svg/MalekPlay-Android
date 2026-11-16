@@ -72,7 +72,9 @@ data class UltraShareServiceState(
     val reconnectablePeers: List<UltraSharePeerSession> = emptyList(),
     val peerTransfers: List<UltraSharePeerTransfer> = emptyList(),
     /** Authenticated outbound MPC2 peers; distinct from inbound activePeers. */
-    val approvedSenderPeerHosts: List<String> = emptyList()
+    val approvedSenderPeerHosts: List<String> = emptyList(),
+    /** Outbound peers retained in memory for explicit user-triggered reconnection. */
+    val reconnectableSenderPeerHosts: List<String> = emptyList()
 )
 
 internal data class UltraShareApprovedSendTarget(
@@ -2445,7 +2447,8 @@ class UltraShareForegroundService : Service() {
             }
             mutableState.update { current ->
                 current.copy(
-                    approvedSenderPeerHosts = approvedSendTargets().map { it.host }
+                    approvedSenderPeerHosts = approvedSendTargets().map { it.host },
+                    reconnectableSenderPeerHosts = reconnectableSendTargets().map { it.host }
                 )
             }
         }
@@ -2511,7 +2514,8 @@ class UltraShareForegroundService : Service() {
             mutableState.update { current ->
                 current.copy(
                     activePeers = current.activePeers.filterNot { it.host == host },
-                    reconnectablePeers = current.reconnectablePeers.filterNot { it.host == host }
+                    reconnectablePeers = current.reconnectablePeers.filterNot { it.host == host },
+                    reconnectableSenderPeerHosts = reconnectableSendTargets().map { it.host }
                 )
             }
         }
