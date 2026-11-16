@@ -823,7 +823,7 @@ fun UltraShareExperienceScreen(
                     state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning -> "البحث عن الأجهزة القريبة"
                     else -> "جاهز للمشاركة"
                 },
-                subtitle = "${state.activePeers.size.coerceAtLeast(state.approvedSenderPeerHosts.size)} متصل • ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
+                subtitle = "${(state.activePeers.map { it.host } + state.approvedSenderPeerHosts).distinct().size} متصل • ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
                 active = state.sending || state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty()
             )
             UltraShareHelpCard()
