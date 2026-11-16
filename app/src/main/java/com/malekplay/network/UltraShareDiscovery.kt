@@ -188,13 +188,53 @@ object UltraShareDiscovery {
         require(transferPort in 1..65535)
         val peerId = context?.let(::stablePeerId) ?: UUID.randomUUID().toString()
         val safeDisplayName = displayName.trim().take(64).ifBlank { "MalekPlayer Android" }
-        val networks: List<Network?> = findBroadcastRoutes(context).map { it.network }.distinct()
-        val sockets = networks.mapNotNull { network ->
-            runCatching { createDiscoverySocket(network, DISCOVERY_PORT) }.getOrNull()
-        }.ifEmpty { listOf(createDiscoverySocket(null, DISCOVERY_PORT)) }
+        fun routeFingerprint(routes: List<BroadcastRoute>): List<String> =
+            routes.map { "${it.network?.networkHandle ?: 0L}:${it.address.hostAddress}" }.distinct().sorted()
+
+        fun openSockets(routes: List<BroadcastRoute>): List<DatagramSocket> {
+            val activeNetworks = routes.map { it.network }.distinct()
+            return activeNetworks.mapNotNull { network ->
+                runCatching { createDiscoverySocket(network, DISCOVERY_PORT) }
+                    .onFailure { failure ->
+                        UltraShareDiagnostics.failure(
+                            "DISCOVERY_SOCKET_OPEN",
+                            failure,
+                            "networkHandle=${network?.networkHandle ?: 0L}"
+                        )
+                    }
+                    .getOrNull()
+            }.ifEmpty {
+                listOf(createDiscoverySocket(null, DISCOVERY_PORT))
+            }
+        }
+
+        var activeRoutes = findBroadcastRoutes(context)
+        var activeFingerprint = routeFingerprint(activeRoutes)
+        var sockets = openSockets(activeRoutes)
         try {
             while (true) {
                 currentCoroutineContext().ensureActive()
+                val latestRoutes = findBroadcastRoutes(context)
+                val latestFingerprint = routeFingerprint(latestRoutes)
+                if (latestFingerprint != activeFingerprint) {
+                    UltraShareDiagnostics.event(
+                        "DISCOVERY",
+                        "NETWORK_ROUTES_CHANGED",
+                        mapOf(
+                            "previousRouteCount" to activeFingerprint.size,
+                            "currentRouteCount" to latestFingerprint.size
+                        )
+                    )
+                    sockets.forEach { runCatching { it.close() } }
+                    activeRoutes = latestRoutes
+                    activeFingerprint = latestFingerprint
+                    sockets = openSockets(activeRoutes)
+                    UltraShareDiagnostics.event(
+                        "DISCOVERY",
+                        "DISCOVERY_SOCKETS_REBOUND",
+                        mapOf("socketCount" to sockets.size)
+                    )
+                }
                 sockets.forEach { socket ->
                     try {
                         val packet = DatagramPacket(ByteArray(MAX_PACKET_BYTES), MAX_PACKET_BYTES)
@@ -220,9 +260,9 @@ object UltraShareDiscovery {
                             }
                         }
                     } catch (_: SocketTimeoutException) {
-                        // Poll each active interface and observe cancellation promptly.
-                    } catch (_: java.net.SocketException) {
-                        // A single OEM network can disappear while another remains usable.
+                        // Poll routes regularly so address/network changes trigger a socket rebind.
+                    } catch (failure: java.net.SocketException) {
+                        UltraShareDiagnostics.failure("DISCOVERY_SOCKET_RECEIVE", failure)
                     }
                 }
             }
