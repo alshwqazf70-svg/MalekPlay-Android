@@ -6,6 +6,7 @@ import android.net.Uri
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -132,7 +133,7 @@ object UltraShareBatchTransport {
                         launch {
                             val peer = socket.inetAddress.hostAddress ?: "unknown"
                             var authenticated = false
-                            val socketCancellation = closeSocketWhenJobCompletes(
+                            val socketCancellation = closeSocketOnJobCancellation(
                                 currentCoroutineContext()[Job] ?: error("جلسة النقل بلا Job نشط."),
                                 socket
                             )
@@ -297,7 +298,7 @@ object UltraShareBatchTransport {
             throw failure
         }
         var readPhase = "HANDSHAKE"
-        val socketCancellation = closeSocketWhenJobCompletes(
+        val socketCancellation = closeSocketOnJobCancellation(
             currentCoroutineContext()[Job] ?: error("جلسة الإرسال بلا Job نشط."),
             socket
         )
@@ -876,8 +877,11 @@ object UltraShareBatchTransport {
     internal fun isPeerSessionAuthorized(authenticated: Boolean, sessionActive: Boolean): Boolean =
         authenticated && sessionActive
 
-    internal fun closeSocketWhenJobCompletes(job: Job, socket: Socket): DisposableHandle =
-        job.invokeOnCompletion { runCatching { socket.close() } }
+    @OptIn(InternalCoroutinesApi::class)
+    internal fun closeSocketOnJobCancellation(job: Job, socket: Socket): DisposableHandle =
+        job.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { cause ->
+            if (cause != null) runCatching { socket.close() }
+        }
 
     private fun configure(socket: Socket) {
         socket.sendBufferSize = BUFFER_BYTES
