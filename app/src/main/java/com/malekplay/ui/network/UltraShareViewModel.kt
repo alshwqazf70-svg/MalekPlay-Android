@@ -433,62 +433,93 @@ class UltraShareViewModel @Inject constructor(
                 var rejected = false
                 var lastFailure: Exception? = null
                 for (routeHost in routeHosts) {
-                    UltraShareDiagnostics.event("CONTROL_CHANNEL", "ROUTE_ATTEMPT", mapOf("host" to routeHost))
-                    try {
-                        val routeNetworks = (
-                            listOfNotNull(preferredNetwork) +
-                                UltraShareNetworkRouting.findNetworksForHost(context, routeHost)
-                            ).distinct()
+                    var routeAttempt = 0
+                    while (routeAttempt < 3) {
                         UltraShareDiagnostics.event(
-                            "NETWORK_ROUTING",
-                            "HOST_ROUTES_RESOLVED",
-                            mapOf(
-                                "host" to routeHost,
-                                "routeCount" to routeNetworks.size,
-                                "networkHandles" to routeNetworks.joinToString(",") { it.networkHandle.toString() }
-                            )
+                            "CONTROL_CHANNEL",
+                            "ROUTE_ATTEMPT",
+                            mapOf("host" to routeHost, "attempt" to routeAttempt)
                         )
-                        val routeNetwork = routeNetworks.firstOrNull()
-                        // Android 9 and some OEM Android 10 builds may not publish
-                        // the Wi-Fi Direct Network in ConnectivityManager.allNetworks.
-                        // UltraShareControlChannel.request() tries all explicit routes and
-                        // then the OS default route, which can be the active P2P route on
-                        // these devices. Do not discard a valid group-owner address here.
-                        if (UltraShareNetworkRouting.isWifiDirectGroupHost(routeHost) && routeNetwork == null) {
+                        try {
+                            val routeNetworks = (
+                                listOfNotNull(preferredNetwork) +
+                                    UltraShareNetworkRouting.findNetworksForHost(context, routeHost)
+                                ).distinct()
                             UltraShareDiagnostics.event(
                                 "NETWORK_ROUTING",
-                                "P2P_NETWORK_NOT_EXPOSED_TRYING_DEFAULT_ROUTE",
-                                mapOf("host" to routeHost)
+                                "HOST_ROUTES_RESOLVED",
+                                mapOf(
+                                    "host" to routeHost,
+                                    "routeCount" to routeNetworks.size,
+                                    "networkHandles" to routeNetworks.joinToString(",") { it.networkHandle.toString() }
+                                )
                             )
-                        }
-                        val decision = UltraShareControlChannel.request(
-                            host = routeHost,
-                            pairingSecret = secret.trim(),
-                            peerName = android.os.Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
-                            network = routeNetwork,
-                            networks = routeNetworks.drop(1),
-                            peerId = UltraShareDiscovery.localPeerId(context),
-                            onSessionClosed = { disconnectedHost ->
-                                UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
-                                forgetApprovedSenderTarget(disconnectedHost)
+                            val routeNetwork = routeNetworks.firstOrNull()
+                            // Android 9 and some OEM Android 10 builds may not publish
+                            // the Wi-Fi Direct Network in ConnectivityManager.allNetworks.
+                            // UltraShareControlChannel.request() tries all explicit routes and
+                            // then the OS default route, which can be the active P2P route.
+                            if (UltraShareNetworkRouting.isWifiDirectGroupHost(routeHost) && routeNetwork == null) {
+                                UltraShareDiagnostics.event(
+                                    "NETWORK_ROUTING",
+                                    "P2P_NETWORK_NOT_EXPOSED_TRYING_DEFAULT_ROUTE",
+                                    mapOf("host" to routeHost)
+                                )
                             }
-                        )
-                        UltraShareDiagnostics.event("CONTROL_CHANNEL", "DECISION_RECEIVED", mapOf("host" to routeHost, "decision" to decision.name))
-                        if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
-                            check(UltraShareControlChannel.isSessionActive(routeHost)) {
-                                "انقطعت قناة التحكم قبل اكتمال الاقتران."
+                            val decision = UltraShareControlChannel.request(
+                                host = routeHost,
+                                pairingSecret = secret.trim(),
+                                peerName = android.os.Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                                network = routeNetwork,
+                                networks = routeNetworks.drop(1),
+                                peerId = UltraShareDiscovery.localPeerId(context),
+                                onSessionClosed = { disconnectedHost ->
+                                    UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
+                                    forgetApprovedSenderTarget(disconnectedHost)
+                                }
+                            )
+                            UltraShareDiagnostics.event(
+                                "CONTROL_CHANNEL",
+                                "DECISION_RECEIVED",
+                                mapOf("host" to routeHost, "decision" to decision.name, "attempt" to routeAttempt)
+                            )
+                            if (decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                                check(UltraShareControlChannel.isSessionActive(routeHost)) {
+                                    "انقطعت قناة التحكم قبل اكتمال الاقتران."
+                                }
+                                acceptedHost = routeHost
+                                break
                             }
-                            acceptedHost = routeHost
+                            rejected = true
+                            break
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            UltraShareDiagnostics.failure(
+                                "CONTROL_CHANNEL_CONNECT",
+                                failure,
+                                "route=" + routeHost + ";attempt=" + routeAttempt
+                            )
+                            lastFailure = failure
+                            if (routeAttempt < 2 && isRetryableUltraSharePairingFailure(failure)) {
+                                routeAttempt++
+                                UltraShareDiagnostics.event(
+                                    "CONTROL_CHANNEL",
+                                    "TRANSIENT_CONNECT_RETRY_SCHEDULED",
+                                    mapOf(
+                                        "host" to routeHost,
+                                        "attempt" to routeAttempt,
+                                        "delayMs" to (250L * routeAttempt),
+                                        "cause" to failure.javaClass.simpleName
+                                    )
+                                )
+                                delay(250L * routeAttempt)
+                                continue
+                            }
                             break
                         }
-                        rejected = true
-                        break
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        UltraShareDiagnostics.failure("CONTROL_CHANNEL_CONNECT", failure, "route=" + routeHost)
-                        lastFailure = failure
                     }
+                    if (acceptedHost != null || rejected) break
                 }
                 if (acceptedHost != null) {
                     UltraShareDiagnostics.event("PAIRING", "CONTROL_CHANNEL_ESTABLISHED", mapOf("host" to acceptedHost))
@@ -620,7 +651,22 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
-    private fun forgetApprovedSenderTarget(host: String) {
+    internal fun isRetryableUltraSharePairingFailure(failure: Throwable): Boolean {
+    val visited = java.util.Collections.newSetFromMap(
+        java.util.IdentityHashMap<Throwable, Boolean>()
+    )
+    var current: Throwable? = failure
+    while (current != null && visited.add(current)) {
+        if (current is java.net.ConnectException ||
+            current is java.net.NoRouteToHostException ||
+            current is java.net.SocketTimeoutException
+        ) return true
+        current = current.cause
+    }
+    return false
+}
+
+private fun forgetApprovedSenderTarget(host: String) {
         UltraShareForegroundService.removeApprovedSendTarget(host)
         val next = UltraShareForegroundService.approvedSendTargets().lastOrNull()
         _state.value = _state.value.copy(
