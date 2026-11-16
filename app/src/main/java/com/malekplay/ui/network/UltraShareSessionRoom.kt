@@ -49,13 +49,21 @@ fun UltraShareSessionRoom(
     selectedMediaCount: Int
 ) {
     val isSendingRoom = activeMode == "send"
-    val activePeerCount = state.activePeers.size
+    // Receiver-side approvals live in activePeers; sender-side approvals are
+    // tracked separately because the sender owns an outbound MPC2 client session.
+    // Treat both as the same authenticated connection state in the shared UI.
+    val connectedPeerHosts = (
+        state.activePeers.map { it.host } + state.approvedSenderPeerHosts
+    ).distinct()
+    val activePeerCount = connectedPeerHosts.size
     val activePeer = state.activePeers.firstOrNull()
+    val senderPeerHost = state.approvedSenderPeerHosts.firstOrNull()
     val remoteName = when {
         activePeerCount > 1 -> "$activePeerCount أجهزة متصلة"
         activePeer != null -> activePeer.name
         state.pendingConnection != null -> state.pendingConnection.peerName
         state.requestingConnection -> "جارٍ التحقق من الجهاز"
+        !senderPeerHost.isNullOrBlank() -> senderPeerHost
         remoteHost.isNotBlank() -> remoteHost
         isSendingRoom -> "بانتظار جهاز الاستقبال"
         else -> "بانتظار جهاز الإرسال"
@@ -90,7 +98,7 @@ fun UltraShareSessionRoom(
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val senderName = if (isSendingRoom) localDeviceName else remoteName
-    val remoteAddress = if (activePeerCount > 1) "جلسة متعددة الأجهزة" else activePeer?.host ?: state.approvedPeerHost ?: remoteHost
+    val remoteAddress = if (activePeerCount > 1) "جلسة متعددة الأجهزة" else activePeer?.host ?: senderPeerHost ?: state.approvedPeerHost ?: remoteHost
     val receiverName = if (isSendingRoom) remoteName else localDeviceName
     val progress = if (isSendingRoom) state.sendProgress else state.receiveProgress
     val overallFraction = if (state.queueTotalBytes > 0L) {
@@ -166,8 +174,11 @@ fun UltraShareSessionRoom(
             Text(status, color = statusColor, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
             // Show each peer independently instead of hiding concurrent sessions
             // behind the single headline peer identity above.
-            val peerHosts = (state.activePeers.map { it.host } + state.peerTransfers.map { it.host })
-                .distinct()
+            val peerHosts = (
+                state.activePeers.map { it.host } +
+                    state.approvedSenderPeerHosts +
+                    state.peerTransfers.map { it.host }
+                ).distinct()
             if (peerHosts.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -197,7 +208,7 @@ fun UltraShareSessionRoom(
                             ) {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
-                                        peer?.name ?: "جهاز مشارك",
+                                        peer?.name ?: if (peerHost == senderPeerHost) "الجهاز المتصل" else "جهاز مشارك",
                                         color = MaterialTheme.colorScheme.onSurface,
                                         fontWeight = FontWeight.Bold,
                                         style = MaterialTheme.typography.labelMedium,
