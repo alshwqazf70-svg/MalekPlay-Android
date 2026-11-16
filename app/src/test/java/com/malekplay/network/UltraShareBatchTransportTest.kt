@@ -45,8 +45,8 @@ class UltraShareBatchTransportTest {
             }
             assertEquals(-1, remoteEndOfStream)
         } finally {
-            transfer.cancelAndJoin()
             client.close()
+            transfer.cancelAndJoin()
             accepted.close()
             server.close()
         }
