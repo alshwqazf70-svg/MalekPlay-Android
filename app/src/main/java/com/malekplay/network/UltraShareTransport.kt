@@ -688,7 +688,7 @@ object UltraShareTransport {
         }
 
     private fun deriveSessionKey(secret: ByteArray, challenge: ByteArray, direction: String): ByteArray {
-        val label = "MalekPlayer Ultra Share v1/$direction".toByteArray(Charsets.UTF_8)
+        val label = "MalekPlay Ultra Share v1/$direction".toByteArray(Charsets.UTF_8)
         return hmac(secret, challenge + label)
     }
 
