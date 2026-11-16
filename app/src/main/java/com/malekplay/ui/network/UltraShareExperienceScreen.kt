@@ -640,8 +640,8 @@ fun UltraShareExperienceScreen(
             )
         }
         ?.let {
-            // Version 3 QR needs no LAN host: the peer discovers the active P2P
-            // group through the short-lived DNS-SD invitation.
+            // DNS-SD is the primary route. Include only addresses owned by a live
+            // non-P2P interface as an optional authenticated LAN fallback.
             com.malekplay.network.UltraShareQrCode.createReceiverPayload(
                 wifiDirectFallbackHosts,
                 state.pairingSecret,

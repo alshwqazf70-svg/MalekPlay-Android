@@ -189,18 +189,19 @@ internal object UltraShareNetworkRouting {
         val remote = InetAddress.getByName(host) as? Inet4Address ?: return@runCatching false
         val manager = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE)
             as? ConnectivityManager ?: return@runCatching false
-        manager.allNetworks.any { network ->
-            val properties = manager.getLinkProperties(network) ?: return@any false
+        manager.allNetworks.any networkLoop@{ network ->
+            val properties = manager.getLinkProperties(network) ?: return@networkLoop false
             val interfaceName = properties.interfaceName.orEmpty()
             val capabilities = manager.getNetworkCapabilities(network)
             val localTransport = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
-                capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
-            val linkMatch = properties.linkAddresses.any { link ->
-                val local = link.address as? Inet4Address ?: return@any false
+                capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true ||
+                isHotspotInterfaceName(interfaceName)
+            val linkMatch = properties.linkAddresses.any linkLoop@{ link ->
+                val local = link.address as? Inet4Address ?: return@linkLoop false
                 link.prefixLength in 1..32 && isInPrefix(remote, local, link.prefixLength)
             }
-            val routeMatch = properties.routes.any { route ->
-                val destination = route.destination.address as? Inet4Address ?: return@any false
+            val routeMatch = properties.routes.any routeLoop@{ route ->
+                val destination = route.destination.address as? Inet4Address ?: return@routeLoop false
                 val prefix = route.destination.prefixLength
                 prefix in 1..32 && isInPrefix(remote, destination, prefix)
             }

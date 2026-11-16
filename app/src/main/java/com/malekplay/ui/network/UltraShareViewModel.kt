@@ -1280,6 +1280,16 @@ class UltraShareViewModel @Inject constructor(
             )
             return
         }
+        val activeReceiver = UltraShareForegroundService.state.value
+        if (activeReceiver.receiving && activeReceiver.pairingSecret.isNotBlank() &&
+            activeReceiver.pairingSecret != secret.trim()
+        ) {
+            _state.value = _state.value.copy(
+                requestingConnection = false,
+                error = "هناك جلسة استقبال نشطة برمز مختلف. أوقفها قبل الانضمام إلى رمز QR آخر."
+            )
+            return
+        }
         pendingQrPairing = PendingQrPairing(secret.trim(), fallbackHosts)
         qrP2pConnectStarted = false
         try {
@@ -1392,13 +1402,6 @@ class UltraShareViewModel @Inject constructor(
                                 error = "لم يتم العثور على دعوة Wi-Fi Direct، ولا يوجد عنوان بديل على شبكة محلية غير P2P. أعد المحاولة أو استخدم QR الخاص بنقطة الاتصال."
                             )
                         }
-                    } else {
-                        pendingQrPairing = null
-                        session.stopInvitationDiscovery()
-                        _state.value = _state.value.copy(
-                            requestingConnection = false,
-                            error = "لم يتم العثور على جهاز الدعوة. تأكد من تشغيل Wi-Fi ومنح إذن الأجهزة القريبة على الهاتفين، ثم أعد مسح QR."
-                        )
                     }
                 }
             }
