@@ -296,6 +296,12 @@ object UltraShareBatchTransport {
             )
             throw failure
         }
+        var readPhase = "HANDSHAKE"
+        val socketCancellation = closeSocketWhenJobCompletes(
+            currentCoroutineContext()[Job] ?: error("جلسة الإرسال بلا Job نشط."),
+            socket
+        )
+        try {
         socket.use {
             // A fresh socket is bound to each candidate before connect; failed routes
             // are closed before the next route is attempted.
@@ -315,6 +321,7 @@ object UltraShareBatchTransport {
             output.flush()
             check(input.readBoolean()) { "رفض الجهاز المستقبل رمز الاقتران." }
             UltraShareDiagnostics.event("DATA_SEND", "DATA_AUTHENTICATED", mapOf("peerHost" to host))
+            readPhase = "SESSION"
             socket.soTimeout = SESSION_TIMEOUT_MS
             val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(input::readFully).also { noncePrefixToWipe = it }
             val sendKey = deriveKey(secret, challenge, "client-to-server").also { sendKeyToWipe = it }
@@ -429,6 +436,7 @@ object UltraShareBatchTransport {
             writeFrame(output, sendKey, noncePrefix, sendSequence++, byteArrayOf(TYPE_BATCH_END.toByte()))
             // The receiver verifies SHA-256 and publishes files before sending its final
             // receipt. Allow slower storage to finish, but never wait indefinitely.
+            readPhase = "FINAL_RECEIPT"
             socket.soTimeout = FILE_VERIFY_TIMEOUT_MS
             val results = decodeResults(
                 readFrame(input, receiveKey, noncePrefix, receiveSequence, UltraShareBatchProtocol.MAX_MANIFEST_BYTES), manifest
@@ -456,6 +464,16 @@ object UltraShareBatchTransport {
                 secret.fill(0)
                 challenge.fill(0)
             }
+        }
+        } catch (failure: SocketTimeoutException) {
+            UltraShareDiagnostics.failure(
+                "DATA_SEND_READ_TIMEOUT",
+                failure,
+                "peerHost=$host;phase=$readPhase;port=$port"
+            )
+            throw failure
+        } finally {
+            socketCancellation.dispose()
         }
     }
 
