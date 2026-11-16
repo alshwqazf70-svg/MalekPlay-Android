@@ -177,10 +177,15 @@ fun UltraShareSessionRoom(
             Text(status, color = statusColor, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
             // Show each peer independently instead of hiding concurrent sessions
             // behind the single headline peer identity above.
+            val reconnectablePeerHosts = (
+                state.reconnectablePeers.map { it.host } +
+                    state.reconnectableSenderPeerHosts
+                ).toSet()
             val peerHosts = (
                 state.activePeers.map { it.host } +
                     state.approvedSenderPeerHosts +
-                    state.peerTransfers.map { it.host }
+                    state.peerTransfers.map { it.host } +
+                    reconnectablePeerHosts
                 ).distinct()
             if (peerHosts.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -227,11 +232,12 @@ fun UltraShareSessionRoom(
                                     )
                                 }
                                 Text(
-                                    transfer?.status ?: peer?.status ?: "متصل",
+                                    transfer?.status ?: peer?.status ?: if (peerHost in reconnectablePeerHosts) "انقطع الاتصال" else "متصل",
                                     color = when {
                                         transfer?.status?.contains("فشل") == true -> MaterialTheme.colorScheme.error
                                         transfer?.status?.contains("يستقبل") == true -> MalekPlayColors.PurpleBright
                                         peer != null -> Color(0xFF65D6A2)
+                                        peerHost in reconnectablePeerHosts -> Color(0xFFFFC66D)
                                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                                     },
                                     fontWeight = FontWeight.Bold,
