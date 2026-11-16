@@ -252,7 +252,9 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        api-level: [29, 35]
+        # Cover the declared minimum Android version, the primary field-test baseline,
+        # and the current target SDK runtime behavior.
+        api-level: [23, 29, 35]
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
