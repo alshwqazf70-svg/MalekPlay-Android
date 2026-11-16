@@ -86,6 +86,7 @@ data class UltraShareUiState(
     val peerTransfers: List<com.malekplay.network.UltraSharePeerTransfer> = emptyList(),
     val approvedSenderPeerCount: Int = 0,
     val approvedSenderPeerHosts: List<String> = emptyList(),
+    val reconnectableSenderPeerHosts: List<String> = emptyList(),
     val peerDeliveryEntries: List<com.malekplay.network.UltraSharePeerDeliveryEntry> = emptyList()
 )
 
@@ -196,6 +197,7 @@ class UltraShareViewModel @Inject constructor(
                     peerTransfers = serviceState.peerTransfers,
                     approvedSenderPeerCount = serviceState.approvedSenderPeerHosts.size,
                     approvedSenderPeerHosts = serviceState.approvedSenderPeerHosts,
+                    reconnectableSenderPeerHosts = serviceState.reconnectableSenderPeerHosts,
                     approvedPeerHost = current.approvedPeerHost?.takeIf { approved ->
                         serviceState.activePeers.any { it.host == approved }
                     }
