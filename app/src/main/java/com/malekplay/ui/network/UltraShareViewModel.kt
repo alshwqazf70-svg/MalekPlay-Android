@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.malekplay.R
 import com.malekplay.network.UltraShareDiagnostics
+import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.isRetryableUltraSharePairingFailure
 import com.malekplay.network.UltraShareTransport
 import com.malekplay.network.UltraShareControlChannel
