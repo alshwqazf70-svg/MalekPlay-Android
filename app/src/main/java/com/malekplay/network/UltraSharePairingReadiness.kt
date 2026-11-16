@@ -68,3 +68,18 @@ internal object UltraSharePairingReadiness {
     fun canSendData(controlSessionActive: Boolean, dataEndpointReachable: Boolean): Boolean =
         controlSessionActive && dataEndpointReachable
 }
+
+/** Retry only immediate route-establishment failures; never replay user approval timeouts. */
+internal fun isRetryableUltraSharePairingFailure(failure: Throwable): Boolean {
+    val visited = java.util.Collections.newSetFromMap(
+        java.util.IdentityHashMap<Throwable, Boolean>()
+    )
+    var current: Throwable? = failure
+    while (current != null && visited.add(current)) {
+        if (current is java.net.ConnectException ||
+            current is java.net.NoRouteToHostException
+        ) return true
+        current = current.cause
+    }
+    return false
+}
