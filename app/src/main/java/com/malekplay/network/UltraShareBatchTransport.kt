@@ -4,6 +4,8 @@ import android.net.Network
 import android.content.ContentResolver
 import android.net.Uri
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -130,6 +132,10 @@ object UltraShareBatchTransport {
                         launch {
                             val peer = socket.inetAddress.hostAddress ?: "unknown"
                             var authenticated = false
+                            val socketCancellation = closeSocketWhenJobCompletes(
+                                currentCoroutineContext()[Job] ?: error("جلسة النقل بلا Job نشط."),
+                                socket
+                            )
                             try {
                                 val peerIdentity = UltraShareControlChannel.serverSessionIdentity(peer) ?: peer
                                 val result = peerMutexRegistry.withLock(peerIdentity) {
@@ -162,6 +168,7 @@ object UltraShareBatchTransport {
                                 )
                                 onPeerError(peer, failure)
                             } finally {
+                                socketCancellation.dispose()
                                 runCatching { socket.close() }
                                 if (authenticated) runCatching { onPeerFinished(peer) }
                                 permits.release()
@@ -843,6 +850,9 @@ object UltraShareBatchTransport {
 
     internal fun isPeerSessionAuthorized(authenticated: Boolean, sessionActive: Boolean): Boolean =
         authenticated && sessionActive
+
+    internal fun closeSocketWhenJobCompletes(job: Job, socket: Socket): DisposableHandle =
+        job.invokeOnCompletion { runCatching { socket.close() } }
 
     private fun configure(socket: Socket) {
         socket.sendBufferSize = BUFFER_BYTES
