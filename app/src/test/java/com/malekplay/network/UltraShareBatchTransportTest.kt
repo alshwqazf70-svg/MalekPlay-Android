@@ -114,47 +114,71 @@ class UltraShareBatchTransportTest {
     }
 
     @Test
-    fun resumeUsesOnlyDurablePartialBytesWithinManifestSize() {
+    fun resumeUsesOnlyCheckpointedBytesAndTruncatesUncommittedTail() {
         val directory = Files.createTempDirectory("ultrashare-resume-offset").toFile()
         try {
+            val payload = ByteArray(8192) { it.toByte() }
+            val digestHex = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(payload).joinToString("") { "%02x".format(it) }
             val partial = java.io.File(directory, "payload.part")
-            partial.writeBytes(ByteArray(4096) { it.toByte() })
+            val checkpoint = java.io.File(directory, "payload.resume")
+            val checkpointTemp = java.io.File(directory, "payload.resume.tmp")
+            partial.writeBytes(payload.copyOfRange(0, 4096))
 
-            assertTrue(partial.isFile)
-            org.junit.Assert.assertEquals(
-                4096L,
-                UltraShareBatchTransport.resumableFileOffset(partial, 8192L)
+            // No checkpoint means the existing bytes are not authorized for resume.
+            assertEquals(0L, UltraShareBatchTransport.resumableFileOffset(
+                partial, checkpoint, payload.size.toLong(), digestHex
+            ))
+            assertEquals(0L, partial.length())
+
+            java.io.FileOutputStream(partial).use { output ->
+                output.write(payload, 0, 3072)
+                output.fd.sync()
+            }
+            writeUltraShareResumeCheckpointAtomically(
+                checkpointTemp, checkpoint, payload.size.toLong(), digestHex, 3072L
             )
-            org.junit.Assert.assertEquals(
-                0L,
-                UltraShareBatchTransport.resumableFileOffset(partial, 2048L)
-            )
+            java.io.FileOutputStream(partial, true).use { output ->
+                output.write(payload, 3072, 1024)
+                output.fd.sync()
+            }
+
+            assertEquals(3072L, UltraShareBatchTransport.resumableFileOffset(
+                partial, checkpoint, payload.size.toLong(), digestHex
+            ))
+            assertEquals(3072L, partial.length())
         } finally {
             directory.deleteRecursively()
         }
     }
 
     @Test
-    fun interruptedTransferResumesFromDurablePrefixWithoutDuplicatingBytes() {
+    fun interruptedTransferResumesFromCheckpointWithoutDuplicatingBytes() {
         val directory = Files.createTempDirectory("ultrashare-interrupted-resume").toFile()
         try {
             val payload = ByteArray(32_777) { (it * 31 % 251).toByte() }
+            val digestHex = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(payload).joinToString("") { "%02x".format(it) }
             val partial = java.io.File(directory, "transfer.part")
+            val checkpoint = java.io.File(directory, "transfer.resume")
+            val checkpointTemp = java.io.File(directory, "transfer.resume.tmp")
             val interruptedAt = 12_345
             java.io.FileOutputStream(partial).use { output ->
                 output.write(payload, 0, interruptedAt)
                 output.fd.sync()
             }
-
-            // Simulate a lost socket: only the durable prefix exists on disk.
-            org.junit.Assert.assertEquals(
-                interruptedAt.toLong(),
-                UltraShareBatchTransport.resumableFileOffset(partial, payload.size.toLong())
+            writeUltraShareResumeCheckpointAtomically(
+                checkpointTemp, checkpoint, payload.size.toLong(), digestHex, interruptedAt.toLong()
             )
 
+            val resumeOffset = UltraShareBatchTransport.resumableFileOffset(
+                partial, checkpoint, payload.size.toLong(), digestHex
+            )
+            assertEquals(interruptedAt.toLong(), resumeOffset)
+
             java.io.RandomAccessFile(partial, "rw").use { output ->
-                output.seek(interruptedAt.toLong())
-                output.write(payload, interruptedAt, payload.size - interruptedAt)
+                output.seek(resumeOffset)
+                output.write(payload, resumeOffset.toInt(), payload.size - resumeOffset.toInt())
                 output.fd.sync()
             }
 
@@ -175,16 +199,23 @@ class UltraShareBatchTransportTest {
                 ((index * 31 + index / 251) % 256).toByte()
             }
             val partial = java.io.File(directory, "large-transfer.part")
+            val checkpoint = java.io.File(directory, "large-transfer.resume")
+            val checkpointTemp = java.io.File(directory, "large-transfer.resume.tmp")
             val interruptedAt = 7 * 1024 * 1024 + 333
+            val expectedDigest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(payload)
+            val digestHex = expectedDigest.joinToString("") { "%02x".format(it) }
 
             java.io.FileOutputStream(partial).use { output ->
                 output.write(payload, 0, interruptedAt)
                 output.fd.sync()
             }
+            writeUltraShareResumeCheckpointAtomically(
+                checkpointTemp, checkpoint, payload.size.toLong(), digestHex, interruptedAt.toLong()
+            )
 
             val resumeOffset = UltraShareBatchTransport.resumableFileOffset(
-                partial,
-                payload.size.toLong()
+                partial, checkpoint, payload.size.toLong(), digestHex
             )
             org.junit.Assert.assertEquals(interruptedAt.toLong(), resumeOffset)
 
@@ -194,8 +225,6 @@ class UltraShareBatchTransportTest {
                 output.fd.sync()
             }
 
-            val expectedDigest = java.security.MessageDigest.getInstance("SHA-256")
-                .digest(payload)
             val actualDigest = java.security.MessageDigest.getInstance("SHA-256")
                 .digest(partial.readBytes())
 
@@ -211,14 +240,81 @@ class UltraShareBatchTransportTest {
         val directory = Files.createTempDirectory("ultrashare-invalid-resume").toFile()
         try {
             val partial = java.io.File(directory, "corrupt.part")
+            val checkpoint = java.io.File(directory, "corrupt.resume")
+            val digestHex = "ab".repeat(32)
             partial.writeBytes(ByteArray(4097) { 7 })
-            org.junit.Assert.assertEquals(
+            checkpoint.writeText("4096:$digestHex:4096", Charsets.UTF_8)
+            assertEquals(
                 0L,
-                UltraShareBatchTransport.resumableFileOffset(partial, 4096L)
+                UltraShareBatchTransport.resumableFileOffset(partial, checkpoint, 4096L, digestHex)
             )
+            assertEquals(0L, partial.length())
             org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
-                UltraShareBatchTransport.resumableFileOffset(partial, -1L)
+                UltraShareBatchTransport.resumableFileOffset(partial, checkpoint, -1L, digestHex)
             }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun checkpointForDifferentContentIsRejectedAndPartialIsDiscarded() {
+        val directory = Files.createTempDirectory("ultrashare-checkpoint-identity").toFile()
+        try {
+            val partial = java.io.File(directory, "payload.part")
+            val checkpoint = java.io.File(directory, "payload.resume")
+            partial.writeBytes(ByteArray(2048) { 4 })
+            checkpoint.writeText("4096:abababababababababababababababababababababababababababababababab:2048", Charsets.UTF_8)
+
+            assertEquals(
+                0L,
+                UltraShareBatchTransport.resumableFileOffset(
+                    partial, checkpoint, 4096L, "cd".repeat(32)
+                )
+            )
+            assertEquals(0L, partial.length())
+            assertTrue(!checkpoint.exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun checkpointAheadOfPartialFileIsRejected() {
+        val directory = Files.createTempDirectory("ultrashare-checkpoint-ahead").toFile()
+        try {
+            val partial = java.io.File(directory, "payload.part")
+            val checkpoint = java.io.File(directory, "payload.resume")
+            val digest = "ef".repeat(32)
+            partial.writeBytes(ByteArray(100) { 1 })
+            checkpoint.writeText("1000:$digest:200", Charsets.UTF_8)
+
+            assertEquals(
+                0L,
+                UltraShareBatchTransport.resumableFileOffset(partial, checkpoint, 1000L, digest)
+            )
+            assertEquals(0L, partial.length())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun failedCheckpointReplacementPreservesPreviousDurableOffset() {
+        val directory = Files.createTempDirectory("ultrashare-checkpoint-preserve").toFile()
+        try {
+            val temp = java.io.File(directory, "checkpoint.tmp")
+            val target = java.io.File(directory, "checkpoint")
+            target.mkdir()
+            java.io.File(directory, "checkpoint/old").writeText("old checkpoint")
+            val failure = runCatching {
+                writeUltraShareResumeCheckpointAtomically(
+                    temp, target, 1024L, "12".repeat(32), 512L
+                )
+            }.exceptionOrNull()
+            assertTrue(failure != null)
+            assertTrue(java.io.File(target, "old").isFile)
+            assertEquals("old checkpoint", java.io.File(target, "old").readText())
         } finally {
             directory.deleteRecursively()
         }
