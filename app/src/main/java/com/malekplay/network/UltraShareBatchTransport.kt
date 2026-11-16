@@ -48,6 +48,9 @@ object UltraShareBatchTransport {
     private const val FRAME_BYTES = 256 * 1024
     private const val HANDSHAKE_TIMEOUT_MS = 8_000
     private const val SESSION_TIMEOUT_MS = 30_000
+    // Verification and publication may take longer than an ordinary data-frame gap,
+    // especially for multi-gigabyte files on slower storage.
+    private const val FILE_VERIFY_TIMEOUT_MS = 120_000
     private const val CHALLENGE_BYTES = 32
     private const val NONCE_PREFIX_BYTES = 4
     private const val TAG_BYTES = 16
@@ -290,6 +293,7 @@ object UltraShareBatchTransport {
             // A fresh socket is bound to each candidate before connect; failed routes
             // are closed before the next route is attempted.
             configure(socket)
+            socket.soTimeout = HANDSHAKE_TIMEOUT_MS
             val input = DataInputStream(BufferedInputStream(socket.getInputStream(), BUFFER_BYTES))
             val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_BYTES))
             UltraShareDiagnostics.event("DATA_SEND", "TCP_HANDSHAKE_STARTED", mapOf("peerHost" to host))
@@ -304,6 +308,7 @@ object UltraShareBatchTransport {
             output.flush()
             check(input.readBoolean()) { "رفض الجهاز المستقبل رمز الاقتران." }
             UltraShareDiagnostics.event("DATA_SEND", "DATA_AUTHENTICATED", mapOf("peerHost" to host))
+            socket.soTimeout = SESSION_TIMEOUT_MS
             val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(input::readFully).also { noncePrefixToWipe = it }
             val sendKey = deriveKey(secret, challenge, "client-to-server").also { sendKeyToWipe = it }
             val receiveKey = deriveKey(secret, challenge, "server-to-client").also { receiveKeyToWipe = it }
@@ -415,6 +420,9 @@ object UltraShareBatchTransport {
                 )
             }
             writeFrame(output, sendKey, noncePrefix, sendSequence++, byteArrayOf(TYPE_BATCH_END.toByte()))
+            // The receiver verifies SHA-256 and publishes files before sending its final
+            // receipt. Allow slower storage to finish, but never wait indefinitely.
+            socket.soTimeout = FILE_VERIFY_TIMEOUT_MS
             val results = decodeResults(
                 readFrame(input, receiveKey, noncePrefix, receiveSequence, UltraShareBatchProtocol.MAX_MANIFEST_BYTES), manifest
             )
@@ -614,8 +622,18 @@ object UltraShareBatchTransport {
                             ))
                         }
                     } finally {
-                        // Make the partial offset durable even when the socket drops mid-file.
-                        runCatching { file.fd.sync() }
+                        // A resume offset is trusted only after the kernel confirms the
+                        // partial file was synchronized. Never hide fsync failures.
+                        try {
+                            file.fd.sync()
+                        } catch (failure: Exception) {
+                            UltraShareDiagnostics.failure(
+                                "DATA_RECEIVE_PARTIAL_SYNC",
+                                failure,
+                                "peerHost=$peerHost;batchId=${manifest.batchId};fileId=${entry.id}"
+                            )
+                            throw failure
+                        }
                     }
                 }
                 UltraShareDiagnostics.event(
