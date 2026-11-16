@@ -1064,12 +1064,12 @@ internal fun resumableFileOffset(
     require(expectedDigestHex.matches(Regex("[0-9a-f]{64}")))
     require(partial.parentFile?.canonicalFile == checkpoint.parentFile?.canonicalFile)
     val fields = runCatching { checkpoint.readText(Charsets.UTF_8).split(':') }.getOrNull()
-    val offset = fields?.takeIf {
+    val parsedOffset = fields?.takeIf {
         it.size == 3 && it[0] == expectedSizeBytes.toString() && it[1] == expectedDigestHex
     }?.get(2)?.toLongOrNull()
-    val valid = partial.isFile && offset != null && offset in 0..expectedSizeBytes &&
-        partial.length() >= offset
-    if (!valid) {
+    if (!partial.isFile || parsedOffset == null || parsedOffset !in 0..expectedSizeBytes ||
+        partial.length() < parsedOffset
+    ) {
         if (partial.isFile) {
             java.io.RandomAccessFile(partial, "rw").use { file ->
                 file.setLength(0L)
@@ -1079,13 +1079,13 @@ internal fun resumableFileOffset(
         runCatching { checkpoint.delete() }
         return 0L
     }
-    if (partial.length() != offset) {
+    if (partial.length() != parsedOffset) {
         java.io.RandomAccessFile(partial, "rw").use { file ->
-            file.setLength(offset)
+            file.setLength(parsedOffset)
             file.fd.sync()
         }
     }
-    return offset
+    return parsedOffset
 }
 
 /** Commits a resume checkpoint only after the caller has fsynced the partial data. */
