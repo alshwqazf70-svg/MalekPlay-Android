@@ -93,6 +93,55 @@ class UltraShareBatchTransportTest {
     }
 
     @Test
+    fun interruptedTransferResumesFromDurablePrefixWithoutDuplicatingBytes() {
+        val directory = Files.createTempDirectory("ultrashare-interrupted-resume").toFile()
+        try {
+            val payload = ByteArray(32_777) { (it * 31 % 251).toByte() }
+            val partial = java.io.File(directory, "transfer.part")
+            val interruptedAt = 12_345
+            java.io.FileOutputStream(partial).use { output ->
+                output.write(payload, 0, interruptedAt)
+                output.fd.sync()
+            }
+
+            // Simulate a lost socket: only the durable prefix exists on disk.
+            org.junit.Assert.assertEquals(
+                interruptedAt.toLong(),
+                UltraShareBatchTransport.resumableFileOffset(partial, payload.size.toLong())
+            )
+
+            java.io.RandomAccessFile(partial, "rw").use { output ->
+                output.seek(interruptedAt.toLong())
+                output.write(payload, interruptedAt, payload.size - interruptedAt)
+                output.fd.sync()
+            }
+
+            org.junit.Assert.assertArrayEquals(payload, partial.readBytes())
+            org.junit.Assert.assertEquals(payload.size.toLong(), partial.length())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun oversizedOrInvalidPartialIsNeverUsedAsResumeOffset() {
+        val directory = Files.createTempDirectory("ultrashare-invalid-resume").toFile()
+        try {
+            val partial = java.io.File(directory, "corrupt.part")
+            partial.writeBytes(ByteArray(4097) { 7 })
+            org.junit.Assert.assertEquals(
+                0L,
+                UltraShareBatchTransport.resumableFileOffset(partial, 4096L)
+            )
+            org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+                UltraShareBatchTransport.resumableFileOffset(partial, -1L)
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun resumeDigestIncludesBytesSkippedBeforeTheTransferOffset() = runBlocking {
         val payload = ByteArray(8193) { (it % 251).toByte() }
         val expected = java.security.MessageDigest.getInstance("SHA-256")
