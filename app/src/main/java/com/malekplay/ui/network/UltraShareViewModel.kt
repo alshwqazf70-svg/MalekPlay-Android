@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.malekplay.R
 import com.malekplay.network.UltraShareDiagnostics
+import com.malekplay.network.isRetryableUltraSharePairingFailure
 import com.malekplay.network.UltraShareTransport
 import com.malekplay.network.UltraShareControlChannel
 import com.malekplay.network.UltraShareTrustedPeerStore
@@ -724,23 +725,6 @@ class UltraShareViewModel @Inject constructor(
             }
         }
     }
-
-    internal fun isRetryableUltraSharePairingFailure(failure: Throwable): Boolean {
-    val visited = java.util.Collections.newSetFromMap(
-        java.util.IdentityHashMap<Throwable, Boolean>()
-    )
-    var current: Throwable? = failure
-    while (current != null && visited.add(current)) {
-        // Retry only immediate route/startup failures. A timeout may mean the
-        // receiver is waiting for the user's approval; replaying that request would
-        // create duplicate prompts and extend the decision window unexpectedly.
-        if (current is java.net.ConnectException ||
-            current is java.net.NoRouteToHostException
-        ) return true
-        current = current.cause
-    }
-    return false
-}
 
 private fun forgetApprovedSenderTarget(host: String) {
         UltraShareForegroundService.removeApprovedSendTarget(host)
