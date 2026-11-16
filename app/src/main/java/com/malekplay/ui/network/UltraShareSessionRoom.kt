@@ -2,6 +2,9 @@ package com.malekplay.ui.network
 
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.material3.Icon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.filled.Wifi
@@ -382,9 +385,40 @@ fun UltraShareSessionRoom(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(7.dp).background(itemColor, androidx.compose.foundation.shape.CircleShape))
-                                Text(entry.displayName, modifier = Modifier.weight(1f).padding(start = 8.dp), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(itemLabel, color = itemColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                val lowerName = entry.displayName.lowercase()
+                                val isImage = lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") ||
+                                    lowerName.endsWith(".png") || lowerName.endsWith(".webp") ||
+                                    lowerName.endsWith(".gif") || lowerName.endsWith(".bmp")
+                                if (isImage) {
+                                    AsyncImage(
+                                        model = entry.parsedUri,
+                                        contentDescription = entry.displayName,
+                                        modifier = Modifier.size(42.dp).clip(RoundedCornerShape(7.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier.size(42.dp).background(
+                                            MaterialTheme.colorScheme.surfaceVariant,
+                                            RoundedCornerShape(7.dp)
+                                        ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            when {
+                                                lowerName.endsWith(".mp4") || lowerName.endsWith(".mkv") ||
+                                                    lowerName.endsWith(".avi") || lowerName.endsWith(".mov") -> "🎬"
+                                                lowerName.endsWith(".mp3") || lowerName.endsWith(".wav") ||
+                                                    lowerName.endsWith(".flac") || lowerName.endsWith(".m4a") -> "🎵"
+                                                else -> "📄"
+                                            }
+                                        )
+                                    }
+                                }
+                                Column(Modifier.weight(1f).padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(entry.displayName, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(itemLabel, color = itemColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
                             }
                             if (entry.status == UltraShareQueueStore.STATUS_SENDING && state.sendProgress?.fileName == entry.displayName) {
                                 val itemProgress = state.sendProgress!!
