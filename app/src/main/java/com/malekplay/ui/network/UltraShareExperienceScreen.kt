@@ -84,6 +84,7 @@ import com.malekplay.network.UltraSharePeerDeliveryStore
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraSharePlatformCompatibility
+import com.malekplay.network.UltraShareNetworkRouting
 import com.malekplay.network.UltraShareTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -624,6 +625,9 @@ fun UltraShareExperienceScreen(
         }
     }
 
+    val wifiDirectFallbackHosts = remember(context, state.localAddresses) {
+        UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(context, state.localAddresses)
+    }
     val wifiDirectQrPayload = state.invitationId
         .takeIf {
             com.malekplay.network.UltraSharePairingReadiness.canShowWifiDirectQr(
@@ -639,7 +643,7 @@ fun UltraShareExperienceScreen(
             // Version 3 QR needs no LAN host: the peer discovers the active P2P
             // group through the short-lived DNS-SD invitation.
             com.malekplay.network.UltraShareQrCode.createReceiverPayload(
-                emptyList(),
+                wifiDirectFallbackHosts,
                 state.pairingSecret,
                 it
             )

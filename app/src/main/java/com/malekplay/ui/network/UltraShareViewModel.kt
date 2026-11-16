@@ -1076,8 +1076,39 @@ class UltraShareViewModel @Inject constructor(
                 )
             },
             onConnected = { remoteHost, isGroupOwner ->
+                val serviceState = UltraShareForegroundService.state.value
                 if (isGroupOwner) {
-                    if (UltraShareForegroundService.state.value.receiving) {
+                    val pending = pendingQrPairing
+                    if (pending != null && !serviceState.receiving) {
+                        // Android selected the QR scanner as group owner. It must
+                        // become the temporary receiver; the QR creator will connect
+                        // back to this new group using the same short-lived secret.
+                        UltraShareDiagnostics.event("PAIRING", "P2P_INVITATION_ROLE_REVERSED")
+                        pendingQrPairing = null
+                        qrP2pConnectStarted = false
+                        runCatching {
+                            UltraShareForegroundService.startReceiving(
+                                context,
+                                pending.secret,
+                                createHotspot = false
+                            )
+                        }.onSuccess {
+                            _state.value = _state.value.copy(
+                                receiving = true,
+                                pairingSecret = pending.secret,
+                                requestingConnection = false,
+                                wifiDirectHost = null,
+                                error = null,
+                                status = "انعكس دور Wi-Fi Direct؛ أصبح هذا الهاتف مستقبلاً مؤقتاً وننتظر مصادقة منشئ رمز QR..."
+                            )
+                        }.onFailure { failure ->
+                            _state.value = _state.value.copy(
+                                requestingConnection = false,
+                                wifiDirectHost = null,
+                                error = failure.localizedMessage ?: "تعذر تشغيل الاستقبال العكسي."
+                            )
+                        }
+                    } else if (serviceState.receiving) {
                         UltraShareForegroundService.refreshLocalAddresses(context)
                         _state.value = _state.value.copy(
                             status = "اتصل Wi-Fi Direct بنجاح؛ هذا الهاتف جاهز للاستقبال."
@@ -1092,11 +1123,30 @@ class UltraShareViewModel @Inject constructor(
                     if (pending != null) {
                         pendingQrPairing = null
                         qrP2pConnectStarted = false
+                        val safeFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(
+                            context,
+                            pending.hosts.filter { it != remoteHost }
+                        )
                         _state.value = _state.value.copy(wifiDirectHost = remoteHost)
                         requestConnection(
                             host = remoteHost,
                             secret = pending.secret,
-                            alternateHosts = pending.hosts.filter { it != remoteHost }
+                            alternateHosts = safeFallbacks
+                        )
+                    } else if (serviceState.receiving &&
+                        UltraShareTransport.isValidPairingSecret(serviceState.pairingSecret)
+                    ) {
+                        // The QR creator is now the P2P client. Authenticate back to
+                        // the scanner's temporary receiver rather than merely showing
+                        // the group-owner IP as an unpaired peer.
+                        UltraShareDiagnostics.event("PAIRING", "REVERSED_INVITATION_CLIENT_CONNECTING")
+                        _state.value = _state.value.copy(
+                            wifiDirectHost = remoteHost,
+                            status = "تم اتصال Wi-Fi Direct؛ جارٍ توثيق الجلسة العكسية..."
+                        )
+                        requestConnection(
+                            host = remoteHost,
+                            secret = serviceState.pairingSecret
                         )
                     } else {
                         _state.value = _state.value.copy(
@@ -1109,10 +1159,9 @@ class UltraShareViewModel @Inject constructor(
             onError = { message ->
                 val receiving = _state.value.receiving || UltraShareForegroundService.state.value.receiving
                 val pending = pendingQrPairing
-                val fallbackHosts = pending?.hosts.orEmpty().filter {
-                    UltraShareTransport.isValidPrivateLanHost(it) &&
-                        !UltraShareNetworkRouting.isWifiDirectGroupHost(it)
-                }
+                val fallbackHosts = pending?.let {
+                    UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, it.hosts)
+                }.orEmpty()
                 if (pending != null) {
                     pendingQrPairing = null
                     qrP2pConnectStarted = false
@@ -1264,14 +1313,12 @@ class UltraShareViewModel @Inject constructor(
                         if (pendingQrPairing == null || wifiDirectSession !== session) return@stopInvitationDiscoveryChecked
                         if (!stopped) {
                             val pending = pendingQrPairing ?: return@stopInvitationDiscoveryChecked
-                            val fallback = pending.hosts.firstOrNull {
-                                UltraShareTransport.isValidPrivateLanHost(it) &&
-                                    !UltraShareNetworkRouting.isWifiDirectGroupHost(it)
-                            }
+                            val fallbackHosts = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, pending.hosts)
+                            val fallback = fallbackHosts.firstOrNull()
                             if (fallback != null) {
                                 pendingQrPairing = null
                                 qrP2pConnectStarted = false
-                                requestConnection(fallback, pending.secret, alternateHosts = pending.hosts.filter { it != fallback })
+                                requestConnection(fallback, pending.secret, alternateHosts = fallbackHosts.drop(1))
                             } else {
                                 pendingQrPairing = null
                                 qrP2pConnectStarted = false
@@ -1303,10 +1350,8 @@ class UltraShareViewModel @Inject constructor(
                             // Do not strand the user after that attempt: try the QR's
                             // already-advertised LAN addresses through the authenticated
                             // MPC2 channel before reporting a terminal connection error.
-                            val fallback = pending.hosts.firstOrNull {
-                                UltraShareTransport.isValidPrivateLanHost(it) &&
-                                    !UltraShareNetworkRouting.isWifiDirectGroupHost(it)
-                            }
+                            val fallbackHosts = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, pending.hosts)
+                            val fallback = fallbackHosts.firstOrNull()
                             if (fallback != null) {
                                 _state.value = _state.value.copy(
                                     requestingConnection = true,
@@ -1316,7 +1361,7 @@ class UltraShareViewModel @Inject constructor(
                                 requestConnection(
                                     host = fallback,
                                     secret = pending.secret,
-                                    alternateHosts = pending.hosts.filter { it != fallback }
+                                    alternateHosts = fallbackHosts.drop(1)
                                 )
                             } else {
                                 _state.value = _state.value.copy(
@@ -1325,14 +1370,27 @@ class UltraShareViewModel @Inject constructor(
                                 )
                             }
                         }
-                    } else if (fallbackHosts.isNotEmpty()) {
-                        // Older peers and same-LAN sessions can still use the existing
-                        // authenticated MPC2 route if DNS-SD is unavailable on this device.
-                        val fallback = fallbackHosts.firstOrNull()
-                        if (!fallback.isNullOrBlank()) {
+                    } else {
+                        // DNS-SD can be unavailable on some Android/OEM combinations.
+                        // Only use QR addresses that Android can route over a live
+                        // non-P2P interface; never guess with a stale group-owner IP.
+                        val safeFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(
+                            context,
+                            fallbackHosts
+                        )
+                        val fallback = safeFallbacks.firstOrNull()
+                        if (fallback != null) {
+                            pendingQrPairing = null
+                            qrP2pConnectStarted = false
+                            session.stopInvitationDiscovery()
+                            requestConnection(fallback, pending.secret, alternateHosts = safeFallbacks.drop(1))
+                        } else {
                             pendingQrPairing = null
                             session.stopInvitationDiscovery()
-                            requestConnection(fallback, pending.secret, alternateHosts = pending.hosts.drop(1))
+                            _state.value = _state.value.copy(
+                                requestingConnection = false,
+                                error = "لم يتم العثور على دعوة Wi-Fi Direct، ولا يوجد عنوان بديل على شبكة محلية غير P2P. أعد المحاولة أو استخدم QR الخاص بنقطة الاتصال."
+                            )
                         }
                     } else {
                         pendingQrPairing = null
@@ -1347,12 +1405,13 @@ class UltraShareViewModel @Inject constructor(
         } catch (failure: Exception) {
             pendingQrPairing = null
             qrP2pConnectStarted = false
-            val fallback = fallbackHosts.firstOrNull()
-            if (!fallback.isNullOrBlank()) {
+            val safeFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, fallbackHosts)
+            val fallback = safeFallbacks.firstOrNull()
+            if (fallback != null) {
                 requestConnection(
                     host = fallback,
                     secret = secret,
-                    alternateHosts = fallbackHosts.drop(1)
+                    alternateHosts = safeFallbacks.drop(1)
                 )
             } else {
                 _state.value = _state.value.copy(

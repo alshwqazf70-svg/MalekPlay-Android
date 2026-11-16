@@ -142,12 +142,48 @@ internal object UltraShareNetworkRouting {
      * Accept a fallback only when Android exposes a matching Wi-Fi/Ethernet route
      * on a non-P2P interface. The authenticated MPC2 handshake remains mandatory.
      */
-    fun findNonP2pLanFallbackHost(context: Context, hosts: List<String>): String? =
+    fun findNonP2pLanFallbackHosts(context: Context, hosts: List<String>): List<String> =
         hosts.asSequence()
             .map { it.trim() }
             .filter { UltraShareTransport.isValidPrivateLanHost(it) }
             .distinct()
-            .firstOrNull { hasNonP2pLanRoute(context, it) }
+            .filter { hasNonP2pLanRoute(context, it) }
+            .toList()
+
+    fun findNonP2pLanFallbackHost(context: Context, hosts: List<String>): String? =
+        findNonP2pLanFallbackHosts(context, hosts).firstOrNull()
+
+    /**
+     * Return only addresses owned by a live non-P2P Wi-Fi/Ethernet/SoftAP
+     * interface. These can be advertised as optional QR fallback candidates;
+     * a receiver's old P2P address is never copied into the LAN list.
+     */
+    fun nonP2pLocalIpv4Addresses(context: Context, candidates: List<String>): List<String> =
+        runCatching {
+            val manager = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as? ConnectivityManager ?: return@runCatching emptyList()
+            val localAddresses = manager.allNetworks.flatMap { network ->
+                val properties = manager.getLinkProperties(network) ?: return@flatMap emptyList()
+                val interfaceName = properties.interfaceName.orEmpty()
+                val capabilities = manager.getNetworkCapabilities(network)
+                val localTransport =
+                    capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                        capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true ||
+                        isHotspotInterfaceName(interfaceName)
+                if (isWifiDirectInterfaceName(interfaceName) || !localTransport) {
+                    emptyList()
+                } else {
+                    properties.linkAddresses.mapNotNull { link ->
+                        (link.address as? Inet4Address)?.hostAddress
+                    }
+                }
+            }.toSet()
+            candidates.asSequence()
+                .map { it.trim() }
+                .filter { it in localAddresses && UltraShareTransport.isValidPrivateLanHost(it) }
+                .distinct()
+                .toList()
+        }.getOrDefault(emptyList())
 
     private fun hasNonP2pLanRoute(context: Context, host: String): Boolean = runCatching {
         val remote = InetAddress.getByName(host) as? Inet4Address ?: return@runCatching false
@@ -168,7 +204,7 @@ internal object UltraShareNetworkRouting {
                 val prefix = route.destination.prefixLength
                 prefix in 1..32 && isInPrefix(remote, destination, prefix)
             }
-            !isWifiDirectInterfaceName(interfaceName) && localTransport && (linkMatch || routeMatch)
+            isNonP2pLanInterfaceName(interfaceName) && localTransport && (linkMatch || routeMatch)
         }
     }.getOrDefault(false)
 
@@ -188,6 +224,17 @@ internal object UltraShareNetworkRouting {
 
     internal fun isWifiDirectInterfaceName(name: String): Boolean =
         name.trim().lowercase().let { it.startsWith("p2p") }
+
+    internal fun isNonP2pLanInterfaceName(name: String): Boolean {
+        val normalized = name.trim().lowercase()
+        if (isWifiDirectInterfaceName(normalized)) return false
+        return normalized.startsWith("wlan") ||
+            normalized.startsWith("swlan") ||
+            normalized.startsWith("wifi") ||
+            normalized.startsWith("eth") ||
+            normalized.startsWith("rndis") ||
+            isHotspotInterfaceName(normalized)
+    }
 
     /** Android OEMs expose local-only hotspots under different interface prefixes. */
     internal fun isHotspotInterfaceName(name: String): Boolean =

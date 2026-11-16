@@ -173,6 +173,15 @@ class UltraShareNetworkRoutingTest {
     }
 
     @Test
+    fun acceptsOnlyKnownNonP2pLanInterfaceFamiliesForQrFallback() {
+        assertTrue(UltraShareNetworkRouting.isNonP2pLanInterfaceName("wlan0"))
+        assertTrue(UltraShareNetworkRouting.isNonP2pLanInterfaceName("ap0"))
+        assertTrue(UltraShareNetworkRouting.isNonP2pLanInterfaceName("eth0"))
+        assertFalse(UltraShareNetworkRouting.isNonP2pLanInterfaceName("p2p-wlan0-0"))
+        assertFalse(UltraShareNetworkRouting.isNonP2pLanInterfaceName("rmnet_data0"))
+    }
+
+    @Test
     fun identifiesAndroidWifiDirectInterfaceNames() {
         assertTrue(UltraShareNetworkRouting.isWifiDirectInterfaceName("p2p-wlan0-0"))
         assertTrue(UltraShareNetworkRouting.isWifiDirectInterfaceName("P2P0"))
