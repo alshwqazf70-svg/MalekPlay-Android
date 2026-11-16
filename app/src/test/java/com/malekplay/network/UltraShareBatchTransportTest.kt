@@ -126,7 +126,7 @@ class UltraShareBatchTransportTest {
             partial.writeBytes(payload.copyOfRange(0, 4096))
 
             // No checkpoint means the existing bytes are not authorized for resume.
-            assertEquals(0L, UltraShareBatchTransport.resumableFileOffset(
+            assertEquals(0L, resumableFileOffset(
                 partial, checkpoint, payload.size.toLong(), digestHex
             ))
             assertEquals(0L, partial.length())
@@ -143,7 +143,7 @@ class UltraShareBatchTransportTest {
                 output.fd.sync()
             }
 
-            assertEquals(3072L, UltraShareBatchTransport.resumableFileOffset(
+            assertEquals(3072L, resumableFileOffset(
                 partial, checkpoint, payload.size.toLong(), digestHex
             ))
             assertEquals(3072L, partial.length())
@@ -171,7 +171,7 @@ class UltraShareBatchTransportTest {
                 checkpointTemp, checkpoint, payload.size.toLong(), digestHex, interruptedAt.toLong()
             )
 
-            val resumeOffset = UltraShareBatchTransport.resumableFileOffset(
+            val resumeOffset = resumableFileOffset(
                 partial, checkpoint, payload.size.toLong(), digestHex
             )
             assertEquals(interruptedAt.toLong(), resumeOffset)
@@ -214,7 +214,7 @@ class UltraShareBatchTransportTest {
                 checkpointTemp, checkpoint, payload.size.toLong(), digestHex, interruptedAt.toLong()
             )
 
-            val resumeOffset = UltraShareBatchTransport.resumableFileOffset(
+            val resumeOffset = resumableFileOffset(
                 partial, checkpoint, payload.size.toLong(), digestHex
             )
             org.junit.Assert.assertEquals(interruptedAt.toLong(), resumeOffset)
@@ -246,11 +246,11 @@ class UltraShareBatchTransportTest {
             checkpoint.writeText("4096:$digestHex:4096", Charsets.UTF_8)
             assertEquals(
                 4096L,
-                UltraShareBatchTransport.resumableFileOffset(partial, checkpoint, 4096L, digestHex)
+                resumableFileOffset(partial, checkpoint, 4096L, digestHex)
             )
             assertEquals(4096L, partial.length())
             org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
-                UltraShareBatchTransport.resumableFileOffset(partial, checkpoint, -1L, digestHex)
+                resumableFileOffset(partial, checkpoint, -1L, digestHex)
             }
         } finally {
             directory.deleteRecursively()
@@ -268,7 +268,7 @@ class UltraShareBatchTransportTest {
 
             assertEquals(
                 0L,
-                UltraShareBatchTransport.resumableFileOffset(
+                resumableFileOffset(
                     partial, checkpoint, 4096L, "cd".repeat(32)
                 )
             )
@@ -291,7 +291,7 @@ class UltraShareBatchTransportTest {
 
             assertEquals(
                 0L,
-                UltraShareBatchTransport.resumableFileOffset(partial, checkpoint, 1000L, digest)
+                resumableFileOffset(partial, checkpoint, 1000L, digest)
             )
             assertEquals(0L, partial.length())
         } finally {
@@ -406,7 +406,7 @@ class UltraShareBatchTransportTest {
             assertTrue(!partial.exists())
             assertEquals(
                 0L,
-                UltraShareBatchTransport.resumableFileOffset(
+                resumableFileOffset(
                     partial, checkpoint, 8192L, "ab".repeat(32)
                 )
             )

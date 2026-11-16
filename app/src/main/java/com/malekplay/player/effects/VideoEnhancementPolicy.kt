@@ -7,7 +7,9 @@ package com.malekplay.player.effects
 enum class VideoEnhancementProfile(
     val wireValue: String,
     val denoiseStrength: Float,
-    val detailStrength: Float
+    val detailStrength: Float,
+    /** Frame interpolation remains disabled for every preset; no synthetic frames are generated. */
+    val previousFrameWeight: Float = 0f
 ) {
     ECONOMY("economy", 0.24f, 0.48f),
     BALANCED("balanced", 0.38f, 0.78f),

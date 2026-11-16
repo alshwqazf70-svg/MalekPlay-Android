@@ -118,7 +118,12 @@ class UltraShareNetworkRuntimeInstrumentedTest {
         val firstPart = ByteArray(48 * 1024) { index -> (index * 13).toByte() }
         val secondPart = ByteArray(32 * 1024) { index -> (index * 7 + 5).toByte() }
         val expected = firstPart + secondPart
-        val partial = File(context.cacheDir, "ultrashare-resume-runtime-${System.nanoTime()}.part")
+        val transferId = System.nanoTime()
+        val partial = File(context.cacheDir, "ultrashare-resume-runtime-$transferId.part")
+        val checkpoint = File(context.cacheDir, "ultrashare-resume-runtime-$transferId.resume")
+        val checkpointTemp = File(context.cacheDir, "ultrashare-resume-runtime-$transferId.resume.tmp")
+        val digestHex = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(expected).joinToString("") { "%02x".format(it) }
 
         try {
             ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
@@ -139,9 +144,16 @@ class UltraShareNetworkRuntimeInstrumentedTest {
                 }
 
                 assertTrue(partial.length() == firstPart.size.toLong())
-                assertTrue(
-                    UltraShareBatchTransport.resumableFileOffset(partial, expected.size.toLong()) ==
-                        firstPart.size.toLong()
+                writeUltraShareResumeCheckpointAtomically(
+                    checkpointTemp,
+                    checkpoint,
+                    expected.size.toLong(),
+                    digestHex,
+                    firstPart.size.toLong()
+                )
+                assertEquals(
+                    firstPart.size.toLong(),
+                    resumableFileOffset(partial, checkpoint, expected.size.toLong(), digestHex)
                 )
 
                 Socket().use { resumedClient ->
@@ -163,6 +175,8 @@ class UltraShareNetworkRuntimeInstrumentedTest {
             assertArrayEquals(expected, partial.readBytes())
         } finally {
             partial.delete()
+            checkpoint.delete()
+            checkpointTemp.delete()
         }
     }
 
