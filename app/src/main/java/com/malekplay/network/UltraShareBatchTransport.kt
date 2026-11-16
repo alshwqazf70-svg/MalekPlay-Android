@@ -513,6 +513,7 @@ object UltraShareBatchTransport {
         var noncePrefixToWipe: ByteArray? = null
         var receiveKeyToWipe: ByteArray? = null
         var sendKeyToWipe: ByteArray? = null
+        var readPhase = "HANDSHAKE"
         try {
         val authenticated = MessageDigest.isEqual(proof, hmac(secret, challenge))
         val peerHost = socket.inetAddress.hostAddress.orEmpty()
@@ -538,6 +539,7 @@ object UltraShareBatchTransport {
             .also { noncePrefixToWipe = it }
         output.write(noncePrefix)
         output.flush()
+        readPhase = "SESSION"
         socket.soTimeout = SESSION_TIMEOUT_MS
         val receiveKey = deriveKey(secret, challenge, "client-to-server").also { receiveKeyToWipe = it }
         val sendKey = deriveKey(secret, challenge, "server-to-client").also { sendKeyToWipe = it }
@@ -819,6 +821,13 @@ object UltraShareBatchTransport {
             )
         )
         return BatchOutcome(manifest.batchId, outcomes)
+        } catch (failure: SocketTimeoutException) {
+            UltraShareDiagnostics.failure(
+                "DATA_RECEIVE_READ_TIMEOUT",
+                failure,
+                "peerHost=${socket.inetAddress.hostAddress.orEmpty()};phase=$readPhase"
+            )
+            throw failure
         } finally {
             noncePrefixToWipe?.fill(0)
             receiveKeyToWipe?.fill(0)
