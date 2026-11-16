@@ -2466,7 +2466,7 @@ class UltraShareForegroundService : Service() {
         else getParcelableArrayListExtra(key)
 
     companion object {
-        private const val CHANNEL_ID = "MalekPlayer_ultra_share"
+        private const val CHANNEL_ID = "malekplay_ultra_share"
         private const val NOTIFICATION_ID = 38741
         // Bound CPU/Wi-Fi locks to the platform data-sync foreground-service window.
         private const val TRANSFER_LOCK_TIMEOUT_MS = 6L * 60L * 60L * 1000L
@@ -2477,22 +2477,22 @@ class UltraShareForegroundService : Service() {
         private const val EXTRA_ROUTE_OFFER = "route_offer"
         private const val EXTRA_PEER_TARGETS = "peer_targets"
         private const val EXTRA_PRESERVE_DELIVERIES = "preserve_deliveries"
-        const val ACTION_STOP = "com.MalekPlayer.ultrashare.STOP"
-        const val ACTION_CANCEL = "com.MalekPlayer.ultrashare.CANCEL"
-        const val ACTION_CANCEL_SEND = "com.MalekPlayer.ultrashare.CANCEL_SEND"
-        const val ACTION_STOP_RECEIVING = "com.MalekPlayer.ultrashare.STOP_RECEIVING"
-        const val ACTION_STOP_IF_IDLE = "com.MalekPlayer.ultrashare.STOP_IF_IDLE"
-        const val ACTION_START_HOTSPOT = "com.MalekPlayer.ultrashare.START_HOTSPOT"
-        const val ACTION_STOP_HOTSPOT = "com.MalekPlayer.ultrashare.STOP_HOTSPOT"
-        const val ACTION_PAUSE = "com.MalekPlayer.ultrashare.PAUSE"
-        const val ACTION_REFRESH_ADDRESSES = "com.MalekPlayer.ultrashare.REFRESH_ADDRESSES"
-        const val ACTION_RECEIVE = "com.MalekPlayer.ultrashare.RECEIVE"
-        const val ACTION_ACCEPT_CONNECTION = "com.MalekPlayer.ultrashare.ACCEPT_CONNECTION"
-        const val ACTION_REJECT_CONNECTION = "com.MalekPlayer.ultrashare.REJECT_CONNECTION"
-        const val ACTION_SEND = "com.MalekPlayer.ultrashare.SEND"
-        const val ACTION_SEND_BATCH = "com.MalekPlayer.ultrashare.SEND_BATCH"
-        const val ACTION_SEND_MULTI_BATCH = "com.MalekPlayer.ultrashare.SEND_MULTI_BATCH"
-        const val ACTION_RETRY_FILE = "com.MalekPlayer.ultrashare.RETRY_FILE"
+        const val ACTION_STOP = "com.malekplay.ultrashare.STOP"
+        const val ACTION_CANCEL = "com.malekplay.ultrashare.CANCEL"
+        const val ACTION_CANCEL_SEND = "com.malekplay.ultrashare.CANCEL_SEND"
+        const val ACTION_STOP_RECEIVING = "com.malekplay.ultrashare.STOP_RECEIVING"
+        const val ACTION_STOP_IF_IDLE = "com.malekplay.ultrashare.STOP_IF_IDLE"
+        const val ACTION_START_HOTSPOT = "com.malekplay.ultrashare.START_HOTSPOT"
+        const val ACTION_STOP_HOTSPOT = "com.malekplay.ultrashare.STOP_HOTSPOT"
+        const val ACTION_PAUSE = "com.malekplay.ultrashare.PAUSE"
+        const val ACTION_REFRESH_ADDRESSES = "com.malekplay.ultrashare.REFRESH_ADDRESSES"
+        const val ACTION_RECEIVE = "com.malekplay.ultrashare.RECEIVE"
+        const val ACTION_ACCEPT_CONNECTION = "com.malekplay.ultrashare.ACCEPT_CONNECTION"
+        const val ACTION_REJECT_CONNECTION = "com.malekplay.ultrashare.REJECT_CONNECTION"
+        const val ACTION_SEND = "com.malekplay.ultrashare.SEND"
+        const val ACTION_SEND_BATCH = "com.malekplay.ultrashare.SEND_BATCH"
+        const val ACTION_SEND_MULTI_BATCH = "com.malekplay.ultrashare.SEND_MULTI_BATCH"
+        const val ACTION_RETRY_FILE = "com.malekplay.ultrashare.RETRY_FILE"
 
         private val mutableState = MutableStateFlow(UltraShareServiceState())
         private val approvedSendTargetsByHost = LinkedHashMap<String, UltraShareApprovedSendTarget>()
