@@ -484,14 +484,6 @@ object UltraShareBatchTransport {
         }
     }
 
-    /** Returns a durable partial-file offset only when it is within the manifest size. */
-    internal fun resumableFileOffset(partial: File, expectedSizeBytes: Long): Long {
-        require(expectedSizeBytes in 0..UltraShareTransport.MAX_FILE_BYTES)
-        if (!partial.isFile) return 0L
-        val currentLength = partial.length()
-        return currentLength.takeIf { it in 0..expectedSizeBytes } ?: 0L
-    }
-
     private suspend fun receiveSession(
         socket: Socket,
         pairingSecret: String,
