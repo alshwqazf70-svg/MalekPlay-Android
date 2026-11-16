@@ -579,6 +579,18 @@ object UltraShareBatchTransport {
             val (partial, offset) = partials.getValue(entry.id)
             var transferred = offset
             if (completedFiles[entry.id] == null) {
+                UltraShareDiagnostics.event(
+                    "DATA_RECEIVE",
+                    "FILE_WRITE_STARTED",
+                    mapOf(
+                        "peerHost" to peerHost,
+                        "batchId" to manifest.batchId,
+                        "fileId" to entry.id,
+                        "fileName" to entry.name,
+                        "resumeOffset" to offset,
+                        "partialPath" to partial.name
+                    )
+                )
                 FileOutputStream(partial, offset > 0L).use { file ->
                     try {
                         val startedAt = System.nanoTime()
@@ -606,7 +618,23 @@ object UltraShareBatchTransport {
                         runCatching { file.fd.sync() }
                     }
                 }
+                UltraShareDiagnostics.event(
+                    "DATA_RECEIVE",
+                    "FILE_PARTIAL_DURABLE",
+                    mapOf(
+                        "peerHost" to peerHost,
+                        "batchId" to manifest.batchId,
+                        "fileId" to entry.id,
+                        "fileName" to entry.name,
+                        "durableBytes" to partial.length()
+                    )
+                )
             }
+            UltraShareDiagnostics.event(
+                "DATA_RECEIVE",
+                "FILE_END_WAITING",
+                mapOf("peerHost" to peerHost, "batchId" to manifest.batchId, "fileId" to entry.id)
+            )
             val endPayload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 64)
             DataInputStream(ByteArrayInputStream(endPayload)).use { data ->
                 require(data.readUnsignedByte() == TYPE_FILE_END && data.readUnsignedShort() == index && data.available() == 0)
@@ -615,6 +643,17 @@ object UltraShareBatchTransport {
             val destination = if (previouslyCompleted != null) {
                 previouslyCompleted
             } else {
+                UltraShareDiagnostics.event(
+                    "DATA_RECEIVE",
+                    "FILE_VERIFY_STARTED",
+                    mapOf(
+                        "peerHost" to peerHost,
+                        "batchId" to manifest.batchId,
+                        "fileId" to entry.id,
+                        "fileName" to entry.name,
+                        "partialBytes" to partial.length()
+                    )
+                )
                 val actualDigest = FileInputStream(partial).use { stream ->
                     val digest = MessageDigest.getInstance("SHA-256")
                     val buffer = ByteArray(BUFFER_BYTES)
@@ -657,6 +696,11 @@ object UltraShareBatchTransport {
                         "sizeBytes" to entry.sizeBytes
                     )
                 )
+                UltraShareDiagnostics.event(
+                    "DATA_RECEIVE",
+                    "FILE_PUBLICATION_STARTED",
+                    mapOf("peerHost" to peerHost, "batchId" to manifest.batchId, "fileId" to entry.id)
+                )
                 UltraShareTransport.withDestinationPublicationLock(destinationDirectory) {
                     val target = uniqueDestination(destinationDirectory, entry.name)
                     val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
@@ -668,6 +712,16 @@ object UltraShareBatchTransport {
                     // dies between these operations, the next session ignores the receipt
                     // while the verified partial remains available for a safe retry.
                     writeUltraShareReceiptAtomically(markerTemp, marker, receiptContent)
+                    UltraShareDiagnostics.event(
+                        "DATA_RECEIVE",
+                        "FILE_RECEIPT_DURABLE",
+                        mapOf(
+                            "peerHost" to peerHost,
+                            "batchId" to manifest.batchId,
+                            "fileId" to entry.id,
+                            "receipt" to marker.name
+                        )
+                    )
                     try {
                         check(partial.renameTo(target)) { "تعذر تثبيت الملف المستلم." }
                     } catch (failure: Exception) {
