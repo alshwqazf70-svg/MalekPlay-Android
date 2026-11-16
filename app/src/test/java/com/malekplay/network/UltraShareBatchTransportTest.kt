@@ -3,7 +3,13 @@ package com.malekplay.network
 import java.nio.file.Files
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.ServerSocket
+import java.net.Socket
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -14,9 +20,45 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class UltraShareBatchTransportTest {
+    @Test
+    fun cancellingTransferJobClosesBlockedSocketReadImmediately() = runBlocking {
+        val server = ServerSocket(0)
+        val client = Socket("127.0.0.1", server.localPort)
+        val accepted = server.accept()
+        val readStarted = CompletableDeferred<Unit>()
+        val transfer = launch(Dispatchers.IO) {
+            val cancellationHandle = UltraShareBatchTransport.closeSocketOnJobCancellation(
+                currentCoroutineContext()[Job] ?: error("Missing transfer Job"),
+                client
+            )
+            try {
+                readStarted.complete(Unit)
+                client.getInputStream().read()
+            } finally {
+                cancellationHandle.dispose()
+                client.close()
+            }
+        }
+
+        try {
+            withTimeout(2_000L) { readStarted.await() }
+            transfer.cancelAndJoin()
+            val remoteEndOfStream = withTimeout(2_000L) {
+                withContext(Dispatchers.IO) { accepted.getInputStream().read() }
+            }
+            assertEquals(-1, remoteEndOfStream)
+        } finally {
+            transfer.cancelAndJoin()
+            client.close()
+            accepted.close()
+            server.close()
+        }
+    }
+
     @Test
     fun cancellingTransferJobClosesBlockedSocketReadImmediately() = runBlocking {
         val server = ServerSocket(0)
