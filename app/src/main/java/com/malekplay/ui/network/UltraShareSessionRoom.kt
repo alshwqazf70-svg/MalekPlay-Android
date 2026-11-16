@@ -41,6 +41,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.malekplay.core.ui.theme.MalekPlayColors
 import com.malekplay.network.UltraShareQueueStore
 @Composable
@@ -289,6 +292,13 @@ fun UltraShareSessionRoom(
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Text(delivery.displayName, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                 Text(deliveryLabel, color = deliveryColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                            }
+                                            if (delivery.updatedAtMillis > 0L) {
+                                                Text(
+                                                    "آخر تحديث " + SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(delivery.updatedAtMillis)),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
                                             }
                                             delivery.error?.takeIf { it.isNotBlank() }?.let { reason ->
                                                 Text(reason, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
