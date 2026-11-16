@@ -80,6 +80,7 @@ import com.malekplay.network.UltraShareFolderArchive
 import com.malekplay.network.UltraSharePeerDeliveryStore
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareQrCode
+import com.malekplay.network.UltraSharePlatformCompatibility
 import com.malekplay.network.UltraShareTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -398,9 +399,7 @@ fun UltraShareExperienceScreen(
         })
     }
     fun scanWifiDirect() {
-        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
-        } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT).toTypedArray()
         val missing = required.filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -497,9 +496,7 @@ fun UltraShareExperienceScreen(
     }
 
     fun startHotspot() {
-        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
-        } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT).toTypedArray()
         val missing = required.filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -508,9 +505,7 @@ fun UltraShareExperienceScreen(
 
     fun startReceivingGroup() {
         if (state.receiving) return
-        val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
-        } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT).toTypedArray()
         val missing = required.filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -573,9 +568,7 @@ fun UltraShareExperienceScreen(
                 pendingQrPairing = null
                 viewModel.connectHotspotInvitation(pairing)
             } else {
-                val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
-                } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT).toTypedArray()
                 val missing = required.filter {
                     ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
                 }
@@ -592,9 +585,7 @@ fun UltraShareExperienceScreen(
                 viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
             }
         } else {
-            val required = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
-            } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+            val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT).toTypedArray()
             val missing = required.filter {
                 ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
             }
