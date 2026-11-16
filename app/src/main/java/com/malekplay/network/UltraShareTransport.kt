@@ -456,7 +456,7 @@ object UltraShareTransport {
                 val size = metadata.readLong()
                 require(size in 0..MAX_FILE_BYTES) { "حجم الملف المرسل غير مسموح." }
                 val mime = sanitizeMimeType(readUtf8(metadata, 192))
-                require(isAllowedShareFile(fileName, mime)) { "لا يمكن استقبال ملفات APK أو PDF." }
+                require(isAllowedShareFile(fileName, mime)) { "اسم الملف أو نوعه غير صالح للمشاركة." }
                 val expectedDigest = ByteArray(32).also(metadata::readFully)
                 require(metadata.available() == 0) { "بيانات الملف المرسل غير مكتملة." }
 
