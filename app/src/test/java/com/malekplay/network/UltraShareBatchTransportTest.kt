@@ -18,6 +18,25 @@ import org.junit.Test
 
 class UltraShareBatchTransportTest {
     @Test
+    fun zeroByteFilesRemainValidAcrossBatchManifestEncoding() {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(ByteArray(0))
+        val entry = UltraShareBatchProtocol.newEntry(
+            name = "empty.dat",
+            mimeType = "application/octet-stream",
+            sizeBytes = 0L,
+            sha256 = digest
+        )
+        val manifest = UltraShareBatchProtocol.Manifest(
+            batchId = java.util.UUID.randomUUID().toString(),
+            entries = listOf(entry)
+        )
+
+        val decoded = UltraShareBatchProtocol.decode(UltraShareBatchProtocol.encode(manifest))
+        assertEquals(0L, decoded.entries.single().sizeBytes)
+        assertEquals(digest.toList(), decoded.entries.single().sha256.toList())
+    }
+    @Test
     fun cancellingTransferJobClosesBlockedSocketReadImmediately() = runBlocking {
         val server = ServerSocket(0)
         val client = Socket("127.0.0.1", server.localPort)
