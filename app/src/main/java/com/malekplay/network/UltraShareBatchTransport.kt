@@ -434,6 +434,11 @@ object UltraShareBatchTransport {
             else "لا توجد موافقة اتصال نشطة لهذا الجهاز."
         }
         onAuthenticated()
+        UltraShareDiagnostics.event(
+            "DATA_RECEIVE",
+            "DATA_AUTHENTICATED",
+            mapOf("peerHost" to peerHost)
+        )
         val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(SecureRandom()::nextBytes)
             .also { noncePrefixToWipe = it }
         output.write(noncePrefix)
@@ -446,6 +451,16 @@ object UltraShareBatchTransport {
 
         val manifest = UltraShareBatchProtocol.decode(
             readFrame(input, receiveKey, noncePrefix, receiveSequence++, UltraShareBatchProtocol.MAX_MANIFEST_BYTES)
+        )
+        UltraShareDiagnostics.event(
+            "DATA_RECEIVE",
+            "MANIFEST_RECEIVED",
+            mapOf(
+                "peerHost" to peerHost,
+                "batchId" to manifest.batchId,
+                "fileCount" to manifest.entries.size,
+                "totalBytes" to manifest.entries.sumOf { it.sizeBytes }
+            )
         )
         val completedFiles = HashMap<String, File>()
         val partials = manifest.entries.map { entry ->
@@ -476,6 +491,19 @@ object UltraShareBatchTransport {
             if (completed != null) completedFiles[entry.id] = completed
             val offset = if (completed != null) entry.sizeBytes
                 else resumableFileOffset(partial, entry.sizeBytes)
+            UltraShareDiagnostics.event(
+                "DATA_RECEIVE",
+                "FILE_RESUME_STATE",
+                mapOf(
+                    "peerHost" to peerHost,
+                    "batchId" to manifest.batchId,
+                    "fileId" to entry.id,
+                    "fileName" to entry.name,
+                    "expectedBytes" to entry.sizeBytes,
+                    "resumeOffset" to offset,
+                    "alreadyCompleted" to (completed != null)
+                )
+            )
             if (offset == 0L && partial.exists()) partial.delete()
             entry.id to Pair(partial, offset)
         }.toMap()
@@ -542,6 +570,18 @@ object UltraShareBatchTransport {
                     digest.digest()
                 }
                 if (!MessageDigest.isEqual(entry.sha256, actualDigest)) {
+                    UltraShareDiagnostics.event(
+                        "DATA_RECEIVE",
+                        "FILE_DIGEST_MISMATCH",
+                        mapOf(
+                            "peerHost" to peerHost,
+                            "batchId" to manifest.batchId,
+                            "fileId" to entry.id,
+                            "fileName" to entry.name,
+                            "expectedBytes" to entry.sizeBytes,
+                            "actualBytes" to partial.length()
+                        )
+                    )
                     runCatching { partial.delete() }
                     outcomes += FileOutcome(
                         entry.id, entry.name, null, UltraShareBatchProtocol.FileStatus.FAILED,
@@ -549,6 +589,17 @@ object UltraShareBatchTransport {
                     )
                     continue
                 }
+                UltraShareDiagnostics.event(
+                    "DATA_RECEIVE",
+                    "FILE_DIGEST_VERIFIED",
+                    mapOf(
+                        "peerHost" to peerHost,
+                        "batchId" to manifest.batchId,
+                        "fileId" to entry.id,
+                        "fileName" to entry.name,
+                        "sizeBytes" to entry.sizeBytes
+                    )
+                )
                 UltraShareTransport.withDestinationPublicationLock(destinationDirectory) {
                     val target = uniqueDestination(destinationDirectory, entry.name)
                     val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
@@ -569,6 +620,18 @@ object UltraShareBatchTransport {
                     target
                 }
             }
+            UltraShareDiagnostics.event(
+                "DATA_RECEIVE",
+                "FILE_PUBLISHED",
+                mapOf(
+                    "peerHost" to peerHost,
+                    "batchId" to manifest.batchId,
+                    "fileId" to entry.id,
+                    "fileName" to entry.name,
+                    "sizeBytes" to entry.sizeBytes,
+                    "destinationName" to destination.name
+                )
+            )
             outcomes += FileOutcome(
                 entry.id, entry.name,
                 UltraShareTransport.ReceivedFile(destination, entry.name, entry.sizeBytes, entry.mimeType),
@@ -579,6 +642,16 @@ object UltraShareBatchTransport {
         require(batchEnd.contentEquals(byteArrayOf(TYPE_BATCH_END.toByte()))) { "نهاية الدفعة غير صالحة." }
         val resultPayload = encodeResults(manifest, outcomes)
         writeFrame(output, sendKey, noncePrefix, sendSequence, resultPayload)
+        UltraShareDiagnostics.event(
+            "DATA_RECEIVE",
+            "BATCH_COMPLETED",
+            mapOf(
+                "peerHost" to peerHost,
+                "batchId" to manifest.batchId,
+                "completedFiles" to outcomes.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED },
+                "failedFiles" to outcomes.count { it.status != UltraShareBatchProtocol.FileStatus.COMPLETED }
+            )
+        )
         return BatchOutcome(manifest.batchId, outcomes)
         } finally {
             noncePrefixToWipe?.fill(0)
