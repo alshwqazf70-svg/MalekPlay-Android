@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -68,6 +69,7 @@ object UltraShareReceivedPublisher {
             null
         }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun publishMediaStore(
         context: Context,
         received: UltraShareTransport.ReceivedFile,
@@ -138,7 +140,7 @@ object UltraShareReceivedPublisher {
 
         return try {
             val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val subdirectory = relativePath.removePrefix("${Environment.DIRECTORY_DOWNLOADS}/")
+            val subdirectory = legacyDownloadsSubdirectory(relativePath)
             val directory = if (subdirectory.isBlank()) downloads else File(downloads, subdirectory)
             check(directory.isDirectory || directory.mkdirs()) {
                 "تعذر إنشاء مجلد التنزيلات."
@@ -158,6 +160,13 @@ object UltraShareReceivedPublisher {
             UltraShareDiagnostics.failure("RECEIVED_PUBLISH_LEGACY_DOWNLOADS", failure, "file=$name;path=$relativePath")
             null
         }
+    }
+
+    internal fun legacyDownloadsSubdirectory(relativePath: String): String = when {
+        relativePath == PUBLIC_DOWNLOADS_RELATIVE_PATH -> ""
+        relativePath.startsWith("$PUBLIC_DOWNLOADS_RELATIVE_PATH/") ->
+            relativePath.removePrefix("$PUBLIC_DOWNLOADS_RELATIVE_PATH/")
+        else -> relativePath
     }
 
     private fun uniqueFile(directory: File, name: String): File {
