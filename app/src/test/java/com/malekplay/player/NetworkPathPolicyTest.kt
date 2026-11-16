@@ -42,6 +42,18 @@ class NetworkPathPolicyTest {
     }
 
     @Test
+    fun rejectsGenericCleartextPlaybackButKeepsValidatedHttpsAndDlnaSchemes() {
+        assertThrows(IOException::class.java) {
+            validatePlaybackTransportScheme("http")
+        }
+        validatePlaybackTransportScheme("https")
+        validatePlaybackTransportScheme("malekdlna-http")
+        validatePlaybackTransportScheme("malekdlna-https")
+        validatePlaybackTransportScheme("maleksmb")
+        validatePlaybackTransportScheme(null)
+    }
+
+    @Test
     fun acceptsOnlyCredentialFreeInternalPlaybackUris() {
         val uri = Uri.parse("maleksmb://net_test_123/media/movie.mkv")
         assertEquals("net_test_123", validateNetworkPlaybackUri(uri))

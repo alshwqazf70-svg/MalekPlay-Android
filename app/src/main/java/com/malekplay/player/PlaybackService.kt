@@ -801,6 +801,9 @@ class PlaybackService : MediaSessionService() {
 
     private fun resolve(dataSpec: DataSpec): DataSpec {
         val uri = dataSpec.uri
+        // Generic HTTP playback would bypass the LAN-only DLNA validation path.
+        // DLNA streams use malekdlna-http and are separately host/network constrained.
+        validatePlaybackTransportScheme(uri.scheme)
         // Only WebDAV over HTTPS receives credentials, and only to the stored host.
         if (!uri.scheme.equals("https", ignoreCase = true) || uri.userInfo != null) return dataSpec
 

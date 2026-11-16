@@ -29,6 +29,13 @@ internal object NetworkPathPolicy {
     }
 }
 
+/** Reject generic cleartext network playback; DLNA uses its separately validated LAN-only scheme. */
+internal fun validatePlaybackTransportScheme(scheme: String?) {
+    if (scheme.equals("http", ignoreCase = true)) {
+        throw IOException("اتصالات HTTP العامة غير مسموحة؛ استخدم HTTPS أو مصدر DLNA محلياً تم اكتشافه.")
+    }
+}
+
 /**
  * Accepts only the internal credential-free URI shape:
  * scheme://profile-id/path/to/file
