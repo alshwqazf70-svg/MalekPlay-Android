@@ -86,7 +86,7 @@ fun ReceiveScreen(
                     verticalArrangement = Arrangement.spacedBy(11.dp)
                 ) {
                     Text(
-                        "اطلب من صديقك مسح رمز QR؛ سينضم هاتفه إلى شبكة MalekPlay ثم يتحقق من الاقتران تلقائياً",
+                        "اطلب من صديقك مسح رمز QR؛ سينضم هاتفه إلى شبكة MalekPlayerer ثم يتحقق من الاقتران تلقائياً",
                         color = Color(0xFF30394C),
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.titleMedium,
@@ -98,7 +98,7 @@ fun ReceiveScreen(
                     ) {
                         Text("اسم المجموعة", color = Color(0xFF69758B), style = MaterialTheme.typography.labelMedium)
                         Text(
-                            android.os.Build.MODEL.orEmpty().ifBlank { "MalekPlay Android" },
+                            android.os.Build.MODEL.orEmpty().ifBlank { "MalekPlayerer Android" },
                             color = Color(0xFF30394C),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
@@ -118,7 +118,7 @@ fun ReceiveScreen(
                         if (qrBitmap != null) {
                             Image(
                                 bitmap = qrBitmap.asImageBitmap(),
-                                contentDescription = "رمز QR للانضمام إلى شبكة MalekPlay",
+                                contentDescription = "رمز QR للانضمام إلى شبكة MalekPlayerer",
                                 modifier = Modifier.size(290.dp)
                             )
                         } else {
@@ -126,7 +126,7 @@ fun ReceiveScreen(
                                 CircularProgressIndicator(color = ShareCyan)
                                 Text(
                                     when {
-                                        !state.hotspotActive -> "جارٍ تجهيز شبكة MalekPlay المحلية…"
+                                        !state.hotspotActive -> "جارٍ تجهيز شبكة MalekPlayerer المحلية…"
                                         !state.dataChannelReady -> "جارٍ تشغيل منفذ نقل الملفات والتحقق من جاهزيته…"
                                         !state.controlChannelReady -> "جارٍ تشغيل قناة الاقتران…"
                                         state.localAddresses.isEmpty() -> "جارٍ تحديد عنوان الشبكة…"
@@ -139,7 +139,7 @@ fun ReceiveScreen(
                         }
                     }
                     Text(
-                        "شغّل Wi-Fi واسمح بطلب الانضمام إلى شبكة MalekPlay الذي يعرضه Android؛ لا تغلق هذه الشاشة أثناء الاقتران",
+                        "شغّل Wi-Fi واسمح بطلب الانضمام إلى شبكة MalekPlayerer الذي يعرضه Android؛ لا تغلق هذه الشاشة أثناء الاقتران",
                         color = Color(0xFF46536A),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
@@ -162,7 +162,7 @@ fun ReceiveScreen(
             ) {
                 Icon(Icons.Filled.Wifi, contentDescription = null, tint = Color(0xFFC084FC), modifier = Modifier.size(26.dp))
                 Text(
-                    "يستخدم MalekPlay نقطة اتصال محلية مؤقتة لتوصيل الهاتفين، ثم يفتح قناة الاقتران الآمنة تلقائياً.",
+                    "يستخدم MalekPlayerer نقطة اتصال محلية مؤقتة لتوصيل الهاتفين، ثم يفتح قناة الاقتران الآمنة تلقائياً.",
                     color = Color(0xFFE4E9F5),
                     modifier = Modifier.padding(start = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
@@ -192,7 +192,7 @@ fun ReceiveScreen(
 
         if (state.hotspotActive) {
             ShareInfoCard(
-                title = "شبكة MalekPlay",
+                title = "شبكة MalekPlayerer",
                 body = "اسم الشبكة: ${state.hotspotSsid.orEmpty()}\nكلمة المرور: ${state.hotspotPassword ?: "غير متاحة"}"
             )
             OutlinedButton(onClick = onStopHotspot, modifier = Modifier.fillMaxWidth()) {
