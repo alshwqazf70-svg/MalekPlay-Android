@@ -1939,11 +1939,21 @@ class UltraShareForegroundService : Service() {
                 throw failure
             } catch (failure: IOException) {
                 lastFailure = failure
+                UltraShareDiagnostics.failure(
+                    "DATA_SEND_RECOVERY",
+                    failure,
+                    "activeHost=" + activeHost + ";retry=" + retry + ";expectedPeerId=" + (expectedPeerId ?: "missing")
+                )
                 val isImmediateConnectFailure = failure is java.net.ConnectException
                 if (!isImmediateConnectFailure && retry < 2) {
                     retry++
                     var samePathReady = UltraShareControlChannel.isSessionActive(activeHost)
                     if (!samePathReady) {
+                        UltraShareDiagnostics.event(
+                            "DATA_SEND_RECOVERY",
+                            "CONTROL_RECONNECT_STARTED",
+                            mapOf("activeHost" to activeHost, "retry" to retry, "peerIdKnown" to !expectedPeerId.isNullOrBlank())
+                        )
                         updateState { current -> current.copy(
                             status = "انقطع الاتصال؛ نعيد الاتصال تلقائياً بالجهاز المستقبل قبل استئناف الملفات..."
                         ) }
@@ -1974,6 +1984,11 @@ class UltraShareForegroundService : Service() {
                                     )
                             )
                             samePathReady = true
+                            UltraShareDiagnostics.event(
+                                "DATA_SEND_RECOVERY",
+                                "CONTROL_RECONNECT_SUCCEEDED",
+                                mapOf("activeHost" to activeHost, "retry" to retry)
+                            )
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (reconnectFailure: Exception) {
@@ -1997,6 +2012,11 @@ class UltraShareForegroundService : Service() {
                     updateState { current -> current.copy(
                         status = "نبحث عن الجهاز نفسه بعد تغيّر عنوان الشبكة..."
                     ) }
+                    UltraShareDiagnostics.event(
+                        "DATA_SEND_RECOVERY",
+                        "PEER_REDISCOVERY_STARTED",
+                        mapOf("expectedPeerId" to expectedPeerId, "previousHost" to activeHost)
+                    )
                     val refreshedRoutes = runCatching {
                         UltraShareDiscovery.discoverPeers(
                             scanWindowMs = 2_500L,
@@ -2005,6 +2025,16 @@ class UltraShareForegroundService : Service() {
                     }.getOrDefault(emptyList()).let {
                         UltraShareNegotiation.candidatesForPeer(expectedPeerId, it)
                     }
+                    UltraShareDiagnostics.event(
+                        "DATA_SEND_RECOVERY",
+                        "PEER_REDISCOVERY_COMPLETED",
+                        mapOf(
+                            "expectedPeerId" to expectedPeerId,
+                            "previousHost" to activeHost,
+                            "matchingRouteCount" to refreshedRoutes.size,
+                            "matchingHosts" to refreshedRoutes.map { it.host }.distinct().joinToString(",")
+                        )
+                    )
                     refreshedRoutes.forEach { route ->
                         if (route.host != activeHost && fallbackCandidates.none {
                                 it.host == route.host && it.port == route.port
@@ -2018,6 +2048,16 @@ class UltraShareForegroundService : Service() {
                 var switched = false
                 while (fallbackIndex < fallbackCandidates.size && !switched) {
                     val candidate = fallbackCandidates[fallbackIndex++]
+                    UltraShareDiagnostics.event(
+                        "DATA_SEND_RECOVERY",
+                        "ALTERNATE_ROUTE_ATTEMPT",
+                        mapOf(
+                            "previousHost" to activeHost,
+                            "candidateHost" to candidate.host,
+                            "transport" to candidate.transport,
+                            "port" to candidate.port
+                        )
+                    )
                     UltraShareControlChannel.closeSession(activeHost)
                     disconnectApprovedPeer(activeHost)
                     updateState { current -> current.copy(
@@ -2054,6 +2094,11 @@ class UltraShareForegroundService : Service() {
                         )
                         retry = 0
                         switched = true
+                        UltraShareDiagnostics.event(
+                            "DATA_SEND_RECOVERY",
+                            "ALTERNATE_ROUTE_CONNECTED",
+                            mapOf("activeHost" to activeHost, "transport" to candidate.transport)
+                        )
                         updateState { current -> current.copy(
                             status = "تم التبديل إلى مسار ${candidate.transport}؛ نتابع إرسال الملفات."
                         ) }
