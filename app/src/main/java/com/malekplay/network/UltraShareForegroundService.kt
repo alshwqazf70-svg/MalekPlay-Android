@@ -356,9 +356,9 @@ class UltraShareForegroundService : Service() {
                                         receiveProgress = null,
                                         receivedFile = published,
                                         status = if (publishedUri != null) {
-                                            "تم الاستلام والحفظ تلقائياً في التنزيلات/MalekPlayer/Received: ${received.fileName}"
+                                            "تم الاستلام والحفظ تلقائياً في التنزيلات/MalekPlayererer/Received: ${received.fileName}"
                                         } else {
-                                            "تم الاستلام والحفظ في مجلد MalekPlayer/Received داخل ملفات التطبيق: ${received.fileName}"
+                                            "تم الاستلام والحفظ في مجلد MalekPlayererer/Received داخل ملفات التطبيق: ${received.fileName}"
                                         },
                                         error = null
                                     ) }
@@ -485,9 +485,9 @@ class UltraShareForegroundService : Service() {
                                             updateState { current -> current.copy(
                                                 receivedFile = received.copy(publishedUri = publishedUri),
                                                 status = if (publishedUri != null) {
-                                                "استُلم ${received.fileName} وحُفظ في التنزيلات/MalekPlayer/Received"
+                                                "استُلم ${received.fileName} وحُفظ في التنزيلات/MalekPlayererer/Received"
                                             } else {
-                                                "استُلم ${received.fileName} وحُفظ في مجلد MalekPlayer/Received داخل ملفات التطبيق"
+                                                "استُلم ${received.fileName} وحُفظ في مجلد MalekPlayererer/Received داخل ملفات التطبيق"
                                             },
                                                 error = null
                                             ) }
@@ -577,7 +577,7 @@ class UltraShareForegroundService : Service() {
                         try {
                             UltraShareControlChannel.serveOnce(
                                 pairingSecret = secret,
-                                localPeerName = Build.MODEL?.take(96)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                                localPeerName = Build.MODEL?.take(96)?.ifBlank { "MalekPlayerer Android" } ?: "MalekPlayerer Android",
                                 localPeerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
                                 onListening = { actualPort ->
                                     val ready = actualPort == UltraShareControlChannel.DEFAULT_PORT
@@ -1029,7 +1029,7 @@ class UltraShareForegroundService : Service() {
     @SuppressLint("MissingPermission")
     private fun startLocalHotspot() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            updateState { it.copy(error = "إنشاء نقطة اتصال داخل MalekPlay يتطلب Android 8 أو أحدث. استخدم نقطة اتصال النظام يدوياً.") }
+            updateState { it.copy(error = "إنشاء نقطة اتصال داخل MalekPlayerer يتطلب Android 8 أو أحدث. استخدم نقطة اتصال النظام يدوياً.") }
             finishService()
             return
         }
@@ -1040,7 +1040,7 @@ class UltraShareForegroundService : Service() {
             finishService()
             return
         }
-        updateState { it.copy(hotspotStarting = true, error = null, status = "جارٍ إنشاء شبكة MalekPlay المحلية...") }
+        updateState { it.copy(hotspotStarting = true, error = null, status = "جارٍ إنشاء شبكة MalekPlayerer المحلية...") }
         val callback = object : WifiManager.LocalOnlyHotspotCallback() {
             override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
                 if (hotspotCallback !== this) {
@@ -1065,7 +1065,7 @@ class UltraShareForegroundService : Service() {
                         hotspotSsid = credentials.first.takeIf { it.isNotBlank() },
                         hotspotPassword = credentials.second,
                         localAddresses = findLocalIpv4Addresses(),
-                        status = if (credentials.first.isNotBlank()) "تم إنشاء شبكة MalekPlay المحلية. صِل الجهاز الآخر بها ثم ابحث عن الأجهزة القريبة."
+                        status = if (credentials.first.isNotBlank()) "تم إنشاء شبكة MalekPlayerer المحلية. صِل الجهاز الآخر بها ثم ابحث عن الأجهزة القريبة."
                         else "تم إنشاء نقطة الاتصال، لكن تعذر قراءة بياناتها. افتح إعدادات Wi-Fi لعرضها.",
                         error = null
                     )
@@ -1082,7 +1082,7 @@ class UltraShareForegroundService : Service() {
                         hotspotActive = false,
                         hotspotSsid = null,
                         hotspotPassword = null,
-                        status = "أوقِفت نقطة اتصال MalekPlay."
+                        status = "أوقِفت نقطة اتصال MalekPlayerer."
                     )
                 }
                 finishService()
@@ -1099,7 +1099,7 @@ class UltraShareForegroundService : Service() {
                         "النظام أو سياسة الجهاز تمنع إنشاء نقطة اتصال محلية."
                     WifiManager.LocalOnlyHotspotCallback.ERROR_NO_CHANNEL ->
                         "لا تتوفر قناة Wi-Fi لإنشاء نقطة الاتصال حالياً."
-                    else -> "تعذر إنشاء نقطة اتصال MalekPlay. جرّب إيقاف نقطة اتصال النظام ثم أعد المحاولة."
+                    else -> "تعذر إنشاء نقطة اتصال MalekPlayerer. جرّب إيقاف نقطة اتصال النظام ثم أعد المحاولة."
                 }
                 updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null, error = message) }
                 finishService()
@@ -1203,7 +1203,7 @@ class UltraShareForegroundService : Service() {
             runCatching {
                 if (wifiLock?.isHeld != true) {
                     val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                    wifiLock = manager.createWifiLock(WifiManager.WIFI_MODE_FULL, "MalekPlay:UltraShare").apply {
+                    wifiLock = manager.createWifiLock(WifiManager.WIFI_MODE_FULL, "MalekPlayerer:UltraShare").apply {
                         setReferenceCounted(false)
                         // WifiLock has no timed acquire overload. Its lifetime is
                         // explicitly bounded by endTransfer()/service shutdown.
@@ -1214,7 +1214,7 @@ class UltraShareForegroundService : Service() {
             runCatching {
                 if (cpuWakeLock?.isHeld != true) {
                     val manager = getSystemService(POWER_SERVICE) as PowerManager
-                    cpuWakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MalekPlay:UltraShare").apply {
+                    cpuWakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MalekPlayerer:UltraShare").apply {
                         setReferenceCounted(false)
                         acquire(TRANSFER_LOCK_TIMEOUT_MS)
                     }
@@ -1934,7 +1934,7 @@ class UltraShareForegroundService : Service() {
                 )
                 if (!UltraSharePairingReadiness.canSendData(controlReady, dataReady)) {
                     throw IOException(
-                        "قناة الاقتران موجودة، لكن منفذ نقل الملفات غير متاح عبر مسارات الشبكة الحالية. لم يبدأ إرسال أي ملف؛ أعد الاتصال أو تحقق من بقاء الهاتفين على شبكة MalekPlay."
+                        "قناة الاقتران موجودة، لكن منفذ نقل الملفات غير متاح عبر مسارات الشبكة الحالية. لم يبدأ إرسال أي ملف؛ أعد الاتصال أو تحقق من بقاء الهاتفين على شبكة MalekPlayerer."
                     )
                 }
                 return UltraShareBatchTransport.sendBatch(
@@ -1976,7 +1976,7 @@ class UltraShareForegroundService : Service() {
                             val decision = UltraShareControlChannel.request(
                                 host = activeHost,
                                 pairingSecret = secret,
-                                peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                                peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlayerer Android" } ?: "MalekPlayerer Android",
                                 network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, activeHost),
                                 peerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
                                 onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
@@ -1988,7 +1988,7 @@ class UltraShareForegroundService : Service() {
                                 "انقطعت قناة التحكم أثناء إعادة الاتصال."
                             }
                             registerApprovedPeer(
-                                name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlay المستقبل",
+                                name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlayerer المستقبل",
                                 host = activeHost,
                                 role = "أعاد الموافقة على الاتصال",
                                 sessionId = UltraShareControlChannel.sessionPeerId(activeHost)
@@ -2082,7 +2082,7 @@ class UltraShareForegroundService : Service() {
                         val decision = UltraShareControlChannel.request(
                             host = candidate.host,
                             pairingSecret = secret,
-                            peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                            peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlayerer Android" } ?: "MalekPlayerer Android",
                             network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, candidate.host),
                                 networks = UltraShareNetworkRouting.findNetworksForHost(this@UltraShareForegroundService, candidate.host),
                             peerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
@@ -2097,7 +2097,7 @@ class UltraShareForegroundService : Service() {
                         activeHost = candidate.host
                         onHostChanged(activeHost)
                         registerApprovedPeer(
-                            name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlay المستقبل",
+                            name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlayerer المستقبل",
                             host = activeHost,
                             role = "اتصال عبر مسار بديل ${candidate.transport}",
                             sessionId = UltraShareControlChannel.sessionPeerId(activeHost)
@@ -2466,7 +2466,7 @@ class UltraShareForegroundService : Service() {
         else getParcelableArrayListExtra(key)
 
     companion object {
-        private const val CHANNEL_ID = "malekplay_ultra_share"
+        private const val CHANNEL_ID = "MalekPlayer_ultra_share"
         private const val NOTIFICATION_ID = 38741
         // Bound CPU/Wi-Fi locks to the platform data-sync foreground-service window.
         private const val TRANSFER_LOCK_TIMEOUT_MS = 6L * 60L * 60L * 1000L
@@ -2477,22 +2477,22 @@ class UltraShareForegroundService : Service() {
         private const val EXTRA_ROUTE_OFFER = "route_offer"
         private const val EXTRA_PEER_TARGETS = "peer_targets"
         private const val EXTRA_PRESERVE_DELIVERIES = "preserve_deliveries"
-        const val ACTION_STOP = "com.malekplay.ultrashare.STOP"
-        const val ACTION_CANCEL = "com.malekplay.ultrashare.CANCEL"
-        const val ACTION_CANCEL_SEND = "com.malekplay.ultrashare.CANCEL_SEND"
-        const val ACTION_STOP_RECEIVING = "com.malekplay.ultrashare.STOP_RECEIVING"
-        const val ACTION_STOP_IF_IDLE = "com.malekplay.ultrashare.STOP_IF_IDLE"
-        const val ACTION_START_HOTSPOT = "com.malekplay.ultrashare.START_HOTSPOT"
-        const val ACTION_STOP_HOTSPOT = "com.malekplay.ultrashare.STOP_HOTSPOT"
-        const val ACTION_PAUSE = "com.malekplay.ultrashare.PAUSE"
-        const val ACTION_REFRESH_ADDRESSES = "com.malekplay.ultrashare.REFRESH_ADDRESSES"
-        const val ACTION_RECEIVE = "com.malekplay.ultrashare.RECEIVE"
-        const val ACTION_ACCEPT_CONNECTION = "com.malekplay.ultrashare.ACCEPT_CONNECTION"
-        const val ACTION_REJECT_CONNECTION = "com.malekplay.ultrashare.REJECT_CONNECTION"
-        const val ACTION_SEND = "com.malekplay.ultrashare.SEND"
-        const val ACTION_SEND_BATCH = "com.malekplay.ultrashare.SEND_BATCH"
-        const val ACTION_SEND_MULTI_BATCH = "com.malekplay.ultrashare.SEND_MULTI_BATCH"
-        const val ACTION_RETRY_FILE = "com.malekplay.ultrashare.RETRY_FILE"
+        const val ACTION_STOP = "com.MalekPlayer.ultrashare.STOP"
+        const val ACTION_CANCEL = "com.MalekPlayer.ultrashare.CANCEL"
+        const val ACTION_CANCEL_SEND = "com.MalekPlayer.ultrashare.CANCEL_SEND"
+        const val ACTION_STOP_RECEIVING = "com.MalekPlayer.ultrashare.STOP_RECEIVING"
+        const val ACTION_STOP_IF_IDLE = "com.MalekPlayer.ultrashare.STOP_IF_IDLE"
+        const val ACTION_START_HOTSPOT = "com.MalekPlayer.ultrashare.START_HOTSPOT"
+        const val ACTION_STOP_HOTSPOT = "com.MalekPlayer.ultrashare.STOP_HOTSPOT"
+        const val ACTION_PAUSE = "com.MalekPlayer.ultrashare.PAUSE"
+        const val ACTION_REFRESH_ADDRESSES = "com.MalekPlayer.ultrashare.REFRESH_ADDRESSES"
+        const val ACTION_RECEIVE = "com.MalekPlayer.ultrashare.RECEIVE"
+        const val ACTION_ACCEPT_CONNECTION = "com.MalekPlayer.ultrashare.ACCEPT_CONNECTION"
+        const val ACTION_REJECT_CONNECTION = "com.MalekPlayer.ultrashare.REJECT_CONNECTION"
+        const val ACTION_SEND = "com.MalekPlayer.ultrashare.SEND"
+        const val ACTION_SEND_BATCH = "com.MalekPlayer.ultrashare.SEND_BATCH"
+        const val ACTION_SEND_MULTI_BATCH = "com.MalekPlayer.ultrashare.SEND_MULTI_BATCH"
+        const val ACTION_RETRY_FILE = "com.MalekPlayer.ultrashare.RETRY_FILE"
 
         private val mutableState = MutableStateFlow(UltraShareServiceState())
         private val approvedSendTargetsByHost = LinkedHashMap<String, UltraShareApprovedSendTarget>()
@@ -2641,7 +2641,7 @@ class UltraShareForegroundService : Service() {
                 UltraShareNegotiation.encode(
                     UltraShareNegotiation.Offer(
                         peerId = "route-fallback",
-                        displayName = "MalekPlay",
+                        displayName = "MalekPlayerer",
                         candidates = it
                     )
                 )
@@ -2679,7 +2679,7 @@ class UltraShareForegroundService : Service() {
                         UltraShareNegotiation.encode(
                             UltraShareNegotiation.Offer(
                                 peerId = "route-fallback",
-                                displayName = "MalekPlay",
+                                displayName = "MalekPlayerer",
                                 candidates = it
                             )
                         )
