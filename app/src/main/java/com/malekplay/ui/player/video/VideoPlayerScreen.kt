@@ -987,7 +987,7 @@ fun VideoPlayerScreen(
                         Text(stringResource(R.string.player_diag_lanczos_note), style = MaterialTheme.typography.bodySmall)
                     }
                 },
-                confirmButton = { TextButton(onClick = { showVideoDiagnostics = false }) { Text(stringResource(R.string.lib_done)) } }
+                confirmButton = { TextButton(onClick = { showVideoDiagnostics = false }) { Text(stringResource(R.string.common_close)) } }
             )
         }
 
