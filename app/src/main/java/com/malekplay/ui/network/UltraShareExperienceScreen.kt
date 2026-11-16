@@ -607,9 +607,12 @@ fun UltraShareExperienceScreen(
         }
     }
 
-    val wifiDirectFallbackHosts = remember(context, state.localAddresses) {
+    val currentWifiDirectFallbackHosts = remember(context, state.localAddresses) {
         UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(context, state.localAddresses)
     }
+    val wifiDirectFallbackHosts = viewModel.stableWifiDirectQrHosts(
+        state.invitationId, currentWifiDirectFallbackHosts
+    )
     val wifiDirectQrPayload = state.invitationId
         .takeIf {
             com.malekplay.network.UltraSharePairingReadiness.canShowWifiDirectQr(
