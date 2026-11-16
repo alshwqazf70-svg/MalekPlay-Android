@@ -403,10 +403,13 @@ class UltraShareBatchTransportTest {
         val directory = Files.createTempDirectory("ultrashare-resume-missing").toFile()
         try {
             val partial = java.io.File(directory, "missing.part")
+            val checkpoint = java.io.File(directory, "missing.resume")
             assertTrue(!partial.exists())
-            org.junit.Assert.assertEquals(
+            assertEquals(
                 0L,
-                UltraShareBatchTransport.resumableFileOffset(partial, 8192L)
+                UltraShareBatchTransport.resumableFileOffset(
+                    partial, checkpoint, 8192L, "ab".repeat(32)
+                )
             )
         } finally {
             directory.deleteRecursively()
