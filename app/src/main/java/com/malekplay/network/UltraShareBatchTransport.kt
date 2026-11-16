@@ -349,7 +349,7 @@ object UltraShareBatchTransport {
                 val streamedDigest = MessageDigest.getInstance("SHA-256")
                 resolver.openInputStream(source.uri)?.use { raw ->
                     BufferedInputStream(raw, BUFFER_BYTES).use { stream ->
-                        skipFully(stream, offset)
+                        skipAndDigest(stream, offset, streamedDigest)
                         val buffer = ByteArray(FRAME_BYTES - 8)
                         while (transferred < entry.sizeBytes) {
                             currentCoroutineContext().ensureActive()
@@ -812,6 +812,24 @@ object UltraShareBatchTransport {
             init(SecretKeySpec(key, "HmacSHA256"))
             doFinal(payload)
         }
+
+    /** Advances to a resume offset while including the existing prefix in source verification. */
+    private suspend fun skipAndDigest(
+        input: java.io.InputStream,
+        count: Long,
+        digest: MessageDigest
+    ) {
+        var remaining = count
+        val buffer = ByteArray(BUFFER_BYTES)
+        while (remaining > 0) {
+            currentCoroutineContext().ensureActive()
+            val wanted = minOf(buffer.size.toLong(), remaining).toInt()
+            val read = readAtMost(input, buffer, wanted)
+            require(read > 0) { "تعذر الوصول إلى موضع الاستئناف." }
+            digest.update(buffer, 0, read)
+            remaining -= read
+        }
+    }
 
     private suspend fun skipFully(input: java.io.InputStream, count: Long) {
         var remaining = count
