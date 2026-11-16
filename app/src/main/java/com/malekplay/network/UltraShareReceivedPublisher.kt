@@ -24,6 +24,12 @@ import kotlin.coroutines.resume
  */
 object UltraShareReceivedPublisher {
 
+    internal const val PUBLIC_APP_RELATIVE_PATH = "Download/MalekPlayer/Received"
+    internal const val PUBLIC_DOWNLOADS_RELATIVE_PATH = "Download"
+
+    internal fun publicRelativePaths(): List<String> =
+        listOf(PUBLIC_APP_RELATIVE_PATH, PUBLIC_DOWNLOADS_RELATIVE_PATH)
+
     suspend fun publish(context: Context, received: UltraShareTransport.ReceivedFile): Uri? =
         withContext(Dispatchers.IO) {
             check(received.file.isFile && received.file.length() == received.sizeBytes) {
@@ -33,10 +39,14 @@ object UltraShareReceivedPublisher {
             val name = UltraShareTransport.sanitizeFileName(received.fileName)
             val mime = received.mimeType.ifBlank { "application/octet-stream" }
 
+            // Primary destination is the public app folder. If Android's media
+            // provider rejects it, retry the same file directly in Downloads root.
             val publicUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                publishMediaStore(app, received, name, mime)
+                publishMediaStore(app, received, name, mime, PUBLIC_APP_RELATIVE_PATH)
+                    ?: publishMediaStore(app, received, name, mime, PUBLIC_DOWNLOADS_RELATIVE_PATH)
             } else {
-                publishLegacyDownloads(app, received, name, mime)
+                publishLegacyDownloads(app, received, name, mime, PUBLIC_APP_RELATIVE_PATH)
+                    ?: publishLegacyDownloads(app, received, name, mime, PUBLIC_DOWNLOADS_RELATIVE_PATH)
             }
             if (publicUri != null) return@withContext publicUri
 
@@ -45,7 +55,7 @@ object UltraShareReceivedPublisher {
             val fallback = File(
                 app.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
                     ?: File(app.filesDir, "downloads"),
-                "MalekPlayer/Received"
+                relativePath.removePrefix("${Environment.DIRECTORY_DOWNLOADS}/")
             )
             check(fallback.isDirectory || fallback.mkdirs()) {
                 "تعذر إنشاء مجلد MalekPlayer/Received لحفظ الملف المستلم."
@@ -66,7 +76,8 @@ object UltraShareReceivedPublisher {
         context: Context,
         received: UltraShareTransport.ReceivedFile,
         name: String,
-        mime: String
+        mime: String,
+        relativePath: String
     ): Uri? {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
@@ -74,7 +85,7 @@ object UltraShareReceivedPublisher {
             put(MediaStore.MediaColumns.MIME_TYPE, mime)
             put(
                 MediaStore.MediaColumns.RELATIVE_PATH,
-                "${Environment.DIRECTORY_DOWNLOADS}/MalekPlayer/Received"
+                relativePath
             )
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
@@ -108,7 +119,7 @@ object UltraShareReceivedPublisher {
             UltraShareDiagnostics.failure(
                 "RECEIVED_PUBLISH_COPY_OR_FINALIZE",
                 failure,
-                "file=$name;expectedBytes=${received.sizeBytes}"
+                "file=$name;expectedBytes=${received.sizeBytes};path=$relativePath"
             )
             runCatching { resolver.delete(uri, null, null) }
             null
@@ -120,7 +131,8 @@ object UltraShareReceivedPublisher {
         context: Context,
         received: UltraShareTransport.ReceivedFile,
         name: String,
-        mime: String
+        mime: String,
+        relativePath: String
     ): Uri? {
         if (ContextCompat.checkSelfPermission(
                 context,
@@ -148,7 +160,7 @@ object UltraShareReceivedPublisher {
                 }
             }
         } catch (failure: Exception) {
-            UltraShareDiagnostics.failure("RECEIVED_PUBLISH_LEGACY_DOWNLOADS", failure, "file=$name")
+            UltraShareDiagnostics.failure("RECEIVED_PUBLISH_LEGACY_DOWNLOADS", failure, "file=$name;path=$relativePath")
             null
         }
     }

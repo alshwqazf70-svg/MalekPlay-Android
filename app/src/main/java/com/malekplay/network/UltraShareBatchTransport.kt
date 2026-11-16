@@ -167,6 +167,23 @@ object UltraShareBatchTransport {
                                 throw cancelled
                             } catch (_: DiscoveryProbeConnection) {
                                 // A deliberate reachability probe is not a failed transfer.
+                            } catch (failure: java.io.EOFException) {
+                                if (!authenticated) {
+                                    // Route checks may connect and close before sending a
+                                    // proof. This is a normal pre-auth probe, not a failed file.
+                                    UltraShareDiagnostics.event(
+                                        "CONTROL_CHANNEL",
+                                        "PRE_AUTH_PROBE_DISCONNECTED",
+                                        mapOf("peerHost" to peer, "reason" to "EOF_BEFORE_PROOF")
+                                    )
+                                } else {
+                                    UltraShareDiagnostics.failure(
+                                        "DATA_RECEIVE_SESSION",
+                                        failure,
+                                        "peerHost=" + peer
+                                    )
+                                    onPeerError(peer, failure)
+                                }
                             } catch (failure: Exception) {
                                 UltraShareDiagnostics.failure(
                                     "DATA_RECEIVE_SESSION",
