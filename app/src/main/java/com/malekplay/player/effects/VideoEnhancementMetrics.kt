@@ -8,7 +8,11 @@ object VideoEnhancementMetrics {
  @Volatile private var lastEffectName="none"
  @Volatile private var lastPresentationTimeUs=-1L
  @Volatile private var lastFailure:String?=null
- fun recordProcessed(effectName:String,presentationTimeUs:Long){lastEffectName=effectName;lastPresentationTimeUs=presentationTimeUs;lastFailure=null;processedDraws.incrementAndGet();drawsByEffect.computeIfAbsent(effectName){AtomicLong(0L)}.incrementAndGet()}
+ fun recordProcessed(effectName:String,presentationTimeUs:Long){lastEffectName=effectName;lastPresentationTimeUs=presentationTimeUs;lastFailure=null;processedDraws.incrementAndGet();val counter = drawsByEffect[effectName] ?: run {
+            val candidate = AtomicLong(0L)
+            drawsByEffect.putIfAbsent(effectName, candidate) ?: candidate
+        }
+        counter.incrementAndGet()}
  fun recordFailure(effectName:String,error:Throwable){lastEffectName=effectName;lastFailure="${error.javaClass.simpleName}: ${error.message.orEmpty().take(160)}"}
  fun snapshot()=Snapshot(processedDraws.get(),drawsByEffect["spatial_denoise"]?.get()?:0L,drawsByEffect["detail_sharpen"]?.get()?:0L,lastEffectName,lastPresentationTimeUs,lastFailure)
  fun reset(){processedDraws.set(0L);drawsByEffect.clear();lastEffectName="none";lastPresentationTimeUs=-1L;lastFailure=null}

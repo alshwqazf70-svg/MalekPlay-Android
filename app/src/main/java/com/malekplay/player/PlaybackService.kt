@@ -538,6 +538,7 @@ class PlaybackService : MediaSessionService() {
     private fun applyVideoEnhancements(): Boolean {
         val player = localExoPlayer ?: return false
         if (!hasAnyVideoEnhancementEnabled()) {
+            videoLanczosSubmitted = false
             videoEffectsBridgeAttached = runCatching {
                 AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
             }.getOrDefault(false)
