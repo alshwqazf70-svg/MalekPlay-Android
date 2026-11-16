@@ -19,6 +19,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
@@ -204,7 +205,13 @@ object UltraShareDiscovery {
                     }
                     .getOrNull()
             }.ifEmpty {
-                listOf(createDiscoverySocket(null, DISCOVERY_PORT))
+                runCatching { createDiscoverySocket(null, DISCOVERY_PORT) }
+                    .onFailure { failure ->
+                        UltraShareDiagnostics.failure("DISCOVERY_FALLBACK_SOCKET_OPEN", failure)
+                    }
+                    .getOrNull()
+                    ?.let(::listOf)
+                    ?: emptyList()
             }
         }
 
@@ -234,6 +241,14 @@ object UltraShareDiscovery {
                         mapOf("socketCount" to sockets.size)
                     )
                 }
+                if (sockets.isEmpty()) {
+                    sockets = openSockets(latestRoutes)
+                    if (sockets.isEmpty()) {
+                        delay(250L)
+                        continue
+                    }
+                }
+                var socketFailureDetected = false
                 sockets.forEach { socket ->
                     try {
                         val packet = DatagramPacket(ByteArray(MAX_PACKET_BYTES), MAX_PACKET_BYTES)
@@ -261,8 +276,22 @@ object UltraShareDiscovery {
                     } catch (_: SocketTimeoutException) {
                         // Poll routes regularly so address/network changes trigger a socket rebind.
                     } catch (failure: java.net.SocketException) {
+                        socketFailureDetected = true
                         UltraShareDiagnostics.failure("DISCOVERY_SOCKET_RECEIVE", failure)
                     }
+                }
+                if (socketFailureDetected) {
+                    val recoveredRoutes = findBroadcastRoutes(context)
+                    val recoveredFingerprint = routeFingerprint(recoveredRoutes)
+                    sockets.forEach { runCatching { it.close() } }
+                    activeFingerprint = recoveredFingerprint
+                    sockets = openSockets(recoveredRoutes)
+                    UltraShareDiagnostics.event(
+                        "DISCOVERY",
+                        "DISCOVERY_SOCKETS_RECOVERED_AFTER_ERROR",
+                        mapOf("socketCount" to sockets.size)
+                    )
+                    if (sockets.isEmpty()) delay(250L)
                 }
             }
         } finally {
