@@ -347,7 +347,7 @@ static void OnDFileRename(DFileRenamePara *renamePara)
             "%.*s (%u)%s", (int)prefixLength, renamePara->initFileName, suffix, extension);
         if (written > 0 && (size_t)written < sizeof(renamePara->newFileName)) return;
     }
-    renamePara->newFileName[0] = '\\0';
+    renamePara->newFileName[0] = '\0';
 }
 
 static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileMsg *msg)
