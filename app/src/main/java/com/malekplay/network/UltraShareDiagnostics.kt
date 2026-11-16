@@ -17,8 +17,8 @@ import java.util.concurrent.Executors
 
 /** JSONL diagnostics exported to Downloads for Termux on Android 10+. */
 object UltraShareDiagnostics {
-    private const val TAG = "MalekPlayDiagnostics"
-    private const val DIRECTORY = "Download/MalekPlayDiagnostics/"
+    private const val TAG = "MalekPlayerererDiagnostics"
+    private const val DIRECTORY = "Download/MalekPlayerererDiagnostics/"
     private const val FILE_PREFIX = "ultrashare-"
     private const val MAX_SESSIONS = 3
     private const val MAX_DETAIL_CHARS = 2_000
@@ -36,7 +36,7 @@ object UltraShareDiagnostics {
     )
 
     private val writer = Executors.newSingleThreadExecutor { task ->
-        Thread(task, "MalekPlay-Diagnostics").apply { isDaemon = true }
+        Thread(task, "MalekPlayererer-Diagnostics").apply { isDaemon = true }
     }
     private val sessions = java.util.concurrent.ConcurrentHashMap<String, SessionLog>()
     // A session ID is what callers carry across async callbacks; index it explicitly so
@@ -209,7 +209,7 @@ object UltraShareDiagnostics {
         val root = rootCause(failure)
         val frame = sequenceOf(failure, root)
             .flatMap { it.stackTrace.asSequence() }
-            .firstOrNull { it.className.startsWith("com.malekplay.") }
+            .firstOrNull { it.className.startsWith("com.MalekPlayerer.") }
         append(session, linkedMapOf(
             "timestamp" to timestamp(),
             "sessionId" to session.id,
