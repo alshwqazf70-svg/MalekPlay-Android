@@ -236,7 +236,7 @@ class UltraShareBatchTransportTest {
     }
 
     @Test
-    fun oversizedOrInvalidPartialIsNeverUsedAsResumeOffset() {
+    fun oversizedUncommittedTailIsTruncatedToLastCheckpoint() {
         val directory = Files.createTempDirectory("ultrashare-invalid-resume").toFile()
         try {
             val partial = java.io.File(directory, "corrupt.part")
@@ -245,10 +245,10 @@ class UltraShareBatchTransportTest {
             partial.writeBytes(ByteArray(4097) { 7 })
             checkpoint.writeText("4096:$digestHex:4096", Charsets.UTF_8)
             assertEquals(
-                0L,
+                4096L,
                 UltraShareBatchTransport.resumableFileOffset(partial, checkpoint, 4096L, digestHex)
             )
-            assertEquals(0L, partial.length())
+            assertEquals(4096L, partial.length())
             org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
                 UltraShareBatchTransport.resumableFileOffset(partial, checkpoint, -1L, digestHex)
             }
