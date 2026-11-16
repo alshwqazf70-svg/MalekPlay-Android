@@ -57,9 +57,17 @@ object UltraShareReceivedPublisher {
             check(fallback.isDirectory || fallback.mkdirs()) {
                 "تعذر إنشاء مجلد MalekPlayer/Received لحفظ الملف المستلم."
             }
-            val retained = File(fallback, name)
-            if (retained.canonicalFile != received.file.canonicalFile) {
-                copyVerified(received.file, retained, received.sizeBytes)
+            val retained = UltraShareTransport.withDestinationPublicationLock(fallback) {
+                // The transport has already placed the verified source in this folder.
+                // Otherwise allocate a collision-free name so a repeated filename can
+                // never overwrite an earlier received file.
+                if (received.file.canonicalFile.parentFile == fallback.canonicalFile) {
+                    received.file
+                } else {
+                    uniqueFile(fallback, name).also { destination ->
+                        copyVerified(received.file, destination, received.sizeBytes)
+                    }
+                }
             }
             UltraShareDiagnostics.event(
                 "RECEIVED_PUBLISH",
@@ -145,8 +153,11 @@ object UltraShareReceivedPublisher {
             check(directory.isDirectory || directory.mkdirs()) {
                 "تعذر إنشاء مجلد التنزيلات."
             }
-            val destination = uniqueFile(directory, name)
-            copyVerified(received.file, destination, received.sizeBytes)
+            val destination = UltraShareTransport.withDestinationPublicationLock(directory) {
+                uniqueFile(directory, name).also { target ->
+                    copyVerified(received.file, target, received.sizeBytes)
+                }
+            }
             suspendCancellableCoroutine { continuation ->
                 MediaScannerConnection.scanFile(
                     context,
