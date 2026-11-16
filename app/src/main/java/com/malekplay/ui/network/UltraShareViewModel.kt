@@ -249,6 +249,7 @@ class UltraShareViewModel @Inject constructor(
             )
             return
         }
+        invitationPreferences.edit().remove("active_invitation_id").apply()
         UltraShareDiagnostics.beginSession("RECEIVER", "start_receiving")
         UltraShareDiagnostics.event("PAIRING", "RECEIVER_WAITING_FOR_PEER")
         val secret = UltraShareTransport.createPairingSecret()
@@ -307,6 +308,7 @@ class UltraShareViewModel @Inject constructor(
         if (hotspotFallbackStarted || !_state.value.receiving) return
         hotspotFallbackStarted = true
         invitationPreferences.edit().remove("active_invitation_id").apply()
+        _state.value = _state.value.copy(receiverQrPayload = null)
         wifiDirectPrimaryAttempt = false
         pendingQrPairing = null
         qrP2pConnectStarted = false
