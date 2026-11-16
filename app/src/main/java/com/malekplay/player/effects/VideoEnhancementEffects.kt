@@ -37,15 +37,22 @@ private class SpatialNoiseReductionProgram(
     private val program = GlProgram(VERTEX_SHADER, DENOISE_FRAGMENT_SHADER)
 
     init {
-        program.setBufferAttribute(
-            "aFramePosition",
-            GlUtil.getNormalizedCoordinateBounds(),
-            GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE
-        )
-        val identity = GlUtil.create4x4IdentityMatrix()
-        program.setFloatsUniform("uTransformationMatrix", identity)
-        program.setFloatsUniform("uTexTransformationMatrix", identity)
-        program.setFloatUniform("uStrength", strength)
+        try {
+            program.setBufferAttribute(
+                "aFramePosition",
+                GlUtil.getNormalizedCoordinateBounds(),
+                GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE
+            )
+            val identity = GlUtil.create4x4IdentityMatrix()
+            program.setFloatsUniform("uTransformationMatrix", identity)
+            program.setFloatsUniform("uTexTransformationMatrix", identity)
+            program.setFloatUniform("uStrength", strength)
+        } catch (error: Exception) {
+            // A partially initialized GL program is not reachable through
+            // BaseGlShaderProgram.release(), so dispose it before failing.
+            runCatching { program.delete() }
+            throw error
+        }
     }
 
     override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
@@ -183,15 +190,22 @@ private class VideoDetailEnhancementProgram(
     private var inputHeightForShader = 1
 
     init {
-        program.setBufferAttribute(
-            "aFramePosition",
-            GlUtil.getNormalizedCoordinateBounds(),
-            GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE
-        )
-        val identity = GlUtil.create4x4IdentityMatrix()
-        program.setFloatsUniform("uTransformationMatrix", identity)
-        program.setFloatsUniform("uTexTransformationMatrix", identity)
-        program.setFloatUniform("uStrength", strength)
+        try {
+            program.setBufferAttribute(
+                "aFramePosition",
+                GlUtil.getNormalizedCoordinateBounds(),
+                GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE
+            )
+            val identity = GlUtil.create4x4IdentityMatrix()
+            program.setFloatsUniform("uTransformationMatrix", identity)
+            program.setFloatsUniform("uTexTransformationMatrix", identity)
+            program.setFloatUniform("uStrength", strength)
+        } catch (error: Exception) {
+            // A partially initialized GL program is not reachable through
+            // BaseGlShaderProgram.release(), so dispose it before failing.
+            runCatching { program.delete() }
+            throw error
+        }
     }
 
     override fun configure(inputWidth: Int, inputHeight: Int): Size {
