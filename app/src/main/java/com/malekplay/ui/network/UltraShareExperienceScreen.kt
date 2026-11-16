@@ -1205,7 +1205,9 @@ fun UltraShareExperienceScreen(
                             }
                         }
                     }
-                    if (state.peerTransfers.isEmpty() && state.sendProgress == null) InfoPanel("لا توجد عمليات نقل نشطة", "ستظهر هنا سرعة النقل وتقدم كل جهاز عند بدء المشاركة.")
+                    if (state.peerTransfers.isEmpty() && state.sendProgress == null && state.receiveProgress == null && reconnectableHosts.isEmpty()) {
+                        InfoPanel("لا توجد عمليات نقل نشطة", "ستظهر هنا سرعة النقل وتقدم كل جهاز عند بدء المشاركة.")
+                    }
                     if (state.sending) {
                         OutlinedButton(onClick = viewModel::pauseSending, modifier = Modifier.fillMaxWidth()) { Text("إيقاف مؤقت") }
                         OutlinedButton(onClick = viewModel::cancelSending, modifier = Modifier.fillMaxWidth()) { Text("إلغاء الإرسال") }
