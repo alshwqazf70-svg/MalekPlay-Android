@@ -819,12 +819,12 @@ fun UltraShareExperienceScreen(
                 title = when {
                     state.sending -> "جارٍ إرسال الملفات"
                     state.pendingConnection != null -> "طلب اتصال وارد"
-                    state.activePeers.isNotEmpty() -> "جهاز متصل وجاهز"
+                    state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty() -> "جهاز متصل وجاهز"
                     state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning -> "البحث عن الأجهزة القريبة"
                     else -> "جاهز للمشاركة"
                 },
-                subtitle = "${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
-                active = state.sending || state.activePeers.isNotEmpty()
+                subtitle = "${state.activePeers.size.coerceAtLeast(state.approvedSenderPeerHosts.size)} متصل • ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
+                active = state.sending || state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty()
             )
             UltraShareHelpCard()
             state.pendingConnection?.let {
