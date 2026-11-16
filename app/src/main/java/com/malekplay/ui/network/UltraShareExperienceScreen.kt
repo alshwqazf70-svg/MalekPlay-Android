@@ -155,7 +155,7 @@ fun UltraShareExperienceScreen(
         if (rejectedCount > 0) {
             Toast.makeText(
                 context,
-                "لم تتم إضافة $rejectedCount ملفاً؛ تعذر تثبيت إذن قراءة دائم أو قراءة بيانات الملف. أعد اختياره من مدير الملفات.",
+                "لم تتم إضافة $rejectedCount ملفاً؛ تعذر على التطبيق قراءة محتواه. أعد اختيار الملف أو تحقق من إمكانية فتحه.",
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -1542,9 +1542,10 @@ private fun isUltraShareAllowedFile(context: Context, uri: Uri): Boolean = runCa
         return@runCatching false
     }
 
-    // A syntactically valid MIME type does not prove that a provider still grants
-    // access to the content. Open the descriptor before accepting the URI.
-    resolver.openFileDescriptor(uri, "r")?.use { true } ?: false
+    // Providers for MediaStore/library items and cloud documents do not all
+    // implement openFileDescriptor consistently. openInputStream is the contract
+    // used by the sender itself, so validate the same readable path here.
+    resolver.openInputStream(uri)?.use { true } ?: false
 }.getOrDefault(false)
 
 private fun formatUltraBytes(bytes: Long): String {
