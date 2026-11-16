@@ -141,6 +141,8 @@ data class LegacyUltraShareUiState(
     val wifiDirectHost: String? = null,
     val invitationId: String? = null,
     val wifiDirectInvitationReady: Boolean = false,
+    // Latched once per receiver attempt; transient readiness changes never clear it.
+    val receiverQrPayload: String? = null,
     val pairedSession: Boolean = false,
     val approvedPeerHost: String? = null
 )
@@ -220,6 +222,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                     queueTotalBytes = serviceState.queueTotalBytes,
                     queueTransferredBytes = serviceState.queueTransferredBytes
                 )
+                publishStableReceiverQrIfReady()
                 // LocalOnlyHotspot v4 QR sessions do not create or restore Wi-Fi Direct invitations.
             }
         }
@@ -681,6 +684,49 @@ class LegacyUltraShareViewModel @Inject constructor(
         ).also { wifiDirectSession = it }
     }
 
+    /** Publish one immutable QR payload after the receiver endpoints are ready. */
+    private fun publishStableReceiverQrIfReady() {
+        val current = _state.value
+        if (!current.receiving || current.pairedSession || current.receiverQrPayload != null) return
+        if (!current.controlChannelReady || !current.dataChannelReady ||
+            !UltraShareTransport.isValidPairingSecret(current.pairingSecret)
+        ) return
+
+        val payload = when {
+            current.wifiDirectInvitationReady && !current.invitationId.isNullOrBlank() ->
+                runCatching {
+                    UltraShareQrCode.createReceiverPayload(
+                        hosts = current.localAddresses,
+                        pairingSecret = current.pairingSecret,
+                        invitationId = current.invitationId
+                    )
+                }.getOrNull()
+            current.hotspotActive && !current.hotspotSsid.isNullOrBlank() &&
+                !current.hotspotPassword.isNullOrBlank() && current.localAddresses.isNotEmpty() ->
+                runCatching {
+                    UltraShareQrCode.createHotspotReceiverPayload(
+                        current.localAddresses,
+                        current.pairingSecret,
+                        current.hotspotSsid,
+                        current.hotspotPassword
+                    )
+                }.getOrNull()
+            else -> null
+        } ?: return
+
+        // Ignore a delayed callback from an older receiver attempt.
+        val latest = _state.value
+        if (!latest.receiving || latest.pairedSession || latest.receiverQrPayload != null ||
+            latest.pairingSecret != current.pairingSecret || latest.invitationId != current.invitationId
+        ) return
+        _state.value = latest.copy(receiverQrPayload = payload)
+        UltraShareDiagnostics.event(
+            "PAIRING_QR", "QR_PUBLISHED_STABLE",
+            mapOf("mode" to if (current.wifiDirectInvitationReady) "WIFI_DIRECT" else "HOTSPOT",
+                "invitationId" to current.invitationId.orEmpty(), "payloadLength" to payload.length)
+        )
+    }
+
     private fun startHotspotFallback(reason: String) {
         if (hotspotFallbackStarted || !_state.value.receiving || _state.value.pairedSession ||
             _state.value.hotspotActive || _state.value.hotspotStarting
@@ -768,6 +814,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                                 wifiDirectInvitationReady = true,
                                 status = "الجهاز جاهز. امسح رمز QR للاتصال التلقائي."
                             )
+                            publishStableReceiverQrIfReady()
                         }
                     }.onFailure { failure ->
                         startHotspotFallback(
@@ -792,6 +839,7 @@ class LegacyUltraShareViewModel @Inject constructor(
             pairingSecret = secret,
             invitationId = invitationId,
             wifiDirectInvitationReady = false,
+            receiverQrPayload = null,
             pairedSession = false,
             receiving = true,
             error = null,
@@ -1008,6 +1056,7 @@ class LegacyUltraShareViewModel @Inject constructor(
         _state.value = _state.value.copy(
             invitationId = null,
             wifiDirectInvitationReady = false,
+            receiverQrPayload = null,
             pairedSession = false
         )
         UltraShareForegroundService.cancel(context)
@@ -1394,27 +1443,8 @@ fun UltraShareScreen(
     // Capture delegated Compose state in stable locals so Kotlin can smart-cast it.
     val hotspotSsid = state.hotspotSsid
     val hotspotPassword = state.hotspotPassword
-    val qrPayload = if (
-        state.receiving && state.controlChannelReady && state.dataChannelReady && !state.pairedSession
-    ) {
-        when {
-            state.wifiDirectInvitationReady && !invitationId.isNullOrBlank() ->
-                UltraShareQrCode.createReceiverPayload(
-                    hosts = state.localAddresses,
-                    pairingSecret = state.pairingSecret,
-                    invitationId = invitationId
-                )
-            state.hotspotActive && !hotspotSsid.isNullOrBlank() &&
-                !hotspotPassword.isNullOrBlank() && state.localAddresses.isNotEmpty() ->
-                UltraShareQrCode.createHotspotReceiverPayload(
-                    state.localAddresses,
-                    state.pairingSecret,
-                    hotspotSsid,
-                    hotspotPassword
-                )
-            else -> null
-        }
-    } else null
+    // Render the latched payload instead of deriving it from volatile service flags.
+    val qrPayload = state.receiverQrPayload.takeIf { state.receiving && !state.pairedSession }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
     }
