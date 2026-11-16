@@ -221,39 +221,16 @@ object UltraShareTransport {
     /** Ultra Share transfers ordinary files without media-type or extension filtering. */
     fun isSupportedShareMimeType(raw: String): Boolean {
         val candidate = raw.trim().lowercase(Locale.ROOT)
-        val token = "[A-Za-z0-9!#    /** Accept any syntactically valid file MIME except Android packages and PDF documents. */
-    fun isSupportedShareMimeType(raw: String): Boolean {
-        val candidate = raw.trim().lowercase(Locale.ROOT)
         val token = "[A-Za-z0-9!#$&^_.+-]+"
         return candidate.length in 3..160 &&
-            Regex("^$token/$token$").matches(candidate) &&
-            candidate !in BLOCKED_SHARE_MIME_TYPES
+            Regex("^$token/$token$").matches(candidate)
     }
 
-    /** Filename checks prevent a generic or spoofed MIME type bypassing the APK/PDF rule. */
-    fun isAllowedShareFile(fileName: String, mimeType: String): Boolean {
-        val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
-        return extension !in BLOCKED_SHARE_EXTENSIONS && isSupportedShareMimeType(mimeType)
-    }
-
-    @Deprecated("Use isSupportedShareMimeType; filename-aware checks use isAllowedShareFile.")
-    fun isSupportedMediaMimeType(raw: String): Boolean = isSupportedShareMimeType(raw)
-
-    private val BLOCKED_SHARE_MIME_TYPES = setOf(
-        "application/pdf",
-        "application/x-pdf",
-        "application/vnd.android.package-archive"
-    )
-    private val BLOCKED_SHARE_EXTENSIONS = setOf("apk", "pdf")
-^_.+-]+"
-        return candidate.length in 3..160 && Regex("^$token/$token$").matches(candidate)
-    }
-
-    /** Any named file is eligible; unknown provider MIME types use application/octet-stream. */
+    /** Every named file with a readable content URI is eligible for transfer. */
     fun isAllowedShareFile(fileName: String, mimeType: String): Boolean =
         fileName.isNotBlank() && isSupportedShareMimeType(mimeType)
 
-    @Deprecated("Use isSupportedShareMimeType; filename-aware checks use isAllowedShareFile.")
+    @Deprecated("Use isSupportedShareMimeType.")
     fun isSupportedMediaMimeType(raw: String): Boolean = isSupportedShareMimeType(raw)
 
     /**
