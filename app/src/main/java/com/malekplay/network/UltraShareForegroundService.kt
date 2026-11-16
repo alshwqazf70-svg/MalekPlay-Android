@@ -2505,7 +2505,12 @@ class UltraShareForegroundService : Service() {
             // Keep the authenticated pairing material only in process memory so the
             // user can explicitly reconnect. It is never persisted to DataStore or disk.
             mutableState.update { current ->
-                current.copy(activePeers = current.activePeers.filterNot { it.host == host })
+                current.copy(
+                    activePeers = current.activePeers.filterNot { it.host == host },
+                    // A disconnected peer must not leave a stale "active transfer"
+                    // card on either device. Delivery history remains available separately.
+                    peerTransfers = current.peerTransfers.filterNot { it.host == host }
+                )
             }
         }
 
