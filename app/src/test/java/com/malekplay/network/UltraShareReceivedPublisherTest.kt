@@ -11,4 +11,17 @@ class UltraShareReceivedPublisherTest {
             UltraShareReceivedPublisher.publicRelativePaths()
         )
     }
+
+    @Test
+    fun legacyDownloadsFallbackTargetsTheActualDownloadsRoot() {
+        assertEquals("", UltraShareReceivedPublisher.legacyDownloadsSubdirectory("Download"))
+    }
+
+    @Test
+    fun legacyAppFolderRemainsInsideDownloads() {
+        assertEquals(
+            "MalekPlayer/Received",
+            UltraShareReceivedPublisher.legacyDownloadsSubdirectory("Download/MalekPlayer/Received")
+        )
+    }
 }
