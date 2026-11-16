@@ -66,6 +66,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
+import coil.compose.AsyncImage
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -1213,17 +1216,87 @@ fun UltraShareExperienceScreen(
                         OutlinedButton(onClick = viewModel::cancelSending, modifier = Modifier.fillMaxWidth()) { Text("إلغاء الإرسال") }
                     }
                     state.queueEntries.take(10).forEach { entry ->
-                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Text(entry.displayName, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
-                                Text(queueStatusLabel(entry.status), color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
-                                entry.error?.takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall) }
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(11.dp)
+                                ) {
+                                    val fileNameLower = entry.displayName.lowercase()
+                                    val imageFile = fileNameLower.endsWith(".jpg") || fileNameLower.endsWith(".jpeg") ||
+                                        fileNameLower.endsWith(".png") || fileNameLower.endsWith(".webp") ||
+                                        fileNameLower.endsWith(".gif") || fileNameLower.endsWith(".bmp")
+                                    if (imageFile) {
+                                        AsyncImage(
+                                            model = entry.parsedUri,
+                                            contentDescription = entry.displayName,
+                                            modifier = Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        val fileGlyph = when {
+                                            fileNameLower.endsWith(".mp4") || fileNameLower.endsWith(".mkv") ||
+                                                fileNameLower.endsWith(".avi") || fileNameLower.endsWith(".mov") -> "🎬"
+                                            fileNameLower.endsWith(".mp3") || fileNameLower.endsWith(".wav") ||
+                                                fileNameLower.endsWith(".flac") || fileNameLower.endsWith(".m4a") -> "🎵"
+                                            fileNameLower.endsWith(".pdf") -> "📕"
+                                            else -> "📄"
+                                        }
+                                        Box(
+                                            modifier = Modifier.size(58.dp).clip(RoundedCornerShape(10.dp))
+                                                .background(Color(0xFF38264E)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(fileGlyph, style = MaterialTheme.typography.headlineSmall)
+                                        }
+                                    }
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            entry.displayName,
+                                            color = MalekPlayColors.TextPrimary,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 2
+                                        )
+                                        Text(
+                                            queueStatusLabel(entry.status),
+                                            color = when (entry.status) {
+                                                UltraShareQueueStore.STATUS_COMPLETED -> Color(0xFF65D6A2)
+                                                UltraShareQueueStore.STATUS_FAILED -> MaterialTheme.colorScheme.error
+                                                UltraShareQueueStore.STATUS_SENDING -> MalekPlayColors.PurpleBright
+                                                else -> MalekPlayColors.TextSecondary
+                                            },
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    }
+                                }
+                                if (entry.status == UltraShareQueueStore.STATUS_SENDING &&
+                                    state.sendProgress?.fileName == entry.displayName
+                                ) {
+                                    val progress = state.sendProgress!!
+                                    LinearProgressIndicator(
+                                        progress = { progress.fraction.coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Text(
+                                        "${(progress.fraction * 100).toInt()}% • ${formatUltraBytes(progress.transferredBytes)} / ${formatUltraBytes(progress.totalBytes)}",
+                                        color = MalekPlayColors.TextSecondary,
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                                entry.error?.takeIf { it.isNotBlank() }?.let {
+                                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                                }
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     if (entry.status == UltraShareQueueStore.STATUS_PENDING || entry.status == UltraShareQueueStore.STATUS_FAILED) {
                                         TextButton(onClick = { viewModel.skipQueuedFile(entry) }) { Text("تخطّي") }
                                     }
                                     if (entry.status == UltraShareQueueStore.STATUS_FAILED) {
-                                        TextButton(onClick = { viewModel.retryFile(entry, host) },
+                                        TextButton(
+                                            onClick = { viewModel.retryFile(entry, host) },
                                             enabled = !state.sending && host.isNotBlank() && host in state.approvedSenderPeerHosts
                                         ) { Text("إعادة المحاولة") }
                                     }
