@@ -45,6 +45,8 @@ import javax.inject.Inject
 data class UltraShareUiState(
     val pairingSecret: String = "",
     val invitationId: String = "",
+    // Immutable QR invitation payload for the active receiver attempt.
+    val receiverQrPayload: String? = null,
     val localAddresses: List<String> = emptyList(),
     val receiving: Boolean = false,
     val controlChannelReady: Boolean = false,
@@ -101,6 +103,9 @@ class UltraShareViewModel @Inject constructor(
     private var wifiDirectScanTimeout: Job? = null
     private var bluetoothScanTimeout: Job? = null
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
+    private val invitationPreferences by lazy {
+        context.getSharedPreferences("ultra_share_invitation", Context.MODE_PRIVATE)
+    }
     private var bluetoothSession: UltraShareBluetoothDiscovery.Session? = null
     private var bleSession: UltraShareBleDiscovery.Session? = null
     private var nstackxStartJob: Job? = null
@@ -221,6 +226,21 @@ class UltraShareViewModel @Inject constructor(
         }
     }
 
+    /** Latch the first valid receiver QR payload; later network/address refreshes cannot rotate it. */
+    fun latchReceiverQrPayload(payload: String) {
+        if (payload.isBlank() || payload.length > 16_384) return
+        val current = _state.value
+        if (!current.receiving || current.activePeers.isNotEmpty() ||
+            current.receiverQrPayload != null ||
+            !UltraShareTransport.isValidPairingSecret(current.pairingSecret)
+        ) return
+        _state.value = current.copy(receiverQrPayload = payload)
+        UltraShareDiagnostics.event(
+            "PAIRING_QR", "QR_PUBLISHED_STABLE",
+            mapOf("invitationId" to current.invitationId, "payloadLength" to payload.length)
+        )
+    }
+
     fun startReceiving() {
         if (_state.value.receiving || UltraShareForegroundService.state.value.receiving) return
         if (wifiDirectCleanupInProgress) {
@@ -237,6 +257,7 @@ class UltraShareViewModel @Inject constructor(
         _state.value = _state.value.copy(
             pairingSecret = secret,
             invitationId = "",
+            receiverQrPayload = null,
             receiving = true,
             controlChannelReady = false,
             dataChannelReady = false,
@@ -285,6 +306,7 @@ class UltraShareViewModel @Inject constructor(
     private fun startHotspotFallback(reason: String) {
         if (hotspotFallbackStarted || !_state.value.receiving) return
         hotspotFallbackStarted = true
+        invitationPreferences.edit().remove("active_invitation_id").apply()
         wifiDirectPrimaryAttempt = false
         pendingQrPairing = null
         qrP2pConnectStarted = false
@@ -826,8 +848,10 @@ private fun forgetApprovedSenderTarget(host: String) {
         // arrive; otherwise an old discovery error can accidentally start hotspot
         // fallback while the user is explicitly stopping reception.
         UltraShareForegroundService.stopReceiving(context)
+        invitationPreferences.edit().remove("active_invitation_id").apply()
         _state.value = _state.value.copy(
             receiving = false,
+            receiverQrPayload = null,
             controlChannelReady = false,
             dataChannelReady = false,
             peerDataChannelReady = false,
@@ -1316,6 +1340,8 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     fun disableWifiDirectInvitation() {
+        invitationPreferences.edit().remove("active_invitation_id").apply()
+        _state.value = _state.value.copy(receiverQrPayload = null)
         val session = wifiDirectSession
         if (session == null) {
             _state.value = _state.value.copy(
@@ -1350,8 +1376,11 @@ private fun forgetApprovedSenderTarget(host: String) {
             return
         }
         val invitationId = _state.value.invitationId.ifBlank {
-            java.util.UUID.randomUUID().toString().replace("-", "")
+            invitationPreferences.getString("active_invitation_id", null)
+                ?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }
+                ?: java.util.UUID.randomUUID().toString().replace("-", "")
         }
+        invitationPreferences.edit().putString("active_invitation_id", invitationId).apply()
         val session = runCatching { ensureWifiDirectSession() }.getOrElse { failure ->
             _state.value = _state.value.copy(error = failure.localizedMessage ?: "تعذر تهيئة Wi-Fi Direct.")
             return
