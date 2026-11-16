@@ -145,17 +145,8 @@ fun UltraShareExperienceScreen(
         val accepted = ArrayList<Uri>(distinctPicked.size)
         var rejectedCount = 0
         distinctPicked.forEach { uri ->
-            val resolver = context.contentResolver
-            val alreadyPersisted = resolver.persistedUriPermissions.any {
-                it.uri == uri && it.isReadPermission
-            }
-            val hasDurableReadAccess = alreadyPersisted || runCatching {
-                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                resolver.persistedUriPermissions.any {
-                    it.uri == uri && it.isReadPermission
-                }
-            }.getOrDefault(false)
-            if (hasDurableReadAccess && isUltraShareAllowedFile(context, uri)) {
+            val hasReadableAccess = ensureUltraShareReadableUri(context, uri)
+            if (hasReadableAccess) {
                 accepted += uri
             } else {
                 rejectedCount++
@@ -537,17 +528,8 @@ fun UltraShareExperienceScreen(
         val durableUris = ArrayList<Uri>(requested.size)
         var rejectedCount = 0
         requested.forEach { uri ->
-            val resolver = context.contentResolver
-            val alreadyGranted = resolver.persistedUriPermissions.any {
-                it.uri == uri && it.isReadPermission
-            }
-            val hasDurableReadAccess = alreadyGranted || runCatching {
-                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                resolver.persistedUriPermissions.any {
-                    it.uri == uri && it.isReadPermission
-                }
-            }.getOrDefault(false)
-            if (hasDurableReadAccess && isUltraShareAllowedFile(context, uri)) {
+            val hasReadableAccess = ensureUltraShareReadableUri(context, uri)
+            if (hasReadableAccess) {
                 durableUris += uri
             } else {
                 rejectedCount++
@@ -1525,6 +1507,25 @@ private fun IncomingRequestPanel(
             }
         }
     }
+}
+
+/**
+ * MediaStore URIs are authorized by the app's media runtime permission and do not
+ * support SAF-style persistable grants. Try to persist a grant when the provider
+ * offers one, but accept any URI that can actually be opened now; the previous
+ * mandatory-persist check incorrectly rejected ordinary Movies/Music library items.
+ */
+private fun ensureUltraShareReadableUri(context: Context, uri: Uri): Boolean {
+    val resolver = context.contentResolver
+    val alreadyPersisted = resolver.persistedUriPermissions.any {
+        it.uri == uri && it.isReadPermission
+    }
+    if (!alreadyPersisted) {
+        runCatching {
+            resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+    return isUltraShareAllowedFile(context, uri)
 }
 
 private fun isUltraShareAllowedFile(context: Context, uri: Uri): Boolean = runCatching {

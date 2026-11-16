@@ -428,7 +428,24 @@ class UltraShareViewModel @Inject constructor(
                             UltraShareTransport.isValidPrivateLanHost(it)
                         } +
                         orderedRoutes.map { it.host }
-                    ).distinct()
+                    ).distinct().filterNot { routeHost ->
+                        val localAddress = UltraShareNetworkRouting.isLocalAddress(context, routeHost)
+                        if (localAddress) {
+                            UltraShareDiagnostics.event(
+                                "NETWORK_ROUTING",
+                                "SELF_CONNECT_BLOCKED",
+                                mapOf("host" to routeHost)
+                            )
+                        }
+                        localAddress
+                    }
+                if (routeHosts.isEmpty()) {
+                    _state.value = _state.value.copy(
+                        requestingConnection = false,
+                        error = "عنوان الجهاز الموجود في الدعوة يطابق عنوان هذا الهاتف نفسه؛ أُوقف الاتصال الذاتي. أنشئ رمز QR جديداً من الهاتف المستقبل ثم امسحه من الهاتف الآخر."
+                    )
+                    return@launch
+                }
                 var acceptedHost: String? = null
                 var rejected = false
                 var lastFailure: Exception? = null

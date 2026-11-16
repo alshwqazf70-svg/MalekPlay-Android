@@ -9,6 +9,14 @@ import org.junit.Test
 
 class UltraShareNetworkRoutingTest {
     @Test
+    fun rejectsThisDevicesOwnAddressAsARemotePeer() {
+        val localAddresses = setOf("192.168.43.163", "10.0.20.48")
+        assertTrue(UltraShareNetworkRouting.isLocalIpv4Address("192.168.43.163", localAddresses))
+        assertTrue(UltraShareNetworkRouting.isLocalIpv4Address("10.0.20.48", localAddresses))
+        assertFalse(UltraShareNetworkRouting.isLocalIpv4Address("192.168.43.164", localAddresses))
+    }
+
+    @Test
     fun appendsDefaultRouteOnlyAfterAllExplicitNetworks() {
         assertEquals(
             listOf("p2p", "wlan", null),

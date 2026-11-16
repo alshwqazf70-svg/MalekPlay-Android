@@ -49,6 +49,33 @@ internal object UltraShareNetworkRouting {
         networks.distinct().map { it } + listOf(null)
 
     /**
+     * True when a candidate IPv4 address belongs to this device, not a remote peer.
+     * This prevents connecting to our own receiver socket when stale/incorrect QR
+     * address data happens to equal a local Wi-Fi or hotspot address.
+     */
+    fun isLocalAddress(context: Context, host: String): Boolean = runCatching {
+        val remote = InetAddress.getByName(host.trim()) as? Inet4Address ?: return@runCatching false
+        val manager = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? ConnectivityManager
+        val managerAddresses = manager?.allNetworks.orEmpty().flatMap { network ->
+            manager?.getLinkProperties(network)?.linkAddresses.orEmpty().mapNotNull { link ->
+                (link.address as? Inet4Address)?.hostAddress
+            }
+        }
+        val interfaceAddresses = runCatching {
+            java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces()).flatMap { networkInterface ->
+                networkInterface.interfaceAddresses.mapNotNull { address ->
+                    (address.address as? Inet4Address)?.hostAddress
+                }
+            }
+        }.getOrDefault(emptyList())
+        isLocalIpv4Address(remote.hostAddress.orEmpty(), (managerAddresses + interfaceAddresses).toSet())
+    }.getOrDefault(false)
+
+    internal fun isLocalIpv4Address(host: String, localAddresses: Set<String>): Boolean =
+        host.trim() in localAddresses
+
+    /**
      * Returns every Android network with a peer-specific route, best candidates first.
      * Some OEMs publish a P2P route on more than one Network or report stale link
      * properties during group negotiation; trying a small ordered set is more robust
@@ -58,6 +85,14 @@ internal object UltraShareNetworkRouting {
         val remote = InetAddress.getByName(host) as? Inet4Address ?: return@runCatching emptyList()
         val manager = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE)
             as? ConnectivityManager ?: return@runCatching emptyList()
+        if (isLocalAddress(context, remote.hostAddress.orEmpty())) {
+            UltraShareDiagnostics.event(
+                "NETWORK_ROUTING",
+                "LOCAL_ADDRESS_REJECTED_AS_REMOTE_PEER",
+                mapOf("host" to remote.hostAddress.orEmpty())
+            )
+            return@runCatching emptyList()
+        }
         val active = if (android.os.Build.VERSION.SDK_INT >= 23) {
             runCatching { manager.activeNetwork }.getOrNull()
         } else null
@@ -147,6 +182,7 @@ internal object UltraShareNetworkRouting {
             .map { it.trim() }
             .filter { UltraShareTransport.isValidPrivateLanHost(it) }
             .distinct()
+            .filterNot { isLocalAddress(context, it) }
             .filter { hasNonP2pLanRoute(context, it) }
             .toList()
 
