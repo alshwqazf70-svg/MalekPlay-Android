@@ -656,15 +656,38 @@ object UltraShareControlChannel {
         output.writeInt(frame.size)
         output.write(frame)
         output.flush()
-        while (!socket.isClosed) {
-            when (input.readUTF()) {
-                "PING" -> {
-                    output.writeUTF("PONG")
-                    output.flush()
+        try {
+            while (!socket.isClosed) {
+                when (input.readUTF()) {
+                    "PING" -> {
+                        output.writeUTF("PONG")
+                        output.flush()
+                    }
+                    "CLOSE" -> return
+                    else -> error("أمر قناة التحكم غير معروف.")
                 }
-                "CLOSE" -> return
-                else -> error("أمر قناة التحكم غير معروف.")
             }
+        } catch (_: java.io.EOFException) {
+            // A peer closing its authenticated control socket is a normal session
+            // termination, not a protocol crash or a failed file transfer.
+            UltraShareDiagnostics.event(
+                "CONTROL_CHANNEL",
+                "PEER_CONTROL_CHANNEL_EOF",
+                mapOf("peerHost" to request.peerAddress, "peerName" to request.peerName)
+            )
+        } catch (failure: java.net.SocketException) {
+            // Android may close the socket concurrently with session cancellation.
+            // Retire the session through the common finally path without a noisy
+            // uncaught SocketException; retain a diagnostic breadcrumb.
+            UltraShareDiagnostics.event(
+                "CONTROL_CHANNEL",
+                "PEER_CONTROL_CHANNEL_SOCKET_CLOSED",
+                mapOf(
+                    "peerHost" to request.peerAddress,
+                    "peerName" to request.peerName,
+                    "message" to (failure.message ?: "socket closed")
+                )
+            )
         }
         } finally {
             key.fill(0)

@@ -20,13 +20,11 @@ object UltraShareReceivedPublisher {
         withContext(Dispatchers.IO) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return@withContext null
             val resolver = context.applicationContext.contentResolver
-            val collection = when {
-                received.mimeType.startsWith("video/") ->
-                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                received.mimeType.startsWith("audio/") ->
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-                else -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
-            }
+            // We deliberately publish every received type through Downloads.
+            // Audio/Video collections reject the Downloads RELATIVE_PATH on Android 10+
+            // (for example: "Primary directory Download not allowed for content://.../audio").
+            // Downloads is the correct collection for app-downloaded arbitrary files.
+            val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, received.fileName)
                 put(MediaStore.MediaColumns.MIME_TYPE, received.mimeType.ifBlank { "application/octet-stream" })

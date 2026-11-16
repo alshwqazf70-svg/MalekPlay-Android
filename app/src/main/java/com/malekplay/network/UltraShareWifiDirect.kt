@@ -261,6 +261,27 @@ object UltraShareWifiDirect {
                     }
                 )
                 val request = WifiP2pDnsSdServiceRequest.newInstance()
+                prepareInvitationServiceRequest(request, 0)
+            } catch (failure: SecurityException) {
+                reportError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
+            } catch (failure: RuntimeException) {
+                UltraShareDiagnostics.failure("WIFI_DIRECT_DISCOVER_INVITATION", failure)
+                reportError(failure.localizedMessage ?: "تعذر البحث عن دعوة Wi-Fi Direct.")
+            }
+        }
+
+        /**
+         * Some Android/OEM P2P stacks briefly return BUSY while an earlier DNS-SD
+         * operation is being retired. Retry cleanup serially; never add a second
+         * service request until Android confirms the previous request list is clear.
+         */
+        @SuppressLint("MissingPermission")
+        private fun prepareInvitationServiceRequest(
+            request: WifiP2pDnsSdServiceRequest,
+            attempt: Int
+        ) {
+            if (closed) return
+            try {
                 manager.clearServiceRequests(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         if (closed) return
@@ -272,7 +293,19 @@ object UltraShareWifiDirect {
                                     startInvitationServiceDiscovery(request, 0)
                                 }
                                 override fun onFailure(reason: Int) {
-                                    reportError("تعذر تهيئة البحث عن دعوة Wi-Fi Direct (رمز $reason).")
+                                    if (reason == WifiP2pManager.BUSY && attempt < 3) {
+                                        UltraShareDiagnostics.event(
+                                            "WIFI_DIRECT",
+                                            "SERVICE_REQUEST_ADD_RETRY",
+                                            mapOf("reason" to reason, "attempt" to attempt + 1)
+                                        )
+                                        mainHandler.postDelayed(
+                                            { prepareInvitationServiceRequest(request, attempt + 1) },
+                                            500L * (attempt + 1)
+                                        )
+                                    } else {
+                                        reportError("تعذر تهيئة البحث عن دعوة Wi-Fi Direct (رمز $reason).")
+                                    }
                                 }
                             })
                         } catch (failure: SecurityException) {
@@ -283,14 +316,28 @@ object UltraShareWifiDirect {
                         }
                     }
                     override fun onFailure(reason: Int) {
-                        reportError("تعذر تنظيف طلبات اكتشاف Wi-Fi Direct (رمز $reason).")
+                        val retryable = reason == WifiP2pManager.BUSY ||
+                            reason == WifiP2pManager.ERROR
+                        if (retryable && attempt < 3) {
+                            UltraShareDiagnostics.event(
+                                "WIFI_DIRECT",
+                                "SERVICE_REQUEST_CLEAR_RETRY",
+                                mapOf("reason" to reason, "attempt" to attempt + 1)
+                            )
+                            mainHandler.postDelayed(
+                                { prepareInvitationServiceRequest(request, attempt + 1) },
+                                500L * (attempt + 1)
+                            )
+                        } else {
+                            reportError("تعذر تنظيف طلبات اكتشاف Wi-Fi Direct بعد إعادة المحاولة (رمز $reason).")
+                        }
                     }
                 })
             } catch (failure: SecurityException) {
-                reportError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
+                reportError("يلزم إذن الأجهزة القريبة لتنظيف طلبات اكتشاف Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
-                UltraShareDiagnostics.failure("WIFI_DIRECT_DISCOVER_INVITATION", failure)
-                reportError(failure.localizedMessage ?: "تعذر البحث عن دعوة Wi-Fi Direct.")
+                UltraShareDiagnostics.failure("WIFI_DIRECT_CLEAR_SERVICE_REQUESTS", failure)
+                reportError(failure.localizedMessage ?: "تعذر تنظيف طلبات اكتشاف Wi-Fi Direct.")
             }
         }
 
