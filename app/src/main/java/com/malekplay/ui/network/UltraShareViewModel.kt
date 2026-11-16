@@ -723,19 +723,18 @@ class UltraShareViewModel @Inject constructor(
         }
         hotspotNetworkCallback = null
         hotspotNetworkPaired = false
-        UltraShareForegroundService.stopReceiving(context)
-        runCatching { wifiDirectSession?.stopInvitationAdvertisement() }
-        wifiDirectCleanupInProgress = wifiDirectSession != null
-        runCatching {
-            wifiDirectSession?.removeGroup {
-                wifiDirectCleanupInProgress = false
-            }
-        }.onFailure { wifiDirectCleanupInProgress = false }
         wifiDirectPrimaryAttempt = false
         hotspotFallbackStarted = false
+        val session = wifiDirectSession
+        wifiDirectCleanupInProgress = session != null
+        // End the logical receive session before asynchronous P2P cleanup callbacks
+        // arrive; otherwise an old discovery error can accidentally start hotspot
+        // fallback while the user is explicitly stopping reception.
+        UltraShareForegroundService.stopReceiving(context)
         _state.value = _state.value.copy(
             receiving = false,
             controlChannelReady = false,
+            dataChannelReady = false,
             pairingSecret = "",
             invitationId = "",
             lanFallbackReady = false,
@@ -743,7 +742,29 @@ class UltraShareViewModel @Inject constructor(
             progress = if (_state.value.sending) UltraShareForegroundService.state.value.sendProgress else null,
             status = context.getString(R.string.ultra_share_stopped)
         )
-        stopNstackxIfIdle()
+        if (session != null) {
+            runCatching {
+                cleanupWifiDirectBeforeFallback(session) { cleaned ->
+                    wifiDirectCleanupInProgress = false
+                    if (!cleaned) {
+                        UltraShareDiagnostics.event("WIFI_DIRECT", "STOP_RECEIVING_CLEANUP_FAILED")
+                        _state.value = _state.value.copy(
+                            error = "تم إيقاف الاستقبال، لكن Android لم يؤكد تنظيف مجموعة Wi-Fi Direct بالكامل. أعد تشغيل Wi-Fi قبل محاولة جديدة."
+                        )
+                    }
+                    stopNstackxIfIdle()
+                }
+            }.onFailure { failure ->
+                wifiDirectCleanupInProgress = false
+                UltraShareDiagnostics.failure("WIFI_DIRECT_STOP_RECEIVING_CLEANUP", failure)
+                _state.value = _state.value.copy(
+                    error = failure.localizedMessage ?: "تعذر تنظيف مجموعة Wi-Fi Direct بعد إيقاف الاستقبال."
+                )
+                stopNstackxIfIdle()
+            }
+        } else {
+            stopNstackxIfIdle()
+        }
     }
 
     /**

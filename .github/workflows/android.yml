@@ -45,7 +45,19 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
       - name: Install Android SDK and native build tools
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          packages=("platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1")
+          for attempt in 1 2 3; do
+            if "$sdkmanager" "${packages[@]}"; then
+              exit 0
+            fi
+            echo "Android SDK/NDK installation failed (attempt ${attempt}/3); clearing incomplete downloads before retry." >&2
+            rm -rf "$ANDROID_HOME/ndk/27.2.12479018" "$ANDROID_HOME/.temp" "$HOME/.android/cache"
+            sleep $((attempt * 5))
+          done
+          echo "Unable to install the pinned Android NDK after three attempts." >&2
+          exit 1
       - name: Prepare pinned NSTACKX source trees
         run: bash scripts/prepare_nstackx_sources.sh
       - name: Assemble universal Debug APK
@@ -118,7 +130,19 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
       - name: Install Android SDK and native build tools
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          packages=("platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1")
+          for attempt in 1 2 3; do
+            if "$sdkmanager" "${packages[@]}"; then
+              exit 0
+            fi
+            echo "Android SDK/NDK installation failed (attempt ${attempt}/3); clearing incomplete downloads before retry." >&2
+            rm -rf "$ANDROID_HOME/ndk/27.2.12479018" "$ANDROID_HOME/.temp" "$HOME/.android/cache"
+            sleep $((attempt * 5))
+          done
+          echo "Unable to install the pinned Android NDK after three attempts." >&2
+          exit 1
       - name: Prepare pinned NSTACKX source trees
         run: bash scripts/prepare_nstackx_sources.sh
       - name: Assemble a single universal minified Release APK
@@ -178,7 +202,19 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
       - name: Install Android SDK and native build tools
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          packages=("platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1")
+          for attempt in 1 2 3; do
+            if "$sdkmanager" "${packages[@]}"; then
+              exit 0
+            fi
+            echo "Android SDK/NDK installation failed (attempt ${attempt}/3); clearing incomplete downloads before retry." >&2
+            rm -rf "$ANDROID_HOME/ndk/27.2.12479018" "$ANDROID_HOME/.temp" "$HOME/.android/cache"
+            sleep $((attempt * 5))
+          done
+          echo "Unable to install the pinned Android NDK after three attempts." >&2
+          exit 1
       - name: Prepare pinned NSTACKX source trees
         run: bash scripts/prepare_nstackx_sources.sh
       - name: Assemble Google Play Android App Bundle
