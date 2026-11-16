@@ -76,8 +76,13 @@ private class SpatialNoiseReductionProgram(
     }
 
     override fun release() {
-        super.release()
-        program.delete()
+        // Always release the owned GL program, even if the base output-surface
+        // cleanup throws while the renderer is being torn down.
+        try {
+            super.release()
+        } finally {
+            program.delete()
+        }
     }
 
     private companion object {
@@ -217,8 +222,13 @@ private class VideoDetailEnhancementProgram(
     }
 
     override fun release() {
-        super.release()
-        program.delete()
+        // Always release the owned GL program, even if the base output-surface
+        // cleanup throws while the renderer is being torn down.
+        try {
+            super.release()
+        } finally {
+            program.delete()
+        }
     }
 
     private companion object {
