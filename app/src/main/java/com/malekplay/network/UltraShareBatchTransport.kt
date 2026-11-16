@@ -625,6 +625,7 @@ object UltraShareBatchTransport {
                     )
                 )
                 FileOutputStream(partial, offset > 0L).use { file ->
+                    var streamFailure: Throwable? = null
                     try {
                         val startedAt = System.nanoTime()
                         while (transferred < entry.sizeBytes) {
@@ -646,18 +647,24 @@ object UltraShareBatchTransport {
                                 rate(transferred - offset, startedAt), true
                             ))
                         }
+                    } catch (failure: Throwable) {
+                        streamFailure = failure
+                        throw failure
                     } finally {
                         // A resume offset is trusted only after the kernel confirms the
-                        // partial file was synchronized. Never hide fsync failures.
+                        // partial file was synchronized. Never hide fsync failures or
+                        // replace the original transfer/cancellation failure.
                         try {
                             file.fd.sync()
-                        } catch (failure: Exception) {
+                        } catch (syncFailure: IOException) {
                             UltraShareDiagnostics.failure(
                                 "DATA_RECEIVE_PARTIAL_SYNC",
-                                failure,
+                                syncFailure,
                                 "peerHost=$peerHost;batchId=${manifest.batchId};fileId=${entry.id}"
                             )
-                            throw failure
+                            val originalFailure = streamFailure
+                            if (originalFailure != null) originalFailure.addSuppressed(syncFailure)
+                            else throw syncFailure
                         }
                     }
                 }
