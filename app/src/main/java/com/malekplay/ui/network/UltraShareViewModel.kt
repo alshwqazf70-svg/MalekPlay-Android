@@ -107,6 +107,27 @@ class UltraShareViewModel @Inject constructor(
     private val invitationPreferences by lazy {
         context.getSharedPreferences("ultra_share_invitation", Context.MODE_PRIVATE)
     }
+
+    private fun clearStoredInvitation() {
+        invitationPreferences.edit()
+            .remove("active_invitation_id")
+            .remove("active_invitation_hosts_id")
+            .remove("active_invitation_hosts")
+            .apply()
+    }
+
+    /** Reuses the exact host list issued with this invitation without persisting its secret. */
+    fun stableWifiDirectQrHosts(invitationId: String, currentHosts: List<String>): List<String> {
+        if (invitationId.isBlank()) return currentHosts
+        val storedId = invitationPreferences.getString("active_invitation_hosts_id", null)
+        val storedHosts = invitationPreferences.getString("active_invitation_hosts", null)
+        val parsedHosts = storedHosts?.split(',')?.map { it.trim() }
+            ?.filter { UltraShareTransport.isValidPrivateLanHost(it) }
+            ?.distinct()?.take(8).orEmpty()
+        return com.malekplay.network.UltraSharePairingReadiness.stableInvitationHosts(
+            storedId, invitationId, parsedHosts, currentHosts
+        )
+    }
     private var bluetoothSession: UltraShareBluetoothDiscovery.Session? = null
     private var bleSession: UltraShareBleDiscovery.Session? = null
     private var nstackxStartJob: Job? = null
@@ -240,6 +261,17 @@ class UltraShareViewModel @Inject constructor(
         ) ?: return
         if (stablePayload == current.receiverQrPayload) return
         _state.value = current.copy(receiverQrPayload = stablePayload)
+        runCatching { UltraShareQrCode.parsePayload(stablePayload) }.getOrNull()
+            ?.takeIf { it.invitationId == current.invitationId && !current.invitationId.isBlank() }
+            ?.let { invitation ->
+                // Host addresses are routing hints, not credentials. Persisting only
+                // these hints preserves identical QR bytes across ViewModel recreation
+                // while the one-session pairing secret remains memory-only.
+                invitationPreferences.edit()
+                    .putString("active_invitation_hosts_id", invitation.invitationId)
+                    .putString("active_invitation_hosts", invitation.hosts.joinToString(","))
+                    .apply()
+            }
         UltraShareDiagnostics.event(
             "PAIRING_QR", "QR_PUBLISHED_STABLE",
             mapOf("invitationId" to current.invitationId, "payloadLength" to payload.length)
@@ -254,7 +286,7 @@ class UltraShareViewModel @Inject constructor(
             )
             return
         }
-        invitationPreferences.edit().remove("active_invitation_id").apply()
+        clearStoredInvitation()
         UltraShareDiagnostics.beginSession("RECEIVER", "start_receiving")
         UltraShareDiagnostics.event("PAIRING", "RECEIVER_WAITING_FOR_PEER")
         val secret = UltraShareTransport.createPairingSecret()
@@ -312,7 +344,7 @@ class UltraShareViewModel @Inject constructor(
     private fun startHotspotFallback(reason: String) {
         if (hotspotFallbackStarted || !_state.value.receiving) return
         hotspotFallbackStarted = true
-        invitationPreferences.edit().remove("active_invitation_id").apply()
+        clearStoredInvitation()
         _state.value = _state.value.copy(receiverQrPayload = null)
         wifiDirectPrimaryAttempt = false
         pendingQrPairing = null
@@ -838,7 +870,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         // arrive; otherwise an old discovery error can accidentally start hotspot
         // fallback while the user is explicitly stopping reception.
         UltraShareForegroundService.stopReceiving(context)
-        invitationPreferences.edit().remove("active_invitation_id").apply()
+        clearStoredInvitation()
         _state.value = _state.value.copy(
             receiving = false,
             receiverQrPayload = null,
@@ -1330,7 +1362,7 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     fun disableWifiDirectInvitation() {
-        invitationPreferences.edit().remove("active_invitation_id").apply()
+        clearStoredInvitation()
         _state.value = _state.value.copy(receiverQrPayload = null)
         val session = wifiDirectSession
         if (session == null) {
