@@ -91,7 +91,6 @@ class PlaybackService : MediaSessionService() {
     private var localExoPlayer: ExoPlayer? = null
     private var videoUpscalingEnabled = false
     private var videoNoiseReductionEnabled = false
-    private var videoMotionSmoothingEnabled = false
     private var videoEnhancementProfile = VideoEnhancementProfile.BALANCED
     private var performanceQualityCap: VideoEnhancementProfile? = null
     private var thermalPowerManager: PowerManager? = null
@@ -344,7 +343,6 @@ class PlaybackService : MediaSessionService() {
             val accepted = when (customCommand.customAction) {
                 PlaybackVideoEffects.ACTION_UPSCALING -> setVideoUpscaling(requested)
                 PlaybackVideoEffects.ACTION_NOISE_REDUCTION -> setVideoNoiseReduction(requested)
-                PlaybackVideoEffects.ACTION_MOTION_SMOOTHING -> setVideoMotionSmoothing(requested)
                 PlaybackVideoEffects.ACTION_QUALITY_PROFILE -> setVideoEnhancementProfile(
                     VideoEnhancementProfile.fromWireValue(args.getString(PlaybackVideoEffects.KEY_PROFILE))
                 )
@@ -363,7 +361,6 @@ class PlaybackService : MediaSessionService() {
     private fun videoEffectStateBundle(): Bundle = Bundle().apply {
         putBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, videoUpscalingEnabled)
         putBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, videoNoiseReductionEnabled)
-        putBoolean(PlaybackVideoEffects.KEY_STATE_MOTION_SMOOTHING, videoMotionSmoothingEnabled)
         putString(PlaybackVideoEffects.KEY_STATE_PROFILE, videoEnhancementProfile.wireValue)
     }
 
@@ -482,20 +479,6 @@ class PlaybackService : MediaSessionService() {
         return false
     }
 
-    private fun setVideoMotionSmoothing(enabled: Boolean): Boolean {
-        if (!enabled) {
-            videoMotionSmoothingEnabled = false
-            applyVideoEnhancements()
-            return true
-        }
-        // The current temporal shader blends adjacent decoded frames; it does not
-        // synthesize intermediate timestamps or increase output frame rate.
-        // Refuse to advertise this as motion interpolation until a real motion-
-        // compensated frame generator is integrated and device-tested.
-        Log.w(TAG, "True motion interpolation is unavailable; temporal frame blending is not exposed")
-        return false
-    }
-
     private fun setVideoEnhancementProfile(profile: VideoEnhancementProfile): Boolean {
         val previous = videoEnhancementProfile
         videoEnhancementProfile = profile
@@ -523,12 +506,11 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun hasAnyVideoEnhancementEnabled(): Boolean =
-        videoUpscalingEnabled || videoNoiseReductionEnabled || videoMotionSmoothingEnabled
+        videoUpscalingEnabled || videoNoiseReductionEnabled
 
     private fun disableAllVideoEnhancements() {
         videoUpscalingEnabled = false
         videoNoiseReductionEnabled = false
-        videoMotionSmoothingEnabled = false
     }
 
     private fun applyVideoEnhancements(): Boolean {
