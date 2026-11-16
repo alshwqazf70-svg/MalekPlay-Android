@@ -53,7 +53,7 @@ internal object UltraShareDFileStager {
         val safeName = UltraShareTransport.sanitizeFileName(displayName)
         val safeMime = UltraShareTransport.sanitizeMimeType(mimeType)
         require(UltraShareTransport.isAllowedShareFile(safeName, safeMime)) {
-            "لا يمكن مشاركة ملفات APK أو PDF."
+            "اسم الملف أو نوعه غير صالح للمشاركة."
         }
 
         val root = File(cacheDirectory, STAGING_DIRECTORY)
