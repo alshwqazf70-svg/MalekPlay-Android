@@ -337,6 +337,14 @@ fun UltraShareSessionRoom(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall
                     )
+                    val remainingBytes = (current.totalBytes - current.transferredBytes).coerceAtLeast(0L)
+                    if (current.bytesPerSecond > 0L && remainingBytes > 0L) {
+                        Text(
+                            "الوقت المتبقي التقريبي: ${formatSessionDuration(remainingBytes / current.bytesPerSecond)}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
             }
             if (overallFraction != null && isSendingRoom) {
