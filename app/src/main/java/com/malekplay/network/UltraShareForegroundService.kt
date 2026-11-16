@@ -2469,7 +2469,8 @@ class UltraShareForegroundService : Service() {
             synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost.remove(host) }
             mutableState.update { current ->
                 current.copy(
-                    approvedSenderPeerHosts = approvedSendTargets().map { it.host }
+                    approvedSenderPeerHosts = approvedSendTargets().map { it.host },
+                    reconnectableSenderPeerHosts = reconnectableSendTargets().map { it.host }
                 )
             }
         }
