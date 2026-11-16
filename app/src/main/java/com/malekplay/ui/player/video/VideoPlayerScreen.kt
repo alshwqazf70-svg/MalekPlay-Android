@@ -197,6 +197,7 @@ fun VideoPlayerScreen(
     val isBuffering by viewModel.isBuffering.collectAsStateWithLifecycle()
     val videoUpscalingEnabled by viewModel.videoUpscalingEnabled.collectAsStateWithLifecycle()
     val videoNoiseReductionEnabled by viewModel.videoNoiseReductionEnabled.collectAsStateWithLifecycle()
+    val videoMotionSmoothingEnabled by viewModel.videoMotionSmoothingEnabled.collectAsStateWithLifecycle()
     val videoEnhancementProfile by viewModel.videoEnhancementProfile.collectAsStateWithLifecycle()
     val videoUpscalingError by viewModel.videoUpscalingError.collectAsStateWithLifecycle()
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
@@ -354,6 +355,7 @@ fun VideoPlayerScreen(
         onDispose {
             viewModel.setVideoUpscalingEnabled(false)
             viewModel.setVideoNoiseReductionEnabled(false)
+            viewModel.setVideoMotionSmoothingEnabled(false)
         }
     }
 
@@ -941,6 +943,18 @@ fun VideoPlayerScreen(
                     onClick = {
                         showMenu = false
                         viewModel.setVideoNoiseReductionEnabled(!videoNoiseReductionEnabled)
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(stringResource(
+                            if (videoMotionSmoothingEnabled) R.string.player_motion_smoothing_on
+                            else R.string.player_motion_smoothing_off
+                        ))
+                    },
+                    onClick = {
+                        showMenu = false
+                        viewModel.setVideoMotionSmoothingEnabled(!videoMotionSmoothingEnabled)
                     }
                 )
                 DropdownMenuItem(

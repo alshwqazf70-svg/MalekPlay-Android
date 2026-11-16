@@ -568,9 +568,6 @@ class PlaybackService : MediaSessionService() {
         if (videoUpscalingEnabled || videoNoiseReductionEnabled) {
             effects += VideoDetailEnhancementEffect(profile.detailStrength)
         }
-        // True frame interpolation is deliberately not enabled here. The legacy
-        // temporal blend did not create intermediate frames and has been removed
-        // from the advertised enhancement pipeline.
         val applied = runCatching {
             AssVideoEffectRegistry.setAdditionalEffects(player, effects)
         }.onFailure { error ->

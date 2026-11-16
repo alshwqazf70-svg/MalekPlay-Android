@@ -7,12 +7,11 @@ package com.malekplay.player.effects
 enum class VideoEnhancementProfile(
     val wireValue: String,
     val denoiseStrength: Float,
-    val detailStrength: Float,
-    val previousFrameWeight: Float
+    val detailStrength: Float
 ) {
-    ECONOMY("economy", 0.24f, 0.48f, 0f),
-    BALANCED("balanced", 0.38f, 0.78f, 0f),
-    ULTRA("ultra", 0.50f, 1.02f, 0f);
+    ECONOMY("economy", 0.24f, 0.48f),
+    BALANCED("balanced", 0.38f, 0.78f),
+    ULTRA("ultra", 0.50f, 1.02f);
 
     companion object {
         fun fromWireValue(value: String?): VideoEnhancementProfile =
