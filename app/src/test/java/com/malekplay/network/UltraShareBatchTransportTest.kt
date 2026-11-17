@@ -3,6 +3,7 @@ package com.malekplay.network
 import java.nio.file.Files
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -49,7 +50,12 @@ class UltraShareBatchTransportTest {
             )
             try {
                 readStarted.complete(Unit)
-                client.getInputStream().read()
+                try {
+                    client.getInputStream().read()
+                } catch (failure: SocketException) {
+                    // Closing the socket is the cancellation signal that releases read().
+                    if (currentCoroutineContext().isActive) throw failure
+                }
             } finally {
                 cancellationHandle.dispose()
                 client.close()
