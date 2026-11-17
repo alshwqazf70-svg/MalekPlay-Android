@@ -1007,6 +1007,7 @@ fun VideoPlayerScreen(
                             )
                         )
                     },
+                    enabled = !googleAiEnabled,
                     onClick = {
                         showMenu = false
                         viewModel.setVideoUpscalingEnabled(!videoUpscalingEnabled)
@@ -1019,6 +1020,7 @@ fun VideoPlayerScreen(
                             else R.string.player_noise_reduction_off
                         ))
                     },
+                    enabled = !googleAiEnabled,
                     onClick = {
                         showMenu = false
                         viewModel.setVideoNoiseReductionEnabled(!videoNoiseReductionEnabled)
