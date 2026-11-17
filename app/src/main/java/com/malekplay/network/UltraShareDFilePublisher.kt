@@ -76,7 +76,26 @@ internal object UltraShareDFilePublisher {
                 check(!target.exists()) {
                     "تغير اسم الوجهة أثناء نشر ملف DFile."
                 }
-                hardLinkForPublication(temporary, target)
+                try {
+                    hardLinkForPublication(temporary, target)
+                } catch (linkFailure: Exception) {
+                    // Some Android emulated/FUSE-backed external app directories do
+                    // not support hard links. Fall back to an exclusive reservation:
+                    // createNewFile() is atomic and never opens/replaces an existing
+                    // destination. Copy only after the name has been reserved.
+                    if (!target.createNewFile()) throw linkFailure
+                    try {
+                        FileOutputStream(target, false).use { output ->
+                            temporary.inputStream().use { input ->
+                                input.copyTo(output, UltraShareTransport.CHUNK_BYTES)
+                            }
+                            output.fd.sync()
+                        }
+                    } catch (copyFailure: Exception) {
+                        runCatching { target.delete() }
+                        throw copyFailure
+                    }
+                }
                 check(target.canonicalFile.parentFile == safeDestination)
                 check(target.isFile && target.length() == safeStaged.length())
                 // Publication is already complete and verified. A failed cache
