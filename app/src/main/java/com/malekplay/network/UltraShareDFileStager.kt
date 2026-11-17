@@ -20,6 +20,7 @@ import java.security.MessageDigest
 internal object UltraShareDFileStager {
     private const val BUFFER_BYTES = 256 * 1024
     private const val STAGING_DIRECTORY = "ultrashare-dfile-staging"
+    private const val RECEIVE_STAGING_DIRECTORY = "ultrashare-dfile-receive"
 
     data class StagedFile(
         val file: File,
@@ -186,20 +187,30 @@ internal object UltraShareDFileStager {
 
     fun cleanupStale(cacheDirectory: File, olderThanMillis: Long = 24L * 60L * 60L * 1000L) {
         require(olderThanMillis >= 0L)
-        val root = File(cacheDirectory, STAGING_DIRECTORY)
+        cleanupStaleRoot(cacheDirectory, STAGING_DIRECTORY, olderThanMillis)
+        // The receiver has its own per-session folders. Clean abandoned partial
+        // DFile payloads as well as outgoing URI staging after process death.
+        cleanupStaleRoot(cacheDirectory, RECEIVE_STAGING_DIRECTORY, olderThanMillis)
+    }
+
+    private fun cleanupStaleRoot(
+        cacheDirectory: File,
+        directoryName: String,
+        olderThanMillis: Long
+    ) {
+        val root = File(cacheDirectory, directoryName)
+        if (!root.exists()) return
         val cutoff = System.currentTimeMillis() - olderThanMillis
         val canonicalCache = runCatching { cacheDirectory.canonicalFile }.getOrNull() ?: return
         val canonicalRoot = runCatching { root.canonicalFile }.getOrNull() ?: return
         // Never follow a replaced staging-root symlink outside the app cache.
-        if (canonicalRoot.parentFile != canonicalCache) return
+        if (canonicalRoot.parentFile != canonicalCache || !canonicalRoot.isDirectory) return
         root.listFiles()?.forEach { entry ->
             val isOwnedChild = runCatching {
                 entry.canonicalFile.parentFile == canonicalRoot
             }.getOrDefault(false)
             if (isOwnedChild && entry.lastModified() < cutoff) {
-                // Only remove children of our dedicated staging root. A malformed
-                // symlink/canonical-path failure is ignored rather than aborting
-                // cleanup for every other stale session directory.
+                // Only remove direct children of our dedicated staging root.
                 runCatching { entry.deleteRecursively() }
             }
         }
