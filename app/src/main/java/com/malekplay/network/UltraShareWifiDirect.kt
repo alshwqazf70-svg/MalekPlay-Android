@@ -1466,20 +1466,25 @@ object UltraShareWifiDirect {
                     clientPeerCheckInFlight = false
                     if (closed || token != clientPeerCheckToken) return@requestGroupInfo
                     val actualAddress = group?.owner?.deviceAddress
-                    val matches = group != null && !group.isGroupOwner &&
-                        isExpectedWifiDirectPeer(expectedAddress, actualAddress)
+                    // Wi-Fi Direct MAC addresses are not stable identifiers on every
+                    // Android/OEM combination (notably newer Android group owners).
+                    // The user selected this peer from its short-lived QR invitation;
+                    // the subsequent MPC2 challenge proves the shared session PIN.
+                    // Requiring the framework's owner MAC to equal the discovery MAC
+                    // rejects valid Android 10 <-> Android 14 groups.
+                    val matches = isReadyWifiDirectClientGroup(
+                        groupPresent = group != null,
+                        groupIsOwner = group?.isGroupOwner == true,
+                        pairingAttemptActive = expectedAddress.isNotBlank()
+                    )
                     UltraShareDiagnostics.event(
                         "WIFI_DIRECT",
-                        when {
-                            matches -> "CLIENT_GROUP_OWNER_CONFIRMED"
-                            actualAddress.isNullOrBlank() -> "CLIENT_GROUP_OWNER_IDENTITY_PENDING"
-                            else -> "CLIENT_GROUP_OWNER_MISMATCH"
-                        },
+                        if (matches) "CLIENT_GROUP_OWNER_CONFIRMED" else "CLIENT_GROUP_OWNER_PENDING",
                         mapOf(
                             "attempt" to attempt,
                             "expectedAddressPresent" to expectedAddress.isNotBlank(),
                             "actualAddressPresent" to !actualAddress.isNullOrBlank(),
-                            "addressesMatch" to matches,
+                            "macAddressCompared" to false,
                             "groupIsOwner" to (group?.isGroupOwner == true),
                             "clientCount" to (group?.clientList?.size ?: 0)
                         )
@@ -1810,7 +1815,19 @@ object UltraShareWifiDirect {
     }
 }
 
-/** Matches the owner MAC returned by WifiP2pGroup against the selected peer. */
+/**
+ * A formed client group belongs to the current pairing flow when Android reports
+ * a client-side group and the user has an active QR-selected peer attempt.
+ * Do not compare P2P MAC addresses: Android/OEM privacy behavior can rotate them.
+ * The short-lived QR secret is validated by the MPC2 control-channel handshake.
+ */
+internal fun isReadyWifiDirectClientGroup(
+    groupPresent: Boolean,
+    groupIsOwner: Boolean,
+    pairingAttemptActive: Boolean
+): Boolean = groupPresent && !groupIsOwner && pairingAttemptActive
+
+/** Legacy diagnostic helper; no longer used as a pairing gate. */
 internal fun isExpectedWifiDirectPeer(expectedAddress: String?, actualAddress: String?): Boolean {
     val macPattern = Regex("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}")
     val expected = expectedAddress?.trim()
