@@ -328,13 +328,27 @@ class PlaybackService : MediaSessionService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
-            // Start from the supported default session commands for every controller.
-            // The custom GPU effect command is exposed only to trusted app controllers.
-            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().apply {
-                if (isTrustedAppController(controller)) PlaybackVideoEffects.COMMANDS.forEach { add(it) }
+            // Keep trusted and external controllers on their respective Media3 command
+            // sets. In particular, only this app's trusted controller receives the video
+            // surface-routing command required by the Google AI enhancement bridge.
+            val trustedAppController = isTrustedAppController(controller)
+            val commands = (
+                if (trustedAppController) {
+                    MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
+                } else {
+                    MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_SESSION_COMMANDS
+                }
+            ).buildUpon().apply {
+                if (trustedAppController) PlaybackVideoEffects.COMMANDS.forEach { add(it) }
             }.build()
-            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+            val playerCommands = if (trustedAppController) {
+                MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
+            } else {
+                MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_PLAYER_COMMANDS
+            }
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
                 .setAvailableSessionCommands(commands)
+                .setAvailablePlayerCommands(playerCommands)
                 .build()
         }
 
