@@ -141,7 +141,9 @@ class UltraShareForegroundService : Service() {
         val sessionId: Int,
         val listener: NstackxNativeBridge.DFileListener,
         val activeTransferIds: MutableSet<Int>,
-        val listenerActive: java.util.concurrent.atomic.AtomicBoolean
+        val listenerActive: java.util.concurrent.atomic.AtomicBoolean,
+        val pendingManifests: java.util.concurrent.ConcurrentHashMap<Int, UltraShareDFileManifest.Manifest>,
+        val stagingDirectory: File
     )
     private val dfileServerSessions = java.util.concurrent.ConcurrentHashMap<String, ActiveDFileServer>()
     @Volatile private var receiveJob: Job? = null
@@ -599,15 +601,11 @@ class UltraShareForegroundService : Service() {
                                 },
                                 onDFileServerReady = { request, ephemeralKey ->
                                     try {
-                                        // DFile currently has no receiver-side per-file SHA-256
-                                        // verification. Do not advertise a native data port until
-                                        // the authenticated manifest/checksum protocol is implemented.
-                                        UltraShareDiagnostics.event(
-                                            "DFILE",
-                                            "DISABLED_UNTIL_RECEIVER_INTEGRITY_MANIFEST",
-                                            mapOf("peerHost" to request.peerAddress)
+                                        startDFileServerForPeer(
+                                            peerAddress = request.peerAddress,
+                                            localAddress = request.localAddress,
+                                            sessionKey = ephemeralKey
                                         )
-                                        null
                                     } finally {
                                         ephemeralKey.fill(0)
                                     }
@@ -701,16 +699,146 @@ class UltraShareForegroundService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun startDFileServerForPeer(peerAddress: String, localAddress: String?): Int? {
-        // Keep the native data plane disabled on both peers. NSTACKX callbacks do
-        // not carry the authenticated per-file V2 manifest, so the receiver cannot
-        // verify each SHA-256 digest before publishing a file. V2 TCP remains the
-        // only supported transfer path until the native protocol gains that contract.
-        UltraShareDiagnostics.event(
-            "DFILE",
-            "SERVER_DISABLED_UNTIL_RECEIVER_INTEGRITY_MANIFEST",
-            mapOf("peerHost" to peerAddress, "hasLocalAddress" to !localAddress.isNullOrBlank())
-        )
+    private fun startDFileServerForPeer(
+        peerAddress: String,
+        localAddress: String?,
+        sessionKey: ByteArray
+    ): Int? {
+        if (localAddress.isNullOrBlank() ||
+            !UltraShareTransport.isValidPrivateLanHost(peerAddress) ||
+            !UltraShareTransport.isValidPrivateLanHost(localAddress)
+        ) return null
+
+        // DFile sockets use the currently selected native Android Network. Never
+        // start a listener on a different interface from the authenticated control socket.
+        val activeDiscovery = NstackxAndroidDiscoverySession.current()
+        when {
+            activeDiscovery != null && activeDiscovery.localIpv4 == localAddress -> Unit
+            activeDiscovery != null -> {
+                UltraShareDiagnostics.event(
+                    "DFILE", "SERVER_NETWORK_MISMATCH",
+                    mapOf("peerHost" to peerAddress, "controlLocalIp" to localAddress, "nativeLocalIp" to activeDiscovery.localIpv4)
+                )
+                return null
+            }
+            else -> {
+                val started = runCatching {
+                    NstackxAndroidDiscoverySession.start(
+                        this,
+                        preferredLocalIpv4 = localAddress,
+                        onPeerFound = {}
+                    )
+                }.getOrElse { failure ->
+                    UltraShareDiagnostics.failure("DFILE_SERVER_NETWORK_START", failure, "localIp=" + localAddress)
+                    return null
+                }
+                if (started.localIpv4 != localAddress) return null
+            }
+        }
+
+        closeDFileServerForPeer(peerAddress)
+        val destination = File(cacheDir, "ultrashare-dfile-receive")
+        if (!destination.exists() && !destination.mkdirs()) return null
+        if (!destination.isDirectory || destination.canonicalFile.parentFile != cacheDir.canonicalFile) return null
+        val stagingDirectory = File(destination, "session-" + java.util.UUID.randomUUID().toString())
+        if (!stagingDirectory.mkdir()) return null
+        val port = findAvailableDFilePort()
+        if (port == null) {
+            runCatching { stagingDirectory.deleteRecursively() }
+            return null
+        }
+
+        val activeTransferIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
+        val pendingManifests = java.util.concurrent.ConcurrentHashMap<Int, UltraShareDFileManifest.Manifest>()
+        val listenerActive = java.util.concurrent.atomic.AtomicBoolean(true)
+        val listenerReady = java.util.concurrent.atomic.AtomicBoolean(false)
+        val sessionIdRef = java.util.concurrent.atomic.AtomicInteger(-1)
+        val earlyEvents = java.util.concurrent.ConcurrentLinkedQueue<NstackxNativeBridge.DFileEvent>()
+        val listener = NstackxNativeBridge.DFileListener { event ->
+            if (listenerActive.get()) {
+                if (!listenerReady.get()) {
+                    earlyEvents.add(event)
+                } else if (event.sessionId == sessionIdRef.get()) {
+                    handleDFileServerEvent(
+                        peerAddress,
+                        stagingDirectory,
+                        destination,
+                        event,
+                        activeTransferIds,
+                        pendingManifests
+                    )
+                }
+            }
+        }
+        NstackxNativeBridge.addDFileListener(listener)
+        var nativeSessionId = -1
+        try {
+            nativeSessionId = NstackxNativeBridge.startDFileServer(
+                localIpv4 = localAddress,
+                port = port,
+                sessionKey = sessionKey,
+                destinationDirectory = stagingDirectory
+            )
+            if (nativeSessionId <= 0) {
+                UltraShareDiagnostics.event(
+                    "DFILE", "SERVER_START_REJECTED",
+                    mapOf("peerHost" to peerAddress, "localIp" to localAddress, "port" to port, "nativeResult" to nativeSessionId)
+                )
+                return null
+            }
+
+            val active = ActiveDFileServer(
+                sessionId = nativeSessionId,
+                listener = listener,
+                activeTransferIds = activeTransferIds,
+                listenerActive = listenerActive,
+                pendingManifests = pendingManifests,
+                stagingDirectory = stagingDirectory
+            )
+            dfileServerSessions[peerAddress] = active
+            sessionIdRef.set(nativeSessionId)
+            listenerReady.set(true)
+            while (true) {
+                val event = earlyEvents.poll() ?: break
+                if (event.sessionId == nativeSessionId) {
+                    handleDFileServerEvent(
+                        peerAddress,
+                        stagingDirectory,
+                        destination,
+                        event,
+                        activeTransferIds,
+                        pendingManifests
+                    )
+                }
+            }
+            UltraShareDiagnostics.event(
+                "DFILE", "SERVER_READY",
+                mapOf("peerHost" to peerAddress, "localIp" to localAddress, "port" to port, "sessionHandle" to nativeSessionId)
+            )
+            return port
+        } catch (failure: Exception) {
+            UltraShareDiagnostics.failure("DFILE_SERVER_START", failure, "peerHost=" + peerAddress)
+            return null
+        } finally {
+            if (nativeSessionId <= 0) {
+                listenerActive.set(false)
+                NstackxNativeBridge.removeDFileListener(listener)
+                runCatching { stagingDirectory.deleteRecursively() }
+            }
+        }
+    }
+
+    private fun findAvailableDFilePort(): Int? {
+        repeat(16) {
+            val tcp = runCatching { java.net.ServerSocket(0) }.getOrNull() ?: return null
+            val candidate = tcp.localPort
+            val udp = runCatching { java.net.DatagramSocket(candidate) }.getOrNull()
+            runCatching { tcp.close() }
+            if (udp != null) {
+                runCatching { udp.close() }
+                return candidate
+            }
+        }
         return null
     }
 
@@ -719,7 +847,8 @@ class UltraShareForegroundService : Service() {
         stagingDirectory: File,
         destination: File,
         event: NstackxNativeBridge.DFileEvent,
-        activeTransferIds: MutableSet<Int>
+        activeTransferIds: MutableSet<Int>,
+        pendingManifests: MutableMap<Int, UltraShareDFileManifest.Manifest>
     ) {
         if (!UltraShareDFileSessionGuard.isCurrentSession(
                 dfileServerSessions[peerAddress]?.sessionId,
@@ -727,6 +856,35 @@ class UltraShareForegroundService : Service() {
             )
         ) return
         when (event.eventType) {
+            NstackxNativeBridge.DFILE_ON_FILE_LIST_RECEIVED -> {
+                val key = UltraShareControlChannel.serverDFileKey(peerAddress)
+                val manifest = if (key == null) null else try {
+                    UltraShareDFileManifest.decode(event.userData, key)
+                } finally {
+                    key.fill(0)
+                }
+                val expectedNames = manifest?.entries?.map { it.fileName }?.toSet().orEmpty()
+                val receivedNames = event.fileNames.map(UltraShareTransport::sanitizeFileName).toSet()
+                if (event.transferId <= 0 || manifest == null ||
+                    expectedNames.isEmpty() || expectedNames != receivedNames
+                ) {
+                    UltraShareDiagnostics.event(
+                        "DFILE", "RECEIVE_MANIFEST_REJECTED",
+                        mapOf("peerHost" to peerAddress, "transferId" to event.transferId, "fileCount" to event.fileNames.size)
+                    )
+                    updateState { current -> current.copy(
+                        error = "رُفضت دفعة DFile لأن بيان الملفات أو توقيعه غير صالح.",
+                        status = "لم يبدأ نشر أي ملف قبل التحقق من بيان SHA-256."
+                    ) }
+                    serviceScope.launch { closeDFileServerForPeer(peerAddress, event.sessionId) }
+                } else {
+                    pendingManifests[event.transferId] = manifest
+                    UltraShareDiagnostics.event(
+                        "DFILE", "RECEIVE_MANIFEST_ACCEPTED",
+                        mapOf("peerHost" to peerAddress, "transferId" to event.transferId, "fileCount" to manifest.entries.size, "totalBytes" to manifest.totalBytes)
+                    )
+                }
+            }
             NstackxNativeBridge.DFILE_ON_TRANS_IN_PROGRESS -> {
                 if (event.transferId > 0 && activeTransferIds.add(event.transferId)) {
                     beginTransfer(isReceiving = true)
@@ -748,67 +906,79 @@ class UltraShareForegroundService : Service() {
                 updateNotification(progress)
             }
             NstackxNativeBridge.DFILE_ON_FILE_RECEIVE_SUCCESS -> {
-                UltraShareDiagnostics.event(
-                    "DFILE", "FILE_RECEIVE_SUCCEEDED",
-                    mapOf("peerHost" to peerAddress, "fileNames" to event.fileNames.joinToString(","), "reportedBytes" to event.totalBytes)
-                )
                 if (event.transferId > 0 && activeTransferIds.remove(event.transferId)) {
                     endTransfer(isReceiving = true)
                 }
-                event.fileNames.forEach { receivedName ->
-                    serviceScope.launch {
-                        if (!UltraShareDFileSessionGuard.isCurrentSession(
-                                dfileServerSessions[peerAddress]?.sessionId,
-                                event.sessionId
-                            )
-                        ) return@launch
-                        val safeName = UltraShareTransport.sanitizeFileName(receivedName)
-                        val stagedFile = runCatching { File(stagingDirectory, safeName).canonicalFile }.getOrNull()
-                            ?: return@launch
-                        if (!UltraShareDFileStager.isSafeReceivedFile(
-                                stagedFile,
-                                stagingDirectory,
-                                destination,
-                                UltraShareDFileStager.reportedSizeForValidation(
-                                    event.fileNames.size,
-                                    event.totalBytes
-                                )
-                            )
+                val manifest = pendingManifests.remove(event.transferId)
+                if (manifest == null) {
+                    updateState { current -> current.copy(
+                        error = "رُفض ملف DFile لعدم وجود بيان موثّق مطابق لدفعة الاستقبال.",
+                        status = "لم يُنشر أي ملف من هذه الدفعة."
+                    ) }
+                    serviceScope.launch { closeDFileServerForPeer(peerAddress, event.sessionId) }
+                    return
+                }
+                serviceScope.launch {
+                    if (!UltraShareDFileSessionGuard.isCurrentSession(
+                            dfileServerSessions[peerAddress]?.sessionId,
+                            event.sessionId
+                        )
+                    ) return@launch
+
+                    val receivedNames = event.fileNames.map(UltraShareTransport::sanitizeFileName).toSet()
+                    val expectedNames = manifest.entries.map { it.fileName }.toSet()
+                    if (receivedNames != expectedNames) {
+                        rejectDFileManifest(peerAddress, event.sessionId, stagingDirectory, manifest,
+                            "قائمة الملفات المستلمة لا تطابق البيان الموقّع.")
+                        return@launch
+                    }
+
+                    val verifiedFiles = ArrayList<Pair<UltraShareDFileManifest.Entry, File>>(manifest.entries.size)
+                    for (entry in manifest.entries) {
+                        val stagedFile = runCatching { File(stagingDirectory, entry.fileName).canonicalFile }.getOrNull()
+                        if (stagedFile == null ||
+                            !UltraShareDFileStager.isSafeReceivedFile(
+                                stagedFile, stagingDirectory, destination, entry.sizeBytes
+                            ) ||
+                            !UltraShareDFileManifest.verifyFile(stagedFile, entry)
                         ) {
-                            runCatching { stagedFile.delete() }
-                            updateState { current -> current.copy(
-                                error = "رُفض ملف DFile لأن مساره أو حجمه لا يطابق بيانات الاستلام: $safeName",
-                                status = "لم يُنشر الملف قبل التحقق من مساره وحجمه."
-                            ) }
+                            rejectDFileManifest(peerAddress, event.sessionId, stagingDirectory, manifest,
+                                "فشل التحقق من الحجم أو SHA-256 للملف ${entry.fileName}.")
                             return@launch
                         }
                         val mimeType = MimeTypeMap.getSingleton()
                             .getMimeTypeFromExtension(stagedFile.extension.lowercase())
                             ?: "application/octet-stream"
-                        val receivedSize = stagedFile.length()
-                        if (!UltraShareTransport.isAllowedShareFile(safeName, mimeType)) {
-                            // Enforce the same file policy on the receiving device; never
-                            // trust a sender-side filter when the native engine is exposed.
-                            runCatching { stagedFile.delete() }
-                            updateState { current -> current.copy(
-                                error = "رُفض ملف DFile غير مسموح: $safeName",
-                                status = "تم رفض الملف قبل إضافته إلى سجل الاستلام."
-                            ) }
+                        if (!UltraShareTransport.isAllowedShareFile(entry.fileName, mimeType)) {
+                            rejectDFileManifest(peerAddress, event.sessionId, stagingDirectory, manifest,
+                                "نوع الملف غير مسموح: ${entry.fileName}.")
                             return@launch
                         }
-                        val canonical = publishDFileStagedFile(stagedFile, destination, safeName)
+                        verifiedFiles += entry to stagedFile
+                    }
+
+                    // Verify every member before publishing any member of this DFile batch.
+                    for ((entry, stagedFile) in verifiedFiles) {
+                        if (!UltraShareDFileSessionGuard.isCurrentSession(
+                                dfileServerSessions[peerAddress]?.sessionId,
+                                event.sessionId
+                            )
+                        ) return@launch
+                        val mimeType = MimeTypeMap.getSingleton()
+                            .getMimeTypeFromExtension(stagedFile.extension.lowercase())
+                            ?: "application/octet-stream"
+                        val canonical = publishDFileStagedFile(stagedFile, destination, entry.fileName)
                             ?: run {
-                                UltraShareDiagnostics.event("DFILE", "RECEIVED_FILE_PUBLICATION_REJECTED", mapOf("peerHost" to peerAddress, "fileName" to safeName))
                                 updateState { current -> current.copy(
-                                    error = "تعذر تثبيت الملف المستلم بأمان: $safeName",
-                                    status = "لم يُضف الملف إلى سجل الاستلام."
+                                    error = "تعذر تثبيت الملف المستلم بأمان: ${entry.fileName}",
+                                    status = "تعذر إكمال نشر دفعة DFile."
                                 ) }
                                 return@launch
                             }
                         val received = UltraShareTransport.ReceivedFile(
                             file = canonical,
                             fileName = canonical.name,
-                            sizeBytes = receivedSize,
+                            sizeBytes = entry.sizeBytes,
                             mimeType = mimeType
                         )
                         val publishedUri = UltraShareReceivedPublisher.publish(this@UltraShareForegroundService, received)
@@ -817,7 +987,7 @@ class UltraShareForegroundService : Service() {
                             file = canonical,
                             fileName = canonical.name,
                             mimeType = mimeType,
-                            sizeBytes = receivedSize,
+                            sizeBytes = entry.sizeBytes,
                             publishedUri = publishedUri?.toString()
                         )
                         updateState { current -> current.copy(
@@ -825,16 +995,24 @@ class UltraShareForegroundService : Service() {
                             receivedFile = received.copy(publishedUri = publishedUri),
                             receiveProgress = null,
                             progress = if (current.sending) current.sendProgress else null,
-                            status = "تم استلام ${canonical.name} عبر DFile من $peerAddress",
+                            status = "تم استلام ${canonical.name} والتحقق من SHA-256 عبر DFile من $peerAddress",
                             error = null
                         ) }
                     }
+                    UltraShareDiagnostics.event(
+                        "DFILE", "FILE_RECEIVE_VERIFIED",
+                        mapOf("peerHost" to peerAddress, "transferId" to event.transferId, "fileCount" to manifest.entries.size, "totalBytes" to manifest.totalBytes)
+                    )
                 }
             }
             NstackxNativeBridge.DFILE_ON_FILE_RECEIVE_FAIL -> {
                 UltraShareDiagnostics.event("DFILE", "FILE_RECEIVE_FAILED", mapOf("peerHost" to peerAddress, "message" to event.message))
                 if (event.transferId > 0 && activeTransferIds.remove(event.transferId)) {
                     endTransfer(isReceiving = true)
+                }
+                val manifest = pendingManifests.remove(event.transferId)
+                manifest?.entries?.forEach { entry ->
+                    runCatching { File(stagingDirectory, entry.fileName).delete() }
                 }
                 updateState { current -> current.copy(
                     receiveProgress = null,
@@ -848,6 +1026,10 @@ class UltraShareForegroundService : Service() {
                 activeTransferIds.toList().forEach { id ->
                     if (activeTransferIds.remove(id)) endTransfer(isReceiving = true)
                 }
+                pendingManifests.values.flatMap { it.entries }.forEach { entry ->
+                    runCatching { File(stagingDirectory, entry.fileName).delete() }
+                }
+                pendingManifests.clear()
                 updateState { current -> current.copy(
                     receiveProgress = null,
                     progress = if (current.sending) current.sendProgress else null,
@@ -857,6 +1039,27 @@ class UltraShareForegroundService : Service() {
                 serviceScope.launch { closeDFileServerForPeer(peerAddress, event.sessionId) }
             }
         }
+    }
+
+    private fun rejectDFileManifest(
+        peerAddress: String,
+        sessionId: Int,
+        stagingDirectory: File,
+        manifest: UltraShareDFileManifest.Manifest,
+        reason: String
+    ) {
+        manifest.entries.forEach { entry ->
+            runCatching { File(stagingDirectory, entry.fileName).delete() }
+        }
+        UltraShareDiagnostics.event(
+            "DFILE", "RECEIVE_INTEGRITY_REJECTED",
+            mapOf("peerHost" to peerAddress, "sessionHandle" to sessionId, "reason" to reason)
+        )
+        updateState { current -> current.copy(
+            error = reason,
+            status = "رُفضت دفعة DFile؛ لم يُنشر أي ملف غير متحقق منه."
+        ) }
+        serviceScope.launch { closeDFileServerForPeer(peerAddress, sessionId) }
     }
 
     @Synchronized
