@@ -368,12 +368,19 @@ class PlaybackService : MediaSessionService() {
         putBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, videoNoiseReductionEnabled)
         putString(PlaybackVideoEffects.KEY_STATE_PROFILE, videoEnhancementProfile.wireValue)
         val metrics = VideoEnhancementMetrics.snapshot()
+        // Read the live registry state instead of exposing a stale service-side flag.
+        videoEffectsBridgeAttached = localExoPlayer?.let(AssVideoEffectRegistry::isAttached) == true
         putBoolean(PlaybackVideoEffects.KEY_DIAG_UPSCALE_SUBMITTED, videoLanczosSubmitted && videoEffectsBridgeAttached)
         putLong(PlaybackVideoEffects.KEY_DIAG_DENOISE_DRAWS, metrics.denoiseDraws)
         putLong(PlaybackVideoEffects.KEY_DIAG_DETAIL_DRAWS, metrics.detailDraws)
         putLong(PlaybackVideoEffects.KEY_DIAG_TOTAL_DRAWS, metrics.processedDraws)
         putString(PlaybackVideoEffects.KEY_DIAG_LAST_EFFECT, metrics.lastEffectName)
-        putString(PlaybackVideoEffects.KEY_DIAG_LAST_FAILURE, metrics.lastFailure)
+        putString(
+            PlaybackVideoEffects.KEY_DIAG_LAST_FAILURE,
+            metrics.lastFailure ?: if (!videoEffectsBridgeAttached) {
+                "effects_bridge_not_registered_or_not_operational"
+            } else null
+        )
         putLong(PlaybackVideoEffects.KEY_DIAG_LAST_PTS_US, metrics.lastPresentationTimeUs)
         putLong(PlaybackVideoEffects.KEY_DIAG_RENDERER_FRAMES, lastRendererFrameCount)
         putLong(PlaybackVideoEffects.KEY_DIAG_AVG_OFFSET_US, lastAverageProcessingOffsetUs)
@@ -558,7 +565,12 @@ class PlaybackService : MediaSessionService() {
         // A user may toggle an effect while Media3 is still selecting tracks or
         // reporting the first frame size. Accept it as pending; listeners above
         // will apply it as soon as the selected video format becomes available.
-        if (!canApplyLocalVideoEnhancement()) return true
+        if (!canApplyLocalVideoEnhancement()) {
+            // The request is pending, not applied. Keep the diagnostics honest:
+            // bridge connection is reported independently from selected-track readiness.
+            videoEffectsBridgeAttached = AssVideoEffectRegistry.isAttached(player)
+            return true
+        }
 
         val tuning = resolveVideoEnhancementTuning()
         val profile = tuning.effective
