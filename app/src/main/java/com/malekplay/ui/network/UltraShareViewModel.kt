@@ -1953,21 +1953,39 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun exportReceived(destination: Uri) {
         val received = _state.value.receivedFile ?: UltraShareForegroundService.state.value.receivedFile ?: return
+        exportReceivedFile(received.file, received.fileName, received.sizeBytes, destination)
+    }
+
+    fun exportReceived(entry: UltraShareReceivedEntry, destination: Uri) {
+        if (!entry.isAvailable) {
+            _state.value = _state.value.copy(error = "الملف غير موجود في مجلد الاستقبال؛ لم يتم إنشاء نسخة فارغة.")
+            return
+        }
+        exportReceivedFile(entry.file, entry.fileName, entry.sizeBytes, destination)
+    }
+
+    private fun exportReceivedFile(file: java.io.File, fileName: String, sizeBytes: Long, destination: Uri) {
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
+                    check(file.isFile && file.length() == sizeBytes) {
+                        "الملف المستلم غير مكتمل أو لم يعد موجوداً."
+                    }
                     val output = context.contentResolver.openOutputStream(destination, "w")
                         ?: error("تعذر فتح وجهة الحفظ.")
-                    received.file.inputStream().use { input ->
-                        output.use { target -> input.copyTo(target, UltraShareTransport.CHUNK_BYTES) }
+                    file.inputStream().use { input ->
+                        output.use { target ->
+                            val copied = input.copyTo(target, UltraShareTransport.CHUNK_BYTES)
+                            check(copied == sizeBytes) { "لم يكتمل نسخ الملف إلى المكان المحدد." }
+                        }
                     }
                 }
                 _state.value = _state.value.copy(
-                    status = context.getString(R.string.ultra_share_exported, received.fileName),
+                    status = context.getString(R.string.ultra_share_exported, fileName),
                     error = null
                 )
             } catch (failure: Exception) {
-                _state.value = _state.value.copy(error = failure.localizedMessage)
+                _state.value = _state.value.copy(error = failure.localizedMessage ?: "تعذر تصدير الملف المستلم.")
             }
         }
     }
