@@ -215,52 +215,66 @@ class GoogleMediaEnhancementPlayerBridge(
                 toneMap = false,
                 listener = object : GoogleMediaEnhancementSurfaceBackend.Listener {
                     override fun onReady(inputSurface: Surface) {
-                        if (!isCurrent(request) || !output.isValid) {
-                            releaseBackend(restoreOutput = false)
-                            return
-                        }
-                        try {
-                            player.setVideoSurface(inputSurface)
-                            routedInputSurface = inputSurface
-                            publish(State.WAITING_FOR_FIRST_FRAME)
-                        } catch (error: Throwable) {
-                            fail(request, error.message ?: "Could not route decoded video into Google AI")
+                        mainHandler.post {
+                            if (!isCurrent(request) || !output.isValid) {
+                                releaseBackend(restoreOutput = false)
+                                return@post
+                            }
+                            try {
+                                player.setVideoSurface(inputSurface)
+                                routedInputSurface = inputSurface
+                                publish(State.WAITING_FOR_FIRST_FRAME)
+                            } catch (error: Throwable) {
+                                fail(request, error.message ?: "Could not route decoded video into Google AI")
+                            }
                         }
                     }
 
                     override fun onFirstFrameProcessed(timestampNs: Long) {
-                        if (isCurrent(request)) publish(State.ACTIVE)
+                        mainHandler.post {
+                            if (isCurrent(request)) publish(State.ACTIVE)
+                        }
                     }
 
                     override fun onModuleInstallRequired() {
-                        if (isCurrent(request)) publish(State.INSTALL_REQUIRED)
+                        mainHandler.post {
+                            if (isCurrent(request)) publish(State.INSTALL_REQUIRED)
+                        }
                     }
 
                     override fun onModuleInstallProgress(progress: Int) {
-                        if (isCurrent(request)) publish(State.INSTALLING, progress)
+                        mainHandler.post {
+                            if (isCurrent(request)) publish(State.INSTALLING, progress)
+                        }
                     }
 
                     override fun onModuleInstalled() {
-                        if (isCurrent(request)) {
-                            publish(State.CHECKING_DEVICE)
-                            backend?.start()
+                        mainHandler.post {
+                            if (isCurrent(request)) {
+                                publish(State.CHECKING_DEVICE)
+                                backend?.start()
+                            }
                         }
                     }
 
                     override fun onModuleInstallCancelled() {
-                        if (isCurrent(request)) publish(State.INSTALL_REQUIRED)
+                        mainHandler.post {
+                            if (isCurrent(request)) publish(State.INSTALL_REQUIRED)
+                        }
                     }
 
                     override fun onUnsupported() {
-                        if (isCurrent(request)) {
-                            retryBlocked = true
-                            releaseBackend(restoreOutput = true)
-                            publish(State.UNSUPPORTED, message = "This device does not support Google AI enhancement")
+                        mainHandler.post {
+                            if (isCurrent(request)) {
+                                retryBlocked = true
+                                releaseBackend(restoreOutput = true)
+                                publish(State.UNSUPPORTED, message = "This device does not support Google AI enhancement")
+                            }
                         }
                     }
 
                     override fun onFailure(reason: String) {
-                        fail(request, reason)
+                        mainHandler.post { fail(request, reason) }
                     }
                 }
             )
