@@ -7,6 +7,24 @@ import org.junit.Test
 
 class UltraShareWifiDirectPolicyTest {
     @Test
+    fun acceptsFormedClientGroupForAnActiveQrPairingWithoutComparingRotatingMacAddresses() {
+        assertTrue(
+            isReadyWifiDirectClientGroup(
+                groupPresent = true,
+                groupIsOwner = false,
+                pairingAttemptActive = true
+            )
+        )
+    }
+
+    @Test
+    fun rejectsMissingOwnerGroupAndUnsolicitedClientGroups() {
+        assertFalse(isReadyWifiDirectClientGroup(false, false, true))
+        assertFalse(isReadyWifiDirectClientGroup(true, true, true))
+        assertFalse(isReadyWifiDirectClientGroup(true, false, false))
+    }
+
+    @Test
     fun ownerWaitsLongEnoughForSlowAndroidNineAndTenDnsSdPairing() {
         assertTrue(shouldRetryWifiDirectPeerConfirmation(0))
         assertTrue(shouldRetryWifiDirectPeerConfirmation(69))
