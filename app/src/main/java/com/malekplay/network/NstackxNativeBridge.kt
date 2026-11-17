@@ -39,6 +39,8 @@ object NstackxNativeBridge {
         val transferredBytes: Long,
         val totalBytes: Long,
         val fileNames: List<String>,
+        /** Authenticated sender metadata attached to this DFile send operation. */
+        val userData: String = "",
         val message: String
     ) {
         /** The pinned upstream API says fatal sessions cannot be reused and must be closed. */
@@ -195,9 +197,12 @@ object NstackxNativeBridge {
 
     /** Queue local files for DFile; blocked Android packages/PDFs remain blocked. */
     @Synchronized
-    fun sendDFileFiles(sessionId: Int, files: List<File>): Int {
+    fun sendDFileFiles(sessionId: Int, files: List<File>, userData: String = ""): Int {
         if (!libraryLoaded) return LOAD_ERROR
         require(sessionId > 0 && files.isNotEmpty() && files.size <= 500)
+        require(userData.length <= 60 * 1024 && '\u0000' !in userData) {
+            "بيانات بيان DFile طويلة أو غير صالحة."
+        }
         val paths = files.map { file ->
             val canonical = file.canonicalFile
             require(canonical.isFile && canonical.canRead()) { "تعذر قراءة الملف: " + file.name }
@@ -206,7 +211,7 @@ object NstackxNativeBridge {
             }
             canonical.absolutePath
         }
-        val result = nativeDFileSendFiles(sessionId, paths.toTypedArray())
+        val result = nativeDFileSendFiles(sessionId, paths.toTypedArray(), userData)
         UltraShareDiagnostics.event("DFILE_TRANSFER", if (result == 0) "FILES_QUEUED" else "QUEUE_FAILED", mapOf("sessionHandle" to sessionId, "fileCount" to paths.size, "resultCode" to result))
         return result
     }
@@ -245,6 +250,7 @@ object NstackxNativeBridge {
         transferredBytes: Long,
         totalBytes: Long,
         fileNames: Array<String>,
+        userData: String,
         message: String
     ) {
         val event = DFileEvent(
@@ -254,6 +260,7 @@ object NstackxNativeBridge {
             transferredBytes = transferredBytes.coerceAtLeast(0L),
             totalBytes = totalBytes.coerceAtLeast(0L),
             fileNames = fileNames.filter { it.isNotBlank() }.map { it.substringAfterLast('/') }.distinct(),
+            userData = userData,
             message = message
         )
         UltraShareDiagnostics.event("DFILE_CALLBACK", dfileEventName(eventType), mapOf("sessionHandle" to sessionId, "transferId" to transferId, "transferredBytes" to event.transferredBytes, "totalBytes" to event.totalBytes, "fileCount" to event.fileNames.size, "nativeMessage" to message.take(240)))
@@ -297,7 +304,7 @@ object NstackxNativeBridge {
         key: ByteArray
     ): Int
 
-    private external fun nativeDFileSendFiles(sessionId: Int, paths: Array<String>): Int
+    private external fun nativeDFileSendFiles(sessionId: Int, paths: Array<String>, userData: String): Int
     private external fun nativeDFileCloseSession(sessionId: Int)
     private external fun nativeRelease()
 
