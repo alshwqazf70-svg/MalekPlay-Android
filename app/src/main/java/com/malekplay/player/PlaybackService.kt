@@ -42,6 +42,7 @@ import com.malekplay.player.effects.VideoEnhancementProfile
 import com.malekplay.player.effects.VideoEnhancementPolicy
 import com.malekplay.player.effects.VideoEnhancementMetrics
 import com.malekplay.player.effects.VideoUpscaleTargetPolicy
+import com.malekplay.player.effects.GoogleMediaEnhancementCapability
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.render.AssVideoEffectRegistry
 import io.github.peerless2012.ass.media.type.AssRenderType
@@ -175,6 +176,12 @@ class PlaybackService : MediaSessionService() {
         // The bridge starts lazily only when a local file is handed to a Cast receiver.
         // It exposes tokenized, seekable LAN URLs rather than leaking content:// URIs.
         localExoPlayer = player
+
+        // Probe Google AI enhancement support without touching the active decoder/surface.
+        // The actual session bridge is enabled only after surface and subtitle routing tests.
+        GoogleMediaEnhancementCapability.inspect(this) { status ->
+            Log.i(TAG, "Google AI media enhancement capability: $status")
+        }
         // Bind audio effects directly to the service-owned ExoPlayer session;
         // the UI listener is a secondary observer, not the only attachment path.
         player.addListener(object : Player.Listener {
