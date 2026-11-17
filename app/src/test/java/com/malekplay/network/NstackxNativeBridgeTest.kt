@@ -6,6 +6,15 @@ import org.junit.Test
 
 class NstackxNativeBridgeTest {
     @Test
+    fun nativeCallbackNamesAreNotSilentlyBasenameStrippedOrDeduplicated() {
+        val names = preserveDFileCallbackNames(
+            arrayOf("../outside.mp4", "clip.mp4", "clip.mp4", "")
+        )
+        assertTrue(names == listOf("../outside.mp4", "clip.mp4", "clip.mp4"))
+    }
+
+
+    @Test
     fun fatalDFileEventIsMarkedAsUnusableSession() {
         val fatal = NstackxNativeBridge.DFileEvent(
             sessionId = 41,
