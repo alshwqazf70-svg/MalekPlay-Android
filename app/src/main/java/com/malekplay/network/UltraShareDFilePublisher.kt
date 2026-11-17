@@ -71,6 +71,7 @@ internal object UltraShareDFilePublisher {
                 // Publication is already complete and verified. A failed cache
                 // cleanup must not report the delivered file as failed.
                 runCatching { safeStaged.delete() }
+                runCatching { stagingDirectory.delete() }
                 target.canonicalFile
             } finally {
                 runCatching { temporary.delete() }
