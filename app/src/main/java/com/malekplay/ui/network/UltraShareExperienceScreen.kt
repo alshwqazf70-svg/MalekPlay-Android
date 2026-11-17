@@ -1356,7 +1356,7 @@ fun UltraShareExperienceScreen(
                                 entry.fileName,
                                 formatUltraBytes(entry.sizeBytes) + " • " +
                                     java.text.DateFormat.getDateTimeInstance().format(java.util.Date(entry.receivedAtEpochMs)) +
-                                    if (entry.isAvailable) "\\nالملف موجود في ذاكرة التطبيق ويمكن تصديره." else "\\nتعذر العثور على الملف الأصلي؛ لن نعرضه كملف محفوظ."
+                                    if (entry.isAvailable) "\nالملف موجود في ذاكرة التطبيق ويمكن تصديره." else "\nتعذر العثور على الملف الأصلي؛ لن نعرضه كملف محفوظ."
                             )
                             OutlinedButton(
                                 onClick = {
