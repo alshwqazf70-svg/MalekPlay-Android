@@ -218,7 +218,10 @@ object UltraShareTransport {
         }
     }
 
-    /** Ultra Share transfers ordinary files without media-type or extension filtering. */
+    /** Reject executable packages and PDF documents while allowing other ordinary files. */
+    fun isSupportedShareMimeType(raw: String): Boolean {
+        val candidate = raw.trim().lowercase(Locale.ROOT)
+        val token = "[A-Za-z0-9!#    /** Ultra Share transfers ordinary files without media-type or extension filtering. */
     fun isSupportedShareMimeType(raw: String): Boolean {
         val candidate = raw.trim().lowercase(Locale.ROOT)
         val token = "[A-Za-z0-9!#$&^_.+-]+"
@@ -228,7 +231,19 @@ object UltraShareTransport {
 
     /** Every named file with a readable content URI is eligible for transfer. */
     fun isAllowedShareFile(fileName: String, mimeType: String): Boolean =
-        fileName.isNotBlank() && isSupportedShareMimeType(mimeType)
+        fileName.isNotBlank() && isSupportedShareMimeType(mimeType)^_.+-]+"
+        return candidate.length in 3..160 &&
+            Regex("^$token/$token$").matches(candidate) &&
+            candidate != "application/pdf" &&
+            candidate != "application/vnd.android.package-archive"
+    }
+
+    /** Enforce the blocked types by both declared MIME and filename extension. */
+    fun isAllowedShareFile(fileName: String, mimeType: String): Boolean {
+        if (fileName.isBlank() || !isSupportedShareMimeType(mimeType)) return false
+        val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        return extension != "apk" && extension != "pdf"
+    }
 
     @Deprecated("Use isSupportedShareMimeType.")
     fun isSupportedMediaMimeType(raw: String): Boolean = isSupportedShareMimeType(raw)
@@ -749,7 +764,17 @@ object UltraShareTransport {
         val length = input.readUnsignedShort()
         require(length <= maximumBytes) { "بيانات النص الواردة أطول من الحد المسموح." }
         val bytes = ByteArray(length).also(input::readFully)
-        return bytes.toString(Charsets.UTF_8)
+        return decodeUtf8Strict(bytes)
+    }
+
+    internal fun decodeUtf8Strict(bytes: ByteArray): String = try {
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+            .decode(java.nio.ByteBuffer.wrap(bytes))
+            .toString()
+    } catch (failure: java.nio.charset.CharacterCodingException) {
+        throw IllegalArgumentException("النص الوارد ليس UTF-8 صالحاً.", failure)
     }
 
     private suspend fun skipFully(input: InputStream, count: Long) {
