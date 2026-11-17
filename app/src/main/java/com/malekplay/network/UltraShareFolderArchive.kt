@@ -139,8 +139,8 @@ object UltraShareFolderArchive {
                                             if (remainingSpace > 0L && (remainingSpace <= reserveBytes || read.toLong() > remainingSpace - reserveBytes)) {
                                                 throw IOException("مساحة التخزين غير كافية لإكمال أرشيف المجلد بأمان.")
                                             }
-                                            zip.write(buffer, 0, read)
                                             totalBytes = checkedArchiveTotalBytes(totalBytes, read)
+                                            zip.write(buffer, 0, read)
                                         }
                                     }
                                 }
