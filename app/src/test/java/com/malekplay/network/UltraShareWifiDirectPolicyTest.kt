@@ -25,6 +25,15 @@ class UltraShareWifiDirectPolicyTest {
     }
 
     @Test
+    fun ownerAcceptsAnyConnectedClientDuringTheActiveQrSessionWithoutMacComparison() {
+        assertTrue(isReadyWifiDirectOwnerGroup(true, 1, true))
+        assertTrue(isReadyWifiDirectOwnerGroup(true, 2, true))
+        assertFalse(isReadyWifiDirectOwnerGroup(true, 0, true))
+        assertFalse(isReadyWifiDirectOwnerGroup(false, 1, true))
+        assertFalse(isReadyWifiDirectOwnerGroup(true, 1, false))
+    }
+
+    @Test
     fun ownerWaitsLongEnoughForSlowAndroidNineAndTenDnsSdPairing() {
         assertTrue(shouldRetryWifiDirectPeerConfirmation(0))
         assertTrue(shouldRetryWifiDirectPeerConfirmation(69))
