@@ -92,20 +92,33 @@ class VideoEnhancementPolicyTest {
 
     @Test fun fourByThreeSourceUsesDisplayBudgetWithoutChangingSourceAspectRatio() {
         val target = VideoUpscaleTargetPolicy.resolve(640, 480, 2400, 1080, 1920)
-        assertEquals(1920, target?.longEdge)
-        assertEquals(864, target?.shortEdge)
+        assertEquals(1440, target?.longEdge)
+        assertEquals(1080, target?.shortEdge)
     }
 
     @Test fun portraitSourceAndPortraitDisplayKeepFlexibleOrientationTarget() {
         val target = VideoUpscaleTargetPolicy.resolve(360, 640, 1080, 2400, 1920)
-        assertEquals(864, target?.longEdge)
-        assertEquals(1920, target?.shortEdge)
+        assertEquals(1920, target?.longEdge)
+        assertEquals(1080, target?.shortEdge)
     }
 
     @Test fun ultrawideLowResolutionSourceRespectsTextureBudget() {
         val target = VideoUpscaleTargetPolicy.resolve(1280, 540, 2960, 1440, 1920)
         assertEquals(1920, target?.longEdge)
-        assertEquals(933, target?.shortEdge)
+        assertEquals(810, target?.shortEdge)
+    }
+
+    @Test fun sixteenByNineSourceFillsDisplayBoxWithoutChangingAspectRatio() {
+        val target = VideoUpscaleTargetPolicy.resolve(640, 360, 2960, 1440, 1920)
+        assertEquals(1920, target?.longEdge)
+        assertEquals(1080, target?.shortEdge)
+    }
+
+    @Test fun sourceAspectRatioIsPreservedWhenDisplayIsMuchWiderThanFourByThreeVideo() {
+        val target = VideoUpscaleTargetPolicy.resolve(640, 480, 2960, 1440, 1920)
+        assertEquals(1440, target?.longEdge)
+        assertEquals(1080, target?.shortEdge)
+        assertEquals(4f / 3f, target!!.longEdge.toFloat() / target.shortEdge, 0.001f)
     }
 
     @Test fun highResolutionSourceIsNeverUpscaledOrForcedIntoSmallerTextureTarget() {
