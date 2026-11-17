@@ -68,9 +68,26 @@ class GoogleMediaEnhancementPlayerBridge(
         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             val current = holder.surface
             if (backend != null && originalSurface !== current) {
+                // A recreated output surface invalidates the old Google session.
                 releaseBackend(restoreOutput = false)
+                scheduleStart()
+                return
             }
-            scheduleStart()
+            // PlayerView may re-attach its holder during a size/format callback.
+            // Re-assert the enhancement input after PlayerView's own callback runs.
+            val input = routedInputSurface
+            if (input != null && current.isValid) {
+                mainHandler.post {
+                    if (!closed && enabled && routedInputSurface === input && input.isValid &&
+                        player.isCommandAvailable(Player.COMMAND_SET_VIDEO_SURFACE)
+                    ) {
+                        runCatching { player.setVideoSurface(input) }
+                            .onFailure { publish(State.FAILED, message = it.message) }
+                    }
+                }
+            } else {
+                scheduleStart()
+            }
         }
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
