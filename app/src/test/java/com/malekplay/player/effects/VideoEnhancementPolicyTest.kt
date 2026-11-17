@@ -27,6 +27,24 @@ class VideoEnhancementPolicyTest {
         assertEquals("thermal_moderate", result.downgradeReason)
     }
 
+    @Test fun androidSevereThermalStatusThreeCapsBalancedAtEconomy() {
+        val result = VideoEnhancementPolicy.resolve(
+            VideoEnhancementProfile.BALANCED, 35, false, 512, thermalStatus = 3
+        )
+        assertEquals(VideoEnhancementProfile.ECONOMY, result.effective)
+        assertEquals("thermal_severe", result.downgradeReason)
+    }
+
+    @Test fun androidCriticalAndEmergencyThermalStatusesRemainEconomy() {
+        listOf(4, 5, 6).forEach { status ->
+            val result = VideoEnhancementPolicy.resolve(
+                VideoEnhancementProfile.ULTRA, 35, false, 512, thermalStatus = status
+            )
+            assertEquals(VideoEnhancementProfile.ECONOMY, result.effective)
+            assertEquals("thermal_severe", result.downgradeReason)
+        }
+    }
+
     @Test fun severeThermalStateUsesEconomy() {
         val result = VideoEnhancementPolicy.resolve(
             VideoEnhancementProfile.ULTRA, 35, false, 512, 4
