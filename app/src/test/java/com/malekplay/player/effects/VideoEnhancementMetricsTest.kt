@@ -1,11 +1,10 @@
 package com.malekplay.player.effects
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class VideoEnhancementMetricsTest {
-    @Test fun onlySuccessfulShaderDrawsIncreaseProcessedCount() {
+    @Test fun onlySuccessfulShaderDrawsIncreaseProcessedCountAndFailureSurvivesRecovery() {
         VideoEnhancementMetrics.reset()
         VideoEnhancementMetrics.recordFailure("denoise", IllegalStateException("shader failed"))
         assertEquals(0L, VideoEnhancementMetrics.snapshot().processedDraws)
@@ -15,7 +14,8 @@ class VideoEnhancementMetricsTest {
         assertEquals(1L, snapshot.processedDraws)
         assertEquals("denoise", snapshot.lastEffectName)
         assertEquals(1_000L, snapshot.lastPresentationTimeUs)
-        assertNull(snapshot.lastFailure)
+        assertEquals("IllegalStateException: shader failed", snapshot.lastFailure)
         VideoEnhancementMetrics.reset()
+        assertEquals(null, VideoEnhancementMetrics.snapshot().lastFailure)
     }
 }
