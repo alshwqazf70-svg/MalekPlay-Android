@@ -58,6 +58,8 @@ class GoogleMediaEnhancementPlayerBridge(
     private var activeItemKey: String? = null
     private var activeWidth = 0
     private var activeHeight = 0
+    private var activeRotationDegrees = 0
+    private var activePixelWidthHeightRatio = 1f
     private var retryBlocked = false
 
     private val surfaceCallback = object : SurfaceHolder.Callback {
@@ -107,15 +109,31 @@ class GoogleMediaEnhancementPlayerBridge(
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            val hasSelectedVideo = tracks.groups.any {
+                it.type == C.TRACK_TYPE_VIDEO && it.isSelected
+            }
+            if (!hasSelectedVideo && backend != null) {
+                releaseBackend(restoreOutput = true)
+                publish(GoogleMediaEnhancementState.WAITING_FOR_VIDEO)
+                return
+            }
             retryBlocked = false
             scheduleStart()
         }
 
         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
             retryBlocked = false
-            if (backend != null &&
-                (videoSize.width != activeWidth || videoSize.height != activeHeight)
+            if (backend != null && (
+                    videoSize.width != activeWidth ||
+                        videoSize.height != activeHeight ||
+                        videoSize.unappliedRotationDegrees != activeRotationDegrees ||
+                        kotlin.math.abs(
+                            videoSize.pixelWidthHeightRatio - activePixelWidthHeightRatio
+                        ) > 0.001f
+                    )
             ) {
+                // Google sessions are dimensioned at creation and do not support a
+                // changed rotation or pixel aspect ratio; rebuild instead of stretching.
                 releaseBackend(restoreOutput = true)
             }
             scheduleStart()
@@ -224,6 +242,8 @@ class GoogleMediaEnhancementPlayerBridge(
         activeItemKey = itemKey
         activeWidth = videoSize.width
         activeHeight = videoSize.height
+        activeRotationDegrees = videoSize.unappliedRotationDegrees
+        activePixelWidthHeightRatio = videoSize.pixelWidthHeightRatio
         originalSurface = output
         publish(GoogleMediaEnhancementState.CHECKING_DEVICE)
 
@@ -332,8 +352,11 @@ class GoogleMediaEnhancementPlayerBridge(
         publish(GoogleMediaEnhancementState.FAILED, message = reason)
     }
 
-    private fun isCurrent(request: Long): Boolean =
-        !closed && enabled && generation.get() == request
+    private fun isCurrent(request: Long): Boolean {
+        if (closed || !enabled || generation.get() != request) return false
+        val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+        return activeItemKey == currentUri
+    }
 
     private fun releaseBackend(restoreOutput: Boolean) {
         generation.incrementAndGet()
@@ -357,6 +380,8 @@ class GoogleMediaEnhancementPlayerBridge(
         activeItemKey = null
         activeWidth = 0
         activeHeight = 0
+        activeRotationDegrees = 0
+        activePixelWidthHeightRatio = 1f
     }
 
     private fun publish(state: GoogleMediaEnhancementState, progress: Int = 0, message: String? = null) {
