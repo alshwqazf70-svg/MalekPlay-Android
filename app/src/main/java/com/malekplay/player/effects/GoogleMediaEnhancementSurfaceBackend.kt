@@ -93,7 +93,7 @@ class GoogleMediaEnhancementSurfaceBackend(
         if (closed.get()) return
         try {
             client.installModule(object : EnhancementClient.InstallStatusCallback {
-                override fun onCancelled(statusCode: Int) {
+                override fun onCancelled() {
                     if (!closed.get()) listener.onModuleInstallCancelled()
                 }
 
@@ -165,6 +165,10 @@ class GoogleMediaEnhancementSurfaceBackend(
                             options,
                             object : EnhancementCallback {
                                 override fun onBitmapProcessed(bitmap: android.graphics.Bitmap) = Unit
+
+                                override fun onCancelled(statusCode: Int) {
+                                    fail(request, "Google AI frame processing was cancelled (status $statusCode)")
+                                }
 
                                 override fun onSurfaceProcessed(timestamp: Long) {
                                     if (!isCurrent(request)) return
