@@ -116,6 +116,43 @@ class UltraShareDFilePublisherTest {
     }
 
     @Test
+    fun dfilePublicationSharesDestinationLockWithTcpReceiver() {
+        val root = createTempDir(prefix = "dfile-cross-transport-")
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val destination = File(root, "receive").apply { mkdir() }
+            val session = File(destination, "dfile-session").apply { mkdir() }
+            val staged = File(session, "clip.mp4").apply { writeText("dfile payload") }
+            val tcpEntered = CountDownLatch(1)
+            val releaseTcp = CountDownLatch(1)
+
+            val tcpPublication = executor.submit {
+                UltraShareTransport.withDestinationPublicationLock(destination) {
+                    tcpEntered.countDown()
+                    check(releaseTcp.await(5, TimeUnit.SECONDS))
+                    File(destination, "clip.mp4").writeText("tcp payload")
+                }
+            }
+            assertTrue(tcpEntered.await(5, TimeUnit.SECONDS))
+
+            val dfilePublication = executor.submit<File?> {
+                UltraShareDFilePublisher.publish(staged, destination, "clip.mp4")
+            }
+            releaseTcp.countDown()
+            tcpPublication.get(5, TimeUnit.SECONDS)
+            val published = dfilePublication.get(5, TimeUnit.SECONDS)
+
+            assertNotNull(published)
+            assertEquals("clip (1).mp4", published!!.name)
+            assertEquals("tcp payload", File(destination, "clip.mp4").readText())
+            assertEquals("dfile payload", published.readText())
+        } finally {
+            executor.shutdownNow()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun refusesStagedFileOutsideItsOwnedSessionDirectory() {
         val root = createTempDir(prefix = "dfile-publish-")
         try {
