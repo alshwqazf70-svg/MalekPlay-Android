@@ -1,6 +1,5 @@
 package io.github.peerless2012.ass.media.render
 
-import android.os.Handler
 import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.Effect
@@ -45,9 +44,12 @@ class AssOverlayManager(
         additionalEffects = effects.toList()
         if (applyEffects()) return true
 
-        // Keep the last known-good pipeline if Media3 rejects the new effect list.
+        // Keep the last known-good pipeline if Media3 rejects the new effect list,
+        // but preserve the failed-attempt reason for the diagnostics screen.
+        val failure = lastApplyFailure
         additionalEffects = previous
         applyEffects()
+        lastApplyFailure = failure
         return false
     }
 
