@@ -192,3 +192,7 @@ Verification boundary:
 - The latest source commit at this checkpoint is `a41314aee8c3f37186f41e1e2982f8e90089fd6a`.
 - The GitHub combined-status endpoint did not yet report checks for that latest commit when this note was written. The newly added/changed JVM tests and the full current branch therefore still require a fresh Actions result.
 - DFile native runtime, crypto interoperability, interruption/resume behavior and send/receive between two physical Android devices remain acceptance gates. Do not make DFile the unconditional default or claim it is faster than TCP until those tests pass.
+
+### Pinned DFile capability limitation confirmed
+
+A direct source inspection of `communication_t2stack@fbf280db18092eb00bb065e59ce6676c7b85b8c9` found that `NSTACKX_DFileGetCapabilities()` currently returns a global mask initialized only to `NSTACKX_CAPS_WLAN_CATAGORY`, while `NSTACKX_DFileSetCapabilities()` is a no-op in this revision. The header declares capability identifiers such as resumable transfer, zero-copy and MTP multipath, but those declarations alone do not prove that this pinned implementation provides them. MalekPlay must not advertise or enable those features based only on the header constants. Resume across a broken DFile session remains unaccepted; the current application reports the incomplete DFile batch and requires a deliberate retry rather than replaying it automatically over TCP.
