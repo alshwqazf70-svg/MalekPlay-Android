@@ -93,7 +93,7 @@ class GoogleMediaEnhancementSurfaceBackend(
         if (closed.get()) return
         try {
             client.installModule(object : EnhancementClient.InstallStatusCallback {
-                override fun onCancelled() {
+                override fun onCancelled(statusCode: Int) {
                     if (!closed.get()) listener.onModuleInstallCancelled()
                 }
 
@@ -179,7 +179,7 @@ class GoogleMediaEnhancementSurfaceBackend(
                                 }
                             }
                         )
-                        listener.onReady(created.inputSurface)
+                        listener.onReady(created.getInputSurface())
                     } catch (error: Throwable) {
                         fail(request, error.message ?: "Could not connect Google AI output surface")
                     }
