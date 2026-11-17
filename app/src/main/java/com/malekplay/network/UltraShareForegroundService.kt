@@ -2134,17 +2134,9 @@ class UltraShareForegroundService : Service() {
         sources: List<UltraShareBatchTransport.Source>,
         onProgress: (UltraShareBatchTransport.FileProgress) -> Unit
     ): UltraShareBatchTransport.BatchOutcome? {
-        // The native DFile sender only verifies its local staged source after the
-        // success callback; the receiver cannot compare an authenticated per-file
-        // SHA-256 manifest before publishing. Keep all transfers on V2 TCP until
-        // that end-to-end integrity contract is available on both peers.
-        UltraShareDiagnostics.event(
-            "DFILE",
-            "CLIENT_DISABLED_UNTIL_RECEIVER_INTEGRITY_MANIFEST",
-            mapOf("peerHost" to host, "files" to sources.size)
-        )
-        return null
-
+        // DFile is eligible only after the authenticated receiver advertises a
+        // listener and the sender can attach an HMAC-protected per-file SHA-256
+        // manifest to this exact DFile send operation.
         val port = UltraShareControlChannel.clientDFilePort(host) ?: return null
         if (sources.isEmpty() || sources.size > 500) return null
         if (!UltraShareControlChannel.isSessionActive(host)) return null
@@ -2175,6 +2167,7 @@ class UltraShareForegroundService : Service() {
             }.getOrNull() ?: return null
         }
 
+        val manifestKey = UltraShareControlChannel.clientDFileKey(host) ?: return null
         val staged = ArrayList<UltraShareDFileStager.StagedFile>(sources.size)
         var nativeSessionId = -1
         val payloadAccepted = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -2260,9 +2253,20 @@ class UltraShareForegroundService : Service() {
                 return null
             }
 
+            val manifestUserData = UltraShareDFileManifest.encode(
+                staged.map { stagedFile ->
+                    UltraShareDFileManifest.Entry(
+                        fileName = stagedFile.displayName,
+                        sizeBytes = stagedFile.sizeBytes,
+                        sha256 = stagedFile.sha256.copyOf()
+                    )
+                },
+                manifestKey
+            )
             val sendResult = NstackxNativeBridge.sendDFileFiles(
                 nativeSessionId,
-                staged.map { it.file }
+                staged.map { it.file },
+                manifestUserData
             )
             if (sendResult != 0) {
                 UltraShareDiagnostics.event("DFILE", "CLIENT_PAYLOAD_REJECTED", mapOf("peerHost" to host, "nativeResult" to sendResult, "files" to sources.size))
@@ -2325,6 +2329,7 @@ class UltraShareForegroundService : Service() {
             )
             return null
         } finally {
+            manifestKey.fill(0)
             listenerActive.set(false)
             sessionIdRef.set(-1)
             NstackxNativeBridge.removeDFileListener(listener)
