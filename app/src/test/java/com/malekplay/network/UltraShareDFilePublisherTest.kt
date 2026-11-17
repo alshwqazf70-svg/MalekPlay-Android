@@ -31,6 +31,7 @@ class UltraShareDFilePublisherTest {
             assertEquals("new verified content", published.readText())
             assertEquals("keep existing content", existing.readText())
             assertTrue(!staged.exists())
+            assertTrue(!session.exists())
             assertTrue(destination.listFiles().orEmpty().none { it.name.endsWith(".part") })
         } finally {
             root.deleteRecursively()
