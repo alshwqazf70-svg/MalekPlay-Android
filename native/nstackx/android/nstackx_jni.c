@@ -142,7 +142,7 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeInitialize(
         env, bridgeClass, "onNativeDeviceFound",
         "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
     g_on_dfile_event = (*env)->GetStaticMethodID(
-        env, bridgeClass, "onNativeDFileEvent", "(IIIJJ[Ljava/lang/String;Ljava/lang/String;)V");
+        env, bridgeClass, "onNativeDFileEvent", "(IIIJJ[Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
     if (g_on_device_found == NULL || g_on_dfile_event == NULL) {
         (*env)->DeleteGlobalRef(env, globalClass);
         globalClass = NULL;
@@ -356,6 +356,7 @@ static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileM
     jclass callbackClass = NULL;
     jmethodID callbackMethod = NULL;
     jstring message = NULL;
+    jstring userData = NULL;
     jobjectArray fileNames = NULL;
     jclass stringClass = NULL;
     int attached = 0;
@@ -390,7 +391,10 @@ static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileM
 
     if (msg != NULL) {
         errorCode = msg->errorCode;
-        if (msgType == DFILE_ON_TRANS_IN_PROGRESS ||
+        if (msgType == DFILE_ON_FILE_LIST_RECEIVED) {
+            /* FILE_LIST_RECEIVED has no transferUpdate; its ID lives in fileList. */
+            transferId = (jint)msg->fileList.transId;
+        } else if (msgType == DFILE_ON_TRANS_IN_PROGRESS ||
             msgType == DFILE_ON_SESSION_IN_PROGRESS ||
             msgType == DFILE_ON_FILE_RECEIVE_SUCCESS ||
             msgType == DFILE_ON_FILE_RECEIVE_FAIL ||
@@ -426,14 +430,31 @@ static void OnDFileMessage(int32_t sessionId, DFileMsgType msgType, const DFileM
             }
         }
     }
+    /* DFile userData is defined for file-list-bearing events and is owned by NSTACKX. */
+    {
+        const char *userDataText = "";
+        if (msg != NULL &&
+            (msgType == DFILE_ON_FILE_LIST_RECEIVED ||
+             msgType == DFILE_ON_FILE_RECEIVE_SUCCESS ||
+             msgType == DFILE_ON_FILE_RECEIVE_FAIL ||
+             msgType == DFILE_ON_FILE_SEND_SUCCESS ||
+             msgType == DFILE_ON_FILE_SEND_FAIL ||
+             msgType == DFILE_ON_TRANS_IN_PROGRESS) &&
+            msg->fileList.userData != NULL) {
+            userDataText = msg->fileList.userData;
+        }
+        userData = (*env)->NewStringUTF(env, userDataText);
+    }
     (void)snprintf(text, sizeof(text), "%s%d",
         errorCode == 0 ? "" : "error:", errorCode);
     message = (*env)->NewStringUTF(env, text);
-    if (message != NULL && fileNames != NULL) {
+    if (message != NULL && userData != NULL && fileNames != NULL) {
         (*env)->CallStaticVoidMethod(env, callbackClass, callbackMethod,
-            (jint)sessionId, (jint)msgType, transferId, transferred, total, fileNames, message);
-        (*env)->DeleteLocalRef(env, message);
+            (jint)sessionId, (jint)msgType, transferId, transferred, total,
+            fileNames, userData, message);
     }
+    if (message != NULL) (*env)->DeleteLocalRef(env, message);
+    if (userData != NULL) (*env)->DeleteLocalRef(env, userData);
     if (fileNames != NULL) (*env)->DeleteLocalRef(env, fileNames);
     if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
     (*env)->DeleteLocalRef(env, callbackClass);
@@ -558,19 +579,31 @@ CLIENT_CLEANUP:
 
 JNIEXPORT jint JNICALL
 Java_com_malekplay_network_NstackxNativeBridge_nativeDFileSendFiles(
-    JNIEnv *env, jclass clazz, jint sessionId, jobjectArray filePaths)
+    JNIEnv *env, jclass clazz, jint sessionId, jobjectArray filePaths, jstring userData)
 {
     jsize count;
+    jsize userDataLength;
     char **paths;
+    const char *userDataChars = NULL;
     jsize i;
     int32_t result;
     (void)clazz;
-    if (sessionId <= 0 || filePaths == NULL) return -1221;
+    if (sessionId <= 0 || filePaths == NULL || userData == NULL) return -1221;
     if (!HasDFileSession(sessionId)) return -1227;
+    userDataLength = (*env)->GetStringUTFLength(env, userData);
+    if (userDataLength < 0 || userDataLength > (60 * 1024)) return -1228;
+    userDataChars = (*env)->GetStringUTFChars(env, userData, NULL);
+    if (userDataChars == NULL) return -1228;
     count = (*env)->GetArrayLength(env, filePaths);
-    if (count <= 0 || count > NSTACKX_DFILE_MAX_FILE_NUM) return -1222;
+    if (count <= 0 || count > NSTACKX_DFILE_MAX_FILE_NUM) {
+        result = -1222;
+        goto SEND_EARLY_CLEANUP;
+    }
     paths = (char **)calloc((size_t)count, sizeof(char *));
-    if (paths == NULL) return -1223;
+    if (paths == NULL) {
+        result = -1223;
+        goto SEND_EARLY_CLEANUP;
+    }
 
     for (i = 0; i < count; ++i) {
         jstring path = (jstring)(*env)->GetObjectArrayElement(env, filePaths, i);
@@ -597,11 +630,16 @@ Java_com_malekplay_network_NstackxNativeBridge_nativeDFileSendFiles(
         }
     }
 
-    result = NSTACKX_DFileSendFiles(sessionId, (const char **)paths, (uint32_t)count, "MalekPlayer");
+    result = NSTACKX_DFileSendFiles(
+        sessionId, (const char **)paths, (uint32_t)count, userDataChars);
 
 SEND_CLEANUP:
     for (i = 0; i < count; ++i) free(paths[i]);
     free(paths);
+SEND_EARLY_CLEANUP:
+    if (userDataChars != NULL) {
+        (*env)->ReleaseStringUTFChars(env, userData, userDataChars);
+    }
     return result;
 }
 
