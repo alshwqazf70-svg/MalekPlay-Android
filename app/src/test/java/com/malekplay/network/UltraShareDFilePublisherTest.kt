@@ -88,9 +88,10 @@ class UltraShareDFilePublisherTest {
             assertTrue(published.all { it != null })
             assertEquals(6, published.mapNotNull { it?.name }.distinct().size)
             assertEquals("original", original.readText())
-            published.filterNotNull().forEachIndexed { index, file ->
-                assertEquals("payload-$index", file.readText().takeIf { it.startsWith("payload-") })
-            }
+            assertEquals(
+                (0 until 6).map { "payload-$it" }.toSet(),
+                published.filterNotNull().map { it.readText() }.toSet()
+            )
         } finally {
             executor.shutdownNow()
             root.deleteRecursively()
