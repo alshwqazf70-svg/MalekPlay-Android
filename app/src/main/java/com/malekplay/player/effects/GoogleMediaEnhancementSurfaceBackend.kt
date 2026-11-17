@@ -8,6 +8,7 @@ import androidx.core.content.ContextCompat
 import com.google.android.gms.common.api.Status
 import com.google.android.gms.media.effect.enhancement.Enhancement
 import com.google.android.gms.media.effect.enhancement.EnhancementCallback
+import com.google.android.gms.media.effect.enhancement.EnhancementClient
 import com.google.android.gms.media.effect.enhancement.EnhancementMode
 import com.google.android.gms.media.effect.enhancement.EnhancementOptions
 import com.google.android.gms.media.effect.enhancement.EnhancementSession
@@ -42,6 +43,9 @@ class GoogleMediaEnhancementSurfaceBackend(
         fun onReady(inputSurface: Surface)
         fun onFirstFrameProcessed(timestampNs: Long)
         fun onModuleInstallRequired()
+        fun onModuleInstallProgress(progress: Int) = Unit
+        fun onModuleInstalled() = Unit
+        fun onModuleInstallCancelled() = Unit
         fun onUnsupported()
         fun onFailure(reason: String)
     }
@@ -79,6 +83,47 @@ class GoogleMediaEnhancementSurfaceBackend(
                 }
                 checkModule(request)
             }
+    }
+
+    /**
+     * Starts an explicit, user-authorized model download. The caller should invoke this only
+     * after explaining that Google Play services may download additional model data.
+     */
+    fun installModule() {
+        if (closed.get()) return
+        try {
+            client.installModule(object : EnhancementClient.InstallStatusCallback {
+                override fun onCancelled() {
+                    if (!closed.get()) listener.onModuleInstallCancelled()
+                }
+
+                override fun onDownloadComplete() = Unit
+                override fun onDownloadPaused() = Unit
+                override fun onDownloadPending() = Unit
+
+                override fun onDownloadProgressUpdate(progress: Int) {
+                    if (!closed.get()) listener.onModuleInstallProgress(progress.coerceIn(0, 100))
+                }
+
+                override fun onDownloadStart() = Unit
+
+                override fun onError(description: String) {
+                    if (!closed.get()) listener.onFailure(description)
+                }
+
+                override fun onInstalled() {
+                    if (!closed.get()) listener.onModuleInstalled()
+                }
+            }).addOnFailureListener(executor) { error ->
+                if (!closed.get()) listener.onFailure(
+                    error.message ?: "Google AI model installation failed"
+                )
+            }
+        } catch (error: Throwable) {
+            if (!closed.get()) listener.onFailure(
+                error.message ?: "Google AI model installation could not start"
+            )
+        }
     }
 
     private fun checkModule(request: Long) {
