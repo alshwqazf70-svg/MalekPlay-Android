@@ -695,7 +695,7 @@ object UltraShareWifiDirect {
                                     "CREATE_GROUP_REJECTED_BY_FRAMEWORK",
                                     mapOf("reason" to reason, "attempt" to attempt)
                                 )
-                                if ((reason == WifiP2pManager.ERROR || reason == WifiP2pManager.BUSY) && attempt < 2) {
+                                if (shouldRetryWifiDirectConnectFailure(reason, attempt)) {
                                     finishGroupAttempt(token)
                                     runCatching { manager.cancelConnect(channel, null) }
                                     mainHandler.postDelayed({
