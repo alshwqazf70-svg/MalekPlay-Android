@@ -238,9 +238,15 @@ class GoogleMediaEnhancementPlayerBridge(
                                 fail(request, "The original video output surface was destroyed")
                                 return@post
                             }
+                            if (!inputSurface.isValid) {
+                                fail(request, "Google AI returned an invalid input surface")
+                                return@post
+                            }
+                            // Register the routed surface before changing the player so
+                            // every partial failure can restore the original output surface.
+                            routedInputSurface = inputSurface
                             try {
                                 player.setVideoSurface(inputSurface)
-                                routedInputSurface = inputSurface
                                 publish(GoogleMediaEnhancementState.WAITING_FOR_FIRST_FRAME)
                             } catch (error: Throwable) {
                                 fail(request, error.message ?: "Could not route decoded video into Google AI")
