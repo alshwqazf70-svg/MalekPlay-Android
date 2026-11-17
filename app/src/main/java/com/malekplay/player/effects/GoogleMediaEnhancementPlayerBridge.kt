@@ -62,6 +62,9 @@ class GoogleMediaEnhancementPlayerBridge(
 
     private val surfaceCallback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) {
+            // A newly created output surface is a fresh opportunity after a prior
+            // surface/session failure; do not leave the bridge permanently retry-blocked.
+            retryBlocked = false
             scheduleStart()
         }
 
@@ -69,6 +72,7 @@ class GoogleMediaEnhancementPlayerBridge(
             val current = holder.surface
             if (backend != null && originalSurface !== current) {
                 // A recreated output surface invalidates the old Google session.
+                retryBlocked = false
                 releaseBackend(restoreOutput = false)
                 scheduleStart()
                 return
@@ -103,10 +107,12 @@ class GoogleMediaEnhancementPlayerBridge(
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            retryBlocked = false
             scheduleStart()
         }
 
         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+            retryBlocked = false
             if (backend != null &&
                 (videoSize.width != activeWidth || videoSize.height != activeHeight)
             ) {
@@ -240,6 +246,10 @@ class GoogleMediaEnhancementPlayerBridge(
                             }
                             if (!inputSurface.isValid) {
                                 fail(request, "Google AI returned an invalid input surface")
+                                return@post
+                            }
+                            if (!player.isCommandAvailable(Player.COMMAND_SET_VIDEO_SURFACE)) {
+                                fail(request, "The player no longer allows video surface routing")
                                 return@post
                             }
                             // Register the routed surface before changing the player so
