@@ -400,4 +400,23 @@
     <string name="player_diag_gpu_pipeline_stalled">Media3 is rendering video frames, but no custom GPU effect draw has been confirmed. Check the effect pipeline/decoder path.</string>
     <string name="player_diag_lanczos_note">Note: Media3 exposes no internal Lanczos draw counter, so submission is reported separately. Successful detail-shader draws show frames reached a later stage in the same effect chain; they are not a direct Lanczos frame counter.</string>
 
+
+    <string name="player_google_ai_on">Google AI video enhancement: ON</string>
+    <string name="player_google_ai_off">Google AI video enhancement: OFF</string>
+    <string name="player_google_ai_install_title">Download Google AI video model?</string>
+    <string name="player_google_ai_install_message">Google Play services needs to download an additional on-device model. This may use mobile data and storage. The download starts only after your approval.</string>
+    <string name="player_google_ai_install">Download model</string>
+    <string name="player_google_ai_later">Not now</string>
+    <string name="player_google_ai_status">Google AI processing: %1$s</string>
+    <string name="player_google_ai_progress">Model download: %1$d%%</string>
+    <string name="player_google_ai_waiting">Waiting for a supported local video and surface</string>
+    <string name="player_google_ai_checking">Checking device and model support</string>
+    <string name="player_google_ai_install_required">Model download required</string>
+    <string name="player_google_ai_installing">Downloading model</string>
+    <string name="player_google_ai_first_frame">Connected; waiting for first processed frame</string>
+    <string name="player_google_ai_active">AI processed a video frame</string>
+    <string name="player_google_ai_unsupported">Unavailable on this device or video</string>
+    <string name="player_google_ai_failed">AI processing failed; original video output restored</string>
+    <string name="player_google_ai_disabled">Disabled</string>
+
 </resources>
