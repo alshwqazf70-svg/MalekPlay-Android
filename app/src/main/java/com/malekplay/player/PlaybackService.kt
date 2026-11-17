@@ -177,8 +177,9 @@ class PlaybackService : MediaSessionService() {
         // It exposes tokenized, seekable LAN URLs rather than leaking content:// URIs.
         localExoPlayer = player
 
-        // Probe Google AI enhancement support without touching the active decoder/surface.
-        // The actual session bridge is enabled only after surface and subtitle routing tests.
+        // Probe Google AI capability without touching the active decoder or surface.
+        // The opt-in UI bridge owns the short-lived surface session and restores this
+        // player's normal output whenever the view, media item, or session is released.
         GoogleMediaEnhancementCapability.inspect(this) { status ->
             Log.i(TAG, "Google AI media enhancement capability: $status")
         }
