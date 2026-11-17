@@ -164,3 +164,31 @@ Still not complete:
 - The approved client and server now derive a dedicated 128-bit DFile key using HMAC-SHA256 with the domain label `MalekPlayer/NSTACKX/DFile/v1`, truncated to 16 bytes.
 - The key is stored only with the corresponding live approved control session, exposed as a defensive copy, and cleared when that session closes or is replaced. This avoids reusing the visible pairing PIN as the DFile encryption key.
 - This establishes matching key material for both peers; it does not yet mean DFile has been connected to the foreground-service batch coordinator or proven interoperable on devices.
+
+## DFile application-coordinator wiring and reliability hardening — 2026-11-17
+
+The current development branch now contains a Kotlin foreground-service DFile pilot wired to the existing authenticated Ultra Share control session. This is source-level integration; it is not yet a two-device acceptance claim.
+
+Implemented application path:
+- The receiver advertises a DFile listener only after the authenticated MPC2 approval flow and derives its 16-byte DFile key from the approved session.
+- The sender stages content URIs into per-transfer app-private files, calculates SHA-256, and sends an HMAC-authenticated manifest in the DFile userData field.
+- The receiver validates the manifest, transfer identity, safe staging path, file size, allowed file type and SHA-256 before publishing any file from that batch.
+- TCP fallback remains available before DFile accepts payload bytes. Once DFile has accepted payload, an incomplete result is reported instead of blindly replaying the batch over TCP.
+
+Reliability hardening added in this pass:
+- DFile receive publication is serialized and chooses a new filename when a destination already exists. Temporary copies remain inside the per-session cache directory, and existing received files are not selected as replacement targets.
+- DFile completion timeout now scales with the total batch size using a conservative 256 KiB/s estimate, a 60-second minimum and a 5.5-hour ceiling. Batch-size arithmetic is checked without relying on APIs newer than Android API 23.
+- Startup cleanup now removes expired abandoned folders from both outgoing URI staging and incoming DFile receive staging. Recent session folders are retained.
+- Pending authenticated receive manifests are bounded to eight per session, and duplicate/non-positive transfer IDs are rejected instead of replacing an earlier manifest.
+
+New JVM coverage:
+- collision and concurrent DFile publication, preservation of existing files, and staging cleanup;
+- large-batch timeout scaling, maximum timeout and invalid/overflowing sizes;
+- stale incoming/outgoing staging cleanup;
+- duplicate transfer-ID rejection and pending-manifest capacity.
+
+Verification boundary:
+- These changes are committed only to `feature/zapya-engineering-analysis`; `main` was not modified.
+- The latest source commit at this checkpoint is `a41314aee8c3f37186f41e1e2982f8e90089fd6a`.
+- The GitHub combined-status endpoint did not yet report checks for that latest commit when this note was written. The newly added/changed JVM tests and the full current branch therefore still require a fresh Actions result.
+- DFile native runtime, crypto interoperability, interruption/resume behavior and send/receive between two physical Android devices remain acceptance gates. Do not make DFile the unconditional default or claim it is faster than TCP until those tests pass.
