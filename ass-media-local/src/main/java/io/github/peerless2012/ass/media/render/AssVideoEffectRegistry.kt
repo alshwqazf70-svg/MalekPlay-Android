@@ -28,6 +28,11 @@ object AssVideoEffectRegistry {
     fun isAttached(player: ExoPlayer): Boolean =
         managers[player]?.isOperational == true
 
+    /** Most recent bridge application error, including a rejected replacement list. */
+    @Synchronized
+    fun lastFailure(player: ExoPlayer): String? =
+        managers[player]?.lastApplyFailure
+
     /**
      * Returns false when no operational manager exists, the call is made off the
      * ExoPlayer application looper, or Media3 rejects the effect list.
