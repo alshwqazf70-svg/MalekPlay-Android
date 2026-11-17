@@ -17,7 +17,10 @@ internal object UltraShareDFileTimeoutPolicy {
         var totalBytes = 0L
         for (size in fileSizes) {
             require(size >= 0L) { "DFile file size cannot be negative." }
-            totalBytes = Math.addExact(totalBytes, size)
+            if (size > Long.MAX_VALUE - totalBytes) {
+                throw ArithmeticException("DFile batch size overflow.")
+            }
+            totalBytes += size
         }
 
         val estimatedSeconds = totalBytes / ESTIMATED_BYTES_PER_SECOND +
