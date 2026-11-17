@@ -332,20 +332,17 @@ class PlaybackService : MediaSessionService() {
             // sets. In particular, only this app's trusted controller receives the video
             // surface-routing command required by the Google AI enhancement bridge.
             val trustedAppController = isTrustedAppController(controller)
-            val commands = (
-                if (trustedAppController) {
-                    MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
-                } else {
-                    MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_SESSION_COMMANDS
-                }
-            ).buildUpon().apply {
+            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().apply {
                 if (trustedAppController) PlaybackVideoEffects.COMMANDS.forEach { add(it) }
             }.build()
-            val playerCommands = if (trustedAppController) {
-                MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
-            } else {
-                MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_PLAYER_COMMANDS
-            }
+            // Preserve the existing media-control permissions for external controllers,
+            // but never let them replace the app's active video output Surface.
+            val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
+                .buildUpon()
+                .apply {
+                    if (!trustedAppController) remove(Player.COMMAND_SET_VIDEO_SURFACE)
+                }
+                .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
                 .setAvailableSessionCommands(commands)
                 .setAvailablePlayerCommands(playerCommands)
