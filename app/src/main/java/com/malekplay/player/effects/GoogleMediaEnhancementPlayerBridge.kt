@@ -343,7 +343,7 @@ class GoogleMediaEnhancementPlayerBridge(
         activeHeight = 0
     }
 
-    private fun publish(state: State, progress: Int = 0, message: String? = null) {
+    private fun publish(state: GoogleMediaEnhancementState, progress: Int = 0, message: String? = null) {
         if (!closed) listener.onStateChanged(state, progress.coerceIn(0, 100), message)
     }
 
