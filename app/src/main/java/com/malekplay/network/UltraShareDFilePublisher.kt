@@ -20,7 +20,7 @@ internal object UltraShareDFilePublisher {
             require(safeDestination.isDirectory)
             require(safeName.isNotBlank())
             require(safeName == UltraShareTransport.sanitizeFileName(safeName))
-            require('/' !in safeName && '\\\\' !in safeName)
+            require('/' !in safeName && 92.toChar() !in safeName)
             require(safeStaged.isFile)
             require(safeStaged.parentFile?.parentFile == safeDestination) {
                 "Staged file is outside the DFile receive session directory."
