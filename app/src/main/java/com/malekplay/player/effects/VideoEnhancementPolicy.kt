@@ -91,14 +91,23 @@ object VideoUpscaleTargetPolicy {
             displayWidth <= 0 || displayHeight <= 0 || maxLongEdge <= 0
         ) return null
 
-        val displayLong = maxOf(displayWidth, displayHeight)
-        val displayShort = minOf(displayWidth, displayHeight)
-        val scale = minOf(1f, maxLongEdge.toFloat() / displayLong.toFloat())
-        val targetLong = (displayLong * scale).toInt().coerceAtLeast(1)
-        val targetShort = (displayShort * scale).toInt().coerceAtLeast(1)
-        val sourceLong = maxOf(sourceWidth, sourceHeight)
-        val sourceShort = minOf(sourceWidth, sourceHeight)
-        if (sourceLong >= targetLong || sourceShort >= targetShort) return null
+        // Treat the display as a bounding box, not as the video's aspect ratio.
+        // LanczosResample applies one uniform scale factor, so both target dimensions
+        // must preserve the source aspect ratio or 4:3/ultrawide footage will distort.
+        val displayLong = maxOf(displayWidth, displayHeight).toDouble()
+        val displayShort = minOf(displayWidth, displayHeight).toDouble()
+        val sourceLong = maxOf(sourceWidth, sourceHeight).toDouble()
+        val sourceShort = minOf(sourceWidth, sourceHeight).toDouble()
+        val scale = minOf(
+            displayLong / sourceLong,
+            displayShort / sourceShort,
+            maxLongEdge.toDouble() / sourceLong
+        )
+        if (!scale.isFinite() || scale <= 1.0) return null
+
+        val targetLong = (sourceLong * scale).toInt().coerceAtLeast(1)
+        val targetShort = (sourceShort * scale).toInt().coerceAtLeast(1)
+        if (targetLong <= sourceLong || targetShort <= sourceShort) return null
         return VideoUpscaleTarget(targetLong, targetShort)
     }
 }
