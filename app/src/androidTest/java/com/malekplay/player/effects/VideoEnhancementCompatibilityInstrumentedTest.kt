@@ -62,8 +62,8 @@ class VideoEnhancementCompatibilityInstrumentedTest {
             maxLongEdge = 1920
         )
 
-        assertEquals(VideoUpscaleTarget(1920, 864), portrait)
-        assertEquals(VideoUpscaleTarget(1920, 864), landscape)
+        assertEquals(VideoUpscaleTarget(1920, 1080), portrait)
+        assertEquals(VideoUpscaleTarget(1440, 1080), landscape)
         assertTrue(requireNotNull(portrait).longEdge <= 1920)
         assertTrue(requireNotNull(landscape).longEdge <= 1920)
     }
