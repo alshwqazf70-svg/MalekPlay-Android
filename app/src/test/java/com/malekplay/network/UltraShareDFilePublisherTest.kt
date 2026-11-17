@@ -6,6 +6,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class UltraShareDFilePublisherTest {
     @Test
@@ -55,6 +58,41 @@ class UltraShareDFilePublisherTest {
             assertEquals("original", File(destination, "clip.mkv").readText())
             assertEquals("first collision", File(destination, "clip (1).mkv").readText())
         } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun concurrentPublicationsNeverReplaceExistingFilesOrEachOther() {
+        val root = createTempDir(prefix = "dfile-publish-race-")
+        val executor = Executors.newFixedThreadPool(6)
+        try {
+            val destination = File(root, "receive").apply { mkdir() }
+            val original = File(destination, "clip.mp4").apply { writeText("original") }
+            val ready = CountDownLatch(6)
+            val start = CountDownLatch(1)
+            val futures = (0 until 6).map { index ->
+                val session = File(destination, "session-$index").apply { mkdir() }
+                val staged = File(session, "clip.mp4").apply { writeText("payload-$index") }
+                executor.submit<File?> {
+                    ready.countDown()
+                    check(start.await(5, TimeUnit.SECONDS))
+                    UltraShareDFilePublisher.publish(staged, destination, "clip.mp4")
+                }
+            }
+
+            assertTrue(ready.await(5, TimeUnit.SECONDS))
+            start.countDown()
+            val published = futures.map { it.get(10, TimeUnit.SECONDS) }
+
+            assertTrue(published.all { it != null })
+            assertEquals(6, published.mapNotNull { it?.name }.distinct().size)
+            assertEquals("original", original.readText())
+            published.filterNotNull().forEachIndexed { index, file ->
+                assertEquals("payload-$index", file.readText().takeIf { it.startsWith("payload-") })
+            }
+        } finally {
+            executor.shutdownNow()
             root.deleteRecursively()
         }
     }
