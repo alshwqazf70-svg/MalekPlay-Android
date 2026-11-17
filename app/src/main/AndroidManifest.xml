@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Experimental compatibility gate: Google AI SDK requires API 24; all entry points are guarded at API 30+. Validate API 23 runtime before retaining. -->
+    <uses-sdk tools:overrideLibrary="com.google.android.gms.media.effect.enhancement" />
+
     <!-- Network streaming -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Camera is used only when the user starts the Ultra Share QR scanner. -->
