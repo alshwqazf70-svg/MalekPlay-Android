@@ -19,6 +19,7 @@ sshj = "0.40.0"
 okhttp = "4.12.0"
 zxing = "3.5.3"
 assMedia = "0.4.0"
+gmsMediaEnhancement = "16.0.0-beta09"
 
 [libraries]
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
@@ -54,6 +55,7 @@ sshj = { group = "com.hierynomus", name = "sshj", version.ref = "sshj" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 assMedia = { group = "io.github.peerless2012", name = "ass-media", version.ref = "assMedia" }
+gms-media-enhancement = { group = "com.google.android.gms", name = "play-services-media-effect-enhancement", version.ref = "gmsMediaEnhancement" }
 
 [plugins]
 android-library = { id = "com.android.library", version.ref = "agp" }
