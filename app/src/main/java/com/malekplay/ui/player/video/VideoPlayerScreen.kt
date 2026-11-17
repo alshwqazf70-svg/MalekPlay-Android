@@ -586,7 +586,7 @@ fun VideoPlayerScreen(
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     var googleAiEnabled by remember { mutableStateOf(false) }
     var googleAiState by remember {
-        mutableStateOf(GoogleMediaEnhancementPlayerBridge.State.DISABLED)
+        mutableStateOf(GoogleMediaEnhancementState.DISABLED)
     }
     var googleAiProgress by remember { mutableIntStateOf(0) }
     var googleAiMessage by remember { mutableStateOf<String?>(null) }
@@ -609,9 +609,9 @@ fun VideoPlayerScreen(
 
     LaunchedEffect(googleAiEnabled, controller, playerView, videoUpscalingEnabled, videoNoiseReductionEnabled) {
         if (!googleAiEnabled) {
-            googleAiBridge?.close()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) googleAiBridge?.close()
             googleAiBridge = null
-            googleAiState = GoogleMediaEnhancementPlayerBridge.State.DISABLED
+            googleAiState = GoogleMediaEnhancementState.DISABLED
             googleAiProgress = 0
             googleAiMessage = null
             showGoogleAiInstallDialog = false
@@ -627,7 +627,7 @@ fun VideoPlayerScreen(
         }
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            googleAiState = GoogleMediaEnhancementPlayerBridge.State.UNSUPPORTED
+            googleAiState = GoogleMediaEnhancementState.UNSUPPORTED
             googleAiMessage = context.getString(R.string.player_google_ai_unsupported)
             return@LaunchedEffect
         }
@@ -636,13 +636,13 @@ fun VideoPlayerScreen(
         val activeView = playerView
         val videoSurface = activeView?.videoSurfaceView as? SurfaceView
         if (activePlayer == null || videoSurface == null) {
-            googleAiState = GoogleMediaEnhancementPlayerBridge.State.WAITING_FOR_VIDEO
+            googleAiState = GoogleMediaEnhancementState.WAITING_FOR_VIDEO
             return@LaunchedEffect
         }
 
-        googleAiBridge?.close()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) googleAiBridge?.close()
         googleAiBridge = null
-        googleAiState = GoogleMediaEnhancementPlayerBridge.State.CHECKING_DEVICE
+        googleAiState = GoogleMediaEnhancementState.CHECKING_DEVICE
         googleAiMessage = null
         val bridge = runCatching {
             GoogleMediaEnhancementPlayerBridge(
@@ -651,21 +651,21 @@ fun VideoPlayerScreen(
                 surfaceView = videoSurface,
                 listener = object : GoogleMediaEnhancementPlayerBridge.Listener {
                     override fun onStateChanged(
-                        state: GoogleMediaEnhancementPlayerBridge.State,
+                        state: GoogleMediaEnhancementState,
                         progress: Int,
                         message: String?
                     ) {
                         googleAiState = state
                         googleAiProgress = progress
                         googleAiMessage = message
-                        if (state == GoogleMediaEnhancementPlayerBridge.State.INSTALL_REQUIRED) {
+                        if (state == GoogleMediaEnhancementState.INSTALL_REQUIRED) {
                             showGoogleAiInstallDialog = true
                         }
                     }
                 }
             )
         }.getOrElse { error ->
-            googleAiState = GoogleMediaEnhancementPlayerBridge.State.FAILED
+            googleAiState = GoogleMediaEnhancementState.FAILED
             googleAiMessage = error.message ?: context.getString(R.string.player_google_ai_failed)
             return@LaunchedEffect
         }
@@ -705,7 +705,7 @@ fun VideoPlayerScreen(
                 playerView = view
             },
             onRelease = { view ->
-                googleAiBridge?.close()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) googleAiBridge?.close()
                 googleAiBridge = null
                 view.player = null
                 playerView = null
@@ -1083,18 +1083,18 @@ fun VideoPlayerScreen(
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         val googleAiStatusLabel = when (googleAiState) {
-                            GoogleMediaEnhancementPlayerBridge.State.DISABLED -> R.string.player_google_ai_disabled
-                            GoogleMediaEnhancementPlayerBridge.State.WAITING_FOR_VIDEO -> R.string.player_google_ai_waiting
-                            GoogleMediaEnhancementPlayerBridge.State.CHECKING_DEVICE -> R.string.player_google_ai_checking
-                            GoogleMediaEnhancementPlayerBridge.State.INSTALL_REQUIRED -> R.string.player_google_ai_install_required
-                            GoogleMediaEnhancementPlayerBridge.State.INSTALLING -> R.string.player_google_ai_installing
-                            GoogleMediaEnhancementPlayerBridge.State.WAITING_FOR_FIRST_FRAME -> R.string.player_google_ai_first_frame
-                            GoogleMediaEnhancementPlayerBridge.State.ACTIVE -> R.string.player_google_ai_active
-                            GoogleMediaEnhancementPlayerBridge.State.UNSUPPORTED -> R.string.player_google_ai_unsupported
-                            GoogleMediaEnhancementPlayerBridge.State.FAILED -> R.string.player_google_ai_failed
+                            GoogleMediaEnhancementState.DISABLED -> R.string.player_google_ai_disabled
+                            GoogleMediaEnhancementState.WAITING_FOR_VIDEO -> R.string.player_google_ai_waiting
+                            GoogleMediaEnhancementState.CHECKING_DEVICE -> R.string.player_google_ai_checking
+                            GoogleMediaEnhancementState.INSTALL_REQUIRED -> R.string.player_google_ai_install_required
+                            GoogleMediaEnhancementState.INSTALLING -> R.string.player_google_ai_installing
+                            GoogleMediaEnhancementState.WAITING_FOR_FIRST_FRAME -> R.string.player_google_ai_first_frame
+                            GoogleMediaEnhancementState.ACTIVE -> R.string.player_google_ai_active
+                            GoogleMediaEnhancementState.UNSUPPORTED -> R.string.player_google_ai_unsupported
+                            GoogleMediaEnhancementState.FAILED -> R.string.player_google_ai_failed
                         }
                         Text(stringResource(R.string.player_google_ai_status, stringResource(googleAiStatusLabel)))
-                        if (googleAiState == GoogleMediaEnhancementPlayerBridge.State.INSTALLING) {
+                        if (googleAiState == GoogleMediaEnhancementState.INSTALLING) {
                             Text(stringResource(R.string.player_google_ai_progress, googleAiProgress))
                         }
                         googleAiMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
