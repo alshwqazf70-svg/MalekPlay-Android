@@ -1246,56 +1246,89 @@ object UltraShareWifiDirect {
                     UltraShareDiagnostics.event(
                         "WIFI_DIRECT",
                         "CONNECT_RECOVERY_PEER_REFRESH_TIMEOUT",
-                        mapOf("attempt" to attempt)
+                        mapOf("attempt" to attempt, "discoveryRequested" to true)
                     )
                     connectAttempt(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt + 1)
                 }
             }
-            mainHandler.postDelayed(timeout, 2_500L)
-            try {
-                manager.requestPeers(channel) { peers ->
-                    if (!refreshFinished.compareAndSet(false, true)) return@requestPeers
-                    mainHandler.removeCallbacks(timeout)
-                    if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return@requestPeers
-                    val refreshedPeer = peers.deviceList.firstOrNull {
-                        it.deviceAddress.equals(deviceAddress, ignoreCase = true)
-                    }
-                    val retryAddress = refreshedPeer?.deviceAddress ?: deviceAddress
-                    UltraShareDiagnostics.event(
-                        "WIFI_DIRECT",
-                        "CONNECT_RECOVERY_PEERS_REFRESHED",
-                        mapOf(
-                            "peerCount" to peers.deviceList.size,
-                            "targetFound" to (refreshedPeer != null),
-                            "targetStatus" to refreshedPeer?.status,
-                            "attempt" to attempt
-                        )
-                    )
-                    mainHandler.postDelayed({
-                        if (isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) {
+            mainHandler.postDelayed(timeout, 4_500L)
+
+            fun readRefreshedPeers(discoveryResult: String, discoveryReason: Int? = null) {
+                if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return
+                UltraShareDiagnostics.event(
+                    "WIFI_DIRECT",
+                    "CONNECT_RECOVERY_DISCOVERY_FINISHED",
+                    mapOf("result" to discoveryResult, "reason" to (discoveryReason ?: -1), "attempt" to attempt)
+                )
+                mainHandler.postDelayed({
+                    if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return@postDelayed
+                    try {
+                        manager.requestPeers(channel) { peers ->
+                            if (!refreshFinished.compareAndSet(false, true)) return@requestPeers
+                            mainHandler.removeCallbacks(timeout)
+                            if (!isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) return@requestPeers
+                            val refreshedPeer = peers.deviceList.firstOrNull {
+                                it.deviceAddress.equals(deviceAddress, ignoreCase = true)
+                            }
                             UltraShareDiagnostics.event(
                                 "WIFI_DIRECT",
-                                "CONNECT_RECOVERY_RETRY_SCHEDULED",
-                                mapOf("attempt" to attempt + 1, "targetFound" to (refreshedPeer != null))
+                                "CONNECT_RECOVERY_PEERS_REFRESHED",
+                                mapOf(
+                                    "peerCount" to peers.deviceList.size,
+                                    "targetFound" to (refreshedPeer != null),
+                                    "targetStatus" to refreshedPeer?.status,
+                                    "attempt" to attempt,
+                                    "discoveryResult" to discoveryResult
+                                )
                             )
-                            connectAttempt(retryAddress, preferThisDeviceAsGroupOwner, token, attempt + 1)
+                            mainHandler.postDelayed({
+                                if (isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) {
+                                    UltraShareDiagnostics.event(
+                                        "WIFI_DIRECT",
+                                        "CONNECT_RECOVERY_RETRY_SCHEDULED",
+                                        mapOf("attempt" to attempt + 1, "targetFound" to (refreshedPeer != null))
+                                    )
+                                    // Retain the QR-discovered address when the peer cache is
+                                    // temporarily empty; a fresh discovery cycle now precedes it.
+                                    connectAttempt(refreshedPeer?.deviceAddress ?: deviceAddress, preferThisDeviceAsGroupOwner, token, attempt + 1)
+                                }
+                            }, 450L)
                         }
-                    }, 450L)
-                }
-            } catch (failure: RuntimeException) {
-                if (refreshFinished.compareAndSet(false, true)) {
-                    mainHandler.removeCallbacks(timeout)
-                    UltraShareDiagnostics.event(
-                        "WIFI_DIRECT",
-                        "CONNECT_RECOVERY_PEER_REFRESH_FAILED",
-                        mapOf("type" to failure.javaClass.simpleName, "attempt" to attempt)
-                    )
-                    mainHandler.postDelayed({
-                        if (isCurrentWifiDirectConnectionAttempt(closed, connectionInProgress, connectionAttemptToken, token)) {
+                    } catch (failure: RuntimeException) {
+                        if (refreshFinished.compareAndSet(false, true)) {
+                            mainHandler.removeCallbacks(timeout)
+                            UltraShareDiagnostics.event(
+                                "WIFI_DIRECT",
+                                "CONNECT_RECOVERY_PEER_REFRESH_FAILED",
+                                mapOf("type" to failure.javaClass.simpleName, "attempt" to attempt)
+                            )
                             connectAttempt(deviceAddress, preferThisDeviceAsGroupOwner, token, attempt + 1)
                         }
-                    }, 450L)
+                    }
+                }, 900L)
+            }
+
+            try {
+                // A plain requestPeers() only reads Android's possibly stale cache.
+                // Trigger a new radio discovery cycle first, then read the refreshed list.
+                manager.discoverPeers(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {
+                        readRefreshedPeers("started")
+                    }
+
+                    override fun onFailure(reason: Int) {
+                        // BUSY commonly means another P2P discovery is still retiring.
+                        // Still refresh the peer cache after a short settling period.
+                        readRefreshedPeers("not_started", reason)
+                    }
+                })
+            } catch (failure: SecurityException) {
+                if (refreshFinished.compareAndSet(false, true)) {
+                    mainHandler.removeCallbacks(timeout)
+                    reportError("يلزم إذن الأجهزة القريبة لإعادة اكتشاف جهاز Wi-Fi Direct.")
                 }
+            } catch (failure: RuntimeException) {
+                readRefreshedPeers("exception")
             }
         }
 
