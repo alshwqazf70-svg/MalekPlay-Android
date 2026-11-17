@@ -865,7 +865,13 @@ class UltraShareForegroundService : Service() {
                 }
                 val expectedNames = manifest?.entries?.map { it.fileName }?.toSet().orEmpty()
                 val receivedNames = event.fileNames.map(UltraShareTransport::sanitizeFileName).toSet()
-                if (event.transferId <= 0 || manifest == null ||
+                val pendingAccepted = manifest != null &&
+                    UltraShareDFileManifestRegistry.tryAdd(
+                        pendingManifests,
+                        event.transferId,
+                        manifest
+                    )
+                if (event.transferId <= 0 || manifest == null || !pendingAccepted ||
                     expectedNames.isEmpty() || expectedNames != receivedNames
                 ) {
                     UltraShareDiagnostics.event(
@@ -873,7 +879,7 @@ class UltraShareForegroundService : Service() {
                         mapOf("peerHost" to peerAddress, "transferId" to event.transferId, "fileCount" to event.fileNames.size)
                     )
                     updateState { current -> current.copy(
-                        error = "رُفضت دفعة DFile لأن بيان الملفات أو توقيعه غير صالح.",
+                        error = "رُفضت دفعة DFile: البيان غير صالح أو توجد دفعة معلّقة مكررة أو تجاوزت الجلسة حد الدفعات.",
                         status = "لم يبدأ نشر أي ملف قبل التحقق من بيان SHA-256."
                     ) }
                     serviceScope.launch { closeDFileServerForPeer(peerAddress, event.sessionId) }
