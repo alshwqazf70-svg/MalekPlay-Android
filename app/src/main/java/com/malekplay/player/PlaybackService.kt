@@ -343,7 +343,7 @@ class PlaybackService : MediaSessionService() {
                     if (!trustedAppController) remove(Player.COMMAND_SET_VIDEO_SURFACE)
                 }
                 .build()
-            return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(commands)
                 .setAvailablePlayerCommands(playerCommands)
                 .build()
