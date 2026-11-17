@@ -33,7 +33,7 @@ object UltraShareFolderArchive {
 
     private const val MAX_ENTRIES = 25_000
     private const val MAX_DEPTH = 64
-    private const val MAX_ARCHIVE_BYTES = 10L * 1024L * 1024L * 1024L
+    internal const val MAX_ARCHIVE_BYTES = 10L * 1024L * 1024L * 1024L
     private const val BUFFER_SIZE = 64 * 1024
 
     data class Result(
@@ -140,9 +140,7 @@ object UltraShareFolderArchive {
                                                 throw IOException("مساحة التخزين غير كافية لإكمال أرشيف المجلد بأمان.")
                                             }
                                             zip.write(buffer, 0, read)
-                                            totalBytes = if (Long.MAX_VALUE - totalBytes < read.toLong()) {
-                                                Long.MAX_VALUE
-                                            } else totalBytes + read.toLong()
+                                            totalBytes = checkedArchiveTotalBytes(totalBytes, read)
                                         }
                                     }
                                 }
@@ -290,6 +288,14 @@ object UltraShareFolderArchive {
             }
             throw failure
         }
+    }
+
+    internal fun checkedArchiveTotalBytes(currentBytes: Long, additionalBytes: Int): Long {
+        require(currentBytes >= 0L && additionalBytes >= 0)
+        if (currentBytes > MAX_ARCHIVE_BYTES - additionalBytes.toLong()) {
+            throw IOException("حجم المجلد بعد ضغطه يتجاوز الحد الآمن المسموح.")
+        }
+        return currentBytes + additionalBytes.toLong()
     }
 
     internal fun validatedArchiveSegments(rawName: String, directory: Boolean): List<String> {
