@@ -270,6 +270,24 @@ object UltraShareControlChannel {
                         routeFailure.javaClass.simpleName +
                         (routeFailure.message?.take(100)?.let { " - " + it } ?: ""))
                     false
+                } catch (failure: RuntimeException) {
+                    // An OEM may invalidate a Network between discovery and bindSocket().
+                    // Skip only stale-state/argument failures; preserve cancellation,
+                    // permission failures and unrelated programming defects.
+                    if (failure is CancellationException ||
+                        (failure !is IllegalStateException && failure !is IllegalArgumentException)
+                    ) throw failure
+                    val routeFailure = java.io.IOException("Android network route is no longer usable.", failure)
+                    lastRouteFailure = routeFailure
+                    UltraShareDiagnostics.failure(
+                        "CONTROL_CHANNEL_ANDROID_ROUTE_$index",
+                        routeFailure,
+                        "host=" + host + ";port=" + port + ";networkHandle=" + candidateNetwork.networkHandle + ";stage=" + diagnosticStage
+                    )
+                    diagnostic("CLIENT Android Network attempt failed at " + diagnosticStage + ": " +
+                        routeFailure.javaClass.simpleName +
+                        (routeFailure.message?.take(100)?.let { " - " + it } ?: ""))
+                    false
                 }
             }
             val connected = connectedNetwork != null
