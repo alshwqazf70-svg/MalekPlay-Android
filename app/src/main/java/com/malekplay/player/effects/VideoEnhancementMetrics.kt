@@ -18,7 +18,9 @@ object VideoEnhancementMetrics {
     fun recordProcessed(effectName: String, presentationTimeUs: Long) {
         lastEffectName = effectName
         lastPresentationTimeUs = presentationTimeUs
-        lastFailure = null
+        // Preserve the most recent failure until an explicit reset. A later
+        // successful frame proves recovery, but must not erase evidence of an
+        // intermittent shader failure from the diagnostics snapshot.
         processedDraws.incrementAndGet()
         val counter = drawsByEffect[effectName] ?: run {
             val candidate = AtomicLong(0L)
