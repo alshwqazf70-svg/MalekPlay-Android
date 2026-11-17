@@ -259,7 +259,10 @@ object NstackxNativeBridge {
             transferId = transferId,
             transferredBytes = transferredBytes.coerceAtLeast(0L),
             totalBytes = totalBytes.coerceAtLeast(0L),
-            fileNames = fileNames.filter { it.isNotBlank() }.map { it.substringAfterLast('/') }.distinct(),
+            // Preserve the native names exactly (apart from empty slots). The receiver
+            // must reject paths and duplicate names rather than silently normalizing
+            // hostile or ambiguous native callback metadata into an acceptable name.
+            fileNames = preserveDFileCallbackNames(fileNames),
             userData = userData,
             message = message
         )
@@ -327,3 +330,8 @@ object NstackxNativeBridge {
     private const val NOT_INITIALIZED = -1102
     private const val NOT_AUTHENTICATED = -1103
 }
+
+
+/** Keep native DFile callback names intact so the receive coordinator can reject unsafe input. */
+internal fun preserveDFileCallbackNames(fileNames: Array<String>): List<String> =
+    fileNames.filter { it.isNotBlank() }
