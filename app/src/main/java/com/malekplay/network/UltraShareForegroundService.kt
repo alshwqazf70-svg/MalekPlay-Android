@@ -748,7 +748,9 @@ class UltraShareForegroundService : Service() {
             return null
         }
 
-        val activeTransferIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
+        val activeTransferIds: MutableSet<Int> = java.util.Collections.newSetFromMap(
+            java.util.concurrent.ConcurrentHashMap<Int, Boolean>()
+        )
         val pendingManifests = java.util.concurrent.ConcurrentHashMap<Int, UltraShareDFileManifest.Manifest>()
         val listenerActive = java.util.concurrent.atomic.AtomicBoolean(true)
         val listenerReady = java.util.concurrent.atomic.AtomicBoolean(false)
