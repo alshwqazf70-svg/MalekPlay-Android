@@ -57,4 +57,24 @@ class UltraShareFolderArchiveTest {
     fun safeSegmentPreservesOrdinaryUnicodeNames() {
         assertEquals("صور العائلة 2026", UltraShareFolderArchive.safeSegment("صور العائلة 2026"))
     }
+
+    @Test
+    fun folderArchiveCreationEnforcesTheSameTenGigabyteLimitAsExtraction() {
+        val limit = UltraShareFolderArchive.MAX_ARCHIVE_BYTES
+        assertEquals(limit, UltraShareFolderArchive.checkedArchiveTotalBytes(limit - 1L, 1))
+        assertEquals(limit, UltraShareFolderArchive.checkedArchiveTotalBytes(limit, 0))
+        assertTrue(runCatching {
+            UltraShareFolderArchive.checkedArchiveTotalBytes(limit, 1)
+        }.isFailure)
+    }
+
+    @Test
+    fun archiveByteAccountingRejectsNegativeCounters() {
+        assertTrue(runCatching {
+            UltraShareFolderArchive.checkedArchiveTotalBytes(-1L, 1)
+        }.isFailure)
+        assertTrue(runCatching {
+            UltraShareFolderArchive.checkedArchiveTotalBytes(0L, -1)
+        }.isFailure)
+    }
 }
