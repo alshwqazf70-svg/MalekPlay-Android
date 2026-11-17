@@ -400,4 +400,23 @@
     <string name="player_diag_gpu_pipeline_stalled">Media3 يعرض إطارات الفيديو، لكن لم يتم تأكيد معالجة أي إطار بواسطة مؤثرات GPU. افحص مسار المؤثرات أو فك الترميز.</string>
     <string name="player_diag_lanczos_note">ملاحظة: Media3 لا يكشف عداد رسم Lanczos الداخلي؛ نعرض حالة إرساله فقط. وعند ظهور عمليات رسم التفاصيل بنجاح فهذا دليل على وصول الإطارات إلى مرحلة لاحقة من سلسلة المؤثرات، وليس عداداً مباشراً لـ Lanczos.</string>
 
+
+    <string name="player_google_ai_on">تحسين الفيديو بالذكاء الاصطناعي من Google: مفعّل</string>
+    <string name="player_google_ai_off">تحسين الفيديو بالذكاء الاصطناعي من Google: متوقف</string>
+    <string name="player_google_ai_install_title">تنزيل نموذج تحسين الفيديو؟</string>
+    <string name="player_google_ai_install_message">تحتاج خدمات Google Play إلى تنزيل نموذج إضافي يعمل على الجهاز. قد يستهلك ذلك بيانات الهاتف ومساحة التخزين. لن يبدأ التنزيل إلا بعد موافقتك.</string>
+    <string name="player_google_ai_install">تنزيل النموذج</string>
+    <string name="player_google_ai_later">ليس الآن</string>
+    <string name="player_google_ai_status">معالجة Google AI: %1$s</string>
+    <string name="player_google_ai_progress">تنزيل النموذج: %1$d%%</string>
+    <string name="player_google_ai_waiting">بانتظار فيديو محلي وسطح عرض مدعومين</string>
+    <string name="player_google_ai_checking">جارٍ فحص دعم الجهاز والنموذج</string>
+    <string name="player_google_ai_install_required">يتطلب تنزيل النموذج</string>
+    <string name="player_google_ai_installing">جارٍ تنزيل النموذج</string>
+    <string name="player_google_ai_first_frame">تم الاتصال؛ ننتظر أول إطار تتم معالجته</string>
+    <string name="player_google_ai_active">تمت معالجة إطار فيديو بالذكاء الاصطناعي</string>
+    <string name="player_google_ai_unsupported">غير متاح لهذا الجهاز أو الفيديو</string>
+    <string name="player_google_ai_failed">فشلت معالجة الذكاء الاصطناعي؛ تمت استعادة عرض الفيديو الأصلي</string>
+    <string name="player_google_ai_disabled">متوقف</string>
+
 </resources>
