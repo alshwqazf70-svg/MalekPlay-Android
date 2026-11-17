@@ -50,7 +50,7 @@ class UltraSharePairingAttemptLimiterTest {
 
     @Test
     fun peerFailureTableRemainsBoundedUnderChangingSourceAddresses() {
-        val limiter = UltraSharePairingAttemptLimiter(maxTrackedPeers = 3)
+        val limiter = UltraSharePairingAttemptLimiter(maxTrackedPeers = 3, globalFailureThreshold = 1_000)
         repeat(20) { index ->
             limiter.recordFailure("192.168.1.$index", 10_000L + index)
         }
