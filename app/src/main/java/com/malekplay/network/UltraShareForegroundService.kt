@@ -865,15 +865,22 @@ class UltraShareForegroundService : Service() {
                 }
                 val expectedNames = manifest?.entries?.map { it.fileName }?.toSet().orEmpty()
                 val receivedNames = event.fileNames.map(UltraShareTransport::sanitizeFileName).toSet()
-                val pendingAccepted = manifest != null &&
-                    UltraShareDFileManifestRegistry.tryAdd(
+                // Validate the raw native names before reserving a pending transfer ID.
+                // Sanitization must not collapse two hostile/invalid names into one safe name.
+                val namesMatch = manifest != null &&
+                    event.fileNames.isNotEmpty() &&
+                    event.fileNames.size == receivedNames.size &&
+                    event.fileNames.all { it == UltraShareTransport.sanitizeFileName(it) } &&
+                    expectedNames.isNotEmpty() &&
+                    expectedNames.size == manifest.entries.size &&
+                    expectedNames == receivedNames
+                val pendingAccepted = event.transferId > 0 && namesMatch &&
+                    manifest != null && UltraShareDFileManifestRegistry.tryAdd(
                         pendingManifests,
                         event.transferId,
                         manifest
                     )
-                if (event.transferId <= 0 || manifest == null || !pendingAccepted ||
-                    expectedNames.isEmpty() || expectedNames != receivedNames
-                ) {
+                if (!pendingAccepted) {
                     UltraShareDiagnostics.event(
                         "DFILE", "RECEIVE_MANIFEST_REJECTED",
                         mapOf("peerHost" to peerAddress, "transferId" to event.transferId, "fileCount" to event.fileNames.size)
@@ -884,7 +891,6 @@ class UltraShareForegroundService : Service() {
                     ) }
                     serviceScope.launch { closeDFileServerForPeer(peerAddress, event.sessionId) }
                 } else {
-                    pendingManifests[event.transferId] = manifest
                     UltraShareDiagnostics.event(
                         "DFILE", "RECEIVE_MANIFEST_ACCEPTED",
                         mapOf("peerHost" to peerAddress, "transferId" to event.transferId, "fileCount" to manifest.entries.size, "totalBytes" to manifest.totalBytes)
