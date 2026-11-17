@@ -188,6 +188,9 @@ object UltraShareBatchTransport {
                                     onPeerError(peer, failure)
                                 }
                             } catch (failure: Exception) {
+                                // Socket.close() is used to unblock a suspended read on cancellation.
+                                // Do not report that expected close-induced IOException as a peer failure.
+                                currentCoroutineContext().ensureActive()
                                 UltraShareDiagnostics.failure(
                                     "DATA_RECEIVE_SESSION",
                                     failure,
