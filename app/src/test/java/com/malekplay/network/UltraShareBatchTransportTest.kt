@@ -433,4 +433,25 @@ class UltraShareBatchTransportTest {
             directory.deleteRecursively()
         }
     }
+
+    @Test
+    fun verificationTimeoutScalesWithBatchSizeAndStaysBounded() {
+        assertEquals(
+            120_000,
+            UltraShareBatchTransport.verificationTimeoutMillis(0L)
+        )
+        assertEquals(
+            512_000,
+            UltraShareBatchTransport.verificationTimeoutMillis(1024L * 1024L * 1024L)
+        )
+        assertEquals(
+            5 * 60 * 60 * 1_000 + 30 * 60 * 1_000,
+            UltraShareBatchTransport.verificationTimeoutMillis(Long.MAX_VALUE / 2L)
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun verificationTimeoutRejectsNegativeBatchSize() {
+        UltraShareBatchTransport.verificationTimeoutMillis(-1L)
+    }
 }
