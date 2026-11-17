@@ -153,6 +153,49 @@ class UltraShareDFilePublisherTest {
     }
 
     @Test
+    fun fallsBackWhenAndroidStorageDoesNotSupportHardLinks() {
+        val root = createTempDir(prefix = "dfile-publish-fallback-")
+        try {
+            UltraShareDFilePublisher.hardLinkForPublication = { _, _ ->
+                throw java.io.IOException("hard links unsupported by filesystem")
+            }
+            val destination = File(root, "receive").apply { mkdir() }
+            val session = File(destination, "session-one").apply { mkdir() }
+            val staged = File(session, "clip.mp4").apply { writeText("verified payload") }
+
+            val published = UltraShareDFilePublisher.publish(staged, destination, "clip.mp4")
+
+            assertNotNull(published)
+            assertEquals("verified payload", published!!.readText())
+            assertTrue(!staged.exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun fallbackNeverReplacesAFileCreatedDuringThePublicationRace() {
+        val root = createTempDir(prefix = "dfile-publish-race-fallback-")
+        try {
+            val destination = File(root, "receive").apply { mkdir() }
+            val session = File(destination, "session-one").apply { mkdir() }
+            val staged = File(session, "clip.mp4").apply { writeText("incoming payload") }
+            UltraShareDFilePublisher.hardLinkForPublication = { _, target ->
+                target.writeText("other publisher won")
+                throw java.io.IOException("simulated unsupported link")
+            }
+
+            val published = UltraShareDFilePublisher.publish(staged, destination, "clip.mp4")
+
+            assertNull(published)
+            assertEquals("other publisher won", File(destination, "clip.mp4").readText())
+            assertEquals("incoming payload", staged.readText())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun refusesStagedFileOutsideItsOwnedSessionDirectory() {
         val root = createTempDir(prefix = "dfile-publish-")
         try {
