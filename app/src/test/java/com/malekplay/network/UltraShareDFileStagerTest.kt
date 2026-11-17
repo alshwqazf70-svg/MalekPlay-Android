@@ -141,21 +141,33 @@ class UltraShareDFileStagerTest {
     }
 
     @Test
-    fun cleanupRemovesOnlyExpiredChildrenAndKeepsRecentStagingSessions() {
+    fun cleanupRemovesOnlyExpiredOutgoingAndIncomingSessions() {
         val cache = createTempDir(prefix = "dfile-stage-cleanup")
         try {
-            val root = File(cache, "ultrashare-dfile-staging").apply { mkdirs() }
-            val stale = File(root, "session-stale").apply { mkdirs() }
-            File(stale, "old.bin").writeBytes(byteArrayOf(1))
-            val recent = File(root, "session-recent").apply { mkdirs() }
-            File(recent, "new.bin").writeBytes(byteArrayOf(2))
-            assertTrue(stale.setLastModified(System.currentTimeMillis() - 60_000L))
+            val outgoingRoot = File(cache, "ultrashare-dfile-staging").apply { mkdirs() }
+            val staleOutgoing = File(outgoingRoot, "session-stale").apply { mkdirs() }
+            File(staleOutgoing, "old.bin").writeBytes(byteArrayOf(1))
+            val recentOutgoing = File(outgoingRoot, "session-recent").apply { mkdirs() }
+            File(recentOutgoing, "new.bin").writeBytes(byteArrayOf(2))
+
+            val receiveRoot = File(cache, "ultrashare-dfile-receive").apply { mkdirs() }
+            val staleIncoming = File(receiveRoot, "session-abandoned").apply { mkdirs() }
+            File(staleIncoming, "partial.mp4").writeBytes(byteArrayOf(3))
+            val recentIncoming = File(receiveRoot, "session-active").apply { mkdirs() }
+            File(recentIncoming, "partial.mp4").writeBytes(byteArrayOf(4))
+
+            val cutoff = System.currentTimeMillis() - 60_000L
+            assertTrue(staleOutgoing.setLastModified(cutoff))
+            assertTrue(staleIncoming.setLastModified(cutoff))
 
             UltraShareDFileStager.cleanupStale(cache, olderThanMillis = 1_000L)
 
-            assertFalse(stale.exists())
-            assertTrue(recent.isDirectory)
-            assertTrue(File(recent, "new.bin").isFile)
+            assertFalse(staleOutgoing.exists())
+            assertTrue(recentOutgoing.isDirectory)
+            assertTrue(File(recentOutgoing, "new.bin").isFile)
+            assertFalse(staleIncoming.exists())
+            assertTrue(recentIncoming.isDirectory)
+            assertTrue(File(recentIncoming, "partial.mp4").isFile)
         } finally {
             cache.deleteRecursively()
         }
