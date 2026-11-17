@@ -23,14 +23,18 @@ object AssVideoEffectRegistry {
         managers.remove(player)
     }
 
+    /** True only when a manager is registered and its latest setVideoEffects call succeeded. */
+    @Synchronized
+    fun isAttached(player: ExoPlayer): Boolean =
+        managers[player]?.isOperational == true
+
     /**
-     * Returns false when the ASS overlay manager is not attached. The caller must
-     * not report GPU effects as active when there is no renderer pipeline to receive them.
+     * Returns false when no operational manager exists, the call is made off the
+     * ExoPlayer application looper, or Media3 rejects the effect list.
      */
     @Synchronized
     fun setAdditionalEffects(player: ExoPlayer, effects: List<Effect>): Boolean {
         val manager = managers[player] ?: return false
-        manager.setAdditionalEffects(effects)
-        return true
+        return manager.setAdditionalEffects(effects)
     }
 }
