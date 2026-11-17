@@ -5,14 +5,15 @@ import java.io.FileOutputStream
 import java.util.UUID
 
 /**
- * Publishes a fully received and already verified DFile payload without ever
- * selecting an existing user file as the destination.
+ * Publishes a fully received and already verified DFile payload without
+ * replacing an existing user file.
  *
- * A destination is reserved with createNewFile() before rename. This closes
- * the exists()-then-rename() race that could otherwise replace a file created
- * by another concurrent receive operation.
+ * Publication is serialized process-wide. The temporary copy stays inside the
+ * per-session staging directory so a process death cannot leave a .part file
+ * in the visible receive root; age-based session cleanup removes it later.
  */
 internal object UltraShareDFilePublisher {
+    @Synchronized
     internal fun publish(staged: File, destination: File, safeName: String): File? =
         runCatching {
             val safeDestination = destination.canonicalFile
@@ -22,7 +23,9 @@ internal object UltraShareDFilePublisher {
             require(safeName == UltraShareTransport.sanitizeFileName(safeName))
             require('/' !in safeName && 92.toChar() !in safeName)
             require(safeStaged.isFile)
-            require(safeStaged.parentFile?.parentFile == safeDestination) {
+            val stagingDirectory = safeStaged.parentFile
+                ?: error("DFile staging directory is missing.")
+            require(stagingDirectory.parentFile == safeDestination) {
                 "Staged file is outside the DFile receive session directory."
             }
             require(safeStaged.length() <= UltraShareTransport.MAX_FILE_BYTES)
@@ -30,7 +33,7 @@ internal object UltraShareDFilePublisher {
             val extension = safeName.substringAfterLast('.', "").takeIf { it.isNotBlank() }
             val baseName = if (extension == null) safeName else safeName.removeSuffix(".$extension")
             val temporary = File(
-                safeDestination,
+                stagingDirectory,
                 ".${safeName}.${UUID.randomUUID()}.part"
             )
             try {
@@ -42,34 +45,33 @@ internal object UltraShareDFilePublisher {
                 }
                 require(temporary.isFile && temporary.length() == safeStaged.length())
 
-                for (suffix in 0 until MAX_NAME_ATTEMPTS) {
-                    val candidateName = when {
-                        suffix == 0 -> safeName
-                        extension == null -> "$baseName ($suffix)"
-                        else -> "$baseName ($suffix).$extension"
-                    }
-                    val target = File(safeDestination, candidateName)
-                    // createNewFile is an exclusive reservation: false means
-                    // somebody already owns this name, so try the next suffix.
-                    if (!target.createNewFile()) continue
-
-                    var reservationOwned = true
-                    try {
-                        check(temporary.renameTo(target)) {
-                            "تعذر تثبيت الملف المستلم بأمان."
-                        }
-                        reservationOwned = false
-                        check(target.canonicalFile.parentFile == safeDestination)
-                        check(target.isFile && target.length() == safeStaged.length())
-                        // Publication is already complete and verified. A failed
-                        // cache cleanup must not report the delivered file as failed.
-                        runCatching { safeStaged.delete() }
-                        return@runCatching target.canonicalFile
-                    } finally {
-                        if (reservationOwned) runCatching { target.delete() }
+                var target = File(safeDestination, safeName)
+                var suffix = 1
+                while (target.exists()) {
+                    val candidateName = if (extension == null) "$baseName ($suffix)"
+                        else "$baseName ($suffix).$extension"
+                    target = File(safeDestination, candidateName)
+                    suffix++
+                    check(suffix < MAX_NAME_ATTEMPTS) {
+                        "تعذر إيجاد اسم ملف متاح دون استبدال ملف موجود."
                     }
                 }
-                error("تعذر إيجاد اسم ملف متاح دون استبدال ملف موجود.")
+
+                // Every DFile publication in this process uses this serialized
+                // entry point. Recheck immediately before rename to avoid replacing
+                // a file created by another app-side publisher.
+                check(!target.exists()) {
+                    "تغير اسم الوجهة أثناء نشر ملف DFile."
+                }
+                check(temporary.renameTo(target)) {
+                    "تعذر تثبيت الملف المستلم بأمان."
+                }
+                check(target.canonicalFile.parentFile == safeDestination)
+                check(target.isFile && target.length() == safeStaged.length())
+                // Publication is already complete and verified. A failed cache
+                // cleanup must not report the delivered file as failed.
+                runCatching { safeStaged.delete() }
+                target.canonicalFile
             } finally {
                 runCatching { temporary.delete() }
             }
