@@ -164,6 +164,8 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
 
     implementation(libs.mlkit.translate)
+    // Optional on-device AI video restoration; device support is checked at runtime.
+    implementation(libs.gms.media.enhancement)
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:core:1.6.1")
