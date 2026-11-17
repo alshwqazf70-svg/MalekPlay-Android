@@ -30,7 +30,7 @@ data class VideoEnhancementTuning(
 /**
  * Pure capability policy so legacy-device and thermal decisions are unit-testable.
  * thermalStatus uses Android PowerManager values (NONE=0, LIGHT=1, MODERATE=2,
- * SEVERE=4, CRITICAL=5, EMERGENCY=6, SHUTDOWN=7).
+ * SEVERE=3, CRITICAL=4, EMERGENCY=5, SHUTDOWN=6).
  */
 object VideoEnhancementPolicy {
     fun resolve(
@@ -55,7 +55,7 @@ object VideoEnhancementPolicy {
         }
 
         // Moderate heat caps Ultra at Balanced; severe heat caps all profiles at Economy.
-        if (thermalStatus != null && thermalStatus >= 4 &&
+        if (thermalStatus != null && thermalStatus >= 3 &&
             effective != VideoEnhancementProfile.ECONOMY
         ) {
             effective = VideoEnhancementProfile.ECONOMY
