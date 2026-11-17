@@ -61,9 +61,9 @@ internal object UltraShareDFilePublisher {
                         reservationOwned = false
                         check(target.canonicalFile.parentFile == safeDestination)
                         check(target.isFile && target.length() == safeStaged.length())
-                        check(safeStaged.delete()) {
-                            "تم نشر الملف لكن تعذر تنظيف النسخة المؤقتة."
-                        }
+                        // Publication is already complete and verified. A failed
+                        // cache cleanup must not report the delivered file as failed.
+                        runCatching { safeStaged.delete() }
                         return@runCatching target.canonicalFile
                     } finally {
                         if (reservationOwned) runCatching { target.delete() }
