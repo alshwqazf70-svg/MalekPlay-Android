@@ -628,10 +628,18 @@ class PlaybackService : MediaSessionService() {
         }.getOrDefault(false)
         videoEffectsBridgeAttached = applied
         if (!applied) {
-            // Do not leave the UI claiming that an effect is active when the ASS
-            // renderer bridge has not attached to this ExoPlayer instance.
-            Log.e(TAG, "Video enhancement bridge is not attached; refusing a false-success state")
+            // AssOverlayManager preserves its last known-good effect list when a replacement
+            // is rejected. Clear that list explicitly after disabling the request so a stale
+            // GPU chain cannot keep running while the UI reports that enhancement is off.
+            Log.e(TAG, "Video enhancement chain was rejected; disabling the previous effect list")
             disableAllVideoEnhancements()
+            val cleared = runCatching {
+                AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
+            }.getOrDefault(false)
+            videoEffectsBridgeAttached = cleared
+            if (!cleared) {
+                Log.e(TAG, "Could not clear the previous video enhancement chain after rejection")
+            }
             return false
         }
         Log.i(
