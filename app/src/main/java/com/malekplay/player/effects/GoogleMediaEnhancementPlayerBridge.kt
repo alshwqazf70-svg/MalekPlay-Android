@@ -23,6 +23,18 @@ import java.util.concurrent.atomic.AtomicLong
  * This bridge is deliberately limited to clear, local, unrotated video on a local playback
  * route. It never runs beside the existing OpenGL enhancement chain.
  */
+enum class GoogleMediaEnhancementState {
+    DISABLED,
+    WAITING_FOR_VIDEO,
+    CHECKING_DEVICE,
+    INSTALL_REQUIRED,
+    INSTALLING,
+    WAITING_FOR_FIRST_FRAME,
+    ACTIVE,
+    UNSUPPORTED,
+    FAILED
+}
+
 @RequiresApi(Build.VERSION_CODES.R)
 class GoogleMediaEnhancementPlayerBridge(
     context: Context,
@@ -31,20 +43,8 @@ class GoogleMediaEnhancementPlayerBridge(
     private val listener: Listener
 ) : AutoCloseable {
 
-    enum class State {
-        DISABLED,
-        WAITING_FOR_VIDEO,
-        CHECKING_DEVICE,
-        INSTALL_REQUIRED,
-        INSTALLING,
-        WAITING_FOR_FIRST_FRAME,
-        ACTIVE,
-        UNSUPPORTED,
-        FAILED
-    }
-
     interface Listener {
-        fun onStateChanged(state: State, progress: Int = 0, message: String? = null)
+        fun onStateChanged(state: GoogleMediaEnhancementState, progress: Int = 0, message: String? = null)
     }
 
     private val appContext = context.applicationContext
@@ -82,7 +82,7 @@ class GoogleMediaEnhancementPlayerBridge(
                         player.isCommandAvailable(Player.COMMAND_SET_VIDEO_SURFACE)
                     ) {
                         runCatching { player.setVideoSurface(input) }
-                            .onFailure { publish(State.FAILED, message = it.message) }
+                            .onFailure { publish(GoogleMediaEnhancementState.FAILED, message = it.message) }
                     }
                 }
             } else {
@@ -119,7 +119,7 @@ class GoogleMediaEnhancementPlayerBridge(
             if (deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                 retryBlocked = true
                 releaseBackend(restoreOutput = true)
-                publish(State.UNSUPPORTED, message = "AI enhancement is unavailable during remote playback")
+                publish(GoogleMediaEnhancementState.UNSUPPORTED, message = "AI enhancement is unavailable during remote playback")
             } else {
                 retryBlocked = false
                 scheduleStart()
@@ -137,11 +137,11 @@ class GoogleMediaEnhancementPlayerBridge(
         enabled = value
         retryBlocked = false
         if (value) {
-            publish(State.WAITING_FOR_VIDEO)
+            publish(GoogleMediaEnhancementState.WAITING_FOR_VIDEO)
             scheduleStart()
         } else {
             releaseBackend(restoreOutput = true)
-            publish(State.DISABLED)
+            publish(GoogleMediaEnhancementState.DISABLED)
         }
     }
 
@@ -153,7 +153,7 @@ class GoogleMediaEnhancementPlayerBridge(
             scheduleStart()
             return
         }
-        publish(State.INSTALLING, 0)
+        publish(GoogleMediaEnhancementState.INSTALLING, 0)
         activeBackend.installModule()
     }
 
@@ -166,17 +166,17 @@ class GoogleMediaEnhancementPlayerBridge(
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             retryBlocked = true
-            publish(State.UNSUPPORTED, message = "Google AI enhancement requires Android 11 or newer")
+            publish(GoogleMediaEnhancementState.UNSUPPORTED, message = "Google AI enhancement requires Android 11 or newer")
             return
         }
         if (!player.isCommandAvailable(Player.COMMAND_SET_VIDEO_SURFACE)) {
             retryBlocked = true
-            publish(State.UNSUPPORTED, message = "The current player does not expose video surface routing")
+            publish(GoogleMediaEnhancementState.UNSUPPORTED, message = "The current player does not expose video surface routing")
             return
         }
         if (player.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
             retryBlocked = true
-            publish(State.UNSUPPORTED, message = "AI enhancement is available only for local playback")
+            publish(GoogleMediaEnhancementState.UNSUPPORTED, message = "AI enhancement is available only for local playback")
             return
         }
 
@@ -187,7 +187,7 @@ class GoogleMediaEnhancementPlayerBridge(
             localConfiguration.drmConfiguration != null
         ) {
             retryBlocked = true
-            publish(State.UNSUPPORTED, message = "AI enhancement requires a clear local video")
+            publish(GoogleMediaEnhancementState.UNSUPPORTED, message = "AI enhancement requires a clear local video")
             return
         }
 
@@ -196,20 +196,20 @@ class GoogleMediaEnhancementPlayerBridge(
         }
         val videoSize = player.videoSize
         if (!selectedVideo || videoSize.width <= 0 || videoSize.height <= 0) {
-            publish(State.WAITING_FOR_VIDEO)
+            publish(GoogleMediaEnhancementState.WAITING_FOR_VIDEO)
             return
         }
         if (videoSize.unappliedRotationDegrees != 0 ||
             kotlin.math.abs(videoSize.pixelWidthHeightRatio - 1f) > 0.001f
         ) {
             retryBlocked = true
-            publish(State.UNSUPPORTED, message = "This video requires rotation or pixel-aspect correction")
+            publish(GoogleMediaEnhancementState.UNSUPPORTED, message = "This video requires rotation or pixel-aspect correction")
             return
         }
 
         val output = surfaceView.holder.surface
         if (!output.isValid) {
-            publish(State.WAITING_FOR_VIDEO)
+            publish(GoogleMediaEnhancementState.WAITING_FOR_VIDEO)
             return
         }
 
@@ -219,7 +219,7 @@ class GoogleMediaEnhancementPlayerBridge(
         activeWidth = videoSize.width
         activeHeight = videoSize.height
         originalSurface = output
-        publish(State.CHECKING_DEVICE)
+        publish(GoogleMediaEnhancementState.CHECKING_DEVICE)
 
         val created = try {
             GoogleMediaEnhancementSurfaceBackend(
@@ -241,7 +241,7 @@ class GoogleMediaEnhancementPlayerBridge(
                             try {
                                 player.setVideoSurface(inputSurface)
                                 routedInputSurface = inputSurface
-                                publish(State.WAITING_FOR_FIRST_FRAME)
+                                publish(GoogleMediaEnhancementState.WAITING_FOR_FIRST_FRAME)
                             } catch (error: Throwable) {
                                 fail(request, error.message ?: "Could not route decoded video into Google AI")
                             }
@@ -250,26 +250,26 @@ class GoogleMediaEnhancementPlayerBridge(
 
                     override fun onFirstFrameProcessed(timestampNs: Long) {
                         mainHandler.post {
-                            if (isCurrent(request)) publish(State.ACTIVE)
+                            if (isCurrent(request)) publish(GoogleMediaEnhancementState.ACTIVE)
                         }
                     }
 
                     override fun onModuleInstallRequired() {
                         mainHandler.post {
-                            if (isCurrent(request)) publish(State.INSTALL_REQUIRED)
+                            if (isCurrent(request)) publish(GoogleMediaEnhancementState.INSTALL_REQUIRED)
                         }
                     }
 
                     override fun onModuleInstallProgress(progress: Int) {
                         mainHandler.post {
-                            if (isCurrent(request)) publish(State.INSTALLING, progress)
+                            if (isCurrent(request)) publish(GoogleMediaEnhancementState.INSTALLING, progress)
                         }
                     }
 
                     override fun onModuleInstalled() {
                         mainHandler.post {
                             if (isCurrent(request)) {
-                                publish(State.CHECKING_DEVICE)
+                                publish(GoogleMediaEnhancementState.CHECKING_DEVICE)
                                 backend?.start()
                             }
                         }
@@ -277,7 +277,7 @@ class GoogleMediaEnhancementPlayerBridge(
 
                     override fun onModuleInstallCancelled() {
                         mainHandler.post {
-                            if (isCurrent(request)) publish(State.INSTALL_REQUIRED)
+                            if (isCurrent(request)) publish(GoogleMediaEnhancementState.INSTALL_REQUIRED)
                         }
                     }
 
@@ -286,7 +286,7 @@ class GoogleMediaEnhancementPlayerBridge(
                             if (isCurrent(request)) {
                                 retryBlocked = true
                                 releaseBackend(restoreOutput = true)
-                                publish(State.UNSUPPORTED, message = "This device does not support Google AI enhancement")
+                                publish(GoogleMediaEnhancementState.UNSUPPORTED, message = "This device does not support Google AI enhancement")
                             }
                         }
                     }
@@ -298,7 +298,7 @@ class GoogleMediaEnhancementPlayerBridge(
             )
         } catch (error: Throwable) {
             retryBlocked = true
-            publish(State.FAILED, message = error.message ?: "Could not initialize Google AI enhancement")
+            publish(GoogleMediaEnhancementState.FAILED, message = error.message ?: "Could not initialize Google AI enhancement")
             return
         }
         if (!isCurrent(request)) {
@@ -313,7 +313,7 @@ class GoogleMediaEnhancementPlayerBridge(
         if (!isCurrent(request)) return
         retryBlocked = true
         releaseBackend(restoreOutput = true)
-        publish(State.FAILED, message = reason)
+        publish(GoogleMediaEnhancementState.FAILED, message = reason)
     }
 
     private fun isCurrent(request: Long): Boolean =
