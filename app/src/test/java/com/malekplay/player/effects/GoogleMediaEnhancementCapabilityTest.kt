@@ -11,6 +11,21 @@ import org.robolectric.annotation.Config
 class GoogleMediaEnhancementCapabilityTest {
 
     @Test
+    @Config(sdk = [23])
+    fun androidSixDoesNotLoadTheApi30GoogleClient() {
+        var reported: GoogleMediaEnhancementCapability.Status? = null
+
+        GoogleMediaEnhancementCapability.inspect(RuntimeEnvironment.getApplication()) {
+            reported = it
+        }
+
+        assertEquals(
+            GoogleMediaEnhancementCapability.Status.ANDROID_VERSION_UNSUPPORTED,
+            reported
+        )
+    }
+
+    @Test
     @Config(sdk = [29])
     fun androidTenAndEarlierDoNotInitializeGoogleEnhancementClient() {
         var reported: GoogleMediaEnhancementCapability.Status? = null
