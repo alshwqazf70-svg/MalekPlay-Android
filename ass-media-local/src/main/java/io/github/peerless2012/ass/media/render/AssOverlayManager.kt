@@ -20,18 +20,35 @@ class AssOverlayManager(
     private var subtitleEffect: OverlayEffect? = null
     private var additionalEffects: List<Effect> = emptyList()
 
+    /** True only after setVideoEffects completed successfully on the player looper. */
+    @Volatile
+    var isOperational: Boolean = false
+        private set
+
+    @Volatile
+    var lastApplyFailure: String? = null
+        private set
+
     init {
         AssVideoEffectRegistry.attach(player, this)
         applyEffects()
     }
 
-    fun setAdditionalEffects(effects: List<Effect>) {
-        if (Looper.myLooper() != player.applicationLooper) {
-            Handler(player.applicationLooper).post { setAdditionalEffects(effects) }
-            return
-        }
+    /**
+     * Applies synchronously on ExoPlayer's application looper. Returning success
+     * while merely posting a task made the host report a connected bridge before
+     * Media3 had actually accepted the effect list.
+     */
+    fun setAdditionalEffects(effects: List<Effect>): Boolean {
+        if (Looper.myLooper() != player.applicationLooper) return false
+        val previous = additionalEffects
         additionalEffects = effects.toList()
+        if (applyEffects()) return true
+
+        // Keep the last known-good pipeline if Media3 rejects the new effect list.
+        additionalEffects = previous
         applyEffects()
+        return false
     }
 
     fun enable(renderer: AssRender) {
@@ -53,9 +70,18 @@ class AssOverlayManager(
         applyEffects()
     }
 
-    private fun applyEffects() {
+    private fun applyEffects(): Boolean {
         // Keep image-processing effects first and ASS subtitles last so subtitle
         // glyphs stay crisp and are not blurred or resampled by video filters.
-        player.setVideoEffects(additionalEffects + listOfNotNull(subtitleEffect))
+        return try {
+            player.setVideoEffects(additionalEffects + listOfNotNull(subtitleEffect))
+            isOperational = true
+            lastApplyFailure = null
+            true
+        } catch (error: Exception) {
+            isOperational = false
+            lastApplyFailure = error.javaClass.simpleName + ": " + error.message.orEmpty().take(160)
+            false
+        }
     }
 }
