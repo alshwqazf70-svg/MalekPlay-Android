@@ -113,6 +113,7 @@ import com.malekplay.domain.model.GestureAction
 import com.malekplay.domain.model.MediaItem as DomainMedia
 import com.malekplay.ui.player.PlayerViewModel
 import com.malekplay.player.effects.VideoEnhancementProfile
+import com.malekplay.player.effects.GoogleMediaEnhancementPlayerBridge
 import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.videos.VideoKindClassifier
 import com.malekplay.ui.videos.EpisodeSortKey
@@ -583,6 +584,16 @@ fun VideoPlayerScreen(
 
     // ------------------------------------------------------------ screenshot
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
+    var googleAiEnabled by remember { mutableStateOf(false) }
+    var googleAiState by remember {
+        mutableStateOf(GoogleMediaEnhancementPlayerBridge.State.DISABLED)
+    }
+    var googleAiProgress by remember { mutableIntStateOf(0) }
+    var googleAiMessage by remember { mutableStateOf<String?>(null) }
+    var showGoogleAiInstallDialog by remember { mutableStateOf(false) }
+    var googleAiBridge by remember {
+        mutableStateOf<GoogleMediaEnhancementPlayerBridge?>(null)
+    }
     fun takeScreenshot() {
         val view = playerView ?: return
         scope.launch {
@@ -594,6 +605,64 @@ fun VideoPlayerScreen(
             }
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    LaunchedEffect(googleAiEnabled, controller, playerView) {
+        if (!googleAiEnabled) {
+            googleAiBridge?.close()
+            googleAiBridge = null
+            googleAiState = GoogleMediaEnhancementPlayerBridge.State.DISABLED
+            googleAiProgress = 0
+            googleAiMessage = null
+            showGoogleAiInstallDialog = false
+            return@LaunchedEffect
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            googleAiState = GoogleMediaEnhancementPlayerBridge.State.UNSUPPORTED
+            googleAiMessage = context.getString(R.string.player_google_ai_unsupported)
+            return@LaunchedEffect
+        }
+
+        val activePlayer = controller
+        val activeView = playerView
+        val videoSurface = activeView?.videoSurfaceView as? SurfaceView
+        if (activePlayer == null || videoSurface == null) {
+            googleAiState = GoogleMediaEnhancementPlayerBridge.State.WAITING_FOR_VIDEO
+            return@LaunchedEffect
+        }
+
+        googleAiBridge?.close()
+        googleAiBridge = null
+        googleAiState = GoogleMediaEnhancementPlayerBridge.State.CHECKING_DEVICE
+        googleAiMessage = null
+        val bridge = runCatching {
+            GoogleMediaEnhancementPlayerBridge(
+                context = context,
+                player = activePlayer,
+                surfaceView = videoSurface,
+                listener = object : GoogleMediaEnhancementPlayerBridge.Listener {
+                    override fun onStateChanged(
+                        state: GoogleMediaEnhancementPlayerBridge.State,
+                        progress: Int,
+                        message: String?
+                    ) {
+                        googleAiState = state
+                        googleAiProgress = progress
+                        googleAiMessage = message
+                        if (state == GoogleMediaEnhancementPlayerBridge.State.INSTALL_REQUIRED) {
+                            showGoogleAiInstallDialog = true
+                        }
+                    }
+                }
+            )
+        }.getOrElse { error ->
+            googleAiState = GoogleMediaEnhancementPlayerBridge.State.FAILED
+            googleAiMessage = error.message ?: context.getString(R.string.player_google_ai_failed)
+            return@LaunchedEffect
+        }
+        googleAiBridge = bridge
+        bridge.setEnabled(true)
     }
 
     // ---------------------------------------------------------------- layout
@@ -628,6 +697,8 @@ fun VideoPlayerScreen(
                 playerView = view
             },
             onRelease = { view ->
+                googleAiBridge?.close()
+                googleAiBridge = null
                 view.player = null
                 playerView = null
             }
@@ -950,10 +1021,48 @@ fun VideoPlayerScreen(
                     onClick = { showMenu = false; showVideoDiagnostics = true }
                 )
                 DropdownMenuItem(
+                    text = {
+                        Text(stringResource(
+                            if (googleAiEnabled) R.string.player_google_ai_on
+                            else R.string.player_google_ai_off
+                        ))
+                    },
+                    onClick = {
+                        showMenu = false
+                        if (!googleAiEnabled) {
+                            // Avoid stacking the existing OpenGL effects with the Google AI surface chain.
+                            viewModel.setVideoUpscalingEnabled(false)
+                            viewModel.setVideoNoiseReductionEnabled(false)
+                        }
+                        googleAiEnabled = !googleAiEnabled
+                    }
+                )
+                DropdownMenuItem(
                     text = { Text(stringResource(R.string.player_bookmarks)) },
                     onClick = { showMenu = false; showBookmarks = true }
                 )
             }
+        }
+
+        if (showGoogleAiInstallDialog) {
+            AlertDialog(
+                onDismissRequest = { showGoogleAiInstallDialog = false },
+                title = { Text(stringResource(R.string.player_google_ai_install_title)) },
+                text = { Text(stringResource(R.string.player_google_ai_install_message)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showGoogleAiInstallDialog = false
+                        googleAiBridge?.installModule()
+                    }) {
+                        Text(stringResource(R.string.player_google_ai_install))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showGoogleAiInstallDialog = false }) {
+                        Text(stringResource(R.string.player_google_ai_later))
+                    }
+                }
+            )
         }
 
         if (showVideoDiagnostics) {
@@ -963,6 +1072,22 @@ fun VideoPlayerScreen(
                 title = { Text(stringResource(R.string.player_video_diagnostics)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val googleAiStatusLabel = when (googleAiState) {
+                            GoogleMediaEnhancementPlayerBridge.State.DISABLED -> R.string.player_google_ai_disabled
+                            GoogleMediaEnhancementPlayerBridge.State.WAITING_FOR_VIDEO -> R.string.player_google_ai_waiting
+                            GoogleMediaEnhancementPlayerBridge.State.CHECKING_DEVICE -> R.string.player_google_ai_checking
+                            GoogleMediaEnhancementPlayerBridge.State.INSTALL_REQUIRED -> R.string.player_google_ai_install_required
+                            GoogleMediaEnhancementPlayerBridge.State.INSTALLING -> R.string.player_google_ai_installing
+                            GoogleMediaEnhancementPlayerBridge.State.WAITING_FOR_FIRST_FRAME -> R.string.player_google_ai_first_frame
+                            GoogleMediaEnhancementPlayerBridge.State.ACTIVE -> R.string.player_google_ai_active
+                            GoogleMediaEnhancementPlayerBridge.State.UNSUPPORTED -> R.string.player_google_ai_unsupported
+                            GoogleMediaEnhancementPlayerBridge.State.FAILED -> R.string.player_google_ai_failed
+                        }
+                        Text(stringResource(R.string.player_google_ai_status, stringResource(googleAiStatusLabel)))
+                        if (googleAiState == GoogleMediaEnhancementPlayerBridge.State.INSTALLING) {
+                            Text(stringResource(R.string.player_google_ai_progress, googleAiProgress))
+                        }
+                        googleAiMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         Text(stringResource(if (diagnostics.bridgeAttached) R.string.player_diag_bridge_ready else R.string.player_diag_bridge_missing))
                         Text(stringResource(if (diagnostics.upscalingSubmitted) R.string.player_diag_lanczos_submitted else R.string.player_diag_lanczos_not_submitted))
                         Text(stringResource(R.string.player_diag_denoise_draws, diagnostics.denoiseDraws))
