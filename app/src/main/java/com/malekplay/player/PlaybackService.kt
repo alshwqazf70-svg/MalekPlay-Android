@@ -375,9 +375,10 @@ class PlaybackService : MediaSessionService() {
         putLong(PlaybackVideoEffects.KEY_DIAG_DETAIL_DRAWS, metrics.detailDraws)
         putLong(PlaybackVideoEffects.KEY_DIAG_TOTAL_DRAWS, metrics.processedDraws)
         putString(PlaybackVideoEffects.KEY_DIAG_LAST_EFFECT, metrics.lastEffectName)
+        val bridgeFailure = localExoPlayer?.let(AssVideoEffectRegistry::lastFailure)
         putString(
             PlaybackVideoEffects.KEY_DIAG_LAST_FAILURE,
-            metrics.lastFailure ?: if (!videoEffectsBridgeAttached) {
+            metrics.lastFailure ?: bridgeFailure ?: if (!videoEffectsBridgeAttached) {
                 "effects_bridge_not_registered_or_not_operational"
             } else null
         )
