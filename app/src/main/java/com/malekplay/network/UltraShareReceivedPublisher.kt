@@ -193,13 +193,16 @@ object UltraShareReceivedPublisher {
         }
     }
 
-    private fun copyVerified(source: File, destination: File, expectedBytes: Long) {
+    internal fun copyVerified(source: File, destination: File, expectedBytes: Long) {
         check(source.isFile && source.length() == expectedBytes) {
             "الملف المصدر غير مكتمل."
         }
         check(destination.parentFile?.isDirectory == true || destination.parentFile?.mkdirs() == true) {
             "تعذر إنشاء مجلد حفظ الملف."
         }
+        // Never delete a pre-existing destination: unique-name selection and this
+        // publication step are separated by filesystem activity outside our process.
+        check(!destination.exists()) { "يوجد ملف بهذا الاسم؛ لن نستبدل ملفاً سابقاً." }
         val temporary = File(destination.parentFile, destination.name + ".malekpart")
         try {
             val copied = source.inputStream().use { input ->
@@ -210,7 +213,7 @@ object UltraShareReceivedPublisher {
             check(copied == expectedBytes && temporary.length() == expectedBytes) {
                 "لم يكتمل حفظ الملف المستلم."
             }
-            if (destination.exists()) destination.delete()
+            check(!destination.exists()) { "ظهر ملف آخر بالاسم نفسه؛ لن نستبدله." }
             check(temporary.renameTo(destination)) {
                 "تعذر تثبيت الملف في مجلد التنزيلات."
             }
