@@ -344,14 +344,23 @@ object UltraShareTransport {
 
             check(input.readInt() == MAGIC) { "الجهاز الآخر لا يشغّل MalekPlayer Ultra Share." }
             val challenge = ByteArray(CHALLENGE_BYTES).also(input::readFully)
-            val secret = derivePairingKey(pairingSecret, challenge)
-            val proof = hmac(secret, challenge)
+            var secretToWipe: ByteArray? = null
+            var proofToWipe: ByteArray? = null
+            var noncePrefixToWipe: ByteArray? = null
+            var sendKeyToWipe: ByteArray? = null
+            var receiveKeyToWipe: ByteArray? = null
+            try {
+            val secret = derivePairingKey(pairingSecret, challenge).also { secretToWipe = it }
+            val proof = hmac(secret, challenge).also { proofToWipe = it }
             output.write(proof)
             output.flush()
             check(input.readBoolean()) { "رفض الجهاز المستقبل رمز الاقتران." }
             val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(input::readFully)
+                .also { noncePrefixToWipe = it }
             val sendKey = deriveSessionKey(secret, challenge, "client-to-server")
+                .also { sendKeyToWipe = it }
             val receiveKey = deriveSessionKey(secret, challenge, "server-to-client")
+                .also { receiveKeyToWipe = it }
 
             val metadata = ByteArrayOutputStream().use { bytes ->
                 DataOutputStream(bytes).use { data ->
@@ -403,6 +412,15 @@ object UltraShareTransport {
                 check(accepted) { message.ifBlank { "تعذر التحقق من الملف على الجهاز المستقبل." } }
             }
             onProgress(progress(safeName, sizeBytes, sizeBytes, startedAt, false, offset))
+            } finally {
+                challenge.fill(0)
+                secretToWipe?.fill(0)
+                proofToWipe?.fill(0)
+                noncePrefixToWipe?.fill(0)
+                sendKeyToWipe?.fill(0)
+                receiveKeyToWipe?.fill(0)
+                digest.fill(0)
+            }
         }
     }
 
@@ -447,11 +465,17 @@ object UltraShareTransport {
 
                 output.writeInt(MAGIC)
                 val challenge = ByteArray(CHALLENGE_BYTES).also(SecureRandom()::nextBytes)
-                val secret = derivePairingKey(pairingSecret, challenge)
+                var secretToWipe: ByteArray? = null
+                var proofToWipe: ByteArray? = null
+                var noncePrefixToWipe: ByteArray? = null
+                var receiveKeyToWipe: ByteArray? = null
+                var sendKeyToWipe: ByteArray? = null
+                try {
+                val secret = derivePairingKey(pairingSecret, challenge).also { secretToWipe = it }
                 output.write(challenge)
                 output.flush()
 
-                val suppliedProof = ByteArray(32).also(input::readFully)
+                val suppliedProof = ByteArray(32).also(input::readFully).also { proofToWipe = it }
                 val authenticated = MessageDigest.isEqual(suppliedProof, hmac(secret, challenge))
                 output.writeBoolean(authenticated)
                 output.flush()
@@ -459,10 +483,13 @@ object UltraShareTransport {
                 socket.soTimeout = SOCKET_TIMEOUT_MS
 
                 val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(SecureRandom()::nextBytes)
+                    .also { noncePrefixToWipe = it }
                 output.write(noncePrefix)
                 output.flush()
                 val receiveKey = deriveSessionKey(secret, challenge, "client-to-server")
+                    .also { receiveKeyToWipe = it }
                 val sendKey = deriveSessionKey(secret, challenge, "server-to-client")
+                    .also { sendKeyToWipe = it }
 
                 val metadataBytes = readEncryptedFrame(input, receiveKey, noncePrefix, 0L, 1024)
                 val metadata = DataInputStream(ByteArrayInputStream(metadataBytes))
@@ -622,6 +649,14 @@ object UltraShareTransport {
                 check(verified) { resultMessage }
                 onProgress(progress(fileName, size, size, startedAt, true, offset))
                 ReceivedFile(requireNotNull(finalFile), fileName, size, mime)
+                } finally {
+                    challenge.fill(0)
+                    secretToWipe?.fill(0)
+                    proofToWipe?.fill(0)
+                    noncePrefixToWipe?.fill(0)
+                    receiveKeyToWipe?.fill(0)
+                    sendKeyToWipe?.fill(0)
+                }
             }
         }
     }
