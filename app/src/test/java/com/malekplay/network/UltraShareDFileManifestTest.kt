@@ -88,6 +88,18 @@ class UltraShareDFileManifestTest {
     }
 
     @Test
+    fun rejectsWindowsPathSeparatorsInManifestNames() {
+        assertFalse(
+            runCatching {
+                UltraShareDFileManifest.encode(
+                    listOf(entry("folder\\\\escape.mp4", 1L, ByteArray(32))),
+                    key
+                )
+            }.isSuccess
+        )
+    }
+
+    @Test
     fun verifiesReceivedFileByExactSizeAndSha256() {
         val file = File.createTempFile("dfile-manifest", ".bin")
         try {
