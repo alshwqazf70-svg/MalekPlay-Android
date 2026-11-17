@@ -607,7 +607,7 @@ fun VideoPlayerScreen(
         }
     }
 
-    LaunchedEffect(googleAiEnabled, controller, playerView) {
+    LaunchedEffect(googleAiEnabled, controller, playerView, videoUpscalingEnabled, videoNoiseReductionEnabled) {
         if (!googleAiEnabled) {
             googleAiBridge?.close()
             googleAiBridge = null
@@ -615,6 +615,14 @@ fun VideoPlayerScreen(
             googleAiProgress = 0
             googleAiMessage = null
             showGoogleAiInstallDialog = false
+            return@LaunchedEffect
+        }
+
+        // Wait until the service confirms both OpenGL effects are off before routing
+        // decoded frames into the separate Google AI surface chain.
+        if (videoUpscalingEnabled || videoNoiseReductionEnabled) {
+            viewModel.setVideoUpscalingEnabled(false)
+            viewModel.setVideoNoiseReductionEnabled(false)
             return@LaunchedEffect
         }
 
