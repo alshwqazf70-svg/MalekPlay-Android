@@ -112,7 +112,22 @@ object UltraShareReceivedPublisher {
             }
             values.clear()
             values.put(MediaStore.MediaColumns.IS_PENDING, 0)
-            check(resolver.update(uri, values, null, null) == 1) {
+            val updatedRows = resolver.update(uri, values, null, null)
+            // Some OEM MediaStore providers report zero updated rows even when
+            // the item was finalized. Verify the persisted IS_PENDING state before
+            // treating that response as a failed publication.
+            val isVisible = updatedRows > 0 || runCatching {
+                resolver.query(
+                    uri,
+                    arrayOf(MediaStore.MediaColumns.IS_PENDING),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    cursor.moveToFirst() && cursor.getInt(0) == 0
+                } == true
+            }.getOrDefault(false)
+            check(isVisible) {
                 "تعذر إظهار الملف في مجلد التنزيلات."
             }
             UltraShareDiagnostics.event(
