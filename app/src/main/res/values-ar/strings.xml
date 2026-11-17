@@ -398,6 +398,6 @@
     <string name="player_diag_last_failure">آخر خطأ GPU: %1$s</string>
     <string name="player_diag_waiting_first_frame">تم تفعيل المسار، لكننا ننتظر أول إطار مؤكد من مؤثرات GPU.</string>
     <string name="player_diag_gpu_pipeline_stalled">Media3 يعرض إطارات الفيديو، لكن لم يتم تأكيد معالجة أي إطار بواسطة مؤثرات GPU. افحص مسار المؤثرات أو فك الترميز.</string>
-    <string name="player_diag_lanczos_note">ملاحظة: Media3 لا يكشف عداد رسم Lanczos الداخلي؛ نعرض حالة إرساله للمسار ولا ندّعي عدّ إطاراته.</string>
+    <string name="player_diag_lanczos_note">ملاحظة: Media3 لا يكشف عداد رسم Lanczos الداخلي؛ نعرض حالة إرساله فقط. وعند ظهور عمليات رسم التفاصيل بنجاح فهذا دليل على وصول الإطارات إلى مرحلة لاحقة من سلسلة المؤثرات، وليس عداداً مباشراً لـ Lanczos.</string>
 
 </resources>
