@@ -59,7 +59,10 @@ object UltraShareBatchTransport {
     private const val SESSION_TIMEOUT_MS = 30_000
     // Verification and publication may take longer than an ordinary data-frame gap,
     // especially for multi-gigabyte files on slower storage.
-    private const val FILE_VERIFY_TIMEOUT_MS = 120_000
+    private const val MIN_FILE_VERIFY_TIMEOUT_MS = 120_000
+    // Leave headroom below Android's six-hour dataSync foreground-service limit.
+    private const val MAX_FILE_VERIFY_TIMEOUT_MS = 5 * 60 * 60 * 1_000 + 30 * 60 * 1_000
+    private const val VERIFY_BYTES_PER_SECOND = 2L * 1024L * 1024L
     private const val CHALLENGE_BYTES = 32
     private const val NONCE_PREFIX_BYTES = 4
     private const val TAG_BYTES = 16
@@ -348,7 +351,7 @@ object UltraShareBatchTransport {
             // The receiver may hash existing completed files before it can answer
             // with resume offsets; allow slow storage to finish that preflight.
             readPhase = "RESUME_SCAN"
-            socket.soTimeout = FILE_VERIFY_TIMEOUT_MS
+            socket.soTimeout = verificationTimeoutMillis(manifest.totalBytes)
             val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(input::readFully).also { noncePrefixToWipe = it }
             val sendKey = deriveKey(secret, challenge, "client-to-server").also { sendKeyToWipe = it }
             val receiveKey = deriveKey(secret, challenge, "server-to-client").also { receiveKeyToWipe = it }
@@ -475,7 +478,7 @@ object UltraShareBatchTransport {
             // The receiver verifies SHA-256 and publishes files before sending its final
             // receipt. Allow slower storage to finish, but never wait indefinitely.
             readPhase = "FINAL_RECEIPT"
-            socket.soTimeout = FILE_VERIFY_TIMEOUT_MS
+            socket.soTimeout = verificationTimeoutMillis(manifest.totalBytes)
             val results = decodeResults(
                 readFrame(input, receiveKey, noncePrefix, receiveSequence, UltraShareBatchProtocol.MAX_MANIFEST_BYTES), manifest
             )
@@ -906,6 +909,21 @@ object UltraShareBatchTransport {
             challenge.fill(0)
             proof.fill(0)
         }
+    }
+
+    /**
+     * Hashing completed/resumable files is local-storage work, not network inactivity.
+     * Scale the read deadline with the batch size so multi-gigabyte transfers on slower
+     * devices are not falsely failed after the old fixed two-minute window.
+     */
+    internal fun verificationTimeoutMillis(totalBytes: Long): Int {
+        require(totalBytes >= 0L)
+        val estimatedMillis = kotlin.math.ceil(
+            totalBytes.toDouble() * 1_000.0 / VERIFY_BYTES_PER_SECOND.toDouble()
+        ).toLong()
+        return estimatedMillis
+            .coerceIn(MIN_FILE_VERIFY_TIMEOUT_MS.toLong(), MAX_FILE_VERIFY_TIMEOUT_MS.toLong())
+            .toInt()
     }
 
     private fun decodeOffsets(payload: ByteArray, manifest: UltraShareBatchProtocol.Manifest): Map<String, Long> {
