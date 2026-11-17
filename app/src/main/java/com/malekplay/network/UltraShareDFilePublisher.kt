@@ -14,6 +14,17 @@ import java.util.UUID
  * in the visible receive root; age-based session cleanup removes it later.
  */
 internal object UltraShareDFilePublisher {
+    private val platformHardLink: (File, File) -> Unit = { source, target ->
+        Os.link(source.absolutePath, target.absolutePath)
+    }
+
+    @Volatile
+    internal var hardLinkForPublication: (File, File) -> Unit = platformHardLink
+
+    internal fun resetPublicationHookForTests() {
+        hardLinkForPublication = platformHardLink
+    }
+
     @Synchronized
     internal fun publish(staged: File, destination: File, safeName: String): File? =
         runCatching {
@@ -65,7 +76,7 @@ internal object UltraShareDFilePublisher {
                 check(!target.exists()) {
                     "تغير اسم الوجهة أثناء نشر ملف DFile."
                 }
-                Os.link(temporary.absolutePath, target.absolutePath)
+                hardLinkForPublication(temporary, target)
                 check(target.canonicalFile.parentFile == safeDestination)
                 check(target.isFile && target.length() == safeStaged.length())
                 // Publication is already complete and verified. A failed cache
