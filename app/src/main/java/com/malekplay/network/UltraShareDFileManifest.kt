@@ -139,7 +139,7 @@ internal object UltraShareDFileManifest {
             val encodedName = entry.fileName.toByteArray(StandardCharsets.UTF_8)
             require(encodedName.isNotEmpty() && encodedName.size <= MAX_FILE_NAME_BYTES)
             require(entry.fileName == UltraShareTransport.sanitizeFileName(entry.fileName))
-            require('/' !in entry.fileName && '\\\\' !in entry.fileName)
+            require('/' !in entry.fileName && 92.toChar() !in entry.fileName)
             require(names.add(entry.fileName)) { "تكرّر اسم ملف في بيان DFile." }
             require(entry.sizeBytes in 0..UltraShareTransport.MAX_FILE_BYTES)
             require(entry.sha256.size == DIGEST_BYTES)
