@@ -122,6 +122,7 @@ fun UltraShareExperienceScreen(
     var pendingReceiverStart by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
     var pendingFolderArchive by remember { mutableStateOf<UltraShareTransport.ReceivedFile?>(null) }
+    var pendingReceivedExport by remember { mutableStateOf<com.malekplay.network.UltraShareReceivedEntry?>(null) }
     var selectedUris by remember(initialUris) {
         mutableStateOf(initialUris.distinct().filter { isUltraShareAllowedFile(context, it) })
     }
@@ -260,7 +261,12 @@ fun UltraShareExperienceScreen(
         }
     }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
-        if (uri != null) viewModel.exportReceived(uri)
+        if (uri != null) {
+            val historyEntry = pendingReceivedExport
+            if (historyEntry != null) viewModel.exportReceived(historyEntry, uri)
+            else viewModel.exportReceived(uri)
+        }
+        pendingReceivedExport = null
     }
     val qrScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let(::handleQr)
@@ -988,7 +994,7 @@ fun UltraShareExperienceScreen(
                         }
                     }
                     if (state.requestingConnection) {
-                        StatusPanel("تم إرسال طلب الاتصال", "بانتظار موافقة جهاز الاستقبال", true)
+                        StatusPanel("جارٍ إكمال الاتصال تلقائياً", "يتم التحقق من دعوة QR وتهيئة قناة نقل الملفات؛ لا يحتاج الجهاز الآخر إلى موافقة ثانية.", true)
                     }
                     if (state.blePeers.isNotEmpty()) {
                         Text("أجهزة BLE القريبة (${state.blePeers.size})", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
@@ -1342,7 +1348,28 @@ fun UltraShareExperienceScreen(
                     Text("الملفات المستلمة", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
                     if (state.receivedHistory.isEmpty()) InfoPanel("لا يوجد سجل استقبال", "ستظهر الملفات المستلمة هنا.")
                     state.receivedHistory.take(30).forEach { entry ->
-                        InfoPanel(entry.fileName, formatUltraBytes(entry.sizeBytes) + " • " + java.text.DateFormat.getDateTimeInstance().format(java.util.Date(entry.receivedAtEpochMs)))
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            InfoPanel(
+                                entry.fileName,
+                                formatUltraBytes(entry.sizeBytes) + " • " +
+                                    java.text.DateFormat.getDateTimeInstance().format(java.util.Date(entry.receivedAtEpochMs)) +
+                                    if (entry.isAvailable) "\\nالملف موجود في ذاكرة التطبيق ويمكن تصديره." else "\\nتعذر العثور على الملف الأصلي؛ لن نعرضه كملف محفوظ."
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    pendingReceivedExport = entry
+                                    exportLauncher.launch(entry.fileName)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = entry.isAvailable
+                            ) {
+                                Icon(Icons.Filled.Download, null)
+                                Text("حفظ هذا الملف في التنزيلات أو مجلد تختاره", modifier = Modifier.padding(start = 8.dp))
+                            }
+                        }
                     }
                     if (state.receivedHistory.isNotEmpty()) {
                         OutlinedButton(onClick = viewModel::clearReceivedHistory, modifier = Modifier.fillMaxWidth(), enabled = !state.receiving) { Text("مسح سجل الاستقبال") }
