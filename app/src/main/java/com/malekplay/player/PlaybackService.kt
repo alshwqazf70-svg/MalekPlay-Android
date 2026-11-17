@@ -632,6 +632,12 @@ class PlaybackService : MediaSessionService() {
             // is rejected. Clear that list explicitly after disabling the request so a stale
             // GPU chain cannot keep running while the UI reports that enhancement is off.
             Log.e(TAG, "Video enhancement chain was rejected; disabling the previous effect list")
+            AssVideoEffectRegistry.lastFailure(player)?.let { reason ->
+                VideoEnhancementMetrics.recordFailure(
+                    "effect_apply",
+                    IllegalStateException(reason)
+                )
+            }
             disableAllVideoEnhancements()
             val cleared = runCatching {
                 AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
