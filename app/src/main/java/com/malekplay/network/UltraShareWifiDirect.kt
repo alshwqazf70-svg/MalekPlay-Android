@@ -1614,11 +1614,16 @@ object UltraShareWifiDirect {
                         .orEmpty()
                     val clientCount = clientAddresses.size
                     val expectedPeer = expectedPeerDeviceAddress
-                    val expectedClientPresent = if (expectedPeer.isNullOrBlank()) {
-                        clientCount > 0
-                    } else {
-                        clientAddresses.any { isExpectedWifiDirectPeer(expectedPeer, it) }
-                    }
+                    // P2P MACs can rotate between DNS-SD discovery and group
+                    // formation. A live group with a client is sufficient here;
+                    // the subsequent temporary QR/PIN control handshake authenticates
+                    // the actual peer before any file-transfer endpoint is authorized.
+                    val expectedClientPresent = isReadyWifiDirectOwnerGroup(
+                        groupIsOwner = group?.isGroupOwner == true,
+                        clientCount = clientCount,
+                        pairingAttemptActive = expectedPeer.isNullOrBlank() ||
+                            (connectionInProgress && expectedPeerDeviceAddress == expectedPeer)
+                    )
                     val groupOwnerConfirmed = group?.isGroupOwner == true
                     UltraShareDiagnostics.event(
                         "WIFI_DIRECT",
@@ -1826,6 +1831,12 @@ internal fun isReadyWifiDirectClientGroup(
     groupIsOwner: Boolean,
     pairingAttemptActive: Boolean
 ): Boolean = groupPresent && !groupIsOwner && pairingAttemptActive
+
+internal fun isReadyWifiDirectOwnerGroup(
+    groupIsOwner: Boolean,
+    clientCount: Int,
+    pairingAttemptActive: Boolean
+): Boolean = groupIsOwner && clientCount > 0 && pairingAttemptActive
 
 /** Legacy diagnostic helper; no longer used as a pairing gate. */
 internal fun isExpectedWifiDirectPeer(expectedAddress: String?, actualAddress: String?): Boolean {
