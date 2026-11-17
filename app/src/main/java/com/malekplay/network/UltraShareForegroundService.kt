@@ -1062,46 +1062,8 @@ class UltraShareForegroundService : Service() {
         serviceScope.launch { closeDFileServerForPeer(peerAddress, sessionId) }
     }
 
-    @Synchronized
     private fun publishDFileStagedFile(staged: File, destination: File, safeName: String): File? =
-        runCatching {
-            val safeDestination = destination.canonicalFile
-            val safeStaged = staged.canonicalFile
-            check(safeStaged.parentFile == File(safeDestination, staged.parentFile.name).canonicalFile)
-            check(safeStaged.isFile && safeStaged.length() <= UltraShareTransport.MAX_FILE_BYTES)
-            val extension = safeName.substringAfterLast('.', "").takeIf { it.isNotBlank() }
-            val baseName = if (extension == null) safeName else safeName.removeSuffix(".$extension")
-            var target = File(safeDestination, safeName)
-            var suffix = 1
-            while (target.exists()) {
-                val candidateName = if (extension == null) "$baseName ($suffix)"
-                    else "$baseName ($suffix).$extension"
-                target = File(safeDestination, candidateName)
-                suffix++
-                check(suffix < 10_000) { "تعذر إيجاد اسم ملف متاح." }
-            }
-            val temporary = File(safeDestination, ".${target.name}.${java.util.UUID.randomUUID()}.part")
-            try {
-                staged.inputStream().use { input ->
-                    java.io.FileOutputStream(temporary).use { output ->
-                        input.copyTo(output, UltraShareTransport.CHUNK_BYTES)
-                        output.fd.sync()
-                    }
-                }
-                check(temporary.renameTo(target)) { "تعذر تثبيت الملف المستلم." }
-            } finally {
-                runCatching { temporary.delete() }
-            }
-            check(target.canonicalFile.parentFile == safeDestination)
-            runCatching { staged.delete() }
-            target.canonicalFile
-        }.onFailure { failure ->
-            UltraShareDiagnostics.failure(
-                "DFILE_STAGED_FILE_PUBLICATION",
-                failure,
-                "file=" + safeName + ";staged=" + staged.name
-            )
-        }.getOrNull()
+        UltraShareDFilePublisher.publish(staged, destination, safeName)
 
     private fun closeDFileServerForPeer(peerAddress: String) {
         closeDFileServerForPeer(peerAddress, expectedSessionId = null)
