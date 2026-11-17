@@ -8,19 +8,30 @@ import org.junit.Test
 class UltraShareTransportTest {
 
     @Test
-    fun sharePolicyAllowsAnyOrdinaryFileIncludingPdfPackagesAndUnknownTypes() {
+    fun sharePolicyAllowsOrdinaryFilesButRejectsApkAndPdfByMimeOrExtension() {
         listOf(
             "video/mp4", "video/x-matroska", "audio/mpeg", "image/jpeg",
             "application/zip", "text/plain", "application/octet-stream",
-            "application/pdf", "application/vnd.android.package-archive",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ).forEach { assertTrue(UltraShareTransport.isSupportedShareMimeType(it)) }
-        listOf("video", "audio/", "", "not a mime type")
-            .forEach { assertFalse(UltraShareTransport.isSupportedShareMimeType(it)) }
-        assertTrue(UltraShareTransport.isAllowedShareFile("renamed.apk", "application/octet-stream"))
-        assertTrue(UltraShareTransport.isAllowedShareFile("document.pdf", "application/pdf"))
+        listOf(
+            "video", "audio/", "", "not a mime type", "application/pdf",
+            "application/vnd.android.package-archive"
+        ).forEach { assertFalse(UltraShareTransport.isSupportedShareMimeType(it)) }
+        assertFalse(UltraShareTransport.isAllowedShareFile("renamed.apk", "application/octet-stream"))
+        assertFalse(UltraShareTransport.isAllowedShareFile("document.pdf", "application/octet-stream"))
+        assertFalse(UltraShareTransport.isAllowedShareFile("renamed.bin", "application/pdf"))
+        assertFalse(UltraShareTransport.isAllowedShareFile("renamed.bin", "application/vnd.android.package-archive"))
         assertTrue(UltraShareTransport.isAllowedShareFile("empty.file", "application/octet-stream"))
         assertFalse(UltraShareTransport.isAllowedShareFile("", "application/octet-stream"))
+    }
+
+    @Test
+    fun strictUtf8DecoderRejectsMalformedAndUnmappableByteSequences() {
+        assertEquals("ملف.mp4", UltraShareTransport.decodeUtf8Strict("ملف.mp4".toByteArray(Charsets.UTF_8)))
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            UltraShareTransport.decodeUtf8Strict(byteArrayOf(0xC3.toByte(), 0x28))
+        }
     }
 
     @Test
