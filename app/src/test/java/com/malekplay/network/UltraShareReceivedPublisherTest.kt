@@ -41,4 +41,26 @@ class UltraShareReceivedPublisherTest {
             UltraShareReceivedPublisher.legacyDownloadsSubdirectory("Download/MalekPlayer/Received")
         )
     }
+
+    @Test
+    fun publicationNeverDeletesAnExistingDestinationFile() {
+        val directory = Files.createTempDirectory("malekplayer-received-no-overwrite").toFile()
+        try {
+            val source = File(directory, "incoming.part").apply { writeText("new received content") }
+            val destination = File(directory, "movie.mp4").apply { writeText("keep existing content") }
+
+            val failure = runCatching {
+                UltraShareReceivedPublisher.copyVerified(
+                    source,
+                    destination,
+                    source.length()
+                )
+            }.exceptionOrNull()
+
+            org.junit.Assert.assertTrue(failure != null)
+            assertEquals("keep existing content", destination.readText())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
 }
