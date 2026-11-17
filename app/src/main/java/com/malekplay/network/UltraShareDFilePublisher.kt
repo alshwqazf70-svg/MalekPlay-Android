@@ -1,5 +1,6 @@
 package com.malekplay.network
 
+import android.system.Os
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -57,15 +58,14 @@ internal object UltraShareDFilePublisher {
                     }
                 }
 
-                // Every DFile publication in this process uses this serialized
-                // entry point. Recheck immediately before rename to avoid replacing
-                // a file created by another app-side publisher.
+                // link(2) creates the destination atomically and fails with EEXIST;
+                // unlike File.renameTo(), it cannot replace a file created between
+                // the existence check and publication. Both paths are on the same
+                // app-private filesystem because the temporary lives under destination.
                 check(!target.exists()) {
                     "تغير اسم الوجهة أثناء نشر ملف DFile."
                 }
-                check(temporary.renameTo(target)) {
-                    "تعذر تثبيت الملف المستلم بأمان."
-                }
+                Os.link(temporary.absolutePath, target.absolutePath)
                 check(target.canonicalFile.parentFile == safeDestination)
                 check(target.isFile && target.length() == safeStaged.length())
                 // Publication is already complete and verified. A failed cache
