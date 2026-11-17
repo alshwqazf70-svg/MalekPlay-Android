@@ -233,8 +233,9 @@ class GoogleMediaEnhancementPlayerBridge(
                 listener = object : GoogleMediaEnhancementSurfaceBackend.Listener {
                     override fun onReady(inputSurface: Surface) {
                         mainHandler.post {
-                            if (!isCurrent(request) || !output.isValid) {
-                                releaseBackend(restoreOutput = false)
+                            if (!isCurrent(request)) return@post
+                            if (!output.isValid) {
+                                fail(request, "The original video output surface was destroyed")
                                 return@post
                             }
                             try {
