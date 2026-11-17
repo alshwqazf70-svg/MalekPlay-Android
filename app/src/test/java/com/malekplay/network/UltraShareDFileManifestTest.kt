@@ -49,8 +49,8 @@ class UltraShareDFileManifestTest {
             listOf(entry("video.mp4", 5L, ByteArray(32))),
             key
         )
-        val replacement = if (encoded.last() == 'A') 'B' else 'A'
-        val tampered = encoded.dropLast(1) + replacement
+        val replacement = if (encoded.first() == 'A') 'B' else 'A'
+        val tampered = replacement + encoded.drop(1)
 
         assertNull(UltraShareDFileManifest.decode(tampered, key))
     }
