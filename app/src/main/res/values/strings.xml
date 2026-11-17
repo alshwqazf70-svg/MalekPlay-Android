@@ -398,6 +398,6 @@
     <string name="player_diag_last_failure">Last GPU error: %1$s</string>
     <string name="player_diag_waiting_first_frame">Pipeline accepted; waiting for the first confirmed GPU effect frame.</string>
     <string name="player_diag_gpu_pipeline_stalled">Media3 is rendering video frames, but no custom GPU effect draw has been confirmed. Check the effect pipeline/decoder path.</string>
-    <string name="player_diag_lanczos_note">Note: Media3 does not expose an internal Lanczos draw counter. This reports pipeline submission, not a fabricated frame count.</string>
+    <string name="player_diag_lanczos_note">Note: Media3 exposes no internal Lanczos draw counter, so submission is reported separately. Successful detail-shader draws show frames reached a later stage in the same effect chain; they are not a direct Lanczos frame counter.</string>
 
 </resources>
