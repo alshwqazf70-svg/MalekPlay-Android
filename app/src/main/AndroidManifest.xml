@@ -69,6 +69,7 @@
     -->
     <application
         android:name=".MalekPlayApplication"
+        android:hardwareAccelerated="true"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -79,6 +80,16 @@
         android:theme="@style/Theme.MalekPlay"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
+
+        <!-- Optional Google on-device AI enhancement acceleration libraries. -->
+        <meta-data
+            android:name="com.google.android.gms.version"
+            android:value="@integer/google_play_services_version" />
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-car.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
+        <uses-native-library android:name="libGLESv2.so" android:required="false" />
+        <uses-native-library android:name="libGLESv3.so" android:required="false" />
 
         <!-- Google Cast discovery and the default media receiver configuration. -->
         <meta-data
