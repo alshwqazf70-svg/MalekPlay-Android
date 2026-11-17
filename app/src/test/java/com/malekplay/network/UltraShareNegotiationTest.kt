@@ -45,6 +45,30 @@ class UltraShareNegotiationTest {
         assertEquals(38742, UltraShareNegotiation.dataPortForHost("192.168.1.99", candidates, 38742))
     }
 
+    @Test fun rejectsPublicOrNonPrivateEndpointsDuringOfferEncodingAndDecoding() {
+        val publicCandidate = UltraShareNegotiation.Candidate(
+            UltraShareNegotiation.Transport.WLAN,
+            "8.8.8.8",
+            38743
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            UltraShareNegotiation.encode(
+                UltraShareNegotiation.Offer("peer", "Receiver", listOf(publicCandidate))
+            )
+        }
+
+        assertNull(
+            UltraShareNegotiation.decode(
+                "MPULTRA_OFFER|2|peer|Receiver|1|WLAN,8.8.8.8,38743,1,1,0"
+            )
+        )
+        assertNull(
+            UltraShareNegotiation.decode(
+                "MPULTRA_OFFER|2|peer|Receiver|1|WLAN,127.0.0.1,38743,1,1,0"
+            )
+        )
+    }
+
     @Test fun selectsOnlyReachableCandidatesInPreferredOrder() {
         val candidates = listOf(
             UltraShareNegotiation.Candidate(
