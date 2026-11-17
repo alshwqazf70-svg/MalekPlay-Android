@@ -4,13 +4,29 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.After
+import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class UltraShareDFilePublisherTest {
+    @Before
+    fun useJvmHardLinksForUnitTests() {
+        UltraShareDFilePublisher.hardLinkForPublication = { source, target ->
+            Files.createLink(target.toPath(), source.toPath())
+            Unit
+        }
+    }
+
+    @After
+    fun restorePlatformHardLinkImplementation() {
+        UltraShareDFilePublisher.resetPublicationHookForTests()
+    }
+
     @Test
     fun existingDestinationIsPreservedAndIncomingFileGetsUniqueName() {
         val root = createTempDir(prefix = "dfile-publish-")
