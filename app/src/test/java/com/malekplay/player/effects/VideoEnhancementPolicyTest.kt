@@ -90,6 +90,29 @@ class VideoEnhancementPolicyTest {
         assertEquals(null, VideoUpscaleTargetPolicy.resolve(1920, 1080, 2960, 1440, 1920))
     }
 
+    @Test fun fourByThreeSourceUsesDisplayBudgetWithoutChangingSourceAspectRatio() {
+        val target = VideoUpscaleTargetPolicy.resolve(640, 480, 2400, 1080, 1920)
+        assertEquals(1920, target?.longEdge)
+        assertEquals(864, target?.shortEdge)
+    }
+
+    @Test fun portraitSourceAndPortraitDisplayKeepFlexibleOrientationTarget() {
+        val target = VideoUpscaleTargetPolicy.resolve(360, 640, 1080, 2400, 1920)
+        assertEquals(864, target?.longEdge)
+        assertEquals(1920, target?.shortEdge)
+    }
+
+    @Test fun ultrawideLowResolutionSourceRespectsTextureBudget() {
+        val target = VideoUpscaleTargetPolicy.resolve(1280, 540, 2960, 1440, 1920)
+        assertEquals(1920, target?.longEdge)
+        assertEquals(933, target?.shortEdge)
+    }
+
+    @Test fun highResolutionSourceIsNeverUpscaledOrForcedIntoSmallerTextureTarget() {
+        assertEquals(null, VideoUpscaleTargetPolicy.resolve(3840, 2160, 2960, 1440, 1920))
+        assertEquals(null, VideoUpscaleTargetPolicy.resolve(7680, 4320, 2960, 1440, 1920))
+    }
+
     @Test fun invalidVideoOrDisplaySizeDisablesUpscalingSafely() {
         assertEquals(null, VideoUpscaleTargetPolicy.resolve(0, 360, 2960, 1440, 1920))
     }
