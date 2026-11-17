@@ -2138,8 +2138,10 @@ class UltraShareForegroundService : Service() {
                     failure,
                     "activeHost=" + activeHost + ";retry=" + retry + ";expectedPeerId=" + (expectedPeerId ?: "missing")
                 )
-                val isImmediateConnectFailure = failure is java.net.ConnectException
-                if (!isImmediateConnectFailure && retry < 2) {
+                // A successful preflight probe can race with listener restart or a
+                // Wi-Fi route transition. Treat connection-refused like other transient
+                // I/O failures and retry the authenticated path before abandoning it.
+                if (retry < 2) {
                     retry++
                     var samePathReady = UltraShareControlChannel.isSessionActive(activeHost)
                     if (!samePathReady) {
