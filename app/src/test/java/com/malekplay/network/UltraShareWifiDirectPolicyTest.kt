@@ -61,4 +61,15 @@ class UltraShareWifiDirectPolicyTest {
         assertFalse(isRetryableUltraSharePairingFailure(IllegalArgumentException("invalid QR")))
         assertFalse(isRetryableUltraSharePairingFailure(SecurityException("permission denied")))
     }
+    @Test
+    fun retriesTransientWifiDirectFrameworkErrorsAcrossAndroidVersions() {
+        assertTrue(shouldRetryWifiDirectConnectFailure(0, 0)) // ERROR (reason 0)
+        assertTrue(shouldRetryWifiDirectConnectFailure(2, 1)) // BUSY
+        assertTrue(shouldRetryWifiDirectConnectFailure(0, 2))
+        assertFalse(shouldRetryWifiDirectConnectFailure(0, 3))
+        assertFalse(shouldRetryWifiDirectConnectFailure(1, 0)) // unsupported hardware
+        assertFalse(shouldRetryWifiDirectConnectFailure(3, 0)) // no service request
+        assertFalse(shouldRetryWifiDirectConnectFailure(2, -1))
+    }
+
 }
