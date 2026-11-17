@@ -2438,10 +2438,10 @@ class UltraShareForegroundService : Service() {
                 return null
             }
             payloadAccepted.set(true)
-            val totalBytes = sources.sumOf { it.sizeBytes.coerceAtLeast(0L) }
-            val timeoutMillis = (60_000L + totalBytes / (256L * 1024L) * 1_000L)
-                .coerceAtMost(30L * 60L * 1_000L)
-            val transferSucceeded = withTimeoutOrNull(timeoutMillis) {
+            val timeoutMillis = UltraShareDFileTimeoutPolicy.completionTimeoutMillis(
+                sources.map { it.sizeBytes }
+            )
+            val transferSucceeded = withTimeoutOrNull(timeoutMillis.toLong()) {
                 completed.await()
             } ?: false
             if (!transferSucceeded) {
