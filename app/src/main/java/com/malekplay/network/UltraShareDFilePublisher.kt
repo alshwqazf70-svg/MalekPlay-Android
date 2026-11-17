@@ -27,7 +27,8 @@ internal object UltraShareDFilePublisher {
 
     @Synchronized
     internal fun publish(staged: File, destination: File, safeName: String): File? =
-        runCatching {
+        UltraShareTransport.withDestinationPublicationLock(destination) {
+            runCatching {
             val safeDestination = destination.canonicalFile
             val safeStaged = staged.canonicalFile
             require(safeDestination.isDirectory)
@@ -106,7 +107,8 @@ internal object UltraShareDFilePublisher {
             } finally {
                 runCatching { temporary.delete() }
             }
-        }.getOrNull()
+            }.getOrNull()
+        }
 
     private const val MAX_NAME_ATTEMPTS = 10_000
 }
