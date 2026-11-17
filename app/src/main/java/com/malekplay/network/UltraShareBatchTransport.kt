@@ -312,6 +312,21 @@ object UltraShareBatchTransport {
                 )
                 runCatching { candidate.close() }
                 connectFailure = failure
+            } catch (failure: RuntimeException) {
+                // Stale/OEM Network handles can throw while binding before connect().
+                // Treat only route-state/argument failures as a failed candidate; do not
+                // hide permission errors, cancellation, or programming defects.
+                if (failure is kotlinx.coroutines.CancellationException ||
+                    (failure !is IllegalStateException && failure !is IllegalArgumentException)
+                ) throw failure
+                val routeFailure = IOException("Android network route is no longer usable.", failure)
+                UltraShareDiagnostics.failure(
+                    "DATA_SEND_ROUTE_" + routeIndex,
+                    routeFailure,
+                    "peerHost=" + host + ";port=" + port + ";networkHandle=" + (route?.networkHandle ?: 0L)
+                )
+                runCatching { candidate.close() }
+                connectFailure = routeFailure
             }
         }
         val socket = connectedSocket ?: run {
