@@ -253,4 +253,17 @@ class UltraShareBatchEndToEndTest {
             receivedDirectory.deleteRecursively()
         }
     }
+    @Test
+    fun emptyMediaIsAcceptedButWrongMediaFamilyIsRejected() {
+        val empty = File.createTempFile("ultrashare-empty-", ".mp3")
+        try {
+            assertEquals(0, empty.writeBytes(byteArrayOf()))
+            assertTrue(UltraShareMediaSignature.isValid(empty, "empty.mp3", "audio/mpeg"))
+            assertFalse(UltraShareMediaSignature.isValid(empty, "empty.pdf", "application/pdf"))
+            assertFalse(UltraShareMediaSignature.isValid(empty, "empty.mp3", "video/mp4"))
+        } finally {
+            empty.delete()
+        }
+    }
+
 }
