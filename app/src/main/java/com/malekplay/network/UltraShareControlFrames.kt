@@ -28,7 +28,7 @@ object UltraShareControlFrames {
     const val MAX_PLAINTEXT_BYTES = 16 * 1024
     const val MAX_WIRE_BYTES = HEADER_BYTES + MAX_PLAINTEXT_BYTES + TAG_BYTES
 
-    class Session private constructor(
+    class Session internal constructor(
         private val sendKey: ByteArray,
         private val receiveKey: ByteArray,
         private val sendPrefix: ByteArray,
