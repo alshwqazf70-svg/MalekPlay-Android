@@ -49,7 +49,6 @@ fun SendFileScreen(
     libraryError: String?,
     onLoadPhoneMedia: (MediaType) -> Unit,
     onPickMedia: (Array<String>) -> Unit,
-    onPickFolder: () -> Unit,
     onScanQr: () -> Unit,
     onShowNearby: () -> Unit,
     onOpenDevicePicker: () -> Unit,
@@ -77,12 +76,12 @@ fun SendFileScreen(
                 Icon(Icons.Filled.Image, null); Text("صور")
             }
         }
-        OutlinedButton(onClick = { onPickMedia(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
-            Text("اختيار جميع أنواع الملفات")
-        }
-        OutlinedButton(onClick = onPickFolder, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
-            Icon(Icons.Filled.FolderOpen, null)
-            Text("إرسال مجلد كامل مع الحفاظ على بنيته")
+        OutlinedButton(
+            onClick = { onPickMedia(arrayOf("video/*", "audio/*", "image/*")) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.sending
+        ) {
+            Text("اختيار فيديو أو موسيقى أو صورة")
         }
         if (libraryLoading) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
