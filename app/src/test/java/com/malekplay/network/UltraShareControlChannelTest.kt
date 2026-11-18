@@ -352,4 +352,51 @@ class UltraShareControlChannelTest {
         }
     }
 
+
+    @Test
+    fun meshListenerAcceptsOnlyTheCredentialForTheAnnouncedMember() = runBlocking {
+        val port = ServerSocket(0).use { it.localPort }
+        val roomKey = ByteArray(32) { it.toByte() }
+        val authorityId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        val memberId = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        val roomId = "cccccccccccc4ccc8ccccccccccccccc"
+        val secret = UltraShareMeshLinkCredential.derivePairingSecret(
+            roomId, roomKey, authorityId, memberId
+        )
+        val ready = CompletableDeferred<UltraShareControlChannel.Request>()
+        val server = async {
+            UltraShareControlChannel.serveOnce(
+                pairingSecret = null,
+                port = port,
+                localPeerId = authorityId,
+                pairingSecretResolver = { announcedId ->
+                    if (announcedId == memberId) secret else null
+                },
+                onSessionReady = { ready.complete(it) },
+                onRequest = { UltraShareControlChannel.Decision.ACCEPTED }
+            )
+        }
+        delay(150)
+        try {
+            assertEquals(
+                UltraShareControlChannel.Decision.ACCEPTED,
+                UltraShareControlChannel.request(
+                    host = "127.0.0.1",
+                    pairingSecret = secret,
+                    peerName = "Mesh peer",
+                    port = port,
+                    peerId = memberId,
+                    notifyClientSessionReady = false
+                )
+            )
+            assertEquals(memberId, withTimeout(3_000L) { ready.await() }.peerId)
+            assertEquals(memberId, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
+        } finally {
+            roomKey.fill(0)
+            UltraShareControlChannel.closeSession("127.0.0.1")
+            UltraShareControlChannel.closeServerSession("127.0.0.1")
+            server.cancelAndJoin()
+        }
+    }
+
 }
