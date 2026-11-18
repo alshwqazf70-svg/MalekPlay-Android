@@ -322,7 +322,10 @@ object UltraShareDiscovery {
                         // can still be attempted; the V2 sender reports the data-plane mismatch later.
                         val legacy = decodeLegacyOffer(message, host) ?: return@forEach
                         if (host !in v2SourceHosts) {
-                            peers.putIfAbsent(identityKey(legacy), legacy)
+                            val legacyIdentity = identityKey(legacy)
+                            if (!peers.containsKey(legacyIdentity)) {
+                                peers[legacyIdentity] = legacy
+                            }
                         }
                     } catch (_: SocketTimeoutException) {
                         // Continue polling the remaining network-bound sockets.
