@@ -553,7 +553,8 @@ def _unique_v2_destination(directory: Path, filename: str) -> Path:
 
 
 def receive_batch_v2(port: int, secret: str, directory: Path,
-                     peer_identity: str | None = None) -> list[dict]:
+                     peer_identity: str | None = None,
+                     on_listening=None) -> list[dict]:
     """Accept one Android V2 batch. Call repeatedly from a receiver loop.
 
     The Android control channel must already have approved the peer before it
@@ -566,6 +567,8 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind(("0.0.0.0", port))
         server.listen(8)
+        if on_listening is not None:
+            on_listening(server.getsockname()[1])
         server.settimeout(1.0)
         while True:
             try:
@@ -902,7 +905,7 @@ def _write_java_utf_socket(sock: socket.socket, value: str) -> None:
 
 
 def serve_control_once(port: int, secret: str, local_name: str,
-                       approve: callable) -> None:
+                       approve: callable, on_listening=None) -> None:
     """Serve one Android MPC2 control request and retain approved heartbeat."""
     safe_local_name = str(local_name)[:48]
     while safe_local_name and len(safe_local_name.encode("utf-8")) > 96:
@@ -916,6 +919,8 @@ def serve_control_once(port: int, secret: str, local_name: str,
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind(("0.0.0.0", port))
         server.listen(8)
+        if on_listening is not None:
+            on_listening(server.getsockname()[1])
         server.settimeout(1.0)
         while True:
             try:
