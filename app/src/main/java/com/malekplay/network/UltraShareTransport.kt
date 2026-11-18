@@ -173,7 +173,22 @@ object UltraShareTransport {
         }
     }
 
-    /** Reject executable packages and PDF documents while allowing other ordinary files. */
+    private val MEDIA_EXTENSIONS = setOf(
+        "mp4", "m4v", "mkv", "mov", "webm", "avi", "3gp", "3g2", "mpg", "mpeg",
+        "ts", "mts", "m2ts", "wmv", "flv", "ogv",
+        "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr",
+        "aiff", "aif", "mid", "midi",
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff"
+    )
+    private val BLOCKED_EXTENSIONS = setOf(
+        "apk", "aab", "dex", "jar", "exe", "msi", "bat", "cmd", "sh",
+        "pdf", "zip", "rar", "7z", "tar", "gz", "bz2", "xz"
+    )
+
+    /** Accept media MIME families only; SVG is excluded because it can contain active content. */
+    fun isSupportedShareMimeType(raw: String): Boolean {
+        val candidate = raw.trim().lowercase(Locale.ROOT)
+        val token = "[A-Za-z0-9!#    /** Reject executable packages and PDF documents while allowing other ordinary files. */
     fun isSupportedShareMimeType(raw: String): Boolean {
         val candidate = raw.trim().lowercase(Locale.ROOT)
         val token = "[A-Za-z0-9!#$&^_.+-]+"
@@ -188,6 +203,29 @@ object UltraShareTransport {
         if (fileName.isBlank() || !isSupportedShareMimeType(mimeType)) return false
         val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
         return extension != "apk" && extension != "pdf"
+    }
+
+    @Deprecated("Use isSupportedShareMimeType.")
+    fun isSupportedMediaMimeType(raw: String): Boolean = isSupportedShareMimeType(raw)
+^_.+-]+"
+        if (candidate.length !in 3..160 || !Regex("^$token/$token$").matches(candidate)) return false
+        if (candidate == "image/svg+xml") return false
+        return candidate.substringBefore('/') in setOf("video", "audio", "image")
+    }
+
+    /**
+     * Enforce media-only sharing at the protocol boundary, not just in the picker.
+     * Some document providers label ordinary media as application/octet-stream;
+     * allow that fallback only when the filename has a known media extension.
+     */
+    fun isAllowedShareFile(fileName: String, mimeType: String): Boolean {
+        if (fileName.isBlank()) return false
+        val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        if (extension in BLOCKED_EXTENSIONS) return false
+        if (isSupportedShareMimeType(mimeType)) return true
+        val mime = mimeType.trim().lowercase(Locale.ROOT)
+        return mime in setOf("application/octet-stream", "application/unknown") &&
+            extension in MEDIA_EXTENSIONS
     }
 
     @Deprecated("Use isSupportedShareMimeType.")
