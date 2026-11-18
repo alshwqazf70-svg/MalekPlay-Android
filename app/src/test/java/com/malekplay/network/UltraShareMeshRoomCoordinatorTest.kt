@@ -2,6 +2,7 @@ package com.malekplay.network
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -85,6 +86,33 @@ class UltraShareMeshRoomCoordinatorTest {
                 joiner.acceptRosterUpdate(a, update)
             }
         } finally { authority.close(); joiner.close() }
+    }
+
+    @Test fun authorityRemovesDisconnectedMembersAndCanInviteReplacement() {
+        val authority = UltraShareMeshRoomCoordinator(a)
+        try {
+            authority.createAuthorityRoom(peer(a, "192.168.1.10"), 1_800_000_000_000L)
+            authority.upsertMember(b, peer(b, "192.168.1.11"))
+            authority.upsertMember(c, peer(c, "192.168.1.12"))
+
+            val updated = authority.removeMember(b)
+            assertEquals(UltraShareMeshControlProtocol.Type.ROSTER_UPDATE, updated?.type)
+            assertEquals(4L, updated?.revision)
+            val roster = UltraShareMeshRoster.decode(
+                requireNotNull(updated).payload.toString(Charsets.UTF_8),
+                authority.createKeyOffer().payload
+            )
+            assertEquals(setOf(a.replace("-", ""), c.replace("-", "")),
+                roster?.members?.map { it.peerId }?.toSet())
+
+            assertNull(authority.removeMember(c))
+            assertEquals(1, authority.state().members.size)
+            assertEquals(5L, authority.state().revision)
+
+            authority.upsertMember(b, peer(b, "192.168.1.11"))
+            assertEquals(6L, authority.state().revision)
+            assertEquals(2, authority.state().members.size)
+        } finally { authority.close() }
     }
 
     @Test fun authorityRejectsUnboundOrSelfPeerRegistration() {
