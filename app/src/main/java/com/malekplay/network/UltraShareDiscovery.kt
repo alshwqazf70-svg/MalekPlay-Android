@@ -112,13 +112,11 @@ object UltraShareDiscovery {
 
     suspend fun advertiseWhileReceiving(
         transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT,
-        legacyTransferPort: Int = 38741,
         context: Context? = null,
         displayName: String = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlayer Android",
         transferPortProvider: (() -> Int)? = null
     ) = withContext(Dispatchers.IO) {
         require(transferPort in 1..65535)
-        require(legacyTransferPort in 1..65535)
         val peerId = context?.let(::stablePeerId) ?: UUID.randomUUID().toString()
         val safeDisplayName = displayName.trim().take(64).ifBlank { "MalekPlayer Android" }
         fun routeFingerprint(routes: List<BroadcastRoute>): List<String> =
@@ -188,10 +186,10 @@ object UltraShareDiscovery {
                         val request = packet.data.copyOfRange(packet.offset, packet.offset + packet.length)
                             .toString(Charsets.UTF_8)
                         when (request) {
-                            PROBE_V1 -> {
-                                val response = "$OFFER_PREFIX_V1$legacyTransferPort|MalekPlayer".toByteArray(Charsets.UTF_8)
-                                socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
-                            }
+                            // Do not advertise a legacy data listener that this V2-only
+                            // receiver no longer hosts. V1 discovery remains enabled on
+                            // the scanning side so older receivers can still be paired.
+                            PROBE_V1 -> Unit
                             PROBE_V2 -> {
                                 val advertisedPort = transferPortProvider?.invoke() ?: transferPort
                                 if (advertisedPort in 1..65535) {
