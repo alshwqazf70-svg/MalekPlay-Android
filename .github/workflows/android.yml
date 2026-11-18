@@ -217,6 +217,12 @@ jobs:
           java-version: "17"
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v5
+      - name: Set up Python for Kotlin-Python V2 socket interoperability tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python V2 receiver dependency
+        run: python -m pip install -r desktop/requirements.txt
       - name: Accept Android SDK licenses
         shell: bash
         run: |
@@ -225,7 +231,9 @@ jobs:
       - name: Install Android SDK packages required by Gradle
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
-      - name: Run JVM unit tests
+      - name: Run JVM unit tests including Kotlin-Python V2 TCP interoperability
+        env:
+          ULTRASHARE_CROSS_LANG: "1"
         run: ./gradlew --build-cache --stacktrace --max-workers=2 :app:testDebugUnitTest
       - name: Upload JVM unit test reports
         if: always()
