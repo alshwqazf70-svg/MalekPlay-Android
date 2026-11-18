@@ -648,6 +648,10 @@ object UltraShareControlChannel {
             .map { it.key }
             .toList()
 
+    /** Stable identity for either side of an approved MPC2 session at this peer host. */
+    fun authenticatedPeerIdForHost(host: String): String? =
+        serverSessionPeerIds[host] ?: clientSessions[host]?.peerId
+
     /** Stable authenticated sender identity survives WLAN/Hotspot/Wi-Fi Direct IP changes. */
     fun serverSessionIdentity(host: String): String? = serverSessionPeerIds[host]
 
