@@ -43,29 +43,15 @@ jobs:
         run: |
           set +o pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-      - name: Install Android SDK and native build tools
+      - name: Install Android SDK platform and build tools
         run: |
-          set -euo pipefail
-          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          packages=("platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1")
-          for attempt in 1 2 3; do
-            if "$sdkmanager" "${packages[@]}"; then
-              exit 0
-            fi
-            echo "Android SDK/NDK installation failed (attempt ${attempt}/3); clearing incomplete downloads before retry." >&2
-            rm -rf "$ANDROID_HOME/ndk/27.2.12479018" "$ANDROID_HOME/.temp" "$HOME/.android/cache"
-            sleep $((attempt * 5))
-          done
-          echo "Unable to install the pinned Android NDK after three attempts." >&2
-          exit 1
-      - name: Prepare pinned NSTACKX source trees
-        run: bash scripts/prepare_nstackx_sources.sh
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
       - name: Assemble universal Debug APK
         run: |
           ./gradlew --stacktrace --max-workers=2 \
             -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" \
             -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" \
-            -PenableNstackxNativeBuild=true :app:assembleDebug
+            :app:assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
       - name: Prepare compressed universal install package
@@ -128,29 +114,15 @@ jobs:
         run: |
           set +o pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-      - name: Install Android SDK and native build tools
+      - name: Install Android SDK platform and build tools
         run: |
-          set -euo pipefail
-          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          packages=("platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1")
-          for attempt in 1 2 3; do
-            if "$sdkmanager" "${packages[@]}"; then
-              exit 0
-            fi
-            echo "Android SDK/NDK installation failed (attempt ${attempt}/3); clearing incomplete downloads before retry." >&2
-            rm -rf "$ANDROID_HOME/ndk/27.2.12479018" "$ANDROID_HOME/.temp" "$HOME/.android/cache"
-            sleep $((attempt * 5))
-          done
-          echo "Unable to install the pinned Android NDK after three attempts." >&2
-          exit 1
-      - name: Prepare pinned NSTACKX source trees
-        run: bash scripts/prepare_nstackx_sources.sh
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
       - name: Assemble a single universal minified Release APK
         run: |
           ./gradlew --stacktrace --max-workers=2 \
             -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" \
             -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" \
-            -PenableNstackxNativeBuild=true :app:assembleRelease
+            :app:assembleRelease
       - name: Verify and measure optimized Release APKs
         shell: bash
         run: |
@@ -200,29 +172,15 @@ jobs:
         run: |
           set +o pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-      - name: Install Android SDK and native build tools
+      - name: Install Android SDK platform and build tools
         run: |
-          set -euo pipefail
-          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          packages=("platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1")
-          for attempt in 1 2 3; do
-            if "$sdkmanager" "${packages[@]}"; then
-              exit 0
-            fi
-            echo "Android SDK/NDK installation failed (attempt ${attempt}/3); clearing incomplete downloads before retry." >&2
-            rm -rf "$ANDROID_HOME/ndk/27.2.12479018" "$ANDROID_HOME/.temp" "$HOME/.android/cache"
-            sleep $((attempt * 5))
-          done
-          echo "Unable to install the pinned Android NDK after three attempts." >&2
-          exit 1
-      - name: Prepare pinned NSTACKX source trees
-        run: bash scripts/prepare_nstackx_sources.sh
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
       - name: Assemble Google Play Android App Bundle
         run: |
           ./gradlew --stacktrace --max-workers=2 \
             -PmalekplayVersionCode="$GITHUB_RUN_NUMBER" \
             -PmalekplayVersionName="2.0.$GITHUB_RUN_NUMBER" \
-            -PenableNstackxNativeBuild=true :app:bundleRelease
+            :app:bundleRelease
           aab="$(find app/build/outputs/bundle/release -type f -name '*.aab' -print -quit)"
           test -n "$aab"
           test -s "$aab"
