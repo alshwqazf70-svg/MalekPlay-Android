@@ -1,6 +1,6 @@
 package com.malekplay.ui.network
 
-import com.malekplay.network.UltraShareTransport
+import com.malekplay.network.UltraShareCore
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import android.net.Uri
@@ -127,7 +127,7 @@ fun SendFileScreen(
             Button(colors = ultraShareButtonColors(),
                 onClick = onRequestConnection,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret) && !state.requestingConnection
+                enabled = host.isNotBlank() && UltraShareCore.isValidPairingSecret(secret) && !state.requestingConnection
             ) { Text("طلب اتصال يدوي") }
         }
         if (selectedUris.isNotEmpty()) {
