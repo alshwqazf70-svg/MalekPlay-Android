@@ -1,108 +1,90 @@
-# Ultra Share Protocol v2 — Engineering Design
+# Ultra Share V2 — Current Protocol and Engineering Status
 
-Status (updated 2026-11-11): Android Kotlin and desktop Python V2 batch data planes are implemented in source. MPC2 is a separate authenticated approval/heartbeat control channel. V1 remains available for compatibility. Desktop CI passed for commit bba536a98f1f0dddbf430e88065d43d48b2386e1; Android build and physical-device interoperability must be verified separately.
-Target branch: feature/zapya-engineering-analysis
+Status: V2 is the only Android file-data protocol on `feature/zapya-engineering-analysis`.
+The former MPU1/V1 sender, receiver, listener, retry path and downgrade fallback have been retired.
+NSTACKX/DFinder and DFile are also removed from the Android build and runtime.
+Older peers that do not implement V2 are unsupported; the application must fail clearly rather than silently downgrade.
 
-## Goals
+## 1. Runtime architecture
 
-1. Preserve interoperability with existing v1 Android and desktop clients.
-2. Negotiate capabilities before selecting any v2-only behavior.
-3. Transfer multiple files over one authenticated TCP session.
-4. Keep per-file SHA-256 verification, durable resume, and collision-safe output names.
-5. Improve throughput without adding redundant application-level retransmission on top of TCP.
-6. Keep the desktop Python implementation and Android Kotlin implementation byte-for-byte compatible.
+### Discovery and route selection
+- Android LAN discovery uses UDP port 38742.
+- Discovery advertisements contain peer identity and route candidates, not pairing secrets.
+- LAN, hotspot and Wi-Fi Direct candidates are hints only; a candidate is probed before use.
+- Android sockets are bound to the selected `Network` where possible. A process-default route is a final fallback, not permission to route a Wi-Fi Direct address through an unrelated network.
+- Wi-Fi Direct and LocalOnlyHotspot use Android platform APIs. No NSTACKX library is loaded.
 
-## Transport decision: TCP reliability
+### Pairing and control plane (MPC2)
+- The control listener uses TCP port 38744.
+- The QR/PIN invitation carries a short-lived pairing secret and local route hints.
+- The control exchange uses a fresh 32-byte challenge, HMAC-SHA256 authentication and AES-GCM-protected decision/session frames.
+- A nine-digit PIN is expanded with PBKDF2-HMAC-SHA256 (210,000 iterations); the implementation also accepts a 32-byte hexadecimal secret for internal compatibility.
+- An accepted MPC2 session and the V2 data handshake are both required before file data is accepted.
+- Control sessions are temporary and held in memory; heartbeat/close handling retires stale sessions.
 
-Ultra Share currently uses TCP. TCP already provides ordered delivery, congestion control, retransmission, and duplicate suppression. A per-chunk application ACK/retry loop would duplicate those mechanisms and can reduce throughput through extra round trips and head-of-line blocking.
+### V2 data plane
+- The V2 receiver listens on TCP port 38742.
+- One authenticated TCP connection carries one bounded manifest and all files in that batch.
+- The manifest uses magic `MPU2`, protocol version 2, a batch UUID and per-file UUIDs.
+- Limits currently implemented:
+  - 512 files per batch;
+  - 100 GiB maximum per file;
+  - 512 KiB maximum encoded manifest;
+  - 180 UTF-8 bytes per filename;
+  - 192 UTF-8 bytes per MIME type;
+  - 512 KiB data-frame payload.
+- The receiver accepts a bounded number of concurrent peer sessions (default four). Each peer's resume-state access is serialized independently.
+- File frames are AES-GCM authenticated. Directional keys are derived separately for client-to-server and server-to-client traffic. Each frame nonce combines a fresh four-byte prefix with a monotonically increasing eight-byte sequence.
+- TCP supplies ordered delivery, congestion control and retransmission. V2 deliberately does not add a redundant per-chunk ACK/retry loop.
 
-Therefore v2 MUST NOT add stop-and-wait ACKs or retransmit individual TCP chunks. The application protocol should acknowledge:
-- successful authentication and negotiation;
-- the receiver's durable resume offset for each file;
-- final per-file verification and publication;
-- completion or failure of the whole batch.
+## 2. File integrity, resume and publication
 
-If a future transport uses UDP, it must be a separate transport profile with its own congestion control, selective ACK, bounded in-flight window, packet-loss recovery, and security review. Do not reuse a TCP design as a UDP reliability layer.
+1. The sender scans each selected source to compute its SHA-256 digest and exact size before constructing the manifest.
+2. The sender re-reads the source while streaming and verifies that the content did not change after the manifest was prepared.
+3. The receiver writes to app-private partial files.
+4. Resume checkpoints are committed after partial data is synchronized; the checkpoint interval is currently 4 MiB.
+5. Resume identity includes the sanitized filename, exact size and SHA-256 digest. Bytes beyond the last durable checkpoint are truncated.
+6. After a file ends, the receiver verifies its full SHA-256 digest.
+7. A completed receipt is written through a synchronized temporary file before the verified partial is atomically renamed to a collision-safe destination.
+8. The receiver returns a result for each file. A completed file remains completed even if another file in the batch fails.
 
-## Control request/approval channel (implemented separately)\n\nThe receiver listens on TCP port 38744 while receiving is active. A sender connects using the pairing PIN shared out-of-band in the QR payload, receives a fresh 32-byte challenge, and authenticates request metadata with HMAC-SHA256 using PBKDF2-derived key material. The receiver presents the authenticated device name/address and waits for an explicit user decision. The decision is encrypted with AES-GCM using a domain-separated key and fresh nonce. After ACCEPT, the socket remains open for authenticated PING/PONG heartbeat and explicit close. The active control session gates the separate V2 batch data socket (default TCP 38742) as well as the legacy V1 transfer path (TCP 38741).\n\n## Compatibility and negotiation
+The implementation scales its verification read timeout with declared batch size and caps it below the Android data-sync foreground-service time limit.
 
-- Keep the v1 magic and v1 frame layout unchanged.
-- Introduce a distinct v2 protocol version in the authenticated metadata/handshake path; never reinterpret a v1 frame.
-- A sender first offers supported versions and capabilities. The receiver selects the highest mutually supported version.
-- If the peer only supports v1, fall back to the existing one-file v1 transfer without changing its framing.
-- Unknown capability bits and optional fields must be ignored only when the enclosing version explicitly permits it; unknown mandatory fields must fail closed.
-- The negotiated version, limits, and capabilities must be authenticated as part of the session transcript to prevent downgrade or tampering.
-- Android and desktop must ship the same protocol vectors for every field, key derivation label, nonce, and encrypted frame.
+## 3. Desktop companion
 
-## Proposed v2 session
+The Python desktop companion implements the same V2 manifest, key derivation, AES-GCM frame format, resume identity and result encoding. Shared manifest/key-derivation vectors are present in Kotlin and Python tests.
 
-1. Establish TCP connection and perform the existing private-LAN endpoint validation.
-2. Perform challenge-response pairing authentication.
-3. Negotiate protocol version, maximum frame payload, maximum batch count, and optional capabilities.
-4. Derive directional session keys using domain-separated labels that include the selected protocol version and session transcript hash.
-5. Send a batch manifest containing a bounded file count and each file's sanitized name, MIME type, exact size, and SHA-256 digest.
-6. Receiver validates the complete manifest and replies with one resume decision per file. Each resume offset must be within the declared size and must refer to a matching transfer identity.
-7. Sender streams file data in order over the same TCP connection. File boundaries and frame sequence numbers are explicit and authenticated.
-8. Receiver writes to private partial files, syncs at safe checkpoints, and verifies final size and SHA-256 before atomically publishing each completed file.
-9. Receiver returns a final result for every file and a batch summary. A failed file must not invalidate already verified files.
+A passing Python-to-Python loopback test is not evidence of Android-to-desktop interoperability. Cross-language integration must run an actual Kotlin V2 endpoint against the Python V2 endpoint.
 
-## Bounded resource limits
+## 4. Retired paths
 
-The implementation must define and test hard limits before accepting a batch:
-- maximum files per batch;
-- maximum UTF-8 filename and MIME lengths;
-- maximum manifest byte length;
-- maximum frame payload;
-- maximum aggregate declared batch size;
-- maximum number of simultaneously open file handles (prefer one active file);
-- maximum resume metadata size.
+The following are not part of the current V2 runtime:
+- MPU1/V1 file-data framing and its one-file transfer listener;
+- V1 fallback/downgrade branches;
+- NSTACKX JNI discovery;
+- DFile native sender/receiver and DFile staging/manifest helpers;
+- native NSTACKX source acquisition, NDK and CMake build wiring.
 
-Reject invalid lengths before allocation. Do not trust values from the peer, even after pairing authentication.
+`UltraShareTransport.kt` is retained only as a shared support layer for validation, pairing-key derivation, file metadata and safe publication. It is not the former V1 file-transfer engine and must not be deleted until its shared call sites are moved to a correctly named V2 support module.
 
-## Throughput strategy
+## 5. Known verification gaps
 
-- Retain buffered socket streams and batched writes; do not flush after every data frame.
-- Flush at protocol boundaries: negotiation response, resume decisions, end-of-file, and final batch result.
-- Keep frame size negotiated and capped by both peers. Start with conservative values and benchmark larger sizes on real devices; do not assume the largest frame is always fastest.
-- Avoid a second full-file hashing pass where possible. A sender may hash during the initial source scan and must detect source mutation before declaring success; the receiver's final digest remains authoritative.
-- Report throughput using monotonic time and bytes transferred during the current attempt, excluding resume bytes from the rate numerator.
-- Benchmark small files, large files, mixed batches, slow storage, hotspot, and shared Wi-Fi separately.
+- Android CI currently runs emulator runtime tests on API 23, 29 and 35. This covers Android 6, Android 10 and Android 15 checkpoints, not every API level from 23 through 35.
+- JVM tests cover manifest validation, wire vectors, checkpoint recovery, durable receipts, listener readiness and cancellation. A full Kotlin sender-to-Kotlin receiver batch integration test is still required.
+- The desktop test named `test_android_v2_batch_sender_and_desktop_receiver_interoperate` currently invokes Python `send_batch_v2` and Python `receive_batch_v2`; it is not an Android-to-desktop test.
+- Two physical Android devices are still required to validate bidirectional transfer, Wi-Fi Direct, hotspot, shared Wi-Fi, large files, screen-off behavior, process interruption and resume.
+- No repeatable same-network benchmark currently proves speed parity or superiority to Zapya.
+- The current share-file policy rejects APK/PDF but still accepts generic MIME types and ZIP archives. If the product contract is media-only, Android, desktop and folder-archive paths must be narrowed together; UI filtering alone is not a security boundary.
+- There is no explicit aggregate batch-size ceiling or complete destination free-space preflight yet.
+- Frame size is fixed at 512 KiB; it has not been benchmarked across the full Android 6–15 device range.
 
-## Resume identity and durability
+## 6. Acceptance gates before declaring V2 complete
 
-- Transfer identity must include sanitized filename, exact size, and content digest (or an equally strong content identity).
-- Never resume solely by filename and size.
-- Persist resume metadata atomically.
-- Sync partial file data at bounded checkpoints and before advertising a durable resume offset. Avoid fsync per frame.
-- On reconnect, the receiver revalidates metadata and partial-file length before returning an offset.
-- A completed receipt is valid only after checking the published file's size and digest.
-- Never overwrite an existing destination file silently.
-
-## Required cross-platform conformance tests
-
-Create shared golden vectors consumed by Kotlin/JUnit and Python/unittest:
-- handshake and challenge-response;
-- negotiation success, v1 fallback, unsupported mandatory capability, and downgrade rejection;
-- key derivation and directional nonce construction;
-- manifest encoding/decoding and all size/count boundaries;
-- resume offset validation and transfer identity;
-- frame ordering, authentication failure, truncated frame, oversized frame, and sequence mismatch;
-- partial disconnect and resume;
-- per-file digest mismatch and mixed batch success/failure;
-- filename traversal, control characters, Unicode, and collision handling.
-
-## Rollout plan
-
-1. Keep v1 unchanged and add shared golden vectors first.
-2. Implement v2 parsing/negotiation behind an explicit capability flag on both clients.
-3. Implement one-file v2 transfer and cross-platform conformance tests.
-4. Add multi-file manifest and per-file results.
-5. Add benchmark instrumentation and compare v1/v2 on actual Android devices and desktop.
-6. Enable v2 by default only after Android-to-Android, Android-to-desktop, and desktop-to-desktop tests pass. Retain v1 fallback.
-
-## Non-goals
-
-- Compatibility with the proprietary Zapya wire protocol is not implied.
-- Do not claim higher speed than Zapya without repeatable, same-network device benchmarks.
-- Do not add custom TCP chunk retransmission or claim KCP is used by the current file payload path.
-- Do not change the existing v1 wire format as part of v2 work.
+1. Keep V2 as the only file-data protocol; do not reintroduce MPU1 or NSTACKX/DFile without a separate, reviewed architecture decision.
+2. Add true Kotlin↔Python V2 integration tests and a Kotlin sender↔receiver end-to-end batch test.
+3. Test multiple video/audio/image files, empty files, duplicate names, large files, content mutation, digest mismatch, disk-full and cancellation.
+4. Verify resume after Wi-Fi loss, app backgrounding, process death and receiver restart.
+5. Exercise LAN, hotspot and Wi-Fi Direct on real Android devices, with correct Android `Network` binding.
+6. Run emulator checks at the declared minimum and current target APIs, then test representative OEM devices.
+7. Benchmark frame sizes and peer concurrency on identical hardware/network conditions before changing defaults.
+8. Update this document and README whenever implementation status changes; never infer physical-device success from a green build alone.
