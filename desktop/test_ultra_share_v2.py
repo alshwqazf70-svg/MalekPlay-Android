@@ -297,15 +297,18 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             self.assertEqual(first.read_bytes(), restored["مقطع.mp4"])
             self.assertEqual(b"", restored["empty.mp3"])
 
-    def test_accepts_generic_files_but_rejects_apk_pdf_and_invalid_digest(self):
-        for mime in ("application/zip", "text/plain", "application/octet-stream",
-                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
-            entry = FileEntry(str(uuid.uuid4()), "x.bin", mime, 1, bytes(32))
+    def test_accepts_only_media_and_rejects_generic_files_archives_and_invalid_digest(self):
+        for name, mime in (("x.mp4", "video/mp4"), ("x.mp3", "audio/mpeg"),
+                           ("x.jpg", "image/jpeg"), ("provider-media.mp4", "application/octet-stream")):
+            entry = FileEntry(str(uuid.uuid4()), name, mime, 1, bytes(32))
             validate_manifest(Manifest(str(uuid.uuid4()), (entry,)))
-        for name, mime in (("x.apk", "application/octet-stream"),
-                           ("x.pdf", "application/octet-stream"),
-                           ("x.bin", "application/pdf"),
-                           ("x.bin", "application/vnd.android.package-archive")):
+        for name, mime in (("archive.zip", "application/zip"),
+                           ("notes.txt", "text/plain"),
+                           ("unknown.bin", "application/octet-stream"),
+                           ("document.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                           ("x.apk", "application/octet-stream"),
+                           ("x.pdf", "application/pdf"),
+                           ("image.svg", "image/svg+xml")):
             entry = FileEntry(str(uuid.uuid4()), name, mime, 1, bytes(32))
             with self.assertRaises(ValueError):
                 validate_manifest(Manifest(str(uuid.uuid4()), (entry,)))
