@@ -2252,20 +2252,17 @@ class UltraShareForegroundService : Service() {
                 val dataReady = UltraShareDiscovery.probeDataEndpoint(
                     activeHost, dataPort, dataNetworks
                 )
-                val legacyV1Ready = !dataReady && (
-                    UltraShareDiscovery.probeLegacyDataEndpoint(activeHost, dataPort, dataNetworks) ||
-                        (dataPort != UltraShareDiscovery.LEGACY_V1_DATA_PORT &&
-                            UltraShareDiscovery.probeLegacyDataEndpoint(
-                                activeHost,
-                                UltraShareDiscovery.LEGACY_V1_DATA_PORT,
-                                dataNetworks
-                            ))
-                    )
-                if (legacyV1Ready) {
+                // A V1 listener accepts only one transfer socket. Never probe it:
+                // a speculative TCP connect could consume and terminate that listener.
+                // The legacy discovery offer already identifies its advertised V1 port.
+                if (dataPort == UltraShareDiscovery.LEGACY_V1_DATA_PORT) {
                     throw IOException(
                         "ULTRASHARE_LEGACY_PEER: تم الاقتران بالجهاز بنجاح، لكن مستقبل الملفات لديه يستخدم بروتوكول V1 بينما هذا الإصدار يرسل عبر V2. أبقينا قناة الاقتران كما هي ولم نغلقها؛ يلزم تحديث الطرف الآخر أو تفعيل مستقبل V1 قبل نقل الملفات."
                     )
                 }
+                val dataReady = UltraShareDiscovery.probeDataEndpoint(
+                    activeHost, dataPort, dataNetworks
+                )
                 if (!UltraSharePairingReadiness.canSendData(controlReady, dataReady)) {
                     throw IOException(
                         "قناة الاقتران موجودة، لكن منفذ نقل الملفات V2 غير متاح عبر مسارات الشبكة الحالية. لم يبدأ إرسال أي ملف، وما زالت جلسة الاقتران مستقلة عن هذا الفشل."
