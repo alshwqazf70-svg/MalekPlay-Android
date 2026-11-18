@@ -26,7 +26,7 @@
 - اكتشاف أجهزة Ultra Share عبر UDP، مع دعم واجهات Wi-Fi وHotspot وواجهات Wi-Fi Direct عند تفعيل اتصال النظام.
 - ربط Wi-Fi Direct لاكتشاف الأجهزة والاتصال بها، مع طلب إذن الأجهزة القريبة على Android 13+ وإذن الموقع على الإصدارات الأقدم.
 - عميل سطح مكتب متعدد الأنظمة في مجلد `desktop/` لإرسال الملفات واستقبالها بين Android وWindows/Linux/macOS.
-- تصميم بروتوكول Ultra Share v2 والتوافق المرحلي: [docs/ULTRASHARE-PROTOCOL-V2-DESIGN.md](docs/ULTRASHARE-PROTOCOL-V2-DESIGN.md). (وثيقة تصميم؛ v1 ما زال المنفذ حالياً.)
+- محرك Ultra Share V2 هو مسار نقل البيانات الوحيد: جلسة TCP مشفرة واحدة لكل دفعة، مع بيان متعدد الملفات، والتحقق SHA-256، والاستئناف الآمن، ونتيجة مستقلة لكل ملف. أُزيل محرك MPU1/V1 وNSTACKX/DFile ومسارات الرجوع إليها؛ الأجهزة القديمة التي لا تدعم V2 لا تتلقى تحويلاً صامتاً إلى بروتوكول قديم. التفاصيل: [docs/ULTRASHARE-PROTOCOL-V2-DESIGN.md](docs/ULTRASHARE-PROTOCOL-V2-DESIGN.md).
 - مقارنة Zapya التفصيلية للاتصال والإرسال والاستقبال والواجهات وخطة نقل الوظائف بكود أصلي: [docs/ZAPYA-COMPARATIVE-CONNECTION-TRANSFER-UI-AUDIT.md](docs/ZAPYA-COMPARATIVE-CONNECTION-TRANSFER-UI-AUDIT.md).
 
 ## رفيق سطح المكتب لـ Ultra Share
@@ -44,9 +44,9 @@
 
 ## البناء والاختبار
 - افتح تبويب Actions في المستودع.
-- اختر workflow المسمى Build MalekPlayer Android APK ثم Run workflow على الفرع `backup/before-updated-2.0`.
+- اختر workflow المسمى Build MalekPlayer Android APK، وتحقق من تشغيله على الفرع `feature/zapya-engineering-analysis` عند اختبار تغييرات Ultra Share.
 - نزّل artifact المسمى `MalekPlayer-universal-install` للتثبيت المباشر على أجهزة Android المتوافقة.
-- يبدأ GitHub Actions البناء وفحوصات الجودة تلقائياً عند كل push إلى فرع `backup/before-updated-2.0`. ويمكن تشغيل workflow يدوياً عند الحاجة؛ اختبار المحاكي اختياري.
+- يبدأ GitHub Actions البناء واختبارات JVM واختبارات المحاكي وAndroid lint واختبارات عميل سطح المكتب عند push إلى الفروع المحددة في ملف workflow، ومنها `feature/zapya-engineering-analysis`. نجاح البناء وحده لا يثبت التوافق التشغيلي بين هاتفين.
 - ملف Release الذي لا يُزوّد بمفتاح توقيع خاص يبقى غير موقّع وجاهزاً للتحليل فقط، ولا يُعد إصداراً صالحاً للنشر أو التحديث فوق نسخة منشورة.
 - يحتوي المستودع على Gradle Wrapper الرسمي للإصدار 8.11.1 (`gradlew` و`gradlew.bat` وملفات `gradle/wrapper`). استخدم `./gradlew` على Linux/macOS أو `gradlew.bat` على Windows.
 - مخططات Room محفوظة في `app/schemas/com.malekplay.data.local.MalekPlayDatabase/`. عند تغيير إصدار قاعدة البيانات أو الكيانات، شغّل مهمة KSP/البناء المناسبة لتوليد ملف المخطط الجديد، ثم راجعه وأضفه إلى Git مع ترحيل قاعدة البيانات واختباره. لا تُنشئ ملفات المخطط أو `identityHash` يدوياً.
