@@ -25,6 +25,12 @@ internal object UltraShareTrustedPeerStore {
         return compact || uuid
     }
 
+    /** Remove any legacy saved approvals; UltraShare now uses temporary room sessions only. */
+    @Synchronized
+    fun clear(context: Context) {
+        preferences(context).edit().clear().apply()
+    }
+
     @Synchronized
     fun isTrusted(context: Context, peerId: String): Boolean {
         if (!isValidPeerId(peerId)) return false
