@@ -595,6 +595,16 @@ object UltraShareControlChannel {
 
     fun isServerSessionActive(host: String): Boolean =
         serverSessions[host]?.isConnected == true && serverSessions[host]?.isClosed == false
+    /** Snapshot of currently approved server-side MPC2 peers; host keys are session-scoped. */
+    fun activeServerApplicationSessionHosts(): List<String> =
+        serverApplicationSessions.entries.asSequence()
+            .filter { (_, session) ->
+                session.applicationFramesEnabled && session.ready &&
+                    session.socket.isConnected && !session.socket.isClosed
+            }
+            .map { it.key }
+            .toList()
+
 
     /** Stable authenticated sender identity survives WLAN/Hotspot/Wi-Fi Direct IP changes. */
     fun serverSessionIdentity(host: String): String? = serverSessionPeerIds[host]
