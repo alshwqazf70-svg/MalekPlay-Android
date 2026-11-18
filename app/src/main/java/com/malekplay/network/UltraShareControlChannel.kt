@@ -60,7 +60,8 @@ object UltraShareControlChannel {
         val peerAddress: String,
         val peerId: String? = null,
         /** Local interface address selected by the accepted control socket. */
-        val localAddress: String? = null
+        val localAddress: String? = null,
+        val applicationFramesEnabled: Boolean = false
     )
 
     private data class ClientSession(
@@ -737,7 +738,8 @@ object UltraShareControlChannel {
             peerName = name,
             peerAddress = peerAddress,
             peerId = peerId,
-            localAddress = socket.localAddress?.hostAddress
+            localAddress = socket.localAddress?.hostAddress,
+            applicationFramesEnabled = applicationFramesEnabled
         )
         val decision = withTimeoutOrNull(120_000L) { onRequest(request) } ?: Decision.REJECTED
         UltraShareDiagnostics.event(
