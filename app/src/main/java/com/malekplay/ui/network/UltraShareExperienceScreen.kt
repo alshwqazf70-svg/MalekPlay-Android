@@ -874,7 +874,6 @@ fun UltraShareExperienceScreen(
                         libraryError = libraryError,
                         onLoadPhoneMedia = ::loadPhoneMedia,
                         onPickMedia = { mimeTypes -> mediaPicker.launch(mimeTypes) },
-                        onPickFolder = { folderPicker.launch(null) },
                         onScanQr = ::scanQr,
                         onShowNearby = {
                             page = UltraSharePage.NEARBY
