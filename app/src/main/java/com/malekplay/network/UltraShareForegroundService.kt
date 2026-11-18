@@ -599,16 +599,11 @@ class UltraShareForegroundService : Service() {
                                     closeDFileServerForPeer(request.peerAddress)
                                     disconnectApprovedPeer(request.peerAddress)
                                 },
-                                onDFileServerReady = { request, ephemeralKey ->
-                                    try {
-                                        startDFileServerForPeer(
-                                            peerAddress = request.peerAddress,
-                                            localAddress = request.localAddress,
-                                            sessionKey = ephemeralKey
-                                        )
-                                    } finally {
-                                        ephemeralKey.fill(0)
-                                    }
+                                // Native DFile is intentionally disabled. UltraShare v2 TCP is
+                                // the single data plane until the in-app engine is fully validated.
+                                onDFileServerReady = { _, ephemeralKey ->
+                                    ephemeralKey.fill(0)
+                                    null
                                 }
                             ) { request ->
                                 UltraShareDiagnostics.event(
