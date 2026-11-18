@@ -86,6 +86,10 @@ internal class UltraShareMeshRoomCoordinator(
             roomKey = message.payload.copyOf()
             createdAtMillis = System.currentTimeMillis().coerceAtLeast(1L)
             members.clear()
+        } else {
+            require(MessageDigest.isEqual(roomKey, message.payload)) {
+                "The authority attempted to replace the active room key."
+            }
         }
         val digest = keyDigest(roomKey!!)
         return UltraShareMeshControlProtocol.acknowledgement(
@@ -187,7 +191,10 @@ internal class UltraShareMeshRoomCoordinator(
             acknowledgement.revision != revision
         ) return false
         val expected = when (expectedType) {
-            UltraShareMeshControlProtocol.Type.KEY_ACK -> keyDigest(expectedPayload)
+            UltraShareMeshControlProtocol.Type.KEY_ACK -> {
+                if (expectedPayload.size != UltraShareMeshControlProtocol.ROOM_KEY_BYTES) return false
+                keyDigest(expectedPayload)
+            }
             UltraShareMeshControlProtocol.Type.ROSTER_ACK -> sha256(expectedPayload)
             else -> return false
         }
