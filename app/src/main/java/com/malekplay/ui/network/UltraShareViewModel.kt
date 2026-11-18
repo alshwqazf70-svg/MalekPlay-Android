@@ -27,9 +27,6 @@ import com.malekplay.network.UltraShareMultiRecipientCoordinator
 import com.malekplay.network.UltraShareWifiDirect
 import com.malekplay.network.UltraShareBluetoothDiscovery
 import com.malekplay.network.UltraShareBleDiscovery
-import com.malekplay.network.NstackxAndroidDiscoverySession
-import com.malekplay.network.NstackxNativeBridge
-import com.malekplay.network.NstackxPeerNameCache
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -131,7 +128,6 @@ class UltraShareViewModel @Inject constructor(
     }
     private var bluetoothSession: UltraShareBluetoothDiscovery.Session? = null
     private var bleSession: UltraShareBleDiscovery.Session? = null
-    private var nstackxStartJob: Job? = null
     // The requested Wi-Fi Network is process-scoped, not screen-scoped. Keep
     // its callback lease shared across ViewModel recreation while a paired session
     // is alive; stopReceiving() or onLost() releases it.
@@ -141,7 +137,6 @@ class UltraShareViewModel @Inject constructor(
     private var hotspotNetworkPaired: Boolean
         get() = retainedHotspotNetworkPaired
         set(value) { retainedHotspotNetworkPaired = value }
-    private val nstackxPeerNames = NstackxPeerNameCache()
     private data class PendingQrPairing(val secret: String, val hosts: List<String>)
     private var pendingQrPairing: PendingQrPairing? = null
     private var qrP2pConnectStarted = false
@@ -910,10 +905,8 @@ private fun forgetApprovedSenderTarget(host: String) {
                 _state.value = _state.value.copy(
                     error = failure.localizedMessage ?: "تعذر تنظيف مجموعة Wi-Fi Direct بعد إيقاف الاستقبال."
                 )
-                stopNstackxIfIdle()
             }
         } else {
-            stopNstackxIfIdle()
         }
     }
 
@@ -1099,7 +1092,6 @@ private fun forgetApprovedSenderTarget(host: String) {
             scanning = true, discoveredPeers = emptyList(), error = null,
             status = "جارٍ البحث المستمر عن أجهزة MalekPlay على الشبكة..."
         )
-        ensureNstackxDiscovery()
         scanJob = viewModelScope.launch {
             // Keep the latest sighting time per stable peer identity. A device that
             // leaves Wi-Fi must disappear from the radar instead of remaining selectable.
@@ -1108,14 +1100,6 @@ private fun forgetApprovedSenderTarget(host: String) {
                 // Short repeated discovery windows make newly-started receivers appear
                 // without forcing the user to restart the scan manually.
                 while (true) {
-                    // NSTACKX may start before Android finishes bringing up Wi-Fi/P2P.
-                    // Re-attempt its bounded startup while the user is still scanning;
-                    // UDP discovery remains available as an independent fallback.
-                    if (NstackxAndroidDiscoverySession.current() == null &&
-                        nstackxStartJob?.isActive != true
-                    ) {
-                        ensureNstackxDiscovery()
-                    }
                     val peers = UltraShareDiscovery.discoverPeers(scanWindowMs = 1_500L, context = context)
                     val now = System.currentTimeMillis()
                     peers.forEach { peer ->
@@ -1126,15 +1110,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                     }
                     val visible = found.values.map { sighting ->
                         val peer = sighting.first
-                        val nativeName = peer.peerId
-                            ?.lowercase(java.util.Locale.ROOT)
-                            ?.let { nstackxPeerNames.get(it) }
-                        if (nativeName.isNullOrBlank()) peer
-                        else UltraShareDiscovery.mergeNativePeerName(
-                            peer,
-                            peer.peerId.orEmpty(),
-                            nativeName
-                        )
+                        peer
                     }
                     _state.value = _state.value.copy(
                         discoveredPeers = visible,
@@ -1158,82 +1134,6 @@ private fun forgetApprovedSenderTarget(host: String) {
         }
     }
 
-
-    /**
-     * Starts NSTACKX as an additional discovery signal. Existing UDP/QR
-     * endpoint discovery remains authoritative until native peer-to-peer
-     * address mapping is validated on real Android devices.
-     */
-    private fun onNstackxPeerFound(peer: NstackxNativeBridge.Peer) {
-        nstackxPeerNames.put(peer.deviceId, peer.deviceName)
-        val current = _state.value
-        _state.value = current.copy(
-            discoveredPeers = current.discoveredPeers.map { sighting ->
-                if (sighting.peerId?.equals(peer.deviceId, ignoreCase = true) == true) {
-                    sighting.copy(name = peer.deviceName)
-                } else sighting
-            }
-        )
-    }
-
-    private fun ensureNstackxDiscovery() {
-        if (!NstackxNativeBridge.isAvailable || nstackxStartJob?.isActive == true) return
-
-        // A foreground receiver can outlive this ViewModel. Reattach the current
-        // screen observer to the existing native engine instead of stopping/restarting
-        // NSTACKX, which can tear down a DFile session already serving another phone.
-        if (NstackxAndroidDiscoverySession.current() != null) {
-            NstackxAndroidDiscoverySession.setPeerListener(::onNstackxPeerFound)
-            return
-        }
-
-        nstackxStartJob = viewModelScope.launch(Dispatchers.IO) {
-            var lastFailure: Exception? = null
-            for (attempt in 0..2) {
-                kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                val serviceState = UltraShareForegroundService.state.value
-                val stillNeeded = _state.value.receiving || _state.value.scanning ||
-                    serviceState.receiving || serviceState.activePeers.isNotEmpty()
-                if (!stillNeeded) break
-                try {
-                    NstackxAndroidDiscoverySession.start(
-                        context,
-                        onPeerFound = ::onNstackxPeerFound
-                    )
-                    lastFailure = null
-                    break
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: Exception) {
-                    lastFailure = failure
-                    if (attempt < 2) delay(750L * (attempt + 1))
-                }
-            }
-
-            val serviceState = UltraShareForegroundService.state.value
-            val stillNeeded = _state.value.receiving || _state.value.scanning ||
-                serviceState.receiving || serviceState.activePeers.isNotEmpty()
-            if (lastFailure != null && stillNeeded) {
-                kotlinx.coroutines.withContext(Dispatchers.Main) {
-                    _state.value = _state.value.copy(
-                        error = "تعذر تشغيل اكتشاف NSTACKX بعد عدة محاولات: " +
-                            (lastFailure?.localizedMessage ?: "خطأ غير معروف") +
-                            ". يستمر البحث المحلي وQR كمسار احتياطي."
-                    )
-                }
-            }
-            if (!stillNeeded) NstackxAndroidDiscoverySession.stop()
-        }
-    }
-
-    private fun stopNstackxIfIdle() {
-        val serviceState = UltraShareForegroundService.state.value
-        if (_state.value.receiving || _state.value.scanning ||
-            serviceState.receiving || serviceState.activePeers.isNotEmpty()
-        ) return
-        if (nstackxStartJob?.isActive == true) nstackxStartJob?.cancel()
-        NstackxAndroidDiscoverySession.stop()
-    }
 
     private fun ensureWifiDirectSession(): UltraShareWifiDirect.Session {
         return wifiDirectSession ?: UltraShareWifiDirect.open(
