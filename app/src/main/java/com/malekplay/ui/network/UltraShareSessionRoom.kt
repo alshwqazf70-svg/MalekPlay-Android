@@ -119,7 +119,7 @@ fun UltraShareSessionRoom(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("غرفة الاتصال والنقل", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
-                    Text("هوية الطرفين وحالة الجلسة", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    Text("غرفة جماعية ثنائية الاتجاه • كل جهاز يرسل ويستقبل بالتوازي", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 }
                 Box(
                     modifier = Modifier.background(statusColor.copy(alpha = 0.14f), androidx.compose.foundation.shape.RoundedCornerShape(18.dp)).padding(horizontal = 10.dp, vertical = 6.dp)
