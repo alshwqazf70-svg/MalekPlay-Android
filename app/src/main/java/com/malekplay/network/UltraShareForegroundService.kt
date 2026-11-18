@@ -2217,7 +2217,14 @@ class UltraShareForegroundService : Service() {
         while (true) {
             try {
                 if (UltraShareControlChannel.supportsClientApplicationFrames(activeHost)) {
-                    ensureMeshClientJoined(activeHost)
+                    val remoteControlPeer = canonicalMeshPeerId(
+                        UltraShareControlChannel.sessionPeerId(activeHost)
+                    )
+                    val activeRoom = meshRoomCoordinator?.let { runCatching { it.state() }.getOrNull() }
+                    val isAuthorityJoinSession = remoteControlPeer != null &&
+                        activeRoom?.authorityPeerId == remoteControlPeer &&
+                        !meshDirectEdges.containsKey(remoteControlPeer)
+                    if (isAuthorityJoinSession) ensureMeshClientJoined(activeHost)
                 }
                 val dataPort = UltraShareNegotiation.dataPortForHost(
                     activeHost, activeCandidates, UltraShareBatchTransport.DEFAULT_PORT
