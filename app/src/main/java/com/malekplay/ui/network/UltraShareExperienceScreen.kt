@@ -268,7 +268,6 @@ fun UltraShareExperienceScreen(
             } else if (wasAdvertisingInvitation) {
                 viewModel.disableWifiDirectInvitation()
             }
-            Toast.makeText(context, "لم يُمنح إذن Wi-Fi Direct؛ سنستخدم الشبكة المحلية إن كانت متاحة.", Toast.LENGTH_LONG).show()
         }
     }
     val allNearbyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
@@ -569,7 +568,10 @@ fun UltraShareExperienceScreen(
                 password = state.hotspotPassword!!
             )
         }
-    val lanQrPayload = state.localAddresses
+    val liveLanFallbackHosts = remember(context, state.localAddresses) {
+        UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(context, state.localAddresses)
+    }
+    val lanQrPayload = liveLanFallbackHosts
         .takeIf {
             com.malekplay.network.UltraSharePairingReadiness.canShowLanQr(
                 receiving = state.receiving,
@@ -591,7 +593,6 @@ fun UltraShareExperienceScreen(
             viewModel.latchReceiverQrPayload(stable)
         }
     }
-    // Keep the payload latched in the ViewModel, but hide the QR while a peer is paired.
     // Keep the room invitation visible after the first peer joins so more
     // devices can join the same group using the same one-session secret.
     val qrPayload = state.receiverQrPayload.takeIf { state.receiving }
