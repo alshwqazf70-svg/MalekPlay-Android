@@ -653,6 +653,16 @@ object UltraShareBatchTransport {
             if (offset == 0L && partial.exists()) partial.delete()
             entry.id to Pair(partial, offset)
         }.toMap()
+        val requiredRemainingBytes = manifest.entries.sumOf { entry ->
+            entry.sizeBytes - partials.getValue(entry.id).second
+        }
+        val reserveBytes = 64L * 1024 * 1024
+        val availableBytes = destinationDirectory.usableSpace
+        require(availableBytes >= requiredRemainingBytes &&
+            availableBytes - requiredRemainingBytes >= reserveBytes) {
+            "مساحة التخزين غير كافية لاستقبال الدفعة؛ يلزم ترك 64 ميجابايت احتياطياً."
+        }
+
         val offsets = ByteArrayOutputStream()
         DataOutputStream(offsets).use { data ->
             data.writeShort(manifest.entries.size)
@@ -841,6 +851,16 @@ object UltraShareBatchTransport {
                         "sizeBytes" to entry.sizeBytes
                     )
                 )
+                if (!UltraShareMediaSignature.isValid(partial, entry.name, entry.mimeType)) {
+                    runCatching { partial.delete() }
+                    runCatching { checkpoint.delete() }
+                    runCatching { checkpointTemp.delete() }
+                    outcomes += FileOutcome(
+                        entry.id, entry.name, null, UltraShareBatchProtocol.FileStatus.FAILED,
+                        transferred, "محتوى الملف لا يطابق نوع الوسائط المعلن."
+                    )
+                    continue
+                }
                 UltraShareDiagnostics.event(
                     "DATA_RECEIVE",
                     "FILE_PUBLICATION_STARTED",
