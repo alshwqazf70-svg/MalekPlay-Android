@@ -507,6 +507,13 @@ def _media_signature_matches(path: Path, filename: str, mime_type: str) -> bool:
         return False
     if declared_family == "application" and mime_type.lower() not in {"application/octet-stream", "application/unknown"}:
         return False
+    # A zero-byte media item is still a valid empty transfer. There are no
+    # container bytes to inspect, so accept it only after extension/MIME policy.
+    try:
+        if Path(path).is_file() and Path(path).stat().st_size == 0:
+            return True
+    except OSError:
+        return False
     def starts(value: bytes) -> bool:
         return head.startswith(value)
     def at(offset: int, value: bytes) -> bool:
