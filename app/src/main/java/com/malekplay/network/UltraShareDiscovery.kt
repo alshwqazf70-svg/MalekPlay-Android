@@ -433,7 +433,9 @@ object UltraShareDiscovery {
     ): List<UltraShareNegotiation.Candidate> = coroutineScope {
         candidates.map { candidate ->
             async(Dispatchers.IO) {
-                candidate.copy(reachable = probeCandidate(candidate, context))
+                candidate.copy(
+                    reachable = candidate.connected && probeCandidate(candidate, context)
+                )
             }
         }.awaitAll()
     }
