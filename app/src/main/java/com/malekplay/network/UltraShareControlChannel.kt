@@ -34,7 +34,7 @@ import javax.crypto.spec.SecretKeySpec
 /**
  * Authenticated request/accept/reject channel plus a persistent authenticated
  * control socket. All file bytes travel through UltraShareBatchTransport V2;
- * this channel carries pairing decisions, heartbeat and close signals only.
+ * negotiated MPC2 application frames carry bounded authenticated control messages.
  */
 object UltraShareControlChannel {
     const val DEFAULT_PORT = 38_744
@@ -69,6 +69,7 @@ object UltraShareControlChannel {
         val output: DataOutputStream,
         val peerName: String,
         val peerId: String?,
+        val applicationFramesEnabled: Boolean,
         val frames: UltraShareControlFrames.Session,
         val incoming: Channel<ByteArray> = Channel(32),
         val lock: Any = Any(),
@@ -79,6 +80,7 @@ object UltraShareControlChannel {
         val socket: Socket,
         val input: DataInputStream,
         val output: DataOutputStream,
+        val applicationFramesEnabled: Boolean,
         val frames: UltraShareControlFrames.Session,
         val incoming: Channel<ByteArray> = Channel(32),
         val lock: Any = Any(),
@@ -366,7 +368,7 @@ object UltraShareControlChannel {
             val stableToken = peerId?.replace("-", "")?.lowercase()
                 ?.takeIf { it.length == 32 && it.all { char -> char.digitToIntOrNull(16) != null } }
                 .orEmpty()
-            val requestId = randomId() + stableToken
+            val requestId = randomId().take(24) + APPLICATION_CAPABILITY_MARKER + stableToken
             val authenticated = requestAuthentication(key, challenge, requestId, nameBytes)
             output.writeUTF(requestId)
             output.writeShort(nameBytes.size)
@@ -396,12 +398,13 @@ object UltraShareControlChannel {
                     runCatching { String(decodeHex(it), Charsets.UTF_8) }.getOrNull()
                 }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
                 val remotePeerId = responseParts.getOrNull(3)?.takeIf(::isStablePeerId)
+                val applicationFramesEnabled = responseParts.getOrNull(4) == APPLICATION_CAPABILITY_MARKER
                 socket.soTimeout = SESSION_TIMEOUT_MS
                 val frameSession = createApplicationFrameSession(
                     key, challenge, requestId, nameBytes, isClient = true
                 )
                 val session = ClientSession(
-                    socket, input, output, remoteName, remotePeerId, frameSession
+                    socket, input, output, remoteName, remotePeerId, applicationFramesEnabled, frameSession
                 )
                 synchronized(clientSessionGuard) { clientSessions[host] = session }
                 session.heartbeat = CoroutineScope(Dispatchers.IO).launch {
@@ -416,6 +419,7 @@ object UltraShareControlChannel {
                                     when (session.input.readUTF()) {
                                         "PONG" -> receivedPong = true
                                         "APP" -> {
+                                            check(session.applicationFramesEnabled) { "الطرف الآخر لا يدعم إطارات التطبيق المشفرة." }
                                             val length = session.input.readInt()
                                             require(length in (APPLICATION_FRAME_HEADER_BYTES + APPLICATION_FRAME_TAG_BYTES)..UltraShareControlFrames.MAX_WIRE_BYTES)
                                             val wire = ByteArray(length)
@@ -515,6 +519,7 @@ object UltraShareControlChannel {
     fun sendClientApplicationMessage(host: String, payload: ByteArray) {
         val session = clientSessions[host] ?: error("لا توجد جلسة إرسال معتمدة لهذا الجهاز.")
         synchronized(session.lock) {
+            check(session.applicationFramesEnabled) { "الجهاز الآخر لا يدعم رسائل التطبيق المشفرة." }
             check(session.socket.isConnected && !session.socket.isClosed)
             val frame = session.frames.seal(payload)
             session.output.writeUTF("APP")
@@ -534,7 +539,7 @@ object UltraShareControlChannel {
     fun sendServerApplicationMessage(host: String, payload: ByteArray) {
         val session = serverApplicationSessions[host] ?: error("لا توجد جلسة استقبال معتمدة لهذا الجهاز.")
         synchronized(session.lock) {
-            check(session.ready && session.socket.isConnected && !session.socket.isClosed) {
+            check(session.applicationFramesEnabled && session.ready && session.socket.isConnected && !session.socket.isClosed) {
                 "جلسة الجهاز لم تكتمل تهيئتها بعد."
             }
             val frame = session.frames.seal(payload)
@@ -644,8 +649,11 @@ object UltraShareControlChannel {
         )
 
         val peerId = requestId.takeIf { value ->
-            value.length == MAX_ID_BYTES && value.all { it.digitToIntOrNull(16) != null }
+            value.length == MAX_ID_BYTES && value.takeLast(32).all { it.digitToIntOrNull(16) != null }
         }?.takeLast(32)
+        val applicationFramesEnabled =
+            requestId.length in 32..MAX_ID_BYTES &&
+                requestId.substring(24, 32) == APPLICATION_CAPABILITY_MARKER
         val request = Request(
             requestId = requestId,
             peerName = name,
@@ -665,7 +673,7 @@ object UltraShareControlChannel {
             val frameSession = createApplicationFrameSession(
                 key, challenge, requestId, nameBytes, isClient = false
             )
-            val serverSession = ServerSession(socket, input, output, frameSession)
+            val serverSession = ServerSession(socket, input, output, applicationFramesEnabled, frameSession)
             acceptedServerSession = serverSession
             serverSessions.put(peerAddress, socket)?.takeIf { it !== socket }?.let { previous ->
                 serverApplicationSessions.remove(peerAddress)?.let { old ->
@@ -686,7 +694,8 @@ object UltraShareControlChannel {
             ?.takeIf(::isStablePeerId)
         val payload = if (decision == Decision.ACCEPTED) {
             val identity = stableLocalPeerId?.let { "|$it" }.orEmpty()
-            "ACCEPT|$requestId|$encodedLocalName$identity"
+            val capabilities = if (applicationFramesEnabled) "|$APPLICATION_CAPABILITY_MARKER" else ""
+            "ACCEPT|$requestId|$encodedLocalName$identity$capabilities"
         } else "REJECT|$requestId"
         val nonce = ByteArray(NONCE_BYTES).also(SecureRandom()::nextBytes)
         val ciphertext = encrypt(key, nonce, payload)
@@ -713,6 +722,7 @@ object UltraShareControlChannel {
                     }
                     "APP" -> {
                         val active = acceptedServerSession ?: error("جلسة التطبيق غير جاهزة.")
+                        check(active.applicationFramesEnabled) { "الطرف الآخر لا يدعم إطارات التطبيق المشفرة." }
                         val length = input.readInt()
                         require(length in (APPLICATION_FRAME_HEADER_BYTES + APPLICATION_FRAME_TAG_BYTES)..UltraShareControlFrames.MAX_WIRE_BYTES)
                         val wire = ByteArray(length)
@@ -783,6 +793,7 @@ object UltraShareControlChannel {
     }
 
 
+    private const val APPLICATION_CAPABILITY_MARKER = "MPC2APP1"
     private const val APPLICATION_FRAME_HEADER_BYTES = 22
     private const val APPLICATION_FRAME_TAG_BYTES = 16
 
