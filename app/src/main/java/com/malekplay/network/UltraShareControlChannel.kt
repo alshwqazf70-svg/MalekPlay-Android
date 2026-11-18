@@ -223,7 +223,8 @@ object UltraShareControlChannel {
         peerId: String? = null,
         onSessionClosed: (String) -> Unit = {},
         notifyClientSessionReady: Boolean = true,
-        onSessionReady: (String) -> Unit = {}
+        onSessionReady: (String) -> Unit = {},
+        expectedPeerId: String? = null
     ): Decision = withContext(Dispatchers.IO) {
         require(UltraShareCore.isValidPrivateLanHost(host) || host == "127.0.0.1") {
             "عنوان الجهاز غير صالح."
@@ -417,6 +418,16 @@ object UltraShareControlChannel {
                     runCatching { String(decodeHex(it), Charsets.UTF_8) }.getOrNull()
                 }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
                 val remotePeerId = responseParts.getOrNull(3)?.takeIf(::isStablePeerId)
+                if (!expectedPeerId.isNullOrBlank() && !remotePeerId.isNullOrBlank() &&
+                    !expectedPeerId.equals(remotePeerId, ignoreCase = true)
+                ) {
+                    UltraShareDiagnostics.event(
+                        "CONTROL_CHANNEL",
+                        "AUTHENTICATED_PEER_IDENTITY_MISMATCH",
+                        mapOf("peerHost" to host, "expectedPeerIdPresent" to true)
+                    )
+                    throw IllegalStateException("هوية الجهاز لا تطابق الجهاز المكتشف؛ سنجرّب مسار IP آخر.")
+                }
                 val applicationFramesEnabled = responseParts.getOrNull(4) == APPLICATION_CAPABILITY_MARKER
                 socket.soTimeout = SESSION_TIMEOUT_MS
                 val frameSession = createApplicationFrameSession(
