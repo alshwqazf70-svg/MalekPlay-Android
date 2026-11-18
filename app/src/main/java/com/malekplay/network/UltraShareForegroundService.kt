@@ -2252,10 +2252,16 @@ class UltraShareForegroundService : Service() {
                 val dataReady = UltraShareDiscovery.probeDataEndpoint(
                     activeHost, dataPort, dataNetworks
                 )
-                if (!dataReady && UltraShareDiscovery.probeLegacyDataEndpoint(
-                        activeHost, dataPort, dataNetworks
+                val legacyV1Ready = !dataReady && (
+                    UltraShareDiscovery.probeLegacyDataEndpoint(activeHost, dataPort, dataNetworks) ||
+                        (dataPort != UltraShareDiscovery.LEGACY_V1_DATA_PORT &&
+                            UltraShareDiscovery.probeLegacyDataEndpoint(
+                                activeHost,
+                                UltraShareDiscovery.LEGACY_V1_DATA_PORT,
+                                dataNetworks
+                            ))
                     )
-                ) {
+                if (legacyV1Ready) {
                     throw IOException(
                         "ULTRASHARE_LEGACY_PEER: تم الاقتران بالجهاز بنجاح، لكن مستقبل الملفات لديه يستخدم بروتوكول V1 بينما هذا الإصدار يرسل عبر V2. أبقينا قناة الاقتران كما هي ولم نغلقها؛ يلزم تحديث الطرف الآخر أو تفعيل مستقبل V1 قبل نقل الملفات."
                     )
