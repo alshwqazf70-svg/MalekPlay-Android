@@ -1435,6 +1435,9 @@ class UltraShareForegroundService : Service() {
                                                 .first { it.peerId == remoteId }.candidates
                                         )
                                     )
+                                    // Mark the authenticated edge before ACCEPT is flushed so a
+                                    // peer that starts V2 immediately selects this pair's key.
+                                    meshDirectEdges[remoteId] = UltraShareMeshTopology.Edge.of(localId, remoteId)
                                     UltraShareControlChannel.Decision.ACCEPTED
                                 }
                             },
