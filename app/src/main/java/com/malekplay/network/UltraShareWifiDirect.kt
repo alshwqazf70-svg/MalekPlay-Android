@@ -1440,7 +1440,7 @@ object UltraShareWifiDirect {
                     cancelOwnerPeerConfirmation()
                     val host = info.groupOwnerAddress?.hostAddress
                     val expectedAddress = pairingTargetDeviceAddress
-                    if (host == null || !UltraShareTransport.isValidPrivateLanHost(host)) {
+                    if (host == null || !UltraShareCore.isValidPrivateLanHost(host)) {
                         UltraShareDiagnostics.event(
                             "WIFI_DIRECT",
                             "GROUP_OWNER_ADDRESS_INVALID",
