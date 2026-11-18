@@ -23,7 +23,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-/** LAN discovery for the native UltraShare V2 peer and data-plane protocol. */
+/** LAN discovery for UltraShare peers with legacy V1 and current V2 offer compatibility. */
 object UltraShareDiscovery {
     const val DISCOVERY_PORT = 38742
     const val LEGACY_V1_DATA_PORT = 38741
@@ -304,8 +304,8 @@ object UltraShareDiscovery {
                             return@forEach
                         }
                         // Legacy V1 peers have no stable identity or route list. Keep
-                        // their observed private source address so MPC2 pairing can
-                        // still be attempted; transfer compatibility is negotiated later.
+                        // their observed private source address and V1 port so MPC2 pairing
+                        // can still be attempted; the V2 sender reports the data-plane mismatch later.
                         val legacy = decodeLegacyOffer(message, host) ?: return@forEach
                         if (host !in v2SourceHosts) {
                             peers.putIfAbsent(identityKey(legacy), legacy)
@@ -441,9 +441,9 @@ object UltraShareDiscovery {
     }
 
     /**
-     * Probe up to the protocol's eight advertised paths concurrently. Sequential
-     * 700ms control/data timeouts could otherwise stall discovery for many seconds
-     * and overrun the caller's scan window.
+     * Probe up to the protocol's eight advertised control paths concurrently. Sequential
+     * 700ms timeouts could otherwise stall discovery for many seconds and overrun
+     * the caller's scan window.
      */
     private suspend fun probeCandidates(
         candidates: List<UltraShareNegotiation.Candidate>,
