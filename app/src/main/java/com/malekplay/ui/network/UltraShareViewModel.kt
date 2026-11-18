@@ -683,11 +683,22 @@ class UltraShareViewModel @Inject constructor(
                     }
                     val verifiedRoutes = UltraShareNegotiation.orderedCandidates(dataRoutes)
                     val dataReady = verifiedRoutes.isNotEmpty()
+                    // Preserve a discovered V1 endpoint only as a compatibility hint.
+                    // It is not counted as a ready V2 data channel and is never probed.
+                    val legacyCompatibilityRoute = discoveredCandidates.firstOrNull {
+                        it.port == UltraShareDiscovery.LEGACY_V1_DATA_PORT &&
+                            (it.host == connectedHost || it.host in routeHosts)
+                    }
+                    val sendRoutes = if (verifiedRoutes.isNotEmpty()) {
+                        verifiedRoutes
+                    } else {
+                        listOfNotNull(legacyCompatibilityRoute)
+                    }
                     val approvedTarget = UltraShareApprovedSendTarget(
                         sessionId = sessionId,
                         host = connectedHost,
                         secret = secret.trim(),
-                        candidates = verifiedRoutes
+                        candidates = sendRoutes
                     )
                     UltraShareForegroundService.registerApprovedSendTarget(approvedTarget)
                     // Every authenticated QR/peer connection is full-duplex: the joining
@@ -705,7 +716,7 @@ class UltraShareViewModel @Inject constructor(
                         name = peerName,
                         host = connectedHost,
                         role = "أرسل طلب الاتصال",
-                        routeCandidates = verifiedRoutes,
+                        routeCandidates = sendRoutes,
                         sessionId = sessionId
                     )
                     _state.value = _state.value.copy(
@@ -715,10 +726,14 @@ class UltraShareViewModel @Inject constructor(
                         approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host },
                         status = if (dataReady)
                             "تم الاقتران والتحقق من منفذ نقل الملفات فعلياً عبر ${verifiedRoutes.size} مسار."
+                        else if (legacyCompatibilityRoute != null)
+                            "تم الاقتران بنجاح. الجهاز الآخر يعلن منفذ نقل V1 القديم؛ جلسة الاقتران باقية، لكن نقل V1 غير مفعّل في هذا الإصدار."
                         else
                             "تم توثيق الاقتران، لكن منفذ نقل الملفات لم يستجب بعد. لن يبدأ إرسال أي ملف حتى يصبح مسار البيانات جاهزاً.",
                         requestingConnection = false,
-                        error = if (dataReady) null else
+                        error = if (dataReady) null else if (legacyCompatibilityRoute != null)
+                            "توافق الاقتران ناجح، لكن محرك النقل الحالي V2 ولا يرسل إلى مستقبل V1. حدّث الطرف الآخر أو استخدم إصداراً متوافقاً للنقل."
+                        else
                             "قناة التحكم متصلة، لكن منفذ نقل الملفات غير متاح على عناوين الجهاز المكتشفة. تأكد من بقاء شاشة الاستقبال مفتوحة ثم أعد الاتصال."
                     )
                     onConnectionEstablished?.invoke(connectedHost)
