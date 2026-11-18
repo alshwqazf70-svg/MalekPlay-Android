@@ -283,10 +283,10 @@ jobs:
   android-runtime-tests:
     name: Android network runtime tests (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 3
       matrix:
         # Cover the declared minimum Android version, the primary field-test baseline,
         # and the current target SDK runtime behavior.
@@ -308,11 +308,12 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          emulator-boot-timeout: 1800
-          cores: 2
-          ram-size: 2048
-          heap-size: 512
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -wipe-data
+          emulator-boot-timeout: 360
+          cores: 4
+          ram-size: 4096
+          heap-size: 1024
+          # Fresh hosted runners do not need a data wipe; allow normal AVD snapshot behavior.
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           # Keep the action script to one command; the full Bash script lives in the repository.
           script: bash scripts/ci/run_android_runtime_tests.sh ${{ matrix.api-level }}
