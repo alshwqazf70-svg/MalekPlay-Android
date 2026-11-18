@@ -72,7 +72,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.malekplay.R
 import com.malekplay.core.ui.theme.MalekPlayColors
-import com.malekplay.network.UltraShareTransport
+import com.malekplay.network.UltraShareCore
 import com.malekplay.network.UltraShareBatchTransport
 import com.malekplay.data.repository.MediaRepository
 import com.malekplay.network.UltraShareDiscovery
@@ -124,11 +124,11 @@ data class LegacyUltraShareUiState(
     val sending: Boolean = false,
     val scanning: Boolean = false,
     val discoveredPeers: List<UltraShareDiscovery.Peer> = emptyList(),
-    val progress: UltraShareTransport.Progress? = null,
-    val sendProgress: UltraShareTransport.Progress? = null,
-    val receiveProgress: UltraShareTransport.Progress? = null,
+    val progress: UltraShareCore.Progress? = null,
+    val sendProgress: UltraShareCore.Progress? = null,
+    val receiveProgress: UltraShareCore.Progress? = null,
     val peerTransfers: List<UltraSharePeerTransfer> = emptyList(),
-    val receivedFile: UltraShareTransport.ReceivedFile? = null,
+    val receivedFile: UltraShareCore.ReceivedFile? = null,
     val status: String? = null,
     val error: String? = null,
     val queueCompleted: Int = 0,
@@ -255,8 +255,8 @@ class LegacyUltraShareViewModel @Inject constructor(
         // the current invitation secret has been authenticated. Every new QR must
         // complete a fresh MPC2 handshake.
         val secret = _state.value.pairingSecret
-        if (!UltraShareTransport.isValidPairingSecret(secret) ||
-            !UltraShareTransport.isValidPrivateLanHost(host)
+        if (!UltraShareCore.isValidPairingSecret(secret) ||
+            !UltraShareCore.isValidPrivateLanHost(host)
         ) {
             _state.value = _state.value.copy(
                 wifiDirectHost = null,
@@ -430,7 +430,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                 confirmedHost = host,
                 advertisedHosts = pairing.hosts,
                 pinToConfirmedHost = p2pInvitation
-            ).filter { UltraShareTransport.isValidPrivateLanHost(it) }
+            ).filter { UltraShareCore.isValidPrivateLanHost(it) }
             UltraShareDiagnostics.event(
                 "PAIRING",
                 if (p2pInvitation) "P2P_INVITATION_HOST_PINNED" else "LAN_INVITATION_HOST_CANDIDATES",
@@ -608,7 +608,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                             invitationTimeout?.cancel()
                             invitationTimeout = null
                             wifiDirectSession?.stopInvitationDiscovery()
-                            if (pairing != null && UltraShareTransport.isValidPairingSecret(pairing.pairingSecret)) {
+                            if (pairing != null && UltraShareCore.isValidPairingSecret(pairing.pairingSecret)) {
                                 UltraShareForegroundService.startReceiving(context, pairing.pairingSecret, createHotspot = false)
                                 _state.value = _state.value.copy(
                                     wifiDirectHost = null,
@@ -690,7 +690,7 @@ class LegacyUltraShareViewModel @Inject constructor(
         val current = _state.value
         if (!current.receiving || current.pairedSession || current.receiverQrPayload != null) return
         if (!current.controlChannelReady || !current.dataChannelReady ||
-            !UltraShareTransport.isValidPairingSecret(current.pairingSecret)
+            !UltraShareCore.isValidPairingSecret(current.pairingSecret)
         ) return
 
         val payload = when {
@@ -833,7 +833,7 @@ class LegacyUltraShareViewModel @Inject constructor(
 
     fun startReceiving() {
         if (_state.value.receiving) return
-        val secret = UltraShareTransport.createPairingSecret()
+        val secret = UltraShareCore.createPairingSecret()
         val invitationId = java.util.UUID.randomUUID().toString().replace("-", "")
         hotspotFallbackStarted = false
         _state.value = _state.value.copy(
@@ -882,7 +882,7 @@ class LegacyUltraShareViewModel @Inject constructor(
         val ssid = pairing.hotspotSsid ?: return
         val password = pairing.hotspotPassword ?: return
         val host = pairing.host
-        if (!UltraShareTransport.isValidPrivateLanHost(host)) {
+        if (!UltraShareCore.isValidPrivateLanHost(host)) {
             _state.value = _state.value.copy(error = "عنوان خادم الاستقبال في رمز QR غير صالح.")
             return
         }
@@ -1219,7 +1219,7 @@ class LegacyUltraShareViewModel @Inject constructor(
 
     fun send(uri: Uri, host: String, secret: String) {
         if (_state.value.sending) return
-        if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
+        if (host.isBlank() || !UltraShareCore.isValidPairingSecret(secret)) {
             _state.value = _state.value.copy(
                 sending = false,
                 error = context.getString(R.string.ultra_share_transfer_failed)
@@ -1232,7 +1232,7 @@ class LegacyUltraShareViewModel @Inject constructor(
 
     fun sendBatch(uris: List<Uri>, host: String, secret: String): Boolean {
         if (uris.isEmpty() || _state.value.sending ||
-            host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)
+            host.isBlank() || !UltraShareCore.isValidPairingSecret(secret)
         ) return false
         return runCatching {
             UltraShareForegroundService.startSendingBatch(context, uris, host, secret)
@@ -1252,7 +1252,7 @@ class LegacyUltraShareViewModel @Inject constructor(
     }
 
     fun resumePendingBatch(host: String, secret: String) {
-        if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret) ||
+        if (host.isBlank() || !UltraShareCore.isValidPairingSecret(secret) ||
             _state.value.sending
         ) return
         viewModelScope.launch {
@@ -1267,7 +1267,7 @@ class LegacyUltraShareViewModel @Inject constructor(
 
     fun retryFile(entry: UltraShareQueueEntry, host: String, secret: String) {
         if (_state.value.sending ||
-            host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret) ||
+            host.isBlank() || !UltraShareCore.isValidPairingSecret(secret) ||
             entry.status != UltraShareQueueStore.STATUS_FAILED
         ) return
         runCatching {
@@ -1593,7 +1593,7 @@ fun UltraShareScreen(
                     state.sending -> "جارٍ إرسال الوسائط"
                     state.receiving -> "الهاتف جاهز للاستقبال"
                     state.scanning -> "البحث عن الأجهزة القريبة"
-                    host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret) -> "بيانات الاقتران جاهزة"
+                    host.isNotBlank() && UltraShareCore.isValidPairingSecret(secret) -> "بيانات الاقتران جاهزة"
                     else -> "بانتظار ربط جهاز"
                 }
                 val connectionColor = when {
@@ -1916,13 +1916,13 @@ fun UltraShareScreen(
                                         }
                                     },
                                     modifier = Modifier.weight(1f),
-                                    enabled = !state.sending && host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
+                                    enabled = !state.sending && host.isNotBlank() && UltraShareCore.isValidPairingSecret(secret)
                                 ) {
                                     Icon(Icons.Filled.Send, contentDescription = null)
                                     Text("إرسال الآن", modifier = Modifier.padding(start = 6.dp))
                                 }
                             }
-                            if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
+                            if (host.isBlank() || !UltraShareCore.isValidPairingSecret(secret)) {
                                 Text("أكمل ربط الجهاز أولًا، ثم اضغط إرسال الآن.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                             }
                         }
@@ -2019,7 +2019,7 @@ fun UltraShareScreen(
                                     }
                                 }
                                     if (entry.status == UltraShareQueueStore.STATUS_FAILED) {
-                                        TextButton(onClick = { viewModel.retryFile(entry, host.trim(), secret.trim()) }, enabled = !state.sending && host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)) {
+                                        TextButton(onClick = { viewModel.retryFile(entry, host.trim(), secret.trim()) }, enabled = !state.sending && host.isNotBlank() && UltraShareCore.isValidPairingSecret(secret)) {
                                             Text("إعادة المحاولة")
                                         }
                                     }
@@ -2037,7 +2037,7 @@ fun UltraShareScreen(
                         OutlinedButton(
                             onClick = { viewModel.resumePendingBatch(host.trim(), secret.trim()) },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = host.isNotBlank() && UltraShareTransport.isValidPairingSecret(secret)
+                            enabled = host.isNotBlank() && UltraShareCore.isValidPairingSecret(secret)
                         ) { Text("استئناف الملفات المتبقية") }
                     }
                     if (!state.sending) {
