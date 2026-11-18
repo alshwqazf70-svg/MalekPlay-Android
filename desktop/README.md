@@ -1,6 +1,6 @@
 # MalekPlayer Ultra Share — Desktop Companion
 
-A small Windows, Linux, and macOS companion for the Ultra Share v1 protocol. It can send files to an Android receiver and receive files from the MalekPlayer Android app over a private local network.
+A Windows, Linux, and macOS companion for Ultra Share V2. It also retains an optional V1 compatibility listener for older Android builds. The current MalekPlayer Android branch uses V2 only. Transfers are limited to video, audio and image media.
 
 ## Requirements
 
@@ -16,7 +16,7 @@ Install the dependency as above, then start the dedicated browser companion:
 python ultra_share_web.py --output ./Received
 ```
 
-The terminal displays the computer's receive PIN. Open `http://127.0.0.1:8765` in a browser on that same computer. The page can discover a MalekPlayer receiver on the local network, send selected files to the phone using its private IPv4 address and 9-digit PIN, and list/download files received from Android. The browser companion uses the existing authenticated AES-GCM transfer protocol and SHA-256 verification; it does not upload files to a cloud service.
+The terminal displays the computer's receive PIN. Open `http://127.0.0.1:8765` in a browser on that same computer. The page can discover a MalekPlayer receiver on the local network, send selected media to the phone using its private IPv4 address and 9-digit PIN, and list/download media received from Android. The browser companion uses the existing authenticated AES-GCM transfer protocol and SHA-256 verification; it does not upload files to a cloud service.
 
 The browser control page is intentionally bound to `127.0.0.1` and validates Host/Origin headers to resist DNS-rebinding and cross-origin requests. It is not intended to be opened from another device on the LAN. Allow the transfer port through the firewall only on private networks and keep the pairing PIN private.
 
@@ -56,7 +56,7 @@ python -m pip install -r requirements.txt
 3. Enter the pairing code shown by MalekPlayer when prompted.
 4. On Android, scan for nearby devices and select the computer if discovery is available. Otherwise enter the computer's private IPv4 address manually.
 
-The desktop receiver listens on TCP **38741** (V1), TCP **38742** (V2), and TCP **38744** (MPC2 control), and advertises itself over UDP **38742**. On Windows, allow Python through Windows Defender Firewall for **Private networks only** for TCP 38741/38742/38744 and UDP 38742. Do not expose these ports to public networks.
+The desktop receiver listens on TCP **38742** (V2) and TCP **38744** (MPC2 control). It may also keep TCP **38741** open for older V1 Android builds; the current Android branch does not use that legacy listener. Discovery is advertised over UDP **38742**. On Windows, allow Python through Windows Defender Firewall for **Private networks only** for TCP 38741/38742/38744 and UDP 38742. Do not expose these ports to public networks.
 
 ## Send a file from the computer to Android
 
@@ -108,6 +108,7 @@ If there is no Wi-Fi router, enable the phone's personal hotspot, connect the co
 - A verified-receipt marker prevents a duplicate copy if the final acknowledgement was lost.
 - Existing destination files are preserved; a numbered filename is selected instead.
 - The desktop client accepts private or link-local IPv4 addresses only.
+- Both desktop and current Android V2 validation allow video/audio/image media only; documents, archives, executable packages and SVG files are rejected.
 - The pairing code is held in process memory and is not saved by this script.
 
 This companion is for trusted devices on a private LAN. It does not use cloud storage or a third-party transfer server. Wi-Fi Direct group creation is not initiated by this desktop script; use a shared Wi-Fi network or the phone hotspot.
@@ -115,9 +116,9 @@ This companion is for trusted devices on a private LAN. It does not use cloud st
 
 ## Ultra Share V2 batch transport and MPC2 control channel
 
-The desktop companion now keeps the legacy V1 listener available while adding the Android V2 data plane and the separately authenticated MPC2 approval channel:
+The desktop companion implements V2 and retains a V1 compatibility listener for older Android releases. The current Android branch is V2-only and will not fall back to V1:
 
-- V1 data: TCP **38741** (legacy per-file compatibility).
+- V1 data: TCP **38741** (desktop-only compatibility for older Android clients; not used by the current Android branch).
 - V2 batch data: TCP **38742** (one encrypted manifest and multiple files per batch).
 - MPC2 control: TCP **38744** (device request, explicit approval, and PING/PONG session heartbeat).
 - Discovery remains UDP **38742**; using the same numeric port for UDP discovery and TCP V2 data is intentional because they are different transports.
@@ -133,12 +134,12 @@ When an Android device requests an MPC2 session, approve it in the desktop termi
 To send a V2 batch from the desktop to Android, start **Ultra Share → Receive** on the phone, then run:
 
 ```bash
-python ultra_share_pc.py send-v2 --host 192.168.1.25 --file "./video.mp4" "./document.pdf"
+python ultra_share_pc.py send-v2 --host 192.168.1.25 --file "./video.mp4" "./song.mp3"
 ```
 
-Approve the incoming control request on Android. The desktop keeps the MPC2 heartbeat alive while the independent V2 data connection transfers and verifies the files. The Android app still enforces its own session approval; the V2 sender does not bypass that control channel.
+The Android receiver authenticates the short-lived PIN invitation and establishes the MPC2 session before accepting the independent V2 data connection. The desktop keeps the MPC2 heartbeat alive while the batch transfers and each media file is verified.
 
-The browser companion exposes separate **V1** and **V2** send actions. Its current V2 browser action submits selected files one at a time (each is a V2 batch); Android-to-desktop reception accepts a native multi-file V2 batch. Incoming desktop control requests are approved in the terminal running the browser companion.
+The browser companion exposes separate **V1 compatibility** and **V2** send actions. Use V2 with the current Android branch. Its current V2 browser action submits selected media one at a time (each is a V2 batch); Android-to-desktop reception accepts a native multi-file V2 batch. Incoming desktop control requests are approved in the terminal running the browser companion.
 
 Run the desktop protocol and compatibility tests from the repository root:
 
