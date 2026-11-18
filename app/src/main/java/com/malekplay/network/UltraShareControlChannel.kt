@@ -51,6 +51,7 @@ object UltraShareControlChannel {
     private const val DECISION_TIMEOUT_MS = 125_000
     private const val SESSION_TIMEOUT_MS = 18_000
     private const val HEARTBEAT_INTERVAL_MS = 5_000L
+    private const val MAX_ACTIVE_SESSIONS = UltraShareMeshTopology.MAX_PARTICIPANTS
 
     enum class Decision { ACCEPTED, REJECTED }
 
@@ -156,10 +157,10 @@ object UltraShareControlChannel {
                 pairingSecretResolver != null
         ) { "A valid fixed pairing secret or authenticated peer-secret resolver is required." }
         require(port in 1..65535)
-        val permits = Semaphore(4)
+        val permits = Semaphore(MAX_ACTIVE_SESSIONS)
         ServerSocket().use { server ->
             server.reuseAddress = true
-            server.bind(InetSocketAddress(port), 8)
+            server.bind(InetSocketAddress(port), MAX_ACTIVE_SESSIONS * 2)
             onListening(server.localPort)
             server.soTimeout = 750
             coroutineScope {
