@@ -142,23 +142,26 @@ object UltraShareNegotiation {
         require(peerId.isNotBlank() && peerId.length <= 96)
         require(name.isNotBlank() && name.length <= 64)
         require(count in 0..MAX_CANDIDATES && fields.size == 5 + count)
-        val candidates = fields.drop(5).map { encoded ->
-            val parts = encoded.split(',')
-            require(parts.size == 6)
-            Candidate(
-                transport = Transport.valueOf(parts[0]),
-                host = unfield(parts[1]),
-                port = parts[2].toInt(),
-                connected = parts[3] == "1",
-                reachable = parts[4] == "1",
-                priority = parts[5].toInt()
-            ).also {
+        // Candidate routes are optional hints, not peer identity. Ignore an
+        // individually malformed, stale or non-private route instead of rejecting
+        // the entire offer and making the device disappear from pairing.
+        val candidates = fields.drop(5).mapNotNull { encoded ->
+            runCatching {
+                val parts = encoded.split(',')
+                require(parts.size == 6)
                 require(parts[3] in setOf("0", "1") && parts[4] in setOf("0", "1"))
-                require(it.host.isNotBlank() && it.host.length <= 64 && it.port in 1..65535)
-                require(UltraShareCore.isValidPrivateLanHost(it.host)) {
-                    "Connection offer contains a non-private endpoint."
+                Candidate(
+                    transport = Transport.valueOf(parts[0]),
+                    host = unfield(parts[1]),
+                    port = parts[2].toInt(),
+                    connected = parts[3] == "1",
+                    reachable = parts[4] == "1",
+                    priority = parts[5].toInt()
+                ).also {
+                    require(it.host.isNotBlank() && it.host.length <= 64 && it.port in 1..65535)
+                    require(UltraShareCore.isValidPrivateLanHost(it.host))
                 }
-            }
+            }.getOrNull()
         }
         Offer(peerId, name, candidates)
     }.getOrNull()
