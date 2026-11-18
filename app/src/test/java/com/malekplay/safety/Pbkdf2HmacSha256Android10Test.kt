@@ -48,7 +48,7 @@ class Pbkdf2HmacSha256Android10Test {
     @Test
     fun ultraShareHandshakeKeyMatchesExistingDesktopProtocolOnAndroid10() {
         val challenge = ByteArray(32) { it.toByte() }
-        val actual = com.malekplay.network.UltraShareTransport
+        val actual = com.malekplay.network.UltraShareCore
             .derivePairingKey("004219837", challenge)
             .joinToString("") { "%02x".format(it) }
 
