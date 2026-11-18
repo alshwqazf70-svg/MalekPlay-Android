@@ -23,6 +23,7 @@ internal object UltraSharePairingReadiness {
     fun isDataListenerReady(actualPort: Int, expectedPort: Int): Boolean =
         expectedPort in 1..65535 && actualPort == expectedPort
 
+    @Suppress("UNUSED_PARAMETER")
     fun canShowWifiDirectQr(
         receiving: Boolean,
         controlChannelReady: Boolean,
@@ -37,6 +38,7 @@ internal object UltraSharePairingReadiness {
             UltraShareCore.isValidPairingSecret(pairingSecret) &&
             !invitationId.isNullOrBlank()
 
+    @Suppress("UNUSED_PARAMETER")
     fun canShowLanQr(
         receiving: Boolean,
         controlChannelReady: Boolean,
@@ -53,6 +55,7 @@ internal object UltraSharePairingReadiness {
             UltraShareCore.isValidPairingSecret(pairingSecret) &&
             localAddresses.any(UltraShareCore::isValidPrivateLanHost)
 
+    @Suppress("UNUSED_PARAMETER")
     fun canShowHotspotQr(
         receiving: Boolean,
         controlChannelReady: Boolean,
