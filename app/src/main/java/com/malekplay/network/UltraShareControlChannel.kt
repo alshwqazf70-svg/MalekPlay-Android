@@ -368,7 +368,7 @@ object UltraShareControlChannel {
             val stableToken = peerId?.replace("-", "")?.lowercase()
                 ?.takeIf { it.length == 32 && it.all { char -> char.digitToIntOrNull(16) != null } }
                 .orEmpty()
-            val requestId = randomId().take(24) + APPLICATION_CAPABILITY_MARKER + stableToken
+            val requestId = randomId().take(16) + APPLICATION_CAPABILITY_MARKER + stableToken
             val authenticated = requestAuthentication(key, challenge, requestId, nameBytes)
             output.writeUTF(requestId)
             output.writeShort(nameBytes.size)
@@ -653,7 +653,7 @@ object UltraShareControlChannel {
         }?.takeLast(32)
         val applicationFramesEnabled =
             requestId.length in 32..MAX_ID_BYTES &&
-                requestId.substring(24, 32) == APPLICATION_CAPABILITY_MARKER
+                requestId.substring(16, 32) == APPLICATION_CAPABILITY_MARKER
         val request = Request(
             requestId = requestId,
             peerName = name,
@@ -796,7 +796,7 @@ object UltraShareControlChannel {
     }
 
 
-    private const val APPLICATION_CAPABILITY_MARKER = "MPC2APP1"
+    private const val APPLICATION_CAPABILITY_MARKER = "4d504d5041505031"
     private const val APPLICATION_FRAME_HEADER_BYTES = 22
     private const val APPLICATION_FRAME_TAG_BYTES = 16
 
