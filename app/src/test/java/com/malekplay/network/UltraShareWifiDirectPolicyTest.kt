@@ -64,6 +64,8 @@ class UltraShareWifiDirectPolicyTest {
         assertTrue(isRetryableUltraSharePairingFailure(
             IllegalStateException("هوية الجهاز لا تطابق الجهاز المكتشف؛ سنجرّب مسار IP آخر.")
         ))
+        assertTrue(isRetryableUltraSharePairingFailure(java.net.SocketTimeoutException("route timed out")))
+        assertTrue(isRetryableUltraSharePairingFailure(java.io.EOFException("stale endpoint")))
         assertFalse(isRetryableUltraSharePairingFailure(IllegalArgumentException("invalid QR")))
         assertFalse(isRetryableUltraSharePairingFailure(SecurityException("permission denied")))
     }
