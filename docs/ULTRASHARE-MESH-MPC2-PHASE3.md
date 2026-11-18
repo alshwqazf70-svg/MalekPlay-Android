@@ -2,7 +2,7 @@
 
 Branch: `feature/zapya-engineering-analysis`
 
-This phase adds a typed, bounded envelope for Mesh room-control messages. These messages are intended to travel only through the already authenticated MPC2 application-frame channel. The envelope itself is not a substitute for MPC2 AES-GCM authentication, sequence enforcement, or peer approval.
+This phase adds a typed, bounded envelope for Mesh room-control messages and connects the room handshake to the foreground service's authenticated MPC2 application-frame sessions. The envelope itself is not a substitute for MPC2 AES-GCM authentication, sequence enforcement, or peer approval.
 
 ## Message types
 
@@ -13,17 +13,24 @@ This phase adds a typed, bounded envelope for Mesh room-control messages. These 
 
 Every message binds a canonical 128-bit room ID, canonical sender peer ID, positive revision, type, and bounded payload. Unknown types, malformed IDs, non-positive revisions, invalid payload sizes, oversized messages, and trailing bytes are rejected.
 
+## Service integration
+
+- The server-side session-ready callback fires only after ACCEPT is flushed.
+- The service serializes authority room handshakes so concurrent peer joins cannot race room revisions.
+- Each joining peer receives the room key only through its approved encrypted MPC2 session and must return a verified KEY_ACK.
+- The authority updates the authenticated roster and requires a verified ROSTER_ACK from the joining peer.
+- Existing capable clients receive newer roster revisions through their own single client-side message pump and return ROSTER_ACK.
+- Message envelopes are bound to the stable peer identity authenticated by the corresponding MPC2 session.
+- Room state is in-memory only; session/service cleanup cancels pumps and closes the coordinator, which wipes its room key.
+
 ## Security and lifecycle boundary
 
-- A room key must be generated from fresh cryptographically secure random bytes by the room authority and delivered only as a `KEY_OFFER` over an approved MPC2 session.
 - Never put the room key in discovery broadcasts, QR codes, diagnostics, logs, preferences, or files.
-- The receiver must bind `senderPeerId` to the authenticated MPC2 session identity before processing any message.
-- A `KEY_ACK` / `ROSTER_ACK` digest must match the exact payload sent; a revision must never roll back.
+- A KEY_ACK / ROSTER_ACK digest must match the exact payload sent; a revision must never roll back.
 - Roster HMAC validation remains mandatory after envelope decoding.
 - Keep one service-owned receive consumer per MPC2 session; multiple consumers would race on the same incoming channel.
+- Legacy peers without negotiated application-frame support do not enter the Mesh room protocol.
 
 ## What this phase does not claim
 
-The typed message codec and JVM tests are groundwork for live room orchestration. They do not yet generate or distribute a room key, run per-session receive consumers, synchronize roster revisions, establish missing topology edges, or prove direct B-to-C file delivery. The current app's server-side session map is keyed by remote IP, and a stable peer-ID keyed session registry is still required before a complete mesh can be trusted.
-
-Do not mark Mesh complete or publish a release APK until service integration, three-device tests, Gradle build, and physical-device transfer tests pass.
+The room-control exchange is integrated, but the app does not yet create all missing direct topology edges, establish B↔C direct links, use the pair-specific derived credential for those links, or verify direct V2 file delivery between non-authority peers. The server session registry remains host/IP keyed. The new end-to-end JVM test is source only until Gradle runs it. Do not mark Mesh complete or publish a release APK until CI/build and multi-device transfer tests pass.
