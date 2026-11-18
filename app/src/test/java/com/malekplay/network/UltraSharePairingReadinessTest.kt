@@ -126,17 +126,21 @@ class UltraSharePairingReadinessTest {
     }
 
     @Test fun lanFallbackQrRequiresExplicitFallbackAndSameLanAddress() {
-        fun canShow(fallback: Boolean, hosts: List<String> = listOf("192.168.1.20")) =
-            UltraSharePairingReadiness.canShowLanQr(
+        fun canShow(
+            fallback: Boolean,
+            hosts: List<String> = listOf("192.168.1.20"),
+            data: Boolean = true
+        ) = UltraSharePairingReadiness.canShowLanQr(
                 receiving = true,
                 controlChannelReady = true,
-                dataChannelReady = true,
+                dataChannelReady = data,
                 lanFallbackReady = fallback,
                 activePeerCount = 0,
                 pairingSecret = "123456789",
                 localAddresses = hosts
             )
         assertTrue(canShow(true))
+        assertTrue(canShow(true, data = false))
         assertFalse(canShow(false))
         assertFalse(canShow(true, emptyList()))
         assertFalse(canShow(true, listOf("8.8.8.8")))
