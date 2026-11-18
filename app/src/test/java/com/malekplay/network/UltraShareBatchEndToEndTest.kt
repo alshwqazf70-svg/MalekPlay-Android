@@ -217,7 +217,7 @@ class UltraShareBatchEndToEndTest {
             val script = File(File(System.getProperty("user.dir")).absoluteFile,
                 "desktop/ultra_share_v2_cross_language_sender.py")
             check(script.isFile) { "Missing Python V2 sender test harness: $script" }
-            process = ProcessBuilder(
+            val runningProcess = ProcessBuilder(
                 System.getenv("PYTHON")?.takeIf { it.isNotBlank() } ?: "python3",
                 script.absolutePath,
                 "--host", host,
@@ -228,8 +228,9 @@ class UltraShareBatchEndToEndTest {
                 "--result", resultFile.absolutePath
             ).directory(File(System.getProperty("user.dir")).absoluteFile)
                 .redirectErrorStream(true).redirectOutput(logFile).start()
+            process = runningProcess
             val exitCode = withContext(Dispatchers.IO) {
-                if (process.waitFor(30, TimeUnit.SECONDS)) process.exitValue() else -1
+                if (runningProcess.waitFor(30, TimeUnit.SECONDS)) runningProcess.exitValue() else -1
             }
             assertEquals("Python sender failed: ${logFile.readText()}", 0, exitCode)
             val result = withTimeout(15_000) { receiverResult.await() }
