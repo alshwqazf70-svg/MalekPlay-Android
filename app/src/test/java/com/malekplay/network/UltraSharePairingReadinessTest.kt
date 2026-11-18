@@ -7,6 +7,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UltraSharePairingReadinessTest {
+
+    @Test fun authenticatedPeerIdentityMustMatchTheDiscoveredDeviceButAllowsLegacyIdentityAbsence() {
+        assertTrue(
+            matchesExpectedUltraSharePeerIdentity(
+                "123e4567-e89b-12d3-a456-426614174000",
+                "123e4567e89b12d3a456426614174000"
+            )
+        )
+        assertFalse(
+            matchesExpectedUltraSharePeerIdentity(
+                "123e4567-e89b-12d3-a456-426614174000",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )
+        )
+        assertTrue(matchesExpectedUltraSharePeerIdentity("known-peer", null))
+        assertTrue(matchesExpectedUltraSharePeerIdentity(null, "any-peer"))
+    }
+
     @Test fun invitationHostHintsRemainStableOnlyForTheSameSessionId() {
         val stored = listOf("192.168.1.10", "192.168.49.1")
         val refreshed = listOf("192.168.1.11")
