@@ -149,7 +149,11 @@ object UltraShareBatchTransport {
                             )
                             try {
                                 val peerIdentity = UltraShareControlChannel.serverSessionIdentity(peer) ?: peer
-                                val result = peerMutexRegistry.withLock(peerIdentity) {
+                                // Resume checkpoints are scoped to the receive directory.
+                                // Include that directory in the lock key so independent rooms/
+                                // endpoints never block each other merely because they share a peer.
+                                val receiveLockKey = destinationDirectory.canonicalPath + "|" + peerIdentity
+                                val result = peerMutexRegistry.withLock(receiveLockKey) {
                                     val peerState = File(
                                         destinationDirectory,
                                         ".ultrashare-v2-state/" + MessageDigest.getInstance("SHA-256")
