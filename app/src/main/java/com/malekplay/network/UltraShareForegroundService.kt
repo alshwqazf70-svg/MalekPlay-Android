@@ -157,6 +157,7 @@ class UltraShareForegroundService : Service() {
     private var sendTransferActive = false
     private var receiveTransferActive = false
     private var receiveTransferCount = 0
+    @Volatile private var idleDisconnectJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -196,6 +197,8 @@ class UltraShareForegroundService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_STOP_RECEIVING -> {
+                idleDisconnectJob?.cancel()
+                idleDisconnectJob = null
                 receiveJob?.cancel()
                 batchReceiveJob?.cancel()
                 advertisementJob?.cancel()
@@ -245,6 +248,8 @@ class UltraShareForegroundService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_STOP, ACTION_CANCEL -> {
+                idleDisconnectJob?.cancel()
+                idleDisconnectJob = null
                 if (sendJob == null && receiveJob == null && batchReceiveJob == null) startForegroundCompat()
                 sendJob?.cancel()
                 receiveJob?.cancel()
@@ -553,6 +558,7 @@ class UltraShareForegroundService : Service() {
                                     status = "تم الاتصال تلقائياً مع " + request.peerName + "؛ الإرسال والاستقبال متاحان.",
                                     error = null
                                 ) }
+                                scheduleIdleDisconnect()
                                 UltraShareControlChannel.Decision.ACCEPTED
                             }
                         } catch (cancelled: CancellationException) {
@@ -573,6 +579,7 @@ class UltraShareForegroundService : Service() {
                     }
                 }
                 job.start()
+                scheduleIdleDisconnect()
             }
             ACTION_SEND_MULTI_BATCH -> {
                 val uris = intent.parcelableUriList(EXTRA_URIS).orEmpty()
@@ -659,6 +666,8 @@ class UltraShareForegroundService : Service() {
                 activePeers = emptyList(),
                 error = "أوقف Android خدمة النقل بعد بلوغ الحد الزمني المسموح. يمكنك بدء النقل مجدداً."
             ) }
+        idleDisconnectJob?.cancel()
+        idleDisconnectJob = null
         sendJob?.cancel()
         receiveJob?.cancel()
         batchReceiveJob?.cancel()
@@ -872,9 +881,8 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun finishService() {
-        // A completed file/queue is not the end of pairing. Keep the foreground service
-        // and authenticated control channels alive until the user explicitly disconnects
-        // or stops UltraShare. The receiver loop may also still be waiting for more files.
+        // A completed file/queue keeps the temporary room available briefly. An idle timer
+        // closes all peer sessions and the room after five minutes without active transfer.
         if (sendJob != null || receiveJob != null || batchReceiveJob != null || hotspotReservation != null || currentState().hotspotStarting) return
 
         releaseTransferLocks()
@@ -897,7 +905,69 @@ class UltraShareForegroundService : Service() {
         stopSelf()
     }
 
+    /**
+     * Keep a room available only briefly after the last transfer. The timer is cancelled
+     * while any send/receive is active, so large files are never cut off by the idle policy.
+     */
+    private fun scheduleIdleDisconnect() {
+        idleDisconnectJob?.cancel()
+        val busy = synchronized(transferLockGuard) { sendTransferActive || receiveTransferCount > 0 } ||
+            sendJob != null || currentState().sending
+        if (busy || (!currentState().receiving && currentState().activePeers.isEmpty() && approvedSendTargets().isEmpty())) {
+            idleDisconnectJob = null
+            return
+        }
+        idleDisconnectJob = serviceScope.launch {
+            kotlinx.coroutines.delay(SESSION_IDLE_TIMEOUT_MS)
+            val transferStillActive = synchronized(transferLockGuard) {
+                sendTransferActive || receiveTransferCount > 0
+            } || sendJob != null || currentState().sending
+            if (transferStillActive) {
+                // The transfer's finally/endTransfer path will schedule a fresh idle window.
+                idleDisconnectJob = null
+                return@launch
+            }
+            closeTemporarySessionAfterIdle()
+        }
+    }
+
+    private fun closeTemporarySessionAfterIdle() {
+        idleDisconnectJob = null
+        UltraShareDiagnostics.event("SESSION", "IDLE_TIMEOUT_DISCONNECT")
+        (currentState().activePeers.map { it.host } + approvedSendTargets().map { it.host })
+            .distinct()
+            .forEach(::disconnectApprovedPeer)
+        pendingConnectionDecision?.cancel()
+        pendingConnectionDecision = null
+        advertisementJob?.cancel()
+        advertisementJob = null
+        controlJob?.cancel()
+        controlJob = null
+        receiveJob?.cancel()
+        batchReceiveJob?.cancel()
+        stopLocalHotspot()
+        updateState { current -> current.copy(
+            receiving = false,
+            sending = false,
+            pairingSecret = "",
+            localAddresses = emptyList(),
+            controlChannelReady = false,
+            dataChannelReady = false,
+            controlChannelError = null,
+            pendingConnection = null,
+            activePeers = emptyList(),
+            reconnectablePeers = emptyList(),
+            approvedSenderPeerHosts = emptyList(),
+            reconnectableSenderPeerHosts = emptyList(),
+            peerTransfers = emptyList(),
+            status = "أُغلقت الغرفة تلقائياً بعد خمس دقائق من عدم النشاط."
+        ) }
+        finishService()
+    }
+
     private fun beginTransfer(isReceiving: Boolean) {
+        idleDisconnectJob?.cancel()
+        idleDisconnectJob = null
         synchronized(transferLockGuard) {
             if (isReceiving) { receiveTransferCount++; receiveTransferActive = true } else sendTransferActive = true
             runCatching {
@@ -924,10 +994,12 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun endTransfer(isReceiving: Boolean) {
-        synchronized(transferLockGuard) {
+        val idle = synchronized(transferLockGuard) {
             if (isReceiving) { receiveTransferCount = (receiveTransferCount - 1).coerceAtLeast(0); receiveTransferActive = receiveTransferCount > 0 } else sendTransferActive = false
             if (!sendTransferActive && receiveTransferCount == 0) releaseTransferLocksLocked()
+            !sendTransferActive && receiveTransferCount == 0
         }
+        if (idle && sendJob == null) scheduleIdleDisconnect()
     }
 
     private fun releaseTransferLocks() {
@@ -1151,6 +1223,7 @@ class UltraShareForegroundService : Service() {
                 sendJob = null
                 pauseRequested = false
                 updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, queueCurrentName = null) }
+                scheduleIdleDisconnect()
                 finishService()
             }
         }
@@ -1456,6 +1529,7 @@ class UltraShareForegroundService : Service() {
                         queueCurrentName = null
                     )
                 }
+                scheduleIdleDisconnect()
                 finishService()
             }
         }
@@ -1788,6 +1862,7 @@ class UltraShareForegroundService : Service() {
         private const val NOTIFICATION_ID = 38741
         // Bound CPU/Wi-Fi locks to the platform data-sync foreground-service window.
         private const val TRANSFER_LOCK_TIMEOUT_MS = 6L * 60L * 60L * 1000L
+        private const val SESSION_IDLE_TIMEOUT_MS = 5L * 60L * 1000L
         private const val EXTRA_SECRET = "secret"
         private const val EXTRA_HOST = "host"
         private const val EXTRA_URI = "uri"
