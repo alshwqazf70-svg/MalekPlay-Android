@@ -525,6 +525,7 @@ class UltraShareForegroundService : Service() {
                                 },
                                 onSessionClosed = { request ->
                                     disconnectApprovedPeer(request.peerAddress)
+                                    scheduleIdleDisconnect()
                                 },
 
                             ) { request ->
@@ -1615,7 +1616,10 @@ class UltraShareForegroundService : Service() {
                                 peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlayer Android",
                                 network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, activeHost),
                                 peerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
-                                onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
+                                onSessionClosed = { disconnectedHost ->
+                                    disconnectApprovedPeer(disconnectedHost)
+                                    scheduleIdleDisconnect()
+                                }
                             )
                             check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
                                 "تعذر إكمال إعادة الاتصال التلقائي بالجهاز المستقبل."
@@ -1722,7 +1726,10 @@ class UltraShareForegroundService : Service() {
                             network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, candidate.host),
                                 networks = UltraShareNetworkRouting.findNetworksForHost(this@UltraShareForegroundService, candidate.host),
                             peerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
-                            onSessionClosed = { disconnectedHost -> disconnectApprovedPeer(disconnectedHost) }
+                            onSessionClosed = { disconnectedHost ->
+                                    disconnectApprovedPeer(disconnectedHost)
+                                    scheduleIdleDisconnect()
+                                }
                         )
                         check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
                             "تعذر الاتصال تلقائياً عبر المسار البديل."
