@@ -1,8 +1,9 @@
 package com.malekplay.network
 
 /**
- * Keeps the invitation hidden until both independently-bound receiver sockets
- * and the temporary hotspot are actually ready.
+ * Publishes pairing invitations once the authenticated control listener and
+ * required network invitation are ready. The V2 data listener is independent:
+ * its delay or failure must not block pairing.
  */
 internal object UltraSharePairingReadiness {
     /** Reuses stored route hints only for the exact same ephemeral invitation. */
