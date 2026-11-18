@@ -1143,6 +1143,16 @@ class UltraShareForegroundService : Service() {
                 while (UltraShareControlChannel.supportsServerApplicationFrames(host)) {
                     val bytes = UltraShareControlChannel.receiveServerApplicationMessage(host) ?: break
                     val message = UltraShareMeshControlProtocol.decode(bytes) ?: continue
+                    val authenticatedPeerId = canonicalMeshPeerId(
+                        UltraShareControlChannel.serverSessionIdentity(host)
+                    ) ?: break
+                    if (canonicalMeshPeerId(message.senderPeerId) != authenticatedPeerId) {
+                        UltraShareDiagnostics.event(
+                            "MESH_ROOM", "IGNORED_UNBOUND_SERVER_MESSAGE",
+                            mapOf("peerHost" to host, "messageType" to message.type.name)
+                        )
+                        continue
+                    }
                     if (message.type == UltraShareMeshControlProtocol.Type.ROSTER_ACK) {
                         UltraShareDiagnostics.event(
                             "MESH_ROOM", "ROSTER_ACK_RECEIVED",
