@@ -565,15 +565,11 @@ object UltraShareBatchTransport {
         // Detect the explicit reachability probe before running the expensive PIN KDF.
         if (isDiscoveryProbeProof(proof)) throw DiscoveryProbeConnection()
         val peerHost = socket.inetAddress.hostAddress.orEmpty()
-        val selectedPairingSecret = if (pairingSecretResolver != null) {
-            pairingSecretResolver(peerHost)
-                ?: error("لم يتم العثور على مفتاح نقل موثق لهذا الجهاز.")
-        } else {
-            pairingSecret
-        }
-        require(UltraShareCore.isValidPairingSecret(selectedPairingSecret)) {
-            "لا توجد بيانات اعتماد صالحة لهذا الجهاز."
-        }
+        val selectedPairingSecret = selectPeerPairingSecret(
+            fallbackSecret = pairingSecret,
+            peerHost = peerHost,
+            resolver = pairingSecretResolver
+        )
         val secret = UltraShareCore.derivePairingKey(selectedPairingSecret, challenge)
         var noncePrefixToWipe: ByteArray? = null
         var receiveKeyToWipe: ByteArray? = null
@@ -1032,6 +1028,20 @@ object UltraShareBatchTransport {
             }.also { require(data.available() == 0) }
         }
         return UltraShareBatchProtocol.validateResults(manifest, results)
+    }
+
+    internal fun selectPeerPairingSecret(
+        fallbackSecret: String,
+        peerHost: String,
+        resolver: ((String) -> String?)?
+    ): String {
+        val selected = if (resolver != null) {
+            resolver(peerHost) ?: error("لم يتم العثور على مفتاح نقل موثق لهذا الجهاز.")
+        } else fallbackSecret
+        require(UltraShareCore.isValidPairingSecret(selected)) {
+            "لا توجد بيانات اعتماد صالحة لهذا الجهاز."
+        }
+        return selected
     }
 
     internal fun isPeerSessionAuthorized(authenticated: Boolean, sessionActive: Boolean): Boolean =
