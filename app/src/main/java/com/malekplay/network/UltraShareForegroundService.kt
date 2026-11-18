@@ -170,6 +170,11 @@ class UltraShareForegroundService : Service() {
     )
     private val meshClientJoinMutex = kotlinx.coroutines.sync.Mutex()
     private val meshRoomHandshakeMutex = kotlinx.coroutines.sync.Mutex()
+    private val meshDirectServerGuard = Any()
+    @Volatile private var meshDirectServerJob: Job? = null
+    @Volatile private var meshDirectServerReady: CompletableDeferred<Unit>? = null
+    private val meshDirectDialJobs = java.util.concurrent.ConcurrentHashMap<UltraShareMeshTopology.Edge, Job>()
+    private val meshDirectEdges = java.util.concurrent.ConcurrentHashMap<String, UltraShareMeshTopology.Edge>()
 
 
     override fun onCreate() {
@@ -1321,6 +1326,249 @@ class UltraShareForegroundService : Service() {
         }
     }
 
+
+    /**
+     * Every room member hosts a separate MPC2 listener for pair-specific direct links.
+     * The resolver authenticates only identities already present in the HMAC-verified roster.
+     */
+    private suspend fun ensureMeshDirectServerReady() {
+        val ready = synchronized(meshDirectServerGuard) {
+            val existing = meshDirectServerJob
+            val existingReady = meshDirectServerReady
+            if (existing != null && existing.isActive && existingReady != null) {
+                existingReady
+            } else {
+                val deferred = CompletableDeferred<Unit>()
+                val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+                    try {
+                        UltraShareControlChannel.serveOnce(
+                            pairingSecret = null,
+                            port = MESH_DIRECT_CONTROL_PORT,
+                            localPeerName = Build.MODEL?.take(96)?.ifBlank { "MalekPlayer Android" }
+                                ?: "MalekPlayer Android",
+                            localPeerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
+                            onListening = { actualPort ->
+                                check(actualPort == MESH_DIRECT_CONTROL_PORT)
+                                deferred.complete(Unit)
+                                UltraShareDiagnostics.event(
+                                    "MESH_LINK", "DIRECT_CONTROL_LISTENER_READY",
+                                    mapOf("port" to actualPort)
+                                )
+                            },
+                            pairingSecretResolver = { remotePeerId ->
+                                val coordinator = meshRoomCoordinator
+                                val localId = canonicalMeshPeerId(
+                                    UltraShareDiscovery.localPeerId(this@UltraShareForegroundService)
+                                )
+                                val remoteId = canonicalMeshPeerId(remotePeerId)
+                                if (coordinator == null || localId == null || remoteId == null) {
+                                    null
+                                } else {
+                                    runCatching {
+                                        coordinator.deriveDirectLinkCredential(localId, remoteId)
+                                    }.getOrNull()
+                                }
+                            },
+                            onRequest = { request ->
+                                val localId = canonicalMeshPeerId(
+                                    UltraShareDiscovery.localPeerId(this@UltraShareForegroundService)
+                                )
+                                val remoteId = canonicalMeshPeerId(request.peerId)
+                                val coordinator = meshRoomCoordinator
+                                if (localId == null || remoteId == null || coordinator == null ||
+                                    coordinator.state().members.none { it.peerId == remoteId }
+                                ) {
+                                    UltraShareControlChannel.Decision.REJECTED
+                                } else {
+                                    val secret = coordinator.deriveDirectLinkCredential(localId, remoteId)
+                                    registerApprovedPeer(
+                                        name = request.peerName,
+                                        host = request.peerAddress,
+                                        role = "اتصال مباشر موثق داخل غرفة Mesh",
+                                        sessionId = remoteId
+                                    )
+                                    registerApprovedSendTarget(
+                                        UltraShareApprovedSendTarget(
+                                            sessionId = remoteId,
+                                            host = request.peerAddress,
+                                            secret = secret,
+                                            candidates = coordinator.state().members
+                                                .first { it.peerId == remoteId }.candidates
+                                        )
+                                    )
+                                    UltraShareControlChannel.Decision.ACCEPTED
+                                }
+                            },
+                            onSessionReady = { request ->
+                                val localId = canonicalMeshPeerId(
+                                    UltraShareDiscovery.localPeerId(this@UltraShareForegroundService)
+                                )
+                                val remoteId = canonicalMeshPeerId(request.peerId)
+                                if (localId != null && remoteId != null) {
+                                    meshDirectEdges[remoteId] = UltraShareMeshTopology.Edge.of(localId, remoteId)
+                                    UltraShareDiagnostics.event(
+                                        "MESH_LINK", "DIRECT_LINK_ACCEPTED",
+                                        mapOf("peerId" to remoteId, "peerHost" to request.peerAddress)
+                                    )
+                                }
+                            },
+                            onSessionClosed = { request ->
+                                val remoteId = canonicalMeshPeerId(request.peerId)
+                                if (remoteId != null) meshDirectEdges.remove(remoteId)
+                                stopMeshSession(request.peerAddress)
+                                disconnectApprovedPeer(request.peerAddress)
+                                UltraShareDiagnostics.event(
+                                    "MESH_LINK", "DIRECT_LINK_CLOSED",
+                                    mapOf("peerId" to (remoteId ?: "unknown"), "peerHost" to request.peerAddress)
+                                )
+                            }
+                        )
+                    } catch (cancelled: CancellationException) {
+                        if (!deferred.isCompleted) deferred.cancel(cancelled)
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        if (!deferred.isCompleted) deferred.completeExceptionally(failure)
+                        UltraShareDiagnostics.failure("MESH_DIRECT_SERVER", failure)
+                    }
+                }
+                meshDirectServerReady = deferred
+                meshDirectServerJob = job
+                job.start()
+                deferred
+            }
+        }
+        val completed = withTimeoutOrNull(12_000L) { ready.await(); true } ?: false
+        check(completed) { "انتهت مهلة تشغيل مستمع الاتصالات المباشرة لغرفة Mesh." }
+    }
+
+    /** Reconcile the authenticated roster into direct MPC2 edges; V2 carries the media bytes. */
+    private suspend fun reconcileMeshDirectLinks() {
+        val coordinator = meshRoomCoordinator ?: return
+        val localId = canonicalMeshPeerId(UltraShareDiscovery.localPeerId(this)) ?: return
+        val snapshot = runCatching { coordinator.state() }.getOrNull() ?: return
+        if (snapshot.members.size < 2) return
+        ensureMeshDirectServerReady()
+        val localPeer = snapshot.members.firstOrNull { it.peerId == localId } ?: return
+        val activeEdges = linkedSetOf<UltraShareMeshTopology.Edge>()
+        UltraShareControlChannel.activeServerApplicationSessionHosts().forEach { host ->
+            canonicalMeshPeerId(UltraShareControlChannel.serverSessionIdentity(host))?.let { remoteId ->
+                if (remoteId != localId) activeEdges += UltraShareMeshTopology.Edge.of(localId, remoteId)
+            }
+        }
+        UltraShareControlChannel.activeClientApplicationSessionHosts().forEach { host ->
+            canonicalMeshPeerId(UltraShareControlChannel.sessionPeerId(host))?.let { remoteId ->
+                if (remoteId != localId) activeEdges += UltraShareMeshTopology.Edge.of(localId, remoteId)
+            }
+        }
+        activeEdges += meshDirectEdges.values
+        val plan = UltraShareMeshTopology.plan(
+            localPeer = localPeer,
+            discoveredPeers = snapshot.members.filterNot { it.peerId == localId },
+            activeEdges = activeEdges
+        )
+        UltraShareDiagnostics.event(
+            "MESH_LINK", "TOPOLOGY_RECONCILED",
+            mapOf(
+                "participants" to plan.participants.size,
+                "requiredEdges" to plan.requiredEdges.size,
+                "activeEdges" to plan.activeEdges.size,
+                "missingEdges" to plan.missingEdges.size,
+                "outgoingEdges" to plan.outgoingLinks.size
+            )
+        )
+        plan.outgoingLinks.forEach { link ->
+            if (meshDirectEdges.containsKey(link.remotePeer.peerId)) return@forEach
+            val existingJob = meshDirectDialJobs[link.edge]
+            if (existingJob?.isActive == true) return@forEach
+            val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+                try {
+                    val credential = coordinator.deriveDirectLinkCredential(localId, link.remotePeer.peerId)
+                    var connected = false
+                    var lastFailure: Exception? = null
+                    repeat(MESH_DIRECT_DIAL_ATTEMPTS) { attempt ->
+                        if (connected) return@repeat
+                        try {
+                            UltraShareDiagnostics.event(
+                                "MESH_LINK", "DIRECT_DIAL_ATTEMPT",
+                                mapOf(
+                                    "peerId" to link.remotePeer.peerId,
+                                    "host" to link.endpoint.host,
+                                    "attempt" to (attempt + 1)
+                                )
+                            )
+                            val decision = UltraShareControlChannel.request(
+                                host = link.endpoint.host,
+                                pairingSecret = credential,
+                                peerName = Build.MODEL?.take(96)?.ifBlank { "MalekPlayer Android" }
+                                    ?: "MalekPlayer Android",
+                                port = MESH_DIRECT_CONTROL_PORT,
+                                network = UltraShareNetworkRouting.findNetworkForHost(
+                                    this@UltraShareForegroundService, link.endpoint.host
+                                ),
+                                peerId = localId,
+                                notifyClientSessionReady = false,
+                                onSessionClosed = { closedHost ->
+                                    meshDirectEdges.remove(link.remotePeer.peerId)
+                                    stopMeshSession(closedHost)
+                                    disconnectApprovedPeer(closedHost)
+                                }
+                            )
+                            check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
+                                "رفض الجهاز المقابل اتصال Mesh المباشر."
+                            }
+                            val authenticatedRemote = canonicalMeshPeerId(
+                                UltraShareControlChannel.sessionPeerId(link.endpoint.host)
+                            )
+                            check(authenticatedRemote == link.remotePeer.peerId) {
+                                "هوية الطرف الذي قبل الاتصال لا تطابق هوية عضو الغرفة."
+                            }
+                            registerApprovedPeer(
+                                name = UltraShareControlChannel.sessionPeerName(link.endpoint.host)
+                                    ?: link.remotePeer.displayName,
+                                host = link.endpoint.host,
+                                role = "اتصال مباشر موثق داخل غرفة Mesh",
+                                routeCandidates = link.remotePeer.candidates,
+                                sessionId = link.remotePeer.peerId
+                            )
+                            registerApprovedSendTarget(
+                                UltraShareApprovedSendTarget(
+                                    sessionId = link.remotePeer.peerId,
+                                    host = link.endpoint.host,
+                                    secret = credential,
+                                    candidates = link.remotePeer.candidates
+                                )
+                            )
+                            meshDirectEdges[link.remotePeer.peerId] = link.edge
+                            connected = true
+                            UltraShareDiagnostics.event(
+                                "MESH_LINK", "DIRECT_LINK_ESTABLISHED",
+                                mapOf("peerId" to link.remotePeer.peerId, "host" to link.endpoint.host)
+                            )
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            lastFailure = failure
+                            if (attempt + 1 < MESH_DIRECT_DIAL_ATTEMPTS) {
+                                kotlinx.coroutines.delay((attempt + 1) * 700L)
+                            }
+                        }
+                    }
+                    if (!connected) {
+                        UltraShareDiagnostics.failure(
+                            "MESH_DIRECT_DIAL",
+                            lastFailure ?: IOException("تعذر إنشاء اتصال Mesh مباشر."),
+                            "peerId=" + link.remotePeer.peerId
+                        )
+                    }
+                } finally {
+                    meshDirectDialJobs.remove(link.edge)
+                }
+            }
+            val previous = meshDirectDialJobs.putIfAbsent(link.edge, job)
+            if (previous != null) job.cancel() else job.start()
+        }
+    }
+
     private fun beginTransfer(isReceiving: Boolean) {
         idleDisconnectJob?.cancel()
         idleDisconnectJob = null
@@ -2228,6 +2476,8 @@ class UltraShareForegroundService : Service() {
         // Bound CPU/Wi-Fi locks to the platform data-sync foreground-service window.
         private const val TRANSFER_LOCK_TIMEOUT_MS = 6L * 60L * 60L * 1000L
         private const val SESSION_IDLE_TIMEOUT_MS = 5L * 60L * 1000L
+        private const val MESH_DIRECT_CONTROL_PORT = 38_746
+        private const val MESH_DIRECT_DIAL_ATTEMPTS = 3
         private const val EXTRA_SECRET = "secret"
         private const val EXTRA_HOST = "host"
         private const val EXTRA_URI = "uri"
