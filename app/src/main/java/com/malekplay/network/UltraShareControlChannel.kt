@@ -387,8 +387,9 @@ object UltraShareControlChannel {
                     runCatching { String(decodeHex(it), Charsets.UTF_8) }.getOrNull()
                 }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
                 val remotePeerId = responseParts.getOrNull(3)?.takeIf(::isStablePeerId)
-                val negotiatedDFilePort = responseParts.getOrNull(4)?.toIntOrNull()
-                    ?.takeIf { it in 1..65535 }
+                // Ignore legacy DFile ports: all MalekPlay transfers use the
+                // authenticated UltraShare v2 TCP transport.
+                val negotiatedDFilePort: Int? = null
                 socket.soTimeout = SESSION_TIMEOUT_MS
                 val session = ClientSession(
                     socket, input, output, remoteName, remotePeerId,
