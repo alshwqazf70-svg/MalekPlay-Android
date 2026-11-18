@@ -57,16 +57,27 @@ class UltraShareNegotiationTest {
             )
         }
 
-        assertNull(
-            UltraShareNegotiation.decode(
-                "MPULTRA_OFFER|2|peer|Receiver|1|WLAN,8.8.8.8,38743,1,1,0"
-            )
+        val publicOnly = UltraShareNegotiation.decode(
+            "MPULTRA_OFFER|2|peer|Receiver|1|WLAN,8.8.8.8,38743,1,1,0"
         )
-        assertNull(
-            UltraShareNegotiation.decode(
-                "MPULTRA_OFFER|2|peer|Receiver|1|WLAN,127.0.0.1,38743,1,1,0"
-            )
+        assertNotNull(publicOnly)
+        assertTrue(publicOnly!!.candidates.isEmpty())
+
+        val loopbackOnly = UltraShareNegotiation.decode(
+            "MPULTRA_OFFER|2|peer|Receiver|1|WLAN,127.0.0.1,38743,1,1,0"
         )
+        assertNotNull(loopbackOnly)
+        assertTrue(loopbackOnly!!.candidates.isEmpty())
+    }
+
+    @Test fun invalidOptionalRouteDoesNotDiscardAValidRouteOrPeerOffer() {
+        val decoded = UltraShareNegotiation.decode(
+            "MPULTRA_OFFER|2|peer|Receiver|2|WLAN,8.8.8.8,38743,1,1,99|WIFI_DIRECT,192.168.49.1,38743,1,1,30"
+        )
+        assertNotNull(decoded)
+        assertEquals("peer", decoded!!.peerId)
+        assertEquals(1, decoded.candidates.size)
+        assertEquals("192.168.49.1", decoded.candidates.single().host)
     }
 
     @Test fun selectsOnlyReachableCandidatesInPreferredOrder() {
