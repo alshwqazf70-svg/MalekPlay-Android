@@ -201,7 +201,8 @@ class UltraShareForegroundService : Service() {
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
-                currentState().activePeers.map { it.host }.distinct().forEach { host ->
+                (currentState().activePeers.map { it.host } +
+                    approvedSendTargets().map { it.host }).distinct().forEach { host ->
                     disconnectApprovedPeer(host)
                 }
                 stopLocalHotspot()
@@ -251,7 +252,8 @@ class UltraShareForegroundService : Service() {
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
-                currentState().activePeers.map { it.host }.distinct().forEach(::disconnectApprovedPeer)
+                (currentState().activePeers.map { it.host } +
+                    approvedSendTargets().map { it.host }).distinct().forEach(::disconnectApprovedPeer)
                 stopLocalHotspot()
                 if (sendJob == null && receiveJob == null && batchReceiveJob == null) finishService()
                 return START_NOT_STICKY
@@ -1024,7 +1026,7 @@ class UltraShareForegroundService : Service() {
                             host = host,
                             secret = secret,
                             candidates = candidates,
-                            expectedPeerId = reconnectableSendTarget(host)?.sessionId,
+                            expectedPeerId = approvedSendTarget(host)?.sessionId,
                             onHostChanged = { activeV2Host = it }
                         ) { progress ->
                             if (v2ProgressFileId != null && v2ProgressFileId != progress.fileId) {
@@ -1552,7 +1554,7 @@ class UltraShareForegroundService : Service() {
                                 sessionId = UltraShareControlChannel.sessionPeerId(activeHost)
                                     ?: UltraShareMultiRecipientCoordinator.resolveSessionId(
                                         activeHost,
-                                        reconnectableSendTargets().map { it.host to it.sessionId },
+                                        approvedSendTargets().map { it.host to it.sessionId },
                                         java.util.UUID.randomUUID().toString()
                                     )
                             )
@@ -1812,19 +1814,17 @@ class UltraShareForegroundService : Service() {
 
         private val mutableState = MutableStateFlow(UltraShareServiceState())
         private val approvedSendTargetsByHost = LinkedHashMap<String, UltraShareApprovedSendTarget>()
-        private val reconnectableSendTargetsByHost = LinkedHashMap<String, UltraShareApprovedSendTarget>()
 
         internal fun registerApprovedSendTarget(target: UltraShareApprovedSendTarget) {
             require(UltraShareCore.isValidPrivateLanHost(target.host))
             require(UltraShareCore.isValidPairingSecret(target.secret))
             synchronized(approvedSendTargetsByHost) {
                 approvedSendTargetsByHost[target.host] = target
-                reconnectableSendTargetsByHost[target.host] = target
             }
             mutableState.update { current ->
                 current.copy(
                     approvedSenderPeerHosts = approvedSendTargets().map { it.host },
-                    reconnectableSenderPeerHosts = reconnectableSendTargets().map { it.host }
+                    reconnectableSenderPeerHosts = emptyList()
                 )
             }
         }
@@ -1835,18 +1835,12 @@ class UltraShareForegroundService : Service() {
         internal fun approvedSendTarget(host: String): UltraShareApprovedSendTarget? =
             synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost[host] }
 
-        internal fun reconnectableSendTarget(host: String): UltraShareApprovedSendTarget? =
-            synchronized(approvedSendTargetsByHost) { reconnectableSendTargetsByHost[host] }
-
-        internal fun reconnectableSendTargets(): List<UltraShareApprovedSendTarget> =
-            synchronized(approvedSendTargetsByHost) { reconnectableSendTargetsByHost.values.toList() }
-
         internal fun removeApprovedSendTarget(host: String) {
             synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost.remove(host) }
             mutableState.update { current ->
                 current.copy(
                     approvedSenderPeerHosts = approvedSendTargets().map { it.host },
-                    reconnectableSenderPeerHosts = reconnectableSendTargets().map { it.host }
+                    reconnectableSenderPeerHosts = emptyList()
                 )
             }
         }
@@ -1869,8 +1863,7 @@ class UltraShareForegroundService : Service() {
                     routeCandidates = routeCandidates.toList()
                 )
                 val updated = current.activePeers.filterNot { it.host == host } + session
-                val reconnectable = current.reconnectablePeers.filterNot { it.host == host } + session
-                current.copy(activePeers = updated, reconnectablePeers = reconnectable)
+                current.copy(activePeers = updated, reconnectablePeers = emptyList())
             }
         }
 
@@ -1878,26 +1871,26 @@ class UltraShareForegroundService : Service() {
             UltraShareControlChannel.closeSession(host)
             UltraShareControlChannel.closeServerSession(host)
             removeApprovedSendTarget(host)
-            // Keep the authenticated pairing material only in process memory so the
-            // user can explicitly reconnect. It is never persisted to DataStore or disk.
+            // A room is temporary: closing a peer drops its one-time session material.
             mutableState.update { current ->
                 current.copy(
                     activePeers = current.activePeers.filterNot { it.host == host },
                     // A disconnected peer must not leave a stale "active transfer"
                     // card on either device. Delivery history remains available separately.
-                    peerTransfers = current.peerTransfers.filterNot { it.host == host }
+                    peerTransfers = current.peerTransfers.filterNot { it.host == host },
+                    reconnectablePeers = emptyList(),
+                    reconnectableSenderPeerHosts = emptyList()
                 )
             }
         }
 
         fun forgetApprovedPeer(host: String) {
             removeApprovedSendTarget(host)
-            synchronized(approvedSendTargetsByHost) { reconnectableSendTargetsByHost.remove(host) }
             mutableState.update { current ->
                 current.copy(
                     activePeers = current.activePeers.filterNot { it.host == host },
-                    reconnectablePeers = current.reconnectablePeers.filterNot { it.host == host },
-                    reconnectableSenderPeerHosts = reconnectableSendTargets().map { it.host }
+                    reconnectablePeers = emptyList(),
+                    reconnectableSenderPeerHosts = emptyList()
                 )
             }
         }
