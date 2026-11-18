@@ -140,16 +140,20 @@ object UltraShareControlChannel {
     }
 
     suspend fun serveOnce(
-        pairingSecret: String,
+        pairingSecret: String? = null,
         port: Int = DEFAULT_PORT,
         localPeerName: String = "MalekPlay Android",
         localPeerId: String? = null,
         onSessionClosed: suspend (Request) -> Unit = {},
         onListening: (Int) -> Unit = {},
         onSessionReady: suspend (Request) -> Unit = {},
+        pairingSecretResolver: ((String?) -> String?)? = null,
         onRequest: suspend (Request) -> Decision
     ) = withContext(Dispatchers.IO) {
-        require(UltraShareCore.isValidPairingSecret(pairingSecret))
+        require(
+            (pairingSecret != null && UltraShareCore.isValidPairingSecret(pairingSecret)) ||
+                pairingSecretResolver != null
+        ) { "A valid fixed pairing secret or authenticated peer-secret resolver is required." }
         require(port in 1..65535)
         val permits = Semaphore(4)
         ServerSocket().use { server ->
@@ -181,7 +185,8 @@ object UltraShareControlChannel {
                                 client.tcpNoDelay = true
                                 client.keepAlive = true
                                 handleIncoming(
-                                    client, pairingSecret, localPeerName, localPeerId,
+                                    client, pairingSecret, pairingSecretResolver,
+                                    localPeerName, localPeerId,
                                     onRequest, onSessionClosed, onSessionReady
                                 )
                             }
@@ -636,7 +641,8 @@ object UltraShareControlChannel {
 
     private suspend fun handleIncoming(
         socket: Socket,
-        pairingSecret: String,
+        pairingSecret: String?,
+        pairingSecretResolver: ((String?) -> String?)?,
         localPeerName: String,
         localPeerId: String?,
         onRequest: suspend (Request) -> Decision,
@@ -680,7 +686,19 @@ object UltraShareControlChannel {
             "اسم الجهاز غير صالح."
         }
 
-        val key = UltraShareCore.derivePairingKey(pairingSecret, challenge)
+        val announcedPeerId = requestId.takeIf { value ->
+            value.length == MAX_ID_BYTES && value.takeLast(32).all { it.digitToIntOrNull(16) != null }
+        }?.takeLast(32)
+        val selectedPairingSecret = if (pairingSecretResolver != null) {
+            pairingSecretResolver(announcedPeerId)
+                ?: error("هذا الجهاز ليس عضواً موثقاً في غرفة Mesh.")
+        } else {
+            pairingSecret ?: error("رمز الاقتران غير متاح.")
+        }
+        require(UltraShareCore.isValidPairingSecret(selectedPairingSecret)) {
+            "بيانات اعتماد الجهاز غير صالحة."
+        }
+        val key = UltraShareCore.derivePairingKey(selectedPairingSecret, challenge)
         var publishedRequest: Request? = null
         try {
         val expectedMac = requestAuthentication(key, challenge, requestId, nameBytes)
@@ -694,9 +712,7 @@ object UltraShareControlChannel {
             mapOf("peerHost" to peerAddress, "peerName" to name)
         )
 
-        val peerId = requestId.takeIf { value ->
-            value.length == MAX_ID_BYTES && value.takeLast(32).all { it.digitToIntOrNull(16) != null }
-        }?.takeLast(32)
+        val peerId = announcedPeerId
         val applicationFramesEnabled =
             requestId.length in 32..MAX_ID_BYTES &&
                 requestId.substring(16, 32) == APPLICATION_CAPABILITY_MARKER
