@@ -347,7 +347,44 @@ object UltraShareDiscovery {
         val parts = message.removePrefix(OFFER_PREFIX_V1).split('|', limit = 2)
         val port = parts.getOrNull(0)?.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
         val name = parts.getOrNull(1)?.trim()?.take(64)?.takeIf { it.isNotBlank() } ?: "MalekPlayer"
-        return Peer(sourceHost, port, name)
+        // The legacy offer's TCP port is a V1 endpoint hint. The authenticated
+        // MPC2 pairing step still validates the peer before any transfer is tried.
+        val legacyRoute = UltraShareNegotiation.Candidate(
+            transport = UltraShareNegotiation.Transport.WLAN,
+            host = sourceHost,
+            port = port,
+            connected = true,
+            reachable = true,
+            priority = 0
+        )
+        return Peer(sourceHost, port, name, candidates = listOf(legacyRoute))
+    }
+
+    /**
+     * Detect a legacy MPU1 listener without treating it as a V2 listener.
+     * This is diagnostic/version negotiation only; it never sends file data.
+     */
+    internal fun probeLegacyDataEndpoint(
+        host: String,
+        port: Int,
+        networks: List<android.net.Network>
+    ): Boolean {
+        if (!UltraShareCore.isValidPrivateLanHost(host) || port !in 1..65535) return false
+        val routes: List<android.net.Network?> = networks.distinct().map { it } + listOf(null)
+        return routes.distinct().any { network ->
+            runCatching {
+                Socket().use { socket ->
+                    socket.tcpNoDelay = true
+                    socket.soTimeout = 700
+                    network?.bindSocket(socket)
+                    socket.connect(InetSocketAddress(host, port), 700)
+                    val input = DataInputStream(socket.getInputStream())
+                    check(input.readInt() == 0x4D505531) { "Legacy MPU1 listener is unavailable." }
+                    input.readFully(ByteArray(32))
+                    true
+                }
+            }.getOrDefault(false)
+        }
     }
 
     private fun localCandidates(port: Int): List<UltraShareNegotiation.Candidate> =
