@@ -25,8 +25,8 @@ class UltraShareV2HardeningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             valid = Path(folder) / "valid.mp4"
             invalid = Path(folder) / "renamed.mp4"
-            valid.write_bytes(b"\\x00\\x00\\x00\\x18ftypisom" + bytes(8))
-            invalid.write_bytes(b"MZ-not-a-video")
+            valid.write_bytes(bytes.fromhex("000000186674797069736f6d") + bytes(8))
+            valid.write_bytes(bytes.fromhex("000000186674797069736f6d") + bytes(8))
             self.assertTrue(_media_signature_matches(valid, "valid.mp4"))
             self.assertFalse(_media_signature_matches(invalid, "renamed.mp4"))
 
