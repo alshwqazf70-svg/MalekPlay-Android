@@ -21,7 +21,7 @@ This helper is cryptographic key derivation only. It does **not**:
 - authorize an untrusted roster entry;
 - replace MPC2's challenge-response, authenticated encryption, or user approval.
 
-The caller must obtain the room key only through an already authenticated and encrypted MPC2 session, validate the current authenticated roster, and derive credentials only for the exact two members being linked. Never log, persist, display, or send the derived credential through discovery or QR.
+The caller must obtain the room key only through an already authenticated and encrypted MPC2 session, validate the current authenticated roster, and derive credentials only for the exact two members being linked. `UltraShareMeshRoomCoordinator.deriveDirectLinkCredential(firstPeerId, secondPeerId)` now enforces that both endpoints are present in the coordinator's current room membership before deriving the value. Never log, persist, display, or send the derived credential through discovery or QR.
 
 ## Integration requirements still outstanding
 
@@ -32,6 +32,7 @@ The current service accepts one room pairing secret in its listener lifecycle. A
 - direction-independent derivation (A-B equals B-A);
 - separation across room IDs, room keys, and peer pairs;
 - input length, identity, and self-link validation;
+- coordinator-level rejection of peers outside the authenticated room roster;
 - malformed credential comparison;
 - compatibility with the existing 64-hex MPC2 pairing-secret format.
 
