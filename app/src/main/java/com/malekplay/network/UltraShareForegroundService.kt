@@ -699,6 +699,7 @@ class UltraShareForegroundService : Service() {
         advertisementJob?.cancel()
         controlJob?.cancel()
         pendingConnectionDecision?.cancel()
+        closeMeshRoom()
         releaseTransferLocks()
         activeBatchTransferPort = 0
         runCatching { hotspotReservation?.close() }
