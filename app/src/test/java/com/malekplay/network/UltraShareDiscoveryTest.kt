@@ -151,6 +151,71 @@ class UltraShareDiscoveryTest {
     }
 
     @Test
+    fun peerRemainsPairableWhenEveryAdvertisedRouteIsUnreachable() {
+        val offer = UltraShareNegotiation.Offer(
+            peerId = "stable-peer",
+            displayName = "Receiver",
+            candidates = listOf(
+                UltraShareNegotiation.Candidate(
+                    UltraShareNegotiation.Transport.WIFI_DIRECT,
+                    "192.168.49.1",
+                    UltraShareBatchTransport.DEFAULT_PORT,
+                    reachable = false
+                )
+            )
+        )
+        val peer = UltraShareDiscovery.peerFromOffer(
+            "192.168.1.20",
+            offer,
+            offer.candidates
+        )
+
+        assertTrue(peer != null)
+        assertEquals("192.168.1.20", peer!!.host)
+        assertEquals(UltraShareBatchTransport.DEFAULT_PORT, peer.port)
+        assertEquals("stable-peer", peer.peerId)
+        assertTrue(peer.candidates.none { it.reachable })
+    }
+
+    @Test
+    fun invalidOrLocalSourceIpCannotBecomeAPairingPeer() {
+        val offer = UltraShareNegotiation.Offer("peer", "Receiver", emptyList())
+        assertEquals(null, UltraShareDiscovery.peerFromOffer("8.8.8.8", offer, emptyList()))
+        assertEquals(null, UltraShareDiscovery.peerFromOffer("127.0.0.1", offer, emptyList()))
+    }
+
+    @Test
+    fun legacyV1DiscoveryOfferRemainsVisibleForPairing() {
+        val peer = UltraShareDiscovery.decodeLegacyOffer(
+            "MPULTRA_OFFER|1|38741|Older MalekPlay",
+            "192.168.1.44"
+        )
+        assertTrue(peer != null)
+        assertEquals("192.168.1.44", peer!!.host)
+        assertEquals(38741, peer.port)
+        assertEquals("Older MalekPlay", peer.name)
+        assertEquals(null, peer.peerId)
+    }
+
+    @Test
+    fun malformedLegacyOfferAndNonPrivateSourceAreIgnored() {
+        assertEquals(
+            null,
+            UltraShareDiscovery.decodeLegacyOffer(
+                "MPULTRA_OFFER|1|not-a-port|Old",
+                "192.168.1.44"
+            )
+        )
+        assertEquals(
+            null,
+            UltraShareDiscovery.decodeLegacyOffer(
+                "MPULTRA_OFFER|1|38741|Old",
+                "8.8.8.8"
+            )
+        )
+    }
+
+    @Test
     fun stableIdentityDeduplicatesPeerIdsRegardlessOfLetterCase() {
         val lower = UltraShareDiscovery.Peer(
             "192.168.1.10", UltraShareBatchTransport.DEFAULT_PORT, "Receiver",
