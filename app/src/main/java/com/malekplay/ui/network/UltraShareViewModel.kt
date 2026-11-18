@@ -9,7 +9,7 @@ import com.malekplay.R
 import com.malekplay.network.UltraShareDiagnostics
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.isRetryableUltraSharePairingFailure
-import com.malekplay.network.UltraShareTransport
+import com.malekplay.network.UltraShareCore
 import com.malekplay.network.UltraShareBatchTransport
 import com.malekplay.network.UltraShareControlChannel
 import com.malekplay.network.UltraShareTrustedPeerStore
@@ -55,10 +55,10 @@ data class UltraShareUiState(
     val sending: Boolean = false,
     val scanning: Boolean = false,
     val discoveredPeers: List<UltraShareDiscovery.Peer> = emptyList(),
-    val progress: UltraShareTransport.Progress? = null,
-    val sendProgress: UltraShareTransport.Progress? = null,
-    val receiveProgress: UltraShareTransport.Progress? = null,
-    val receivedFile: UltraShareTransport.ReceivedFile? = null,
+    val progress: UltraShareCore.Progress? = null,
+    val sendProgress: UltraShareCore.Progress? = null,
+    val receiveProgress: UltraShareCore.Progress? = null,
+    val receivedFile: UltraShareCore.ReceivedFile? = null,
     val status: String? = null,
     val error: String? = null,
     val queueCompleted: Int = 0,
@@ -121,7 +121,7 @@ class UltraShareViewModel @Inject constructor(
         val storedId = invitationPreferences.getString("active_invitation_hosts_id", null)
         val storedHosts = invitationPreferences.getString("active_invitation_hosts", null)
         val parsedHosts = storedHosts?.split(',')?.map { it.trim() }
-            ?.filter { UltraShareTransport.isValidPrivateLanHost(it) }
+            ?.filter { UltraShareCore.isValidPrivateLanHost(it) }
             ?.distinct()?.take(8).orEmpty()
         return com.malekplay.network.UltraSharePairingReadiness.stableInvitationHosts(
             storedId, invitationId, parsedHosts, currentHosts
@@ -213,7 +213,7 @@ class UltraShareViewModel @Inject constructor(
                         Build.VERSION.SDK_INT < Build.VERSION_CODES.O &&
                             hotspotFallbackStarted &&
                             serviceState.receiving &&
-                            serviceState.localAddresses.any(UltraShareTransport::isValidPrivateLanHost)
+                            serviceState.localAddresses.any(UltraShareCore::isValidPrivateLanHost)
                         ),
                     pendingConnection = serviceState.pendingConnection,
                     activePeers = serviceState.activePeers,
@@ -251,7 +251,7 @@ class UltraShareViewModel @Inject constructor(
         if (payload.isBlank() || payload.length > 16_384) return
         val current = _state.value
         if (!current.receiving || current.activePeers.isNotEmpty() ||
-            !UltraShareTransport.isValidPairingSecret(current.pairingSecret)
+            !UltraShareCore.isValidPairingSecret(current.pairingSecret)
         ) return
         val stablePayload = com.malekplay.network.UltraSharePairingReadiness.stableQrPayload(
             current.receiverQrPayload, payload
@@ -286,7 +286,7 @@ class UltraShareViewModel @Inject constructor(
         clearStoredInvitation()
         UltraShareDiagnostics.beginSession("RECEIVER", "start_receiving")
         UltraShareDiagnostics.event("PAIRING", "RECEIVER_WAITING_FOR_PEER")
-        val secret = UltraShareTransport.createPairingSecret()
+        val secret = UltraShareCore.createPairingSecret()
         wifiDirectPrimaryAttempt = true
         hotspotFallbackStarted = false
         _state.value = _state.value.copy(
@@ -351,7 +351,7 @@ class UltraShareViewModel @Inject constructor(
             val beginLanFallback: () -> Unit = {
                 val hasExistingLan = (
                     _state.value.localAddresses + UltraShareForegroundService.state.value.localAddresses
-                ).any(UltraShareTransport::isValidPrivateLanHost)
+                ).any(UltraShareCore::isValidPrivateLanHost)
                 _state.value = _state.value.copy(
                     invitationId = "",
                     lanFallbackReady = hasExistingLan,
@@ -442,7 +442,7 @@ class UltraShareViewModel @Inject constructor(
             host.trim().takeIf { it.isNotBlank() }?.let { "peer:$it" }
         )
         UltraShareDiagnostics.event("PAIRING", "CONNECTION_REQUESTED", mapOf("host" to host.trim(), "candidateCount" to candidates.size, "alternateHostCount" to alternateHosts.size))
-        if (host.isBlank() || !UltraShareTransport.isValidPairingSecret(secret)) {
+        if (host.isBlank() || !UltraShareCore.isValidPairingSecret(secret)) {
             _state.value = _state.value.copy(
                 requestingConnection = false,
                 error = "أدخل عنوان الجهاز ورمز الاقتران الصحيح أولاً."
@@ -483,7 +483,7 @@ class UltraShareViewModel @Inject constructor(
                 val routeHosts = (
                     listOf(host.trim()) +
                         alternateHosts.filter {
-                            UltraShareTransport.isValidPrivateLanHost(it)
+                            UltraShareCore.isValidPrivateLanHost(it)
                         } +
                         orderedRoutes.map { it.host }
                     ).distinct().filterNot { routeHost ->
@@ -616,7 +616,7 @@ class UltraShareViewModel @Inject constructor(
                     val dataRoutes = ArrayList<UltraShareNegotiation.Candidate>()
                     val dataHosts = (
                         listOf(connectedHost) + alternateHosts + orderedRoutes.map { it.host }
-                    ).filter { UltraShareTransport.isValidPrivateLanHost(it) }
+                    ).filter { UltraShareCore.isValidPrivateLanHost(it) }
                         .distinct()
                         .take(8)
                     for (dataHost in dataHosts) {
@@ -779,7 +779,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         val peer = _state.value.reconnectablePeers.firstOrNull { it.host == host }
         val retainedTarget = UltraShareForegroundService.reconnectableSendTarget(host)
         val secret = retainedTarget?.secret ?: _state.value.pairingSecret
-        if (!UltraShareTransport.isValidPairingSecret(secret)) {
+        if (!UltraShareCore.isValidPairingSecret(secret)) {
             _state.value = _state.value.copy(error = "انتهت صلاحية رمز الاقتران في الذاكرة. أعد مسح QR أو أدخل رمز الجهاز للاتصال مجدداً.")
             return
         }
@@ -1204,7 +1204,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                             alternateHosts = safeFallbacks
                         )
                     } else if (serviceState.receiving &&
-                        UltraShareTransport.isValidPairingSecret(serviceState.pairingSecret)
+                        UltraShareCore.isValidPairingSecret(serviceState.pairingSecret)
                     ) {
                         // The QR creator is now the P2P client. Authenticate back to
                         // the scanner's temporary receiver rather than merely showing
@@ -1348,7 +1348,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             )
             return
         }
-        if (!UltraShareTransport.isValidPairingSecret(secret)) {
+        if (!UltraShareCore.isValidPairingSecret(secret)) {
             _state.value = _state.value.copy(
                 requestingConnection = false,
                 error = "رمز الاقتران داخل QR غير صالح."
