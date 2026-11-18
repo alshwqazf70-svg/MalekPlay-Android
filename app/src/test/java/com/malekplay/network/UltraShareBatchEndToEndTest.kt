@@ -72,7 +72,7 @@ class UltraShareBatchEndToEndTest {
             "ftypmp42".toByteArray().copyInto(secondMp4, 4)
             val firstSource = File(sourceDirectory, "first.mp4").apply { writeBytes(mp4Bytes) }
             val secondSource = File(sourceDirectory, "second.mp4").apply { writeBytes(secondMp4) }
-            val resolver = RuntimeEnvironment.getApplication<android.app.Application>().contentResolver
+            val resolver = RuntimeEnvironment.getApplication().contentResolver
             val sent = UltraShareBatchTransport.sendBatch(
                 resolver = resolver,
                 sources = listOf(
@@ -155,7 +155,7 @@ class UltraShareBatchEndToEndTest {
             }
             assertEquals(UltraShareControlChannel.Decision.ACCEPTED,
                 UltraShareControlChannel.request(host, secret, "Kotlin to Python", controlPort))
-            val resolver = RuntimeEnvironment.getApplication<android.app.Application>().contentResolver
+            val resolver = RuntimeEnvironment.getApplication().contentResolver
             val sent = UltraShareBatchTransport.sendBatch(
                 resolver,
                 listOf(UltraShareBatchTransport.Source(Uri.fromFile(source), source.name, "video/mp4", source.length())),
