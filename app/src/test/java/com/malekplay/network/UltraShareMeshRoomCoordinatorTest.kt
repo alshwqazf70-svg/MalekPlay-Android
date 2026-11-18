@@ -100,6 +100,32 @@ class UltraShareMeshRoomCoordinatorTest {
         } finally { authority.close() }
     }
 
+    @Test fun directLinkCredentialRequiresBothAuthenticatedRoomMembers() {
+        val authority = UltraShareMeshRoomCoordinator(a)
+        val joiner = UltraShareMeshRoomCoordinator(b)
+        try {
+            authority.createAuthorityRoom(peer(a, "192.168.1.10"), 1_800_000_000_000L)
+            assertThrows(IllegalArgumentException::class.java) {
+                authority.deriveDirectLinkCredential(a, c)
+            }
+            joiner.acceptKeyOffer(a, authority.createKeyOffer())
+            authority.upsertMember(b, peer(b, "192.168.1.11"))
+            val update = authority.createRosterUpdate()
+            joiner.acceptRosterUpdate(a, update)
+
+            val fromAuthority = authority.deriveDirectLinkCredential(a, b)
+            val fromJoiner = joiner.deriveDirectLinkCredential(b, a)
+            assertEquals(fromAuthority, fromJoiner)
+            assertTrue(UltraShareMeshLinkCredential.isCredential(fromAuthority))
+            assertThrows(IllegalArgumentException::class.java) {
+                joiner.deriveDirectLinkCredential(b, c)
+            }
+        } finally {
+            authority.close()
+            joiner.close()
+        }
+    }
+
     @Test fun closeDestroysRoomState() {
         val coordinator = UltraShareMeshRoomCoordinator(a)
         coordinator.createAuthorityRoom(peer(a, "192.168.1.10"), 1_800_000_000_000L)
