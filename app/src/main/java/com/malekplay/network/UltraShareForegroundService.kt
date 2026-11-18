@@ -1547,6 +1547,21 @@ class UltraShareForegroundService : Service() {
         val coordinator = meshRoomCoordinator ?: return
         val localId = canonicalMeshPeerId(UltraShareDiscovery.localPeerId(this)) ?: return
         val snapshot = runCatching { coordinator.state() }.getOrNull() ?: return
+        val activeMemberIds = snapshot.members.map { it.peerId }.toSet()
+        // A roster revision can revoke a previously approved member. Retire every
+        // stale direct edge and its approved send target before planning new links.
+        val removedDirectPeers = meshDirectEdges.keys.filterNot { it in activeMemberIds }
+        removedDirectPeers.forEach { removedPeerId ->
+            meshDirectEdges.remove(removedPeerId)
+            meshDirectDialJobs.entries
+                .filter { it.key.firstPeerId == removedPeerId || it.key.secondPeerId == removedPeerId }
+                .forEach { entry ->
+                    if (meshDirectDialJobs.remove(entry.key, entry.value)) entry.value.cancel()
+                }
+            approvedSendTargets()
+                .filter { it.peerId == removedPeerId }
+                .forEach { target -> disconnectApprovedPeer(target.host) }
+        }
         if (snapshot.members.size < 2) return
         runCatching { ensureMeshDirectServerReady() }.onFailure { failure ->
             UltraShareDiagnostics.failure("MESH_DIRECT_RECONCILE_LISTENER", failure)
