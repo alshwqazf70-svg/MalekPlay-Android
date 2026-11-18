@@ -389,7 +389,9 @@ class UltraShareControlChannelTest {
                     notifyClientSessionReady = false
                 )
             )
-            assertEquals(memberId, withTimeout(3_000L) { ready.await() }.peerId)
+            val acceptedRequest = withTimeout(3_000L) { ready.await() }
+            assertEquals(memberId, acceptedRequest.peerId)
+            assertTrue(acceptedRequest.applicationFramesEnabled)
             assertEquals(memberId, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
         } finally {
             roomKey.fill(0)
