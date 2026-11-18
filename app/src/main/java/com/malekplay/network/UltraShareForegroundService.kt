@@ -1107,7 +1107,9 @@ class UltraShareForegroundService : Service() {
                 meshRoomHandshakeMutex.lock()
                 roomLockAcquired = true
                 val coordinator = getOrCreateMeshAuthority()
-                ensureMeshDirectServerReady()
+                runCatching { ensureMeshDirectServerReady() }.onFailure { failure ->
+                    UltraShareDiagnostics.failure("MESH_DIRECT_LISTENER_OPTIONAL", failure)
+                }
                 val remote = meshPeer(
                     peerId, request.peerName, listOf(host),
                     UltraShareBatchTransport.DEFAULT_PORT
@@ -1274,9 +1276,11 @@ class UltraShareForegroundService : Service() {
             val rosterUpdate = UltraShareMeshControlProtocol.decode(rosterBytes)
                 ?: error("رسالة قائمة أعضاء غرفة Mesh غير صالحة.")
             val rosterAck = coordinator.acceptRosterUpdate(authorityId, rosterUpdate)
-            // Publish the direct-link listener before ACK: the authority may immediately
-            // distribute this roster revision to the other members.
-            ensureMeshDirectServerReady()
+            // Publish the direct-link listener before ACK when available: the authority may
+            // immediately distribute this roster revision to the other members.
+            runCatching { ensureMeshDirectServerReady() }.onFailure { failure ->
+                UltraShareDiagnostics.failure("MESH_DIRECT_LISTENER_OPTIONAL", failure)
+            }
             UltraShareControlChannel.sendClientApplicationMessage(
                 host, UltraShareMeshControlProtocol.encode(rosterAck)
             )
@@ -1489,7 +1493,10 @@ class UltraShareForegroundService : Service() {
         val localId = canonicalMeshPeerId(UltraShareDiscovery.localPeerId(this)) ?: return
         val snapshot = runCatching { coordinator.state() }.getOrNull() ?: return
         if (snapshot.members.size < 2) return
-        ensureMeshDirectServerReady()
+        runCatching { ensureMeshDirectServerReady() }.onFailure { failure ->
+            UltraShareDiagnostics.failure("MESH_DIRECT_RECONCILE_LISTENER", failure)
+            return
+        }
         val localPeer = snapshot.members.firstOrNull { it.peerId == localId } ?: return
         val activeEdges = linkedSetOf<UltraShareMeshTopology.Edge>()
         UltraShareControlChannel.activeServerApplicationSessionHosts().forEach { host ->
@@ -1503,11 +1510,16 @@ class UltraShareForegroundService : Service() {
             }
         }
         activeEdges += meshDirectEdges.values
-        val plan = UltraShareMeshTopology.plan(
-            localPeer = localPeer,
-            discoveredPeers = snapshot.members.filterNot { it.peerId == localId },
-            activeEdges = activeEdges
-        )
+        val plan = try {
+            UltraShareMeshTopology.plan(
+                localPeer = localPeer,
+                discoveredPeers = snapshot.members.filterNot { it.peerId == localId },
+                activeEdges = activeEdges
+            )
+        } catch (failure: Exception) {
+            UltraShareDiagnostics.failure("MESH_TOPOLOGY_PLAN", failure, "localPeerId=" + localId)
+            return
+        }
         UltraShareDiagnostics.event(
             "MESH_LINK", "TOPOLOGY_RECONCILED",
             mapOf(
