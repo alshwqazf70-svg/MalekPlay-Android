@@ -18,6 +18,7 @@ MAX_MANIFEST_BYTES = 512 * 1024
 MAX_NAME_BYTES = 180
 MAX_MIME_BYTES = 192
 MAX_FILE_BYTES = 100 * 1024 * 1024 * 1024
+MAX_BATCH_BYTES = 20 * 1024 * 1024 * 1024
 DIGEST_BYTES = 32
 
 
@@ -123,7 +124,8 @@ def validate_manifest(manifest: Manifest) -> Manifest:
             raise ValueError("File size outside V2 limit.")
         if not isinstance(entry.sha256, bytes) or len(entry.sha256) != DIGEST_BYTES:
             raise ValueError("Invalid SHA-256 digest.")
-    manifest.total_bytes
+    if manifest.total_bytes > MAX_BATCH_BYTES:
+        raise ValueError("V2 batch exceeds the 20 GiB total size limit.")
     return manifest
 
 
