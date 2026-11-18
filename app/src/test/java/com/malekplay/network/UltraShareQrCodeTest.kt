@@ -12,35 +12,35 @@ class UltraShareQrCodeTest {
 
     @Test
     fun generatedPairingCodeIsExactlyNineNumericDigits() {
-        val code = UltraShareTransport.createPairingSecret()
+        val code = UltraShareCore.createPairingSecret()
         assertEquals(9, code.length)
         assertTrue(code.all { it in '0'..'9' })
-        assertTrue(UltraShareTransport.isValidPairingSecret(code))
+        assertTrue(UltraShareCore.isValidPairingSecret(code))
     }
 
     @Test
     fun shortPinDerivesSessionKeyFromFreshChallenge() {
         val pin = "004219837"
         val challenge = ByteArray(32) { it.toByte() }
-        assertTrue(UltraShareTransport.derivePairingKey(pin, challenge).contentEquals(
-            UltraShareTransport.derivePairingKey(pin, challenge.copyOf())
+        assertTrue(UltraShareCore.derivePairingKey(pin, challenge).contentEquals(
+            UltraShareCore.derivePairingKey(pin, challenge.copyOf())
         ))
         val freshChallenge = ByteArray(32) { (it + 1).toByte() }
-        assertFalse(UltraShareTransport.derivePairingKey(pin, challenge).contentEquals(
-            UltraShareTransport.derivePairingKey(pin, freshChallenge)
+        assertFalse(UltraShareCore.derivePairingKey(pin, challenge).contentEquals(
+            UltraShareCore.derivePairingKey(pin, freshChallenge)
         ))
     }
 
     @Test
     fun pairingCodeRejectsLettersAndWrongLengths() {
-        assertFalse(UltraShareTransport.isValidPairingSecret("12345678"))
-        assertFalse(UltraShareTransport.isValidPairingSecret("12345678A"))
-        assertFalse(UltraShareTransport.isValidPairingSecret("1234567890"))
+        assertFalse(UltraShareCore.isValidPairingSecret("12345678"))
+        assertFalse(UltraShareCore.isValidPairingSecret("12345678A"))
+        assertFalse(UltraShareCore.isValidPairingSecret("1234567890"))
     }
 
     @Test
     fun pairingPayloadRoundTripsEndpointAndSecret() {
-        val secret = UltraShareTransport.createPairingSecret()
+        val secret = UltraShareCore.createPairingSecret()
         val payload = UltraShareQrCode.createPayload(
             host = "192.168.1.25",
             port = UltraShareControlChannel.DEFAULT_PORT,
@@ -56,7 +56,7 @@ class UltraShareQrCodeTest {
 
     @Test
     fun receiverPayloadAlwaysUsesControlChannelEndpoint() {
-        val secret = UltraShareTransport.createPairingSecret()
+        val secret = UltraShareCore.createPairingSecret()
         val payload = UltraShareQrCode.createReceiverPayload("192.168.1.25", secret)
         val decoded = UltraShareQrCode.parsePayload(payload)
         assertEquals(UltraShareControlChannel.DEFAULT_PORT, decoded.port)
@@ -65,7 +65,7 @@ class UltraShareQrCodeTest {
 
     @Test
     fun multiInterfaceReceiverQrRoundTripsDistinctPrivateHosts() {
-        val secret = UltraShareTransport.createPairingSecret()
+        val secret = UltraShareCore.createPairingSecret()
         val payload = UltraShareQrCode.createReceiverPayload(
             listOf(
                 "192.168.1.25",
@@ -87,7 +87,7 @@ class UltraShareQrCodeTest {
 
     @Test
     fun invitationQrRoundTripsPeerIdentityAndOptionalLanAddresses() {
-        val secret = UltraShareTransport.createPairingSecret()
+        val secret = UltraShareCore.createPairingSecret()
         val invitationId = "malekplay-peer_123"
         val payload = UltraShareQrCode.createReceiverPayload(
             hosts = emptyList(),
@@ -106,7 +106,7 @@ class UltraShareQrCodeTest {
 
     @Test
     fun invitationQrRetainsLanFallbackHosts() {
-        val secret = UltraShareTransport.createPairingSecret()
+        val secret = UltraShareCore.createPairingSecret()
         val payload = UltraShareQrCode.createReceiverPayload(
             hosts = listOf("192.168.49.1", "192.168.1.25"),
             pairingSecret = secret,
@@ -124,7 +124,7 @@ class UltraShareQrCodeTest {
     fun invitationQrRejectsMalformedPeerIdentity() {
         UltraShareQrCode.createReceiverPayload(
             hosts = emptyList(),
-            pairingSecret = UltraShareTransport.createPairingSecret(),
+            pairingSecret = UltraShareCore.createPairingSecret(),
             invitationId = "bad peer identity"
         )
     }
@@ -136,14 +136,14 @@ class UltraShareQrCodeTest {
 
     @Test(expected = IllegalArgumentException::class)
     fun pairingParserRejectsUnsupportedVersions() {
-        val secret = UltraShareTransport.createPairingSecret()
+        val secret = UltraShareCore.createPairingSecret()
         UltraShareQrCode.parsePayload(
             "malekplay://ultra-share?v=99&host=192.168.1.25&port=${UltraShareControlChannel.DEFAULT_PORT}&secret=$secret"
         )
     }
     @Test(expected = IllegalArgumentException::class)
     fun pairingParserRejectsDataChannelPort() {
-        val secret = UltraShareTransport.createPairingSecret()
+        val secret = UltraShareCore.createPairingSecret()
         UltraShareQrCode.parsePayload(
             "malekplay://ultra-share?v=1&host=192.168.1.25&port=${UltraShareBatchTransport.DEFAULT_PORT}&secret=$secret"
         )
@@ -154,7 +154,7 @@ class UltraShareQrCodeTest {
         UltraShareQrCode.createPayload(
             host = "192.168.1.25",
             port = UltraShareBatchTransport.DEFAULT_PORT,
-            pairingSecret = UltraShareTransport.createPairingSecret()
+            pairingSecret = UltraShareCore.createPairingSecret()
         )
     }
 
@@ -163,13 +163,13 @@ class UltraShareQrCodeTest {
         UltraShareQrCode.createPayload(
             host = "example.com",
             port = UltraShareControlChannel.DEFAULT_PORT,
-            pairingSecret = UltraShareTransport.createPairingSecret()
+            pairingSecret = UltraShareCore.createPairingSecret()
         )
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun pairingParserRejectsLoopbackHosts() {
-        val secret = UltraShareTransport.createPairingSecret()
+        val secret = UltraShareCore.createPairingSecret()
         UltraShareQrCode.parsePayload(
             "malekplay://ultra-share?v=1&host=127.0.0.1&port=${UltraShareControlChannel.DEFAULT_PORT}&secret=$secret"
         )
@@ -177,7 +177,7 @@ class UltraShareQrCodeTest {
 
     @Test(expected = IllegalArgumentException::class)
     fun pairingParserRejectsMalformedIpv4Hosts() {
-        val secret = UltraShareTransport.createPairingSecret()
+        val secret = UltraShareCore.createPairingSecret()
         UltraShareQrCode.parsePayload(
             "malekplay://ultra-share?v=1&host=192.168.1.999&port=${UltraShareControlChannel.DEFAULT_PORT}&secret=$secret"
         )
@@ -186,7 +186,7 @@ class UltraShareQrCodeTest {
 
     @Test
     fun hotspotQrRoundTripsCredentialsAndMultipleCandidateHosts() {
-        val secret = UltraShareTransport.createPairingSecret()
+        val secret = UltraShareCore.createPairingSecret()
         val payload = UltraShareQrCode.createHotspotReceiverPayload(
             hosts = listOf("192.168.43.1", "192.168.43.1", "10.0.0.1", "8.8.8.8"),
             pairingSecret = secret,
@@ -207,7 +207,7 @@ class UltraShareQrCodeTest {
     fun hotspotQrRejectsPasswordShorterThanWpa2Minimum() {
         UltraShareQrCode.createHotspotReceiverPayload(
             hosts = listOf("192.168.43.1"),
-            pairingSecret = UltraShareTransport.createPairingSecret(),
+            pairingSecret = UltraShareCore.createPairingSecret(),
             ssid = "MalekPlay-Share",
             password = "short"
         )
@@ -217,7 +217,7 @@ class UltraShareQrCodeTest {
     fun hotspotQrRejectsPayloadWithoutUsableLocalHost() {
         UltraShareQrCode.createHotspotReceiverPayload(
             hosts = listOf("8.8.8.8", "127.0.0.1"),
-            pairingSecret = UltraShareTransport.createPairingSecret(),
+            pairingSecret = UltraShareCore.createPairingSecret(),
             ssid = "MalekPlay-Share",
             password = "share1234"
         )
