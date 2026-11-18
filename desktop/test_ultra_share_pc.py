@@ -52,16 +52,18 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         self.assertEqual("clip.mp4", safe_name("clip\u200b.mp4"))
         self.assertEqual("song.mp3", safe_name("song\u0085.mp3"))
 
-    def test_v1_policy_accepts_generic_files_but_blocks_apk_and_pdf(self):
-        for mime in ("video/mp4", "audio/mpeg", "image/jpeg", "application/zip",
-                     "text/plain", "application/octet-stream"):
+    def test_v1_policy_accepts_media_only_and_blocks_documents_archives_and_apps(self):
+        for mime in ("video/mp4", "audio/mpeg", "image/jpeg"):
             self.assertTrue(is_supported_media_mime(mime))
-        for mime in ("application/pdf", "application/vnd.android.package-archive"):
+        for mime in ("application/zip", "text/plain", "application/octet-stream",
+                     "application/pdf", "application/vnd.android.package-archive", "image/svg+xml"):
             self.assertFalse(is_supported_media_mime(mime))
         from ultra_share_pc import is_allowed_share_file
-        self.assertTrue(is_allowed_share_file("archive.zip", "application/zip"))
-        self.assertTrue(is_allowed_share_file("unknown.bin", "application/octet-stream"))
-        self.assertFalse(is_allowed_share_file("payload.apk", "application/octet-stream"))
+        self.assertTrue(is_allowed_share_file("clip.mp4", "video/mp4"))
+        self.assertTrue(is_allowed_share_file("provider-media.mp4", "application/octet-stream"))
+        self.assertFalse(is_allowed_share_file("archive.zip", "application/zip"))
+        self.assertFalse(is_allowed_share_file("unknown.bin", "application/octet-stream"))
+        self.assertFalse(is_allowed_share_file("payload.apk", "video/mp4"))
         self.assertFalse(is_allowed_share_file("document.pdf", "application/octet-stream"))
 
     def test_metadata_round_trip_matches_android_wire_layout(self):
