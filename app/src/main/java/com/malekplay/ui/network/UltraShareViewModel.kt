@@ -764,7 +764,9 @@ private fun forgetApprovedSenderTarget(host: String) {
         val next = UltraShareForegroundService.approvedSendTargets().lastOrNull()
         _state.value = _state.value.copy(
             approvedPeerHost = next?.host,
-            peerDataChannelReady = next?.candidates?.any { it.reachable } == true,
+            peerDataChannelReady = next?.candidates?.any {
+                it.reachable && it.port != UltraShareDiscovery.LEGACY_V1_DATA_PORT
+            } == true,
             approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
             approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host }
         )
