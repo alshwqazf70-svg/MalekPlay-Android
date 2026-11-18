@@ -930,7 +930,7 @@ object UltraShareBatchTransport {
             )
             outcomes += FileOutcome(
                 entry.id, entry.name,
-                UltraShareCore.ReceivedFile(destination, entry.name, entry.sizeBytes, entry.mimeType),
+                UltraShareCore.ReceivedFile(destination, destination.name, entry.sizeBytes, entry.mimeType),
                 UltraShareBatchProtocol.FileStatus.COMPLETED, entry.sizeBytes
             )
         }
