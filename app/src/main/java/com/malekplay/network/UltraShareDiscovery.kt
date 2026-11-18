@@ -23,59 +23,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-/**
- * Bounded, expiring cache for NSTACKX display-name hints. Native discovery can
- * report many transient IDs over time; never let those broadcasts grow memory
- * for the lifetime of a foreground sharing session.
- */
-internal class NstackxPeerNameCache(
-    private val maxEntries: Int = 128,
-    private val ttlMillis: Long = 60_000L
-) {
-    private data class Entry(val name: String, val seenAtMillis: Long)
-    private val entries = LinkedHashMap<String, Entry>(16, 0.75f, true)
-
-    init {
-        require(maxEntries > 0)
-        require(ttlMillis >= 0L)
-    }
-
-    @Synchronized
-    fun put(peerId: String, displayName: String, nowMillis: Long = System.currentTimeMillis()) {
-        val key = peerId.trim().lowercase(java.util.Locale.ROOT).take(128)
-        val name = displayName.trim().take(64)
-        if (key.isBlank() || name.isBlank()) return
-        prune(nowMillis)
-        entries[key] = Entry(name, nowMillis)
-        while (entries.size > maxEntries) {
-            val oldest = entries.entries.iterator()
-            if (!oldest.hasNext()) break
-            oldest.next()
-            oldest.remove()
-        }
-    }
-
-    @Synchronized
-    fun get(peerId: String, nowMillis: Long = System.currentTimeMillis()): String? {
-        val key = peerId.trim().lowercase(java.util.Locale.ROOT).take(128)
-        if (key.isBlank()) return null
-        prune(nowMillis)
-        return entries[key]?.name
-    }
-
-    @Synchronized
-    fun clear() = entries.clear()
-
-    @Synchronized
-    private fun prune(nowMillis: Long) {
-        val iterator = entries.entries.iterator()
-        while (iterator.hasNext()) {
-            val seenAt = iterator.next().value.seenAtMillis
-            if (seenAt > nowMillis || nowMillis - seenAt > ttlMillis) iterator.remove()
-        }
-    }
-}
-
 /** LAN discovery with v2 candidate offers and a v1 compatibility path. */
 object UltraShareDiscovery {
     const val DISCOVERY_PORT = 38742
@@ -97,22 +44,6 @@ object UltraShareDiscovery {
     /** Stable identity prevents one physical phone appearing once per network interface. */
     internal fun identityKey(peer: Peer): String =
         peer.peerId?.takeIf { it.isNotBlank() }?.lowercase(java.util.Locale.ROOT)?.let { "id:$it" } ?: "host:${peer.host}"
-
-    /**
-     * Join the native NSTACKX identity/name signal to the routable LAN offer.
-     * NSTACKX's current JNI callback does not expose a remote IPv4 endpoint, so
-     * it must never invent a host or make a name-only peer connectable.
-     */
-    internal fun mergeNativePeerName(
-        peer: Peer,
-        nativePeerId: String,
-        nativeDisplayName: String
-    ): Peer {
-        if (nativePeerId.isBlank() || nativeDisplayName.isBlank()) return peer
-        return if (peer.peerId?.equals(nativePeerId, ignoreCase = true) == true) {
-            peer.copy(name = nativeDisplayName.trim().take(64))
-        } else peer
-    }
 
     /**
      * Merge repeated offers from the same physical device across WLAN, hotspot and
