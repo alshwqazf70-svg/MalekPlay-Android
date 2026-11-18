@@ -16,6 +16,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -257,7 +258,8 @@ class UltraShareBatchEndToEndTest {
     fun emptyMediaIsAcceptedButWrongMediaFamilyIsRejected() {
         val empty = File.createTempFile("ultrashare-empty-", ".mp3")
         try {
-            assertEquals(0, empty.writeBytes(byteArrayOf()))
+            empty.writeBytes(byteArrayOf())
+            assertTrue(empty.length() == 0L)
             assertTrue(UltraShareMediaSignature.isValid(empty, "empty.mp3", "audio/mpeg"))
             assertFalse(UltraShareMediaSignature.isValid(empty, "empty.pdf", "application/pdf"))
             assertFalse(UltraShareMediaSignature.isValid(empty, "empty.mp3", "video/mp4"))
