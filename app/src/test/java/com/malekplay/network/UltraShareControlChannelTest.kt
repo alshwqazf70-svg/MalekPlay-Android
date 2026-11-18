@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -186,4 +187,52 @@ class UltraShareControlChannelTest {
         assertEquals(UltraShareControlChannel.Decision.REJECTED, decision)
         server.cancelAndJoin()
     }
+    @Test
+    fun approvedMpc2SessionExchangesAuthenticatedApplicationMessagesBothWays() = runBlocking {
+        val port = ServerSocket(0).use { it.localPort }
+        val secret = "112233445"
+        val peerId = "0123456789abcdef0123456789abcdef"
+        val server = async {
+            UltraShareControlChannel.serveOnce(
+                pairingSecret = secret,
+                port = port,
+                localPeerName = "Receiver",
+                localPeerId = "fedcba9876543210fedcba9876543210"
+            ) { UltraShareControlChannel.Decision.ACCEPTED }
+        }
+        delay(150)
+        try {
+            assertEquals(
+                UltraShareControlChannel.Decision.ACCEPTED,
+                UltraShareControlChannel.request(
+                    host = "127.0.0.1",
+                    pairingSecret = secret,
+                    peerName = "Sender",
+                    port = port,
+                    peerId = peerId
+                )
+            )
+            val outbound = "encrypted client-to-server roster".toByteArray()
+            UltraShareControlChannel.sendClientApplicationMessage("127.0.0.1", outbound)
+            assertArrayEquals(
+                outbound,
+                withTimeout(3_000L) {
+                    UltraShareControlChannel.receiveServerApplicationMessage("127.0.0.1")
+                }
+            )
+            val inbound = "encrypted server-to-client acknowledgement".toByteArray()
+            UltraShareControlChannel.sendServerApplicationMessage("127.0.0.1", inbound)
+            assertArrayEquals(
+                inbound,
+                withTimeout(7_000L) {
+                    UltraShareControlChannel.receiveClientApplicationMessage("127.0.0.1")
+                }
+            )
+        } finally {
+            UltraShareControlChannel.closeSession("127.0.0.1")
+            UltraShareControlChannel.closeServerSession("127.0.0.1")
+            server.cancelAndJoin()
+        }
+    }
+
 }
