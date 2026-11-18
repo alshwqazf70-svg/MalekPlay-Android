@@ -22,7 +22,7 @@ class UltraShareReceivedPublisherTest {
     }
 
     @Test
-    fun savesToAppFolderBeforeFallingBackToDownloadsRoot() {
+    fun publishesOnlyInsideTheMalekPlayerDownloadsFolder() {
         assertEquals(
             listOf("Download/MalekPlayer"),
             UltraShareReceivedPublisher.publicRelativePaths()
