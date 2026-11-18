@@ -631,7 +631,10 @@ object UltraShareBatchTransport {
                         }
                         md.digest()
                     }
-                    candidate.takeIf { MessageDigest.isEqual(entry.sha256, digest) }
+                    candidate.takeIf {
+                        MessageDigest.isEqual(entry.sha256, digest) &&
+                            UltraShareMediaSignature.isValid(it, entry.name, entry.mimeType)
+                    }
                 }.getOrNull()
             }
             if (completed != null) completedFiles[entry.id] = completed
