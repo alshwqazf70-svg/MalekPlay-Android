@@ -177,7 +177,7 @@ class UltraSharePairingReadinessTest {
                 controlChannelReady = true,
                 dataChannelReady = data,
                 lanFallbackReady = fallback,
-                activePeerCount = 0,
+                activePeerCount = peers,
                 pairingSecret = "123456789",
                 localAddresses = hosts
             )
