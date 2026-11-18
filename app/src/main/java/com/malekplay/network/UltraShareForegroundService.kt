@@ -282,6 +282,14 @@ class UltraShareForegroundService : Service() {
                 if (sendJob == null && receiveJob == null && batchReceiveJob == null) finishService()
                 return START_NOT_STICKY
             }
+            ACTION_MESH_SESSION_READY -> {
+                val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
+                if (UltraShareCore.isValidPrivateLanHost(host)) {
+                    startForegroundCompat()
+                    startMeshClientSession(host)
+                }
+                return START_NOT_STICKY
+            }
             ACTION_PEER_CONNECTED -> {
                 scheduleIdleDisconnect()
                 return START_NOT_STICKY
@@ -2237,6 +2245,7 @@ class UltraShareForegroundService : Service() {
         const val ACTION_REFRESH_ADDRESSES = "com.malekplay.ultrashare.REFRESH_ADDRESSES"
         const val ACTION_RECEIVE = "com.malekplay.ultrashare.RECEIVE"
         const val ACTION_PEER_CONNECTED = "com.malekplay.ultrashare.PEER_CONNECTED"
+        const val ACTION_MESH_SESSION_READY = "com.malekplay.ultrashare.MESH_SESSION_READY"
         const val ACTION_ACCEPT_CONNECTION = "com.malekplay.ultrashare.ACCEPT_CONNECTION"
         const val ACTION_REJECT_CONNECTION = "com.malekplay.ultrashare.REJECT_CONNECTION"
         const val ACTION_SEND = "com.malekplay.ultrashare.SEND"
@@ -2344,6 +2353,15 @@ class UltraShareForegroundService : Service() {
         fun notePeerConnected(context: Context) {
             val intent = Intent(context, UltraShareForegroundService::class.java)
                 .setAction(ACTION_PEER_CONNECTED)
+            start(context, intent)
+        }
+
+        /** Keep the service alive to complete Mesh room negotiation immediately after pairing. */
+        fun startMeshSession(context: Context, host: String) {
+            require(UltraShareCore.isValidPrivateLanHost(host))
+            val intent = Intent(context, UltraShareForegroundService::class.java)
+                .setAction(ACTION_MESH_SESSION_READY)
+                .putExtra(EXTRA_HOST, host)
             start(context, intent)
         }
 
