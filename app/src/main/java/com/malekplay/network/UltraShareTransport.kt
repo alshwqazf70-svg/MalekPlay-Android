@@ -1,36 +1,17 @@
 package com.malekplay.network
 
-import android.content.ContentResolver
 import android.net.Uri
-import android.net.Network
 import android.os.Environment
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
-import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
-import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.InputStream
-import java.io.IOException
-import java.net.InetAddress
 import java.net.Inet4Address
-import java.net.InetSocketAddress
-import java.net.ServerSocket
-import java.net.Socket
-import java.net.SocketTimeoutException
+import java.net.InetAddress
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Locale
-import javax.crypto.Cipher
 import javax.crypto.Mac
-import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
@@ -66,7 +47,7 @@ object UltraShareTransport {
     private const val CHALLENGE_BYTES = 32
     private val destinationPublicationLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
 
-    /** Serialize final-name selection and publication across all receive protocols. */
+    /** Serialize final-name selection and publication across concurrent V2 receiver workers. */
     internal fun <T> withDestinationPublicationLock(directory: File, action: () -> T): T {
         val key = directory.absoluteFile.path
         val lock = destinationPublicationLocks[key] ?: Any().let { candidate ->
