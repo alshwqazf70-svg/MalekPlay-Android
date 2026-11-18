@@ -198,6 +198,14 @@ class UltraShareDiscoveryTest {
         assertEquals(1, peer.candidates.size)
         assertEquals(38741, peer.candidates.single().port)
         assertEquals("192.168.1.44", peer.candidates.single().host)
+        assertEquals(
+            UltraShareDiscovery.LEGACY_V1_DATA_PORT,
+            UltraShareNegotiation.dataPortForHost(
+                peer.host,
+                peer.candidates,
+                UltraShareBatchTransport.DEFAULT_PORT
+            )
+        )
     }
 
     @Test
