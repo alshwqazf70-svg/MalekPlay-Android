@@ -172,4 +172,78 @@ class UltraShareBatchEndToEndTest {
             temp.deleteRecursively()
         }
     }
+    @Test
+    fun pythonSenderInteroperatesWithKotlinV2ReceiverOverRealTcp() = runBlocking {
+        assumeTrue("Enable cross-language socket test in CI", System.getenv("ULTRASHARE_CROSS_LANG") == "1")
+        val host = NetworkInterface.getNetworkInterfaces().toList()
+            .asSequence().filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList().asSequence() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .firstOrNull { it.isSiteLocalAddress && !it.isLoopbackAddress }
+            ?.hostAddress ?: error("No private IPv4 interface available for the cross-language test.")
+        fun freePort(): Int = ServerSocket(0).use { it.localPort }
+        val controlPort = freePort()
+        val receivedDirectory = kotlin.io.path.createTempDirectory("ultrashare-python-to-kotlin").toFile()
+        val temp = kotlin.io.path.createTempDirectory("ultrashare-python-sender").toFile()
+        val source = File(temp, "python-sender.mp4")
+        val resultFile = File(temp, "result.json")
+        val logFile = File(temp, "python.log")
+        val receiverResult = CompletableDeferred<UltraShareBatchTransport.BatchOutcome>()
+        val controlReady = CompletableDeferred<Unit>()
+        val dataReady = CompletableDeferred<Int>()
+        val secret = "123456789"
+        val payload = ByteArray(1_100_000) { index -> (index * 13).toByte() }.also { bytes ->
+            byteArrayOf(0, 0, 0, 24).copyInto(bytes, 0)
+            "ftypmp42".toByteArray().copyInto(bytes, 4)
+        }
+        source.writeBytes(payload)
+        val receiver = launch(Dispatchers.IO) {
+            UltraShareBatchTransport.serveMany(
+                port = 0, pairingSecret = secret, destinationDirectory = receivedDirectory,
+                onListening = { if (!dataReady.isCompleted) dataReady.complete(it) },
+                onBatchFinished = { _, result -> if (!receiverResult.isCompleted) receiverResult.complete(result) }
+            )
+        }
+        val control = launch(Dispatchers.IO) {
+            UltraShareControlChannel.serveOnce(
+                pairingSecret = secret, port = controlPort,
+                onListening = { if (!controlReady.isCompleted) controlReady.complete(Unit) },
+                onRequest = { UltraShareControlChannel.Decision.ACCEPTED }
+            )
+        }
+        var process: Process? = null
+        try {
+            withTimeout(5_000) { dataReady.await(); controlReady.await() }
+            val script = File(File(System.getProperty("user.dir")).absoluteFile,
+                "desktop/ultra_share_v2_cross_language_sender.py")
+            check(script.isFile) { "Missing Python V2 sender test harness: $script" }
+            process = ProcessBuilder(
+                System.getenv("PYTHON")?.takeIf { it.isNotBlank() } ?: "python3",
+                script.absolutePath,
+                "--host", host,
+                "--control-port", controlPort.toString(),
+                "--data-port", dataReady.await().toString(),
+                "--secret", secret,
+                "--source", source.absolutePath,
+                "--result", resultFile.absolutePath
+            ).directory(File(System.getProperty("user.dir")).absoluteFile)
+                .redirectErrorStream(true).redirectOutput(logFile).start()
+            val exitCode = withContext(Dispatchers.IO) {
+                if (process.waitFor(30, TimeUnit.SECONDS)) process.exitValue() else -1
+            }
+            assertEquals("Python sender failed: ${logFile.readText()}", 0, exitCode)
+            val result = withTimeout(15_000) { receiverResult.await() }
+            assertEquals(1, result.files.size)
+            assertEquals(UltraShareBatchProtocol.FileStatus.COMPLETED, result.files.single().status)
+            assertArrayEquals(payload, File(receivedDirectory, source.name).readBytes())
+            val report = resultFile.readText()
+            assertTrue("Python sender did not report success: $report", report.contains("\"status\": 2"))
+        } finally {
+            process?.takeIf { it.isAlive }?.destroyForcibly()
+            control.cancelAndJoin()
+            receiver.cancelAndJoin()
+            temp.deleteRecursively()
+            receivedDirectory.deleteRecursively()
+        }
+    }
 }
