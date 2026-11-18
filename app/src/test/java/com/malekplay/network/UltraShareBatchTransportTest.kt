@@ -20,6 +20,27 @@ import org.junit.Test
 
 class UltraShareBatchTransportTest {
     @Test
+    fun readAtMostMakesProgressWhenBulkReadReturnsZero() {
+        val delegate = java.io.ByteArrayInputStream(byteArrayOf(4, 8, 15, 16, 23, 42))
+        val unusual = object : java.io.InputStream() {
+            private var returnZero = true
+            override fun read(): Int = delegate.read()
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (returnZero) {
+                    returnZero = false
+                    return 0
+                }
+                return delegate.read(buffer, offset, length)
+            }
+        }
+        val buffer = ByteArray(8)
+        val count = UltraShareBatchTransport.readAtMost(unusual, buffer, buffer.size)
+        assertEquals(6, count)
+        assertEquals(listOf<Byte>(4, 8, 15, 16, 23, 42), buffer.take(count))
+        assertEquals(0, UltraShareBatchTransport.readAtMost(unusual, buffer, buffer.size))
+    }
+
+    @Test
     fun zeroByteFilesRemainValidAcrossBatchManifestEncoding() {
         val digest = java.security.MessageDigest.getInstance("SHA-256")
             .digest(ByteArray(0))
