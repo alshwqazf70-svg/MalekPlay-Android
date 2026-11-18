@@ -689,6 +689,8 @@ class UltraShareForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        idleDisconnectJob?.cancel()
+        idleDisconnectJob = null
         // Service destruction is a hard session boundary, regardless of whether this
         // device was the sender or receiver. Close both socket directions and wipe
         // session-scoped keys so no heartbeat or stale peer remains in process memory.
