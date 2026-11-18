@@ -76,7 +76,24 @@ def private_ipv4(host: str) -> str:
     return str(ipaddress.ip_address(host))
 
 
+MEDIA_EXTENSIONS = {
+    ".mp4", ".m4v", ".mkv", ".mov", ".webm", ".avi", ".3gp", ".3g2", ".mpg", ".mpeg",
+    ".ts", ".mts", ".m2ts", ".wmv", ".flv", ".ogv",
+    ".mp3", ".m4a", ".aac", ".flac", ".wav", ".ogg", ".opus", ".wma", ".amr",
+    ".aiff", ".aif", ".mid", ".midi",
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif", ".avif", ".tif", ".tiff",
+}
+BLOCKED_EXTENSIONS = {
+    ".apk", ".aab", ".dex", ".jar", ".exe", ".msi", ".bat", ".cmd", ".sh",
+    ".pdf", ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz",
+}
+
+
 def is_supported_media_mime(value: str) -> bool:
+    """Accept video/audio/raster-image MIME families only."""
+    if not isinstance(value, str) or not 3 <= len(value) <= 160:
+        return False
+    token = r"[A-Za-z0-9!#def is_supported_media_mime(value: str) -> bool:
     """Compatibility name: accepts valid MIME types except APK/PDF MIME types."""
     if not isinstance(value, str) or not 3 <= len(value) <= 160:
         return False
@@ -91,6 +108,20 @@ def is_supported_media_mime(value: str) -> bool:
 
 def is_allowed_share_file(filename: str, mime: str) -> bool:
     return Path(filename).suffix.lower() not in {".apk", ".pdf"} and is_supported_media_mime(mime)
+^_.+-]+"
+    if re.fullmatch(token + "/" + token, value) is None:
+        return False
+    category = value.lower().split("/", 1)[0]
+    return category in {"video", "audio", "image"} and value.lower() != "image/svg+xml"
+
+
+def is_allowed_share_file(filename: str, mime: str) -> bool:
+    extension = Path(filename).suffix.lower()
+    if extension in BLOCKED_EXTENSIONS:
+        return False
+    if is_supported_media_mime(mime):
+        return True
+    return mime.strip().lower() in {"application/octet-stream", "application/unknown"} and extension in MEDIA_EXTENSIONS
 
 def recv_exact(sock: socket.socket, length: int) -> bytes:
     data = bytearray()
@@ -173,7 +204,7 @@ def parse_metadata(data: bytes) -> tuple[str, int, str, bytes]:
     offset += 8
     mime, offset = read_text(data, offset, 192)
     if not is_allowed_share_file(name, mime):
-        raise ValueError("APK and PDF files cannot be shared.")
+        raise ValueError("Only video, audio and image media can be shared.")
     if offset + 32 != len(data):
         raise ValueError("Invalid file digest metadata.")
     digest = data[offset:offset + 32]
