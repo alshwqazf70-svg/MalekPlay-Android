@@ -76,7 +76,7 @@ object UltraShareControlFrames {
             val magic = buffer.int
             val version = buffer.get().toInt() and 0xff
             val direction = buffer.get().toInt() and 0xff
-            val prefix = ByteArray(PREFIX_BYTES).also(buffer::get)
+            val prefix = ByteArray(PREFIX_BYTES).also { buffer.get(it) }
             val sequence = buffer.long
             val encryptedLength = buffer.int
             require(magic == MAGIC && version == VERSION && direction == receiveDirection) {
