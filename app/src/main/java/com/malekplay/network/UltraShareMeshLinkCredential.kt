@@ -50,9 +50,10 @@ internal object UltraShareMeshLinkCredential {
             }
             bytes.toByteArray()
         }
+        val keyCopy = roomKey.copyOf()
         return try {
             val mac = Mac.getInstance("HmacSHA256")
-            mac.init(SecretKeySpec(roomKey.copyOf(), "HmacSHA256"))
+            mac.init(SecretKeySpec(keyCopy, "HmacSHA256"))
             val derived = mac.doFinal(context)
             try {
                 require(derived.size == KEY_BYTES)
@@ -63,6 +64,7 @@ internal object UltraShareMeshLinkCredential {
                 derived.fill(0)
             }
         } finally {
+            keyCopy.fill(0)
             context.fill(0)
         }
     }
