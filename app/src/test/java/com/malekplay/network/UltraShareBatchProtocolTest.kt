@@ -47,33 +47,38 @@ class UltraShareBatchProtocolTest {
         assertEquals(0L, decoded.entries.single().sizeBytes)
     }
 
-    @Test fun acceptsGenericFilesAndArchivesButRejectsApkAndPdf() {
+    @Test fun acceptsOnlyVideoAudioAndImageMediaAtManifestBoundary() {
         listOf(
-            "video/mp4", "audio/mpeg", "image/jpeg", "video/x-matroska",
-            "application/zip", "text/plain", "application/octet-stream",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        ).forEach { mime ->
-            assertTrue("Expected supported MIME type: $mime", UltraShareTransport.isSupportedShareMimeType(mime))
-            val item = UltraShareBatchProtocol.newEntry("shared-file.bin", mime, 1L,
-                MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1)))
+            "clip.mp4" to "video/mp4",
+            "track.mp3" to "audio/mpeg",
+            "photo.jpg" to "image/jpeg",
+            "provider-media.mp4" to "application/octet-stream"
+        ).forEach { (name, mime) ->
+            val item = UltraShareBatchProtocol.newEntry(
+                name, mime, 1L, MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
+            )
             assertEquals(mime, UltraShareBatchProtocol.validate(
                 UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(item))
             ).entries.single().mimeType)
         }
-        listOf("application/pdf", "application/vnd.android.package-archive").forEach { mime ->
-            assertFalse(UltraShareTransport.isSupportedShareMimeType(mime))
-            val item = UltraShareBatchProtocol.newEntry("blocked-file.bin", mime, 1L,
-                MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1)))
+
+        listOf(
+            "archive.zip" to "application/zip",
+            "document.txt" to "text/plain",
+            "unknown.bin" to "application/octet-stream",
+            "document.pdf" to "application/pdf",
+            "package.apk" to "application/vnd.android.package-archive",
+            "image.svg" to "image/svg+xml"
+        ).forEach { (name, mime) ->
+            val item = UltraShareBatchProtocol.newEntry(
+                name, mime, 1L, MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
+            )
             assertThrows(IllegalArgumentException::class.java) {
                 UltraShareBatchProtocol.validate(
                     UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(item))
                 )
             }
         }
-        listOf("package.apk" to "application/octet-stream", "document.pdf" to "application/octet-stream")
-            .forEach { (name, mime) ->
-                assertFalse(UltraShareTransport.isAllowedShareFile(name, mime))
-            }
     }
 
     @Test fun rejectsMalformedMimeTypes() {
@@ -122,7 +127,7 @@ class UltraShareBatchProtocolTest {
                 UltraShareBatchProtocol.FileEntry(
                     "ffeeddcc-bbaa-9988-7766-554433221100",
                     "مقطع.bin",
-                    "application/octet-stream",
+                    "video/mp4",
                     6L,
                     "dd56de4137951d9c92681b03416ec15f886b4482a27e3a517d32f085244cbe5d"
                         .chunked(2).map { it.toInt(16).toByte() }.toByteArray()
@@ -132,7 +137,7 @@ class UltraShareBatchProtocolTest {
         val expected = (
             "4d505532000200112233445566778899aabbccddeeff0001" +
             "ffeeddccbbaa99887766554433221100000cd985d982d8b7d8b92e62696e" +
-            "00186170706c69636174696f6e2f6f637465742d73747265616d" +
+            "0009766964656f2f6d7034" +
             "0000000000000006" +
             "dd56de4137951d9c92681b03416ec15f886b4482a27e3a517d32f085244cbe5d"
         ).chunked(2).map { it.toInt(16).toByte() }.toByteArray()
