@@ -1392,9 +1392,33 @@ fun UltraShareScreen(
         else if (!state.receiving) secret = ""
     }
 
-    // Pairing and receiving never request broad storage access. The receiver
-    // always writes a verified copy to its app-owned MalekPlayer directory;
-    // newer Android versions additionally publish it to public Downloads via MediaStore.
+    // Storage access is optional and is requested only after the receive service
+    // has started. Denial never blocks pairing or transfer: the verified app-owned
+    // MalekPlayer directory remains available on every supported Android version.
+    var legacyStoragePermissionAsked by remember { mutableStateOf(false) }
+    val legacyStoragePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            Toast.makeText(
+                context,
+                "سيستمر الاقتران والاستقبال؛ ستحفظ الملفات داخل مجلد MalekPlayer الخاص بالتطبيق بدلاً من مجلد التنزيلات العام.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+    LaunchedEffect(state.receiving) {
+        if (state.receiving &&
+            android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q &&
+            !legacyStoragePermissionAsked &&
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            legacyStoragePermissionAsked = true
+            legacyStoragePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+    }
 
     // Independent on-device QR scanner: does not require Google Play Services scanner modules.
     var pendingWifiDirectAction by remember { mutableStateOf<(() -> Unit)?>(null) }
