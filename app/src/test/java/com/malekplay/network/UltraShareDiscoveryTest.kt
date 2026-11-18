@@ -195,6 +195,9 @@ class UltraShareDiscoveryTest {
         assertEquals(38741, peer.port)
         assertEquals("Older MalekPlay", peer.name)
         assertEquals(null, peer.peerId)
+        assertEquals(1, peer.candidates.size)
+        assertEquals(38741, peer.candidates.single().port)
+        assertEquals("192.168.1.44", peer.candidates.single().host)
     }
 
     @Test
