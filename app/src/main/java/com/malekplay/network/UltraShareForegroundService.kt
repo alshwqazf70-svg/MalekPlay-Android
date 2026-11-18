@@ -162,6 +162,7 @@ class UltraShareForegroundService : Service() {
     private val meshRoomGuard = Any()
     @Volatile private var meshRoomCoordinator: UltraShareMeshRoomCoordinator? = null
     private val meshServerJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+    private val meshServerHandshakeJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
     private val meshClientJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
     private val meshClientJoinedHosts = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val meshClientJoinMutex = kotlinx.coroutines.sync.Mutex()
@@ -1115,6 +1116,7 @@ class UltraShareForegroundService : Service() {
                         )
                     }
                 }
+                meshServerHandshakeJobs.remove(host)
                 startMeshServerMessagePump(host)
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -1125,10 +1127,10 @@ class UltraShareForegroundService : Service() {
                     error = failure.localizedMessage ?: "تعذر مزامنة غرفة Mesh."
                 ) }
             } finally {
-                meshServerJobs.remove(host)
+                meshServerHandshakeJobs.remove(host)
             }
         }
-        val previous = meshServerJobs.putIfAbsent(host, job)
+        val previous = meshServerHandshakeJobs.putIfAbsent(host, job)
         if (previous != null) job.cancel()
     }
 
@@ -1236,6 +1238,7 @@ class UltraShareForegroundService : Service() {
 
     private fun stopMeshSession(host: String) {
         meshServerJobs.remove(host)?.cancel()
+        meshServerHandshakeJobs.remove(host)?.cancel()
         meshClientJobs.remove(host)?.cancel()
         meshClientJoinedHosts.remove(host)
     }
@@ -1243,6 +1246,8 @@ class UltraShareForegroundService : Service() {
     private fun closeMeshRoom() {
         meshServerJobs.values.forEach { it.cancel() }
         meshServerJobs.clear()
+        meshServerHandshakeJobs.values.forEach { it.cancel() }
+        meshServerHandshakeJobs.clear()
         meshClientJobs.values.forEach { it.cancel() }
         meshClientJobs.clear()
         meshClientJoinedHosts.clear()
