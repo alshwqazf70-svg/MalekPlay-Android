@@ -1574,8 +1574,9 @@ class UltraShareForegroundService : Service() {
                             val authenticatedRemote = canonicalMeshPeerId(
                                 UltraShareControlChannel.sessionPeerId(link.endpoint.host)
                             )
-                            check(authenticatedRemote == link.remotePeer.peerId) {
-                                "هوية الطرف الذي قبل الاتصال لا تطابق هوية عضو الغرفة."
+                            if (authenticatedRemote != link.remotePeer.peerId) {
+                                UltraShareControlChannel.closeSession(link.endpoint.host)
+                                error("هوية الطرف الذي قبل الاتصال لا تطابق هوية عضو الغرفة.")
                             }
                             registerApprovedPeer(
                                 name = UltraShareControlChannel.sessionPeerName(link.endpoint.host)
@@ -2319,8 +2320,9 @@ class UltraShareForegroundService : Service() {
                                 UltraShareControlChannel.sessionPeerId(activeHost)
                             ) ?: expectedPeerId
                             if (reconnectMeshSecret != null) {
-                                check(reconnectedPeerId == canonicalMeshPeerId(expectedPeerId)) {
-                                    "هوية الجهاز بعد إعادة اتصال Mesh لا تطابق العضو المطلوب."
+                                if (reconnectedPeerId != canonicalMeshPeerId(expectedPeerId)) {
+                                    UltraShareControlChannel.closeSession(activeHost)
+                                    error("هوية الجهاز بعد إعادة اتصال Mesh لا تطابق العضو المطلوب.")
                                 }
                                 activeSecret = reconnectSecret
                                 meshDirectEdges[reconnectedPeerId!!] =
@@ -2466,8 +2468,9 @@ class UltraShareForegroundService : Service() {
                             UltraShareControlChannel.sessionPeerId(activeHost)
                         ) ?: expectedPeerId
                         if (alternateMeshSecret != null) {
-                            check(alternatePeerId == canonicalMeshPeerId(expectedPeerId)) {
-                                "هوية الجهاز عبر المسار البديل لا تطابق عضو الغرفة."
+                            if (alternatePeerId != canonicalMeshPeerId(expectedPeerId)) {
+                                UltraShareControlChannel.closeSession(activeHost)
+                                error("هوية الجهاز عبر المسار البديل لا تطابق عضو الغرفة.")
                             }
                             activeSecret = alternateSecret
                             meshDirectEdges[alternatePeerId!!] = UltraShareMeshTopology.Edge.of(
