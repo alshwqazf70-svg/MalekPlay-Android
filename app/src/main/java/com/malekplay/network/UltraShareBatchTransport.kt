@@ -47,6 +47,7 @@ import javax.crypto.spec.SecretKeySpec
 object UltraShareBatchTransport {
     const val DEFAULT_MAX_PEERS = 4
     const val DEFAULT_PORT = 38_742
+    const val COPY_BUFFER_BYTES = 1024 * 1024
     private const val BUFFER_BYTES = 1024 * 1024
     // 512 KiB halves per-frame crypto/framing overhead versus the previous 256 KiB.
     // It remains below the protocol's bounded frame limit on low-memory devices.
