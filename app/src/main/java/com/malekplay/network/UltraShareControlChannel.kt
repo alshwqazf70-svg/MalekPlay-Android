@@ -558,6 +558,14 @@ object UltraShareControlChannel {
         return session.incoming.receiveCatching().getOrNull()
     }
 
+    fun supportsClientApplicationFrames(host: String): Boolean =
+        clientSessions[host]?.let { it.applicationFramesEnabled && it.socket.isConnected && !it.socket.isClosed } == true
+
+    fun supportsServerApplicationFrames(host: String): Boolean =
+        serverApplicationSessions[host]?.let {
+            it.applicationFramesEnabled && it.ready && it.socket.isConnected && !it.socket.isClosed
+        } == true
+
     fun sessionPeerName(host: String): String? = clientSessions[host]?.peerName
 
     /** Authenticated stable identity announced by the remote device during approval. */
