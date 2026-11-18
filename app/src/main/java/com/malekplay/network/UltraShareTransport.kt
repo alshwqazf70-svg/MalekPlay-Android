@@ -188,26 +188,7 @@ object UltraShareTransport {
     /** Accept media MIME families only; SVG is excluded because it can contain active content. */
     fun isSupportedShareMimeType(raw: String): Boolean {
         val candidate = raw.trim().lowercase(Locale.ROOT)
-        val token = "[A-Za-z0-9!#    /** Reject executable packages and PDF documents while allowing other ordinary files. */
-    fun isSupportedShareMimeType(raw: String): Boolean {
-        val candidate = raw.trim().lowercase(Locale.ROOT)
         val token = "[A-Za-z0-9!#$&^_.+-]+"
-        return candidate.length in 3..160 &&
-            Regex("^$token/$token$").matches(candidate) &&
-            candidate != "application/pdf" &&
-            candidate != "application/vnd.android.package-archive"
-    }
-
-    /** Enforce the blocked types by both declared MIME and filename extension. */
-    fun isAllowedShareFile(fileName: String, mimeType: String): Boolean {
-        if (fileName.isBlank() || !isSupportedShareMimeType(mimeType)) return false
-        val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
-        return extension != "apk" && extension != "pdf"
-    }
-
-    @Deprecated("Use isSupportedShareMimeType.")
-    fun isSupportedMediaMimeType(raw: String): Boolean = isSupportedShareMimeType(raw)
-^_.+-]+"
         if (candidate.length !in 3..160 || !Regex("^$token/$token$").matches(candidate)) return false
         if (candidate == "image/svg+xml") return false
         return candidate.substringBefore('/') in setOf("video", "audio", "image")
