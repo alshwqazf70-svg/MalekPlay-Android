@@ -148,7 +148,7 @@ class SmartRecommendationPolicyTest {
         val sameAlbum = item("album", genre = "Comedy", artist = "Studio B")
             .copy(media = item("album").media.copy(album = "collection x", durationMs = 300_000L))
         val sameGenre = item("genre", genre = "drama")
-            .copy(media = item("genre").media.copy(durationMs = 90_000L))
+            .copy(media = item("genre", genre = "drama").media.copy(durationMs = 90_000L))
         val durationOnly = item("duration")
             .copy(media = item("duration").media.copy(durationMs = 98_000L))
         val unrelated = item("unrelated", genre = "Comedy")
