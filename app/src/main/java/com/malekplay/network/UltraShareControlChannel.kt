@@ -362,9 +362,8 @@ object UltraShareControlChannel {
             diagnostic("CLIENT challenge received: " + challenge.size + " bytes")
             val key = UltraShareCore.derivePairingKey(pairingSecret, challenge)
             try {
-            // Append the stable device token to the opaque request ID. This remains
-            // wire-compatible with older peers (which already accept up to 64 hex chars)
-            // without changing the displayed device name or control-frame layout.
+            // The hexadecimal capability marker preserves legacy peers' all-hex request-ID
+            // validation; the final 32 characters remain the stable device token.
             val stableToken = peerId?.replace("-", "")?.lowercase()
                 ?.takeIf { it.length == 32 && it.all { char -> char.digitToIntOrNull(16) != null } }
                 .orEmpty()
@@ -676,11 +675,14 @@ object UltraShareControlChannel {
             val serverSession = ServerSession(socket, input, output, applicationFramesEnabled, frameSession)
             acceptedServerSession = serverSession
             serverSessions.put(peerAddress, socket)?.takeIf { it !== socket }?.let { previous ->
-                serverApplicationSessions.remove(peerAddress)?.let { old ->
-                    old.frames.close()
-                    old.incoming.close()
-                }
+                // Retire the old socket first, then zero its frame keys under its writer lock.
                 runCatching { previous.close() }
+                serverApplicationSessions.remove(peerAddress)?.let { old ->
+                    synchronized(old.lock) {
+                        old.frames.close()
+                        old.incoming.close()
+                    }
+                }
             }
             serverApplicationSessions[peerAddress] = serverSession
             // Publish the authenticated session before the ACCEPT frame so the
