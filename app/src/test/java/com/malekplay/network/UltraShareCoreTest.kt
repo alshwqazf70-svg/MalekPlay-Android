@@ -27,6 +27,7 @@ class UltraShareCoreTest {
         assertFalse(UltraShareCore.isAllowedShareFile("renamed.apk", "video/mp4"))
         assertFalse(UltraShareCore.isAllowedShareFile("document.pdf", "application/octet-stream"))
         assertFalse(UltraShareCore.isAllowedShareFile("image.svg", "image/svg+xml"))
+        assertFalse(UltraShareCore.isAllowedShareFile("image.svg", "image/png"))
         assertFalse(UltraShareCore.isAllowedShareFile("", "application/octet-stream"))
     }
 
