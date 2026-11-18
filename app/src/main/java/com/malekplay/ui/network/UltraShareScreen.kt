@@ -698,7 +698,7 @@ class LegacyUltraShareViewModel @Inject constructor(
     /** Publish one immutable QR payload as soon as the authenticated control listener is ready. */
     private fun publishStableReceiverQrIfReady() {
         val current = _state.value
-        if (!current.receiving || current.pairedSession || current.receiverQrPayload != null) return
+        if (!current.receiving || current.receiverQrPayload != null) return
         // Pairing uses the authenticated MPC2 control listener. The V2 data
         // listener is independent and may recover after pairing; it must not hide
         // the QR or prevent devices from connecting.
@@ -730,7 +730,7 @@ class LegacyUltraShareViewModel @Inject constructor(
 
         // Ignore a delayed callback from an older receiver attempt.
         val latest = _state.value
-        if (!latest.receiving || latest.pairedSession || latest.receiverQrPayload != null ||
+        if (!latest.receiving || latest.receiverQrPayload != null ||
             latest.pairingSecret != current.pairingSecret || latest.invitationId != current.invitationId
         ) return
         _state.value = latest.copy(receiverQrPayload = payload)
@@ -1459,7 +1459,7 @@ fun UltraShareScreen(
     }
 
     // Render the latched payload instead of deriving it from volatile service flags.
-    val qrPayload = state.receiverQrPayload.takeIf { state.receiving && !state.pairedSession }
+    val qrPayload = state.receiverQrPayload.takeIf { state.receiving }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { payload -> runCatching { UltraShareQrCode.createBitmap(payload) }.getOrNull() }
     }
@@ -1737,18 +1737,23 @@ fun UltraShareScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold
                         )
-                    } else {
-                        Text(stringResource(R.string.ultra_share_pairing_code), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
-                        Text(state.pairingSecret.chunked(3).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(stringResource(R.string.ultra_share_code_warning), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                        if (state.receiving && qrBitmap == null) {
-                            Text(
-                                "جارٍ تجهيز رمز QR الآمن والتحقق من قناة التحكم ومستمع نقل الملفات الفعلي. سيظهر الرمز تلقائياً بعد جاهزيتهما؛ لا تمسح رمزاً قديماً أو فارغاً.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        qrBitmap?.let { bitmap ->
+                        Text(
+                            "يمكن للأجهزة الأخرى مسح رمز هذه المجموعة للانضمام؛ سيبقى رمز الاقتران نفسه صالحاً لهذه الجلسة.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Text(stringResource(R.string.ultra_share_pairing_code), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+                    Text(state.pairingSecret.chunked(3).joinToString(" "), color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.ultra_share_code_warning), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    if (state.receiving && qrBitmap == null) {
+                        Text(
+                            "جارٍ تجهيز رمز QR الآمن عبر قناة التحكم. جاهزية نقل الملفات تُعالج بصورة مستقلة؛ لا تمسح رمزاً قديماً أو فارغاً.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    qrBitmap?.let { bitmap ->
                         val activeQrPayload = qrPayload ?: return@let
                         Image(
                             bitmap = bitmap.asImageBitmap(),
@@ -1772,7 +1777,6 @@ fun UltraShareScreen(
                         ) {
                             Icon(Icons.Filled.ContentCopy, contentDescription = null)
                             Text(stringResource(R.string.ultra_share_copy_pairing_link), modifier = Modifier.padding(start = 8.dp))
-                        }
                         }
                     }
                 }
