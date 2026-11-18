@@ -7,6 +7,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertArrayEquals
@@ -119,6 +120,107 @@ class UltraShareControlChannelTest {
         assertFalse(UltraShareControlChannel.isSessionActive("127.0.0.1"))
         UltraShareControlChannel.closeServerSession("127.0.0.1")
         server.cancelAndJoin()
+    }
+
+
+    @Test
+    fun meshRoomKeyAndRosterHandshakeRunsInsideApprovedEncryptedMpc2Session() = runBlocking {
+        val port = ServerSocket(0).use { it.localPort }
+        val secret = "314159265"
+        val authorityId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        val joinerId = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        val authority = UltraShareMeshRoomCoordinator(authorityId)
+        val joiner = UltraShareMeshRoomCoordinator(joinerId)
+        val authorityJob = CompletableDeferred<kotlinx.coroutines.Job>()
+        val server = async {
+            UltraShareControlChannel.serveOnce(
+                pairingSecret = secret,
+                port = port,
+                localPeerName = "Mesh authority",
+                localPeerId = authorityId,
+                onSessionReady = {
+                    authorityJob.complete(launch {
+                        authority.createAuthorityRoom(
+                            UltraShareMeshTopology.Peer(authorityId, "Authority", emptyList()),
+                            System.currentTimeMillis().coerceAtLeast(1L)
+                        )
+                        val offer = authority.createKeyOffer()
+                        try {
+                            UltraShareControlChannel.sendServerApplicationMessage(
+                                "127.0.0.1", UltraShareMeshControlProtocol.encode(offer)
+                            )
+                            val keyAck = UltraShareMeshControlProtocol.decode(
+                                withTimeout(3_000L) {
+                                    UltraShareControlChannel.receiveServerApplicationMessage("127.0.0.1")
+                                }!!
+                            )!!
+                            assertTrue(authority.verifyAcknowledgement(
+                                joinerId, keyAck, UltraShareMeshControlProtocol.Type.KEY_ACK, offer.payload
+                            ))
+                        } finally {
+                            offer.payload.fill(0)
+                        }
+                        authority.upsertMember(
+                            joinerId,
+                            UltraShareMeshTopology.Peer(joinerId, "Joiner", emptyList())
+                        )
+                        val roster = authority.createRosterUpdate()
+                        UltraShareControlChannel.sendServerApplicationMessage(
+                            "127.0.0.1", UltraShareMeshControlProtocol.encode(roster)
+                        )
+                        val rosterAck = UltraShareMeshControlProtocol.decode(
+                            withTimeout(3_000L) {
+                                UltraShareControlChannel.receiveServerApplicationMessage("127.0.0.1")
+                            }!!
+                        )!!
+                        assertTrue(authority.verifyAcknowledgement(
+                            joinerId, rosterAck, UltraShareMeshControlProtocol.Type.ROSTER_ACK,
+                            roster.payload
+                        ))
+                    })
+                }
+            ) { UltraShareControlChannel.Decision.ACCEPTED }
+        }
+        delay(150)
+        try {
+            assertEquals(
+                UltraShareControlChannel.Decision.ACCEPTED,
+                UltraShareControlChannel.request(
+                    host = "127.0.0.1",
+                    pairingSecret = secret,
+                    peerName = "Mesh joiner",
+                    port = port,
+                    peerId = joinerId
+                )
+            )
+            val offer = UltraShareMeshControlProtocol.decode(
+                withTimeout(3_000L) {
+                    UltraShareControlChannel.receiveClientApplicationMessage("127.0.0.1")
+                }!!
+            )!!
+            val keyAck = joiner.acceptKeyOffer(authorityId, offer)
+            UltraShareControlChannel.sendClientApplicationMessage(
+                "127.0.0.1", UltraShareMeshControlProtocol.encode(keyAck)
+            )
+            val roster = UltraShareMeshControlProtocol.decode(
+                withTimeout(3_000L) {
+                    UltraShareControlChannel.receiveClientApplicationMessage("127.0.0.1")
+                }!!
+            )!!
+            val rosterAck = joiner.acceptRosterUpdate(authorityId, roster)
+            UltraShareControlChannel.sendClientApplicationMessage(
+                "127.0.0.1", UltraShareMeshControlProtocol.encode(rosterAck)
+            )
+            withTimeout(3_000L) { authorityJob.await().join() }
+            assertEquals(2, joiner.state().members.size)
+            assertEquals(2, authority.state().members.size)
+        } finally {
+            authority.close()
+            joiner.close()
+            UltraShareControlChannel.closeSession("127.0.0.1")
+            UltraShareControlChannel.closeServerSession("127.0.0.1")
+            server.cancelAndJoin()
+        }
     }
 
     @Test
