@@ -464,6 +464,14 @@ class UltraShareViewModel @Inject constructor(
                 peer.host == host.trim() || peer.candidates.any { it.host == host.trim() }
             }?.candidates.orEmpty()
         }
+        val discoveredPeer = _state.value.discoveredPeers.firstOrNull { peer ->
+            peer.host == host.trim() ||
+                peer.candidates.any { it.host == host.trim() } ||
+                peer.candidates.any { route ->
+                    discoveredCandidates.any { it.host == route.host && it.port == route.port }
+                }
+        }
+        val expectedRemotePeerId = discoveredPeer?.peerId
         // Claim the pairing slot synchronously before launching, so rapid QR scans
         // or duplicate callbacks cannot create overlapping control-channel sessions.
         _state.value = _state.value.copy(requestingConnection = true)
@@ -547,6 +555,7 @@ class UltraShareViewModel @Inject constructor(
                                 network = routeNetwork,
                                 networks = routeNetworks.drop(1),
                                 peerId = UltraShareDiscovery.localPeerId(context),
+                                expectedPeerId = expectedRemotePeerId,
                                 onSessionClosed = { disconnectedHost ->
                                     UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
                                     forgetApprovedSenderTarget(disconnectedHost)
