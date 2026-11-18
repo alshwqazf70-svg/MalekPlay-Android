@@ -83,25 +83,11 @@ BLOCKED_EXTENSIONS = {
 def _valid_mime(value: str) -> bool:
     if not isinstance(value, str) or not 3 <= len(value) <= 160:
         return False
-    token = r"[A-Za-z0-9!#def _valid_mime(value: str) -> bool:
-    if not isinstance(value, str) or not 3 <= len(value) <= 160:
-        return False
     token = r"[A-Za-z0-9!#$&^_.+-]+"
-    import re
-    return (re.fullmatch(token + "/" + token, value) is not None
-            and value.lower() not in {
-                "application/pdf", "application/x-pdf",
-                "application/vnd.android.package-archive",
-            })
-
-
-def _allowed_share_file(filename: str, mime: str) -> bool:
-    return not _safe_name(filename).lower().endswith((".apk", ".pdf")) and _valid_mime(mime)
-^_.+-]+"
     import re
     if re.fullmatch(token + "/" + token, value) is None:
         return False
-    category, _ = value.lower().split("/", 1)
+    category = value.lower().split("/", 1)[0]
     return category in {"video", "audio", "image"} and value.lower() != "image/svg+xml"
 
 
@@ -113,6 +99,7 @@ def _allowed_share_file(filename: str, mime: str) -> bool:
     if _valid_mime(mime):
         return True
     return mime.strip().lower() in {"application/octet-stream", "application/unknown"} and extension in MEDIA_EXTENSIONS
+
 
 def validate_manifest(manifest: Manifest) -> Manifest:
     _uuid_bytes(manifest.batch_id)
