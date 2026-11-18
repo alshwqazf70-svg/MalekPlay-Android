@@ -763,6 +763,13 @@ class LegacyUltraShareViewModel @Inject constructor(
             error = null,
             status = "تعذر Wi-Fi Direct ($reason)؛ جارٍ التأكد من إغلاق مجموعة P2P قبل تشغيل نقطة الاتصال..."
         )
+        // Android 6–7 cannot create an in-app LocalOnlyHotspot. A LAN fallback
+        // does not create or replace a radio group, so it is safe to publish it
+        // without requiring P2P group-removal permission.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            startHotspotOnlyAfterP2pCleanup()
+            return
+        }
         val session = wifiDirectSession
         if (session == null) {
             hotspotFallbackStarted = false
