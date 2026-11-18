@@ -17,9 +17,9 @@ capture_diagnostics() {
 }
 trap capture_diagnostics EXIT
 
-adb wait-for-device
+timeout 60s adb wait-for-device
 booted=false
-for attempt in $(seq 1 60); do
+for attempt in $(seq 1 30); do
   sdk="$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
   boot="$(adb shell getprop sys.boot_completed | tr -d '\r')"
   if [ "$sdk" = "$expected_api" ] && [ "$boot" = "1" ]; then
@@ -37,4 +37,4 @@ if [ "$booted" != true ]; then
   exit 1
 fi
 
-./gradlew --build-cache --stacktrace --max-workers=1 :app:connectedDebugAndroidTest
+./gradlew --build-cache --parallel --stacktrace --max-workers=2 :app:connectedDebugAndroidTest
