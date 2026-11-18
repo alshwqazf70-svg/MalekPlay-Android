@@ -636,6 +636,17 @@ object UltraShareControlChannel {
             .toList()
 
 
+    /** Snapshot of active client-side MPC2 peers, keyed by the remote host for this session. */
+    fun activeClientApplicationSessionHosts(): List<String> =
+        clientSessions.entries.asSequence()
+            .filter { (_, session) ->
+                session.applicationFramesEnabled && session.socket.isConnected &&
+                    !session.socket.isClosed && !session.socket.isInputShutdown &&
+                    !session.socket.isOutputShutdown
+            }
+            .map { it.key }
+            .toList()
+
     /** Stable authenticated sender identity survives WLAN/Hotspot/Wi-Fi Direct IP changes. */
     fun serverSessionIdentity(host: String): String? = serverSessionPeerIds[host]
 
