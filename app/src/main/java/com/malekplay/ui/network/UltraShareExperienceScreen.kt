@@ -74,12 +74,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.malekplay.core.ui.theme.MalekPlayColors
-import com.malekplay.network.UltraShareFolderArchive
 import com.malekplay.network.UltraSharePeerDeliveryStore
 import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareQrCode
@@ -121,7 +119,6 @@ fun UltraShareExperienceScreen(
     var pendingInvitationAdvertisement by remember { mutableStateOf(false) }
     var pendingReceiverStart by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
-    var pendingFolderArchive by remember { mutableStateOf<UltraShareTransport.ReceivedFile?>(null) }
     var pendingReceivedExport by remember { mutableStateOf<com.malekplay.network.UltraShareReceivedEntry?>(null) }
     var selectedUris by remember(initialUris) {
         mutableStateOf(initialUris.distinct().filter { isUltraShareAllowedFile(context, it) })
@@ -161,104 +158,6 @@ fun UltraShareExperienceScreen(
             ).show()
         }
         selectedUris = (selectedUris + accepted).distinct()
-    }
-    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
-        if (treeUri != null) {
-            scope.launch {
-                val resolver = context.contentResolver
-                val alreadyPersisted = resolver.persistedUriPermissions.any {
-                    it.uri == treeUri && it.isReadPermission
-                }
-                val hasDurableReadAccess = alreadyPersisted || runCatching {
-                    resolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    resolver.persistedUriPermissions.any {
-                        it.uri == treeUri && it.isReadPermission
-                    }
-                }.getOrDefault(false)
-                if (!hasDurableReadAccess) {
-                    Toast.makeText(
-                        context,
-                        "تعذر حفظ إذن قراءة المجلد. اختره مرة أخرى من مدير الملفات.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                } else {
-                    try {
-                        Toast.makeText(context, "جارٍ تجهيز المجلد مع الحفاظ على ترتيب ملفاته...", Toast.LENGTH_SHORT).show()
-                        val archive = withContext(Dispatchers.IO) {
-                            UltraShareFolderArchive.create(context, treeUri)
-                        }
-                        val archiveUri = FileProvider.getUriForFile(
-                            context,
-                            context.packageName + ".fileprovider",
-                            archive.file
-                        )
-                        check(isUltraShareAllowedFile(context, archiveUri)) {
-                            "تعذر فتح أرشيف المجلد بعد إنشائه."
-                        }
-                        selectedUris = (selectedUris + archiveUri).distinct()
-                        Toast.makeText(
-                            context,
-                            "تم تجهيز المجلد: ${archive.includedFiles} ملف و${archive.includedDirectories} مجلد. أصبح جاهزاً للإرسال.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        Toast.makeText(
-                            context,
-                            failure.localizedMessage ?: "تعذر تجهيز المجلد للمشاركة.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            }
-        }
-    }
-    val extractionFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { destinationUri ->
-        val archive = pendingFolderArchive
-        pendingFolderArchive = null
-        if (destinationUri != null && archive != null) {
-            scope.launch {
-                val resolver = context.contentResolver
-                val permissionFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                val alreadyPersisted = resolver.persistedUriPermissions.any {
-                    it.uri == destinationUri && it.isReadPermission && it.isWritePermission
-                }
-                val hasDurableAccess = alreadyPersisted || runCatching {
-                    resolver.takePersistableUriPermission(destinationUri, permissionFlags)
-                    resolver.persistedUriPermissions.any {
-                        it.uri == destinationUri && it.isReadPermission && it.isWritePermission
-                    }
-                }.getOrDefault(false)
-                if (!hasDurableAccess) {
-                    Toast.makeText(
-                        context,
-                        "تعذر حفظ صلاحية الكتابة إلى مجلد الوجهة. اختر مجلداً آخر.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                } else {
-                    try {
-                        Toast.makeText(context, "جارٍ استخراج المجلد والتحقق من مسارات الملفات...", Toast.LENGTH_SHORT).show()
-                        val result = withContext(Dispatchers.IO) {
-                            UltraShareFolderArchive.extract(context, archive.file, destinationUri)
-                        }
-                        Toast.makeText(
-                            context,
-                            "اكتمل استخراج المجلد: ${result.extractedFiles} ملف و${result.createdDirectories} مجلد.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        Toast.makeText(
-                            context,
-                            failure.localizedMessage ?: "تعذر استخراج أرشيف المجلد.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            }
-        }
     }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
         if (uri != null) {
@@ -942,10 +841,6 @@ fun UltraShareExperienceScreen(
                                 .onFailure { Toast.makeText(context, "لا يوجد تطبيق مناسب لفتح الملف.", Toast.LENGTH_LONG).show() }
                         },
                         onExportReceived = { fileName -> exportLauncher.launch(fileName) },
-                        onExtractReceivedFolder = {
-                            pendingFolderArchive = state.receivedFile
-                            extractionFolderPicker.launch(null)
-                        }
                     )
                 }
                 UltraSharePage.JOIN -> {
