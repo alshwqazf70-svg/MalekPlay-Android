@@ -1062,8 +1062,10 @@ class UltraShareForegroundService : Service() {
         val host = request.peerAddress
         if (!UltraShareControlChannel.supportsServerApplicationFrames(host)) return
         val job = serviceScope.launch(start = CoroutineStart.LAZY) {
-            meshRoomHandshakeMutex.lock()
+            var roomLockAcquired = false
             try {
+                meshRoomHandshakeMutex.lock()
+                roomLockAcquired = true
                 val coordinator = getOrCreateMeshAuthority()
                 val remote = meshPeer(
                     peerId, request.peerName, listOf(host),
@@ -1133,7 +1135,7 @@ class UltraShareForegroundService : Service() {
                 ) }
             } finally {
                 meshServerHandshakeJobs.remove(host)
-                meshRoomHandshakeMutex.unlock()
+                if (roomLockAcquired) meshRoomHandshakeMutex.unlock()
             }
         }
         val previous = meshServerHandshakeJobs.putIfAbsent(host, job)
