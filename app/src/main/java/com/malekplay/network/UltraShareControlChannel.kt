@@ -220,8 +220,8 @@ object UltraShareControlChannel {
         networks: List<Network> = emptyList(),
         peerId: String? = null,
         onSessionClosed: (String) -> Unit = {},
-        onSessionReady: (String) -> Unit = {},
-        notifyClientSessionReady: Boolean = true
+        notifyClientSessionReady: Boolean = true,
+        onSessionReady: (String) -> Unit = {}
     ): Decision = withContext(Dispatchers.IO) {
         require(UltraShareCore.isValidPrivateLanHost(host) || host == "127.0.0.1") {
             "عنوان الجهاز غير صالح."
