@@ -16,11 +16,11 @@ This document describes the in-app engine used by MalekPlay. NSTACKX/DFinder and
    - The control protocol no longer derives, stores, or negotiates DFile keys or ports.
 
 3. **Data plane**
-   - New batch transfers use `UltraShareBatchTransport` over TCP.
-   - One authenticated TCP connection carries a batch manifest and its files.
-   - The receiver validates the manifest, file lengths, and SHA-256 digests before publishing received files.
+   - `UltraShareBatchTransport` over TCP is the only file data plane.
+   - One authenticated TCP connection carries a bounded batch manifest and its files.
+   - The receiver validates the manifest, file lengths, transfer identity and SHA-256 digests before publishing received files.
    - Resume state is checkpointed atomically; only checkpointed bytes are eligible for resume.
-   - The single-file `UltraShareTransport` path remains for compatibility with older peers.
+   - The retired MPU1 single-file sender/receiver and all V1 downgrade paths have been removed. Older clients without V2 are reported as unsupported; the app never silently switches protocols.
 
 4. **Android lifecycle**
    - `UltraShareForegroundService` owns listening sockets and transfer jobs beyond the screen/ViewModel lifecycle.
@@ -33,7 +33,8 @@ This document describes the in-app engine used by MalekPlay. NSTACKX/DFinder and
 - Removed DFile sender/receiver implementations and DFile staging/manifest/publishing helpers.
 - Removed the native NSTACKX source tree and source-preparation script.
 - Removed NDK/CMake setup and NSTACKX build flags from Android CI.
-- New MPC2 sessions no longer negotiate DFile endpoints; TCP is the only data plane.
+- New MPC2 sessions no longer negotiate DFile endpoints; TCP V2 is the only data plane.
+- The former MPU1 single-file data plane, listener loop, retry helper and automatic downgrade branches were removed.
 
 ## Verification boundary
 
