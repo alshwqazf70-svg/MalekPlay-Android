@@ -265,6 +265,10 @@ class UltraShareForegroundService : Service() {
                 if (sendJob == null && receiveJob == null && batchReceiveJob == null) finishService()
                 return START_NOT_STICKY
             }
+            ACTION_PEER_CONNECTED -> {
+                scheduleIdleDisconnect()
+                return START_NOT_STICKY
+            }
             ACTION_RECEIVE -> {
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
                 if (!UltraShareCore.isValidPairingSecret(secret)) {
@@ -1892,6 +1896,7 @@ class UltraShareForegroundService : Service() {
         const val ACTION_PAUSE = "com.malekplay.ultrashare.PAUSE"
         const val ACTION_REFRESH_ADDRESSES = "com.malekplay.ultrashare.REFRESH_ADDRESSES"
         const val ACTION_RECEIVE = "com.malekplay.ultrashare.RECEIVE"
+        const val ACTION_PEER_CONNECTED = "com.malekplay.ultrashare.PEER_CONNECTED"
         const val ACTION_ACCEPT_CONNECTION = "com.malekplay.ultrashare.ACCEPT_CONNECTION"
         const val ACTION_REJECT_CONNECTION = "com.malekplay.ultrashare.REJECT_CONNECTION"
         const val ACTION_SEND = "com.malekplay.ultrashare.SEND"
@@ -1993,6 +1998,12 @@ class UltraShareForegroundService : Service() {
         fun startLocalHotspot(context: Context) {
             val intent = Intent(context, UltraShareForegroundService::class.java)
                 .setAction(ACTION_START_HOTSPOT)
+            start(context, intent)
+        }
+
+        fun notePeerConnected(context: Context) {
+            val intent = Intent(context, UltraShareForegroundService::class.java)
+                .setAction(ACTION_PEER_CONNECTED)
             start(context, intent)
         }
 
