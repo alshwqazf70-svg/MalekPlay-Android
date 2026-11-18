@@ -350,7 +350,9 @@ class LegacyUltraShareViewModel @Inject constructor(
                                         "ioFailure" to (failure is java.io.IOException)
                                     )
                                 )
-                                if (failure !is java.io.IOException) {
+                                val retryableRouteFailure = failure is java.io.IOException ||
+                                    com.malekplay.network.isRetryableUltraSharePairingFailure(failure)
+                                if (!retryableRouteFailure) {
                                     stopOnProtocolFailure = true
                                     break
                                 }
@@ -508,9 +510,11 @@ class LegacyUltraShareViewModel @Inject constructor(
                                         "ioFailure" to (failure is java.io.IOException)
                                     )
                                 )
-                                // A rejected credential/protocol response is not a
-                                // route failure; do not retry it on another interface.
-                                val retryableNetworkFailure = failure is java.io.IOException
+                                // An explicit credential rejection is terminal. A wrong
+                                // control greeting/version can mean this candidate IP belongs
+                                // to another endpoint, so continue with the next verified route.
+                                val retryableNetworkFailure = failure is java.io.IOException ||
+                                    com.malekplay.network.isRetryableUltraSharePairingFailure(failure)
                                 if (!retryableNetworkFailure) {
                                     routeAuthenticationOrProtocolFailure = true
                                     break
