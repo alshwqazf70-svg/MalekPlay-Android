@@ -20,7 +20,7 @@ object UltraShareBatchProtocol {
     const val MAX_MANIFEST_BYTES = 512 * 1024
     const val MAX_NAME_BYTES = 180
     const val MAX_MIME_BYTES = 192
-    const val MAX_FILE_BYTES = UltraShareTransport.MAX_FILE_BYTES
+    const val MAX_FILE_BYTES = UltraShareCore.MAX_FILE_BYTES
 
     private const val MAGIC = 0x4D505532 // MPU2
     private const val ID_BYTES = 16
@@ -67,8 +67,8 @@ object UltraShareBatchProtocol {
         sha256: ByteArray,
         id: String = UUID.randomUUID().toString()
     ): FileEntry {
-        val safeName = UltraShareTransport.sanitizeFileName(name)
-        val safeMime = UltraShareTransport.sanitizeMimeType(mimeType)
+        val safeName = UltraShareCore.sanitizeFileName(name)
+        val safeMime = UltraShareCore.sanitizeMimeType(mimeType)
         require(safeName.toByteArray(Charsets.UTF_8).size <= MAX_NAME_BYTES)
         require(sizeBytes in 0..MAX_FILE_BYTES)
         require(sha256.size == DIGEST_BYTES)
@@ -87,10 +87,10 @@ object UltraShareBatchProtocol {
         manifest.entries.forEach { entry ->
             require(runCatching { UUID.fromString(entry.id) }.isSuccess)
             require(ids.add(entry.id)) { "يوجد معرّف ملف مكرر داخل الدفعة." }
-            require(UltraShareTransport.sanitizeFileName(entry.name) == entry.name)
+            require(UltraShareCore.sanitizeFileName(entry.name) == entry.name)
             require(entry.name.toByteArray(Charsets.UTF_8).size in 1..MAX_NAME_BYTES)
-            require(UltraShareTransport.sanitizeMimeType(entry.mimeType) == entry.mimeType)
-            require(UltraShareTransport.isAllowedShareFile(entry.name, entry.mimeType)) {
+            require(UltraShareCore.sanitizeMimeType(entry.mimeType) == entry.mimeType)
+            require(UltraShareCore.isAllowedShareFile(entry.name, entry.mimeType)) {
                 "نوع الملف غير صالح للمشاركة."
             }
             require(entry.mimeType.toByteArray(Charsets.UTF_8).size <= MAX_MIME_BYTES)
