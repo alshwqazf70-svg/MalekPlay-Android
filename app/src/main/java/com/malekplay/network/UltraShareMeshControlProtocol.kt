@@ -16,7 +16,7 @@ internal object UltraShareMeshControlProtocol {
     const val MAX_MESSAGE_BYTES = UltraShareControlFrames.MAX_PLAINTEXT_BYTES
     const val ROOM_KEY_BYTES = 32
     const val DIGEST_BYTES = 32
-    private const val ID_BYTES = 32
+    private const val ID_BYTES = 16
     private const val MAX_ROSTER_BYTES = 12 * 1024
 
     enum class Type(val wire: Int) {
