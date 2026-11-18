@@ -2183,6 +2183,18 @@ class UltraShareForegroundService : Service() {
         job.start()
     }
 
+
+    private fun meshDirectCredentialForPeer(peerId: String?): String? {
+        val localId = canonicalMeshPeerId(UltraShareDiscovery.localPeerId(this)) ?: return null
+        val remoteId = canonicalMeshPeerId(peerId) ?: return null
+        val coordinator = meshRoomCoordinator ?: return null
+        return runCatching {
+            if (coordinator.state().members.any { it.peerId == remoteId }) {
+                coordinator.deriveDirectLinkCredential(localId, remoteId)
+            } else null
+        }.getOrNull()
+    }
+
     private suspend fun sendBatchWithRetry(
         sources: List<UltraShareBatchTransport.Source>,
         host: String,
@@ -2193,6 +2205,7 @@ class UltraShareForegroundService : Service() {
         onProgress: (UltraShareBatchTransport.FileProgress) -> Unit
     ): UltraShareBatchTransport.BatchOutcome {
         var activeHost = host
+        var activeSecret = secret
         val activeCandidates = candidates.toMutableList()
         val fallbackCandidates = UltraShareNegotiation.orderedCandidates(candidates)
             .filterNot { it.host == host }
@@ -2226,7 +2239,7 @@ class UltraShareForegroundService : Service() {
                     sources = sources,
                     host = activeHost,
                     port = dataPort,
-                    pairingSecret = secret,
+                    pairingSecret = activeSecret,
                     network = dataNetworks.firstOrNull(),
                     networks = dataNetworks.drop(1),
                     onProgress = onProgress
@@ -2256,12 +2269,19 @@ class UltraShareForegroundService : Service() {
                             status = "انقطع الاتصال؛ نعيد الاتصال تلقائياً بالجهاز المستقبل قبل استئناف الملفات..."
                         ) }
                         try {
+                            val reconnectMeshSecret = meshDirectCredentialForPeer(expectedPeerId)
+                            val reconnectSecret = reconnectMeshSecret ?: activeSecret
+                            val reconnectPort = if (reconnectMeshSecret != null) {
+                                MESH_DIRECT_CONTROL_PORT
+                            } else UltraShareControlChannel.DEFAULT_PORT
                             val decision = UltraShareControlChannel.request(
                                 host = activeHost,
-                                pairingSecret = secret,
+                                pairingSecret = reconnectSecret,
                                 peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlayer Android",
+                                port = reconnectPort,
                                 network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, activeHost),
                                 peerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
+                                notifyClientSessionReady = reconnectMeshSecret == null,
                                 onSessionClosed = { disconnectedHost ->
                                     disconnectApprovedPeer(disconnectedHost)
                                     scheduleIdleDisconnect()
@@ -2273,17 +2293,43 @@ class UltraShareForegroundService : Service() {
                             check(UltraShareControlChannel.isSessionActive(activeHost)) {
                                 "انقطعت قناة التحكم أثناء إعادة الاتصال."
                             }
+                            val reconnectedPeerId = canonicalMeshPeerId(
+                                UltraShareControlChannel.sessionPeerId(activeHost)
+                            ) ?: expectedPeerId
+                            if (reconnectMeshSecret != null) {
+                                check(reconnectedPeerId == canonicalMeshPeerId(expectedPeerId)) {
+                                    "هوية الجهاز بعد إعادة اتصال Mesh لا تطابق العضو المطلوب."
+                                }
+                                activeSecret = reconnectSecret
+                                meshDirectEdges[reconnectedPeerId!!] =
+                                    UltraShareMeshTopology.Edge.of(
+                                        canonicalMeshPeerId(UltraShareDiscovery.localPeerId(this@UltraShareForegroundService))!!,
+                                        reconnectedPeerId
+                                    )
+                            }
+                            val stableSessionId = reconnectedPeerId
+                                ?: UltraShareControlChannel.sessionPeerId(activeHost)
+                                ?: UltraShareMultiRecipientCoordinator.resolveSessionId(
+                                    activeHost,
+                                    approvedSendTargets().map { it.host to it.sessionId },
+                                    java.util.UUID.randomUUID().toString()
+                                )
                             registerApprovedPeer(
                                 name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlayer المستقبل",
                                 host = activeHost,
                                 role = "أعاد الموافقة على الاتصال",
-                                sessionId = UltraShareControlChannel.sessionPeerId(activeHost)
-                                    ?: UltraShareMultiRecipientCoordinator.resolveSessionId(
-                                        activeHost,
-                                        approvedSendTargets().map { it.host to it.sessionId },
-                                        java.util.UUID.randomUUID().toString()
-                                    )
+                                sessionId = stableSessionId
                             )
+                            if (reconnectMeshSecret != null) {
+                                registerApprovedSendTarget(
+                                    UltraShareApprovedSendTarget(
+                                        sessionId = stableSessionId,
+                                        host = activeHost,
+                                        secret = activeSecret,
+                                        candidates = activeCandidates
+                                    )
+                                )
+                            }
                             samePathReady = true
                             UltraShareDiagnostics.event(
                                 "DATA_SEND_RECOVERY",
@@ -2365,17 +2411,24 @@ class UltraShareForegroundService : Service() {
                         status = "المسار الحالي تعذّر؛ نجرب مسار ${candidate.transport} إلى الجهاز نفسه..."
                     ) }
                     try {
+                        val alternateMeshSecret = meshDirectCredentialForPeer(expectedPeerId)
+                        val alternateSecret = alternateMeshSecret ?: activeSecret
+                        val alternateControlPort = if (alternateMeshSecret != null) {
+                            MESH_DIRECT_CONTROL_PORT
+                        } else UltraShareControlChannel.DEFAULT_PORT
                         val decision = UltraShareControlChannel.request(
                             host = candidate.host,
-                            pairingSecret = secret,
+                            pairingSecret = alternateSecret,
                             peerName = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlayer Android",
+                            port = alternateControlPort,
                             network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, candidate.host),
-                                networks = UltraShareNetworkRouting.findNetworksForHost(this@UltraShareForegroundService, candidate.host),
+                            networks = UltraShareNetworkRouting.findNetworksForHost(this@UltraShareForegroundService, candidate.host),
                             peerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
+                            notifyClientSessionReady = alternateMeshSecret == null,
                             onSessionClosed = { disconnectedHost ->
-                                    disconnectApprovedPeer(disconnectedHost)
-                                    scheduleIdleDisconnect()
-                                }
+                                disconnectApprovedPeer(disconnectedHost)
+                                scheduleIdleDisconnect()
+                            }
                         )
                         check(decision == UltraShareControlChannel.Decision.ACCEPTED) {
                             "تعذر الاتصال تلقائياً عبر المسار البديل."
@@ -2385,17 +2438,42 @@ class UltraShareForegroundService : Service() {
                         }
                         activeHost = candidate.host
                         onHostChanged(activeHost)
+                        val alternatePeerId = canonicalMeshPeerId(
+                            UltraShareControlChannel.sessionPeerId(activeHost)
+                        ) ?: expectedPeerId
+                        if (alternateMeshSecret != null) {
+                            check(alternatePeerId == canonicalMeshPeerId(expectedPeerId)) {
+                                "هوية الجهاز عبر المسار البديل لا تطابق عضو الغرفة."
+                            }
+                            activeSecret = alternateSecret
+                            meshDirectEdges[alternatePeerId!!] = UltraShareMeshTopology.Edge.of(
+                                canonicalMeshPeerId(UltraShareDiscovery.localPeerId(this@UltraShareForegroundService))!!,
+                                alternatePeerId
+                            )
+                        }
+                        val alternateSessionId = alternatePeerId
+                            ?: UltraShareControlChannel.sessionPeerId(activeHost)
+                            ?: UltraShareMultiRecipientCoordinator.resolveSessionId(
+                                activeHost,
+                                approvedSendTargets().map { it.host to it.sessionId },
+                                java.util.UUID.randomUUID().toString()
+                            )
                         registerApprovedPeer(
                             name = UltraShareControlChannel.sessionPeerName(activeHost) ?: "جهاز MalekPlayer المستقبل",
                             host = activeHost,
-                            role = "اتصال عبر مسار بديل ${candidate.transport}",
-                            sessionId = UltraShareControlChannel.sessionPeerId(activeHost)
-                                ?: UltraShareMultiRecipientCoordinator.resolveSessionId(
-                                    activeHost,
-                                    approvedSendTargets().map { it.host to it.sessionId },
-                                    java.util.UUID.randomUUID().toString()
-                                )
+                            role = "اتصال عبر مسار بديل " + candidate.transport,
+                            sessionId = alternateSessionId
                         )
+                        if (alternateMeshSecret != null) {
+                            registerApprovedSendTarget(
+                                UltraShareApprovedSendTarget(
+                                    sessionId = alternateSessionId,
+                                    host = activeHost,
+                                    secret = activeSecret,
+                                    candidates = activeCandidates
+                                )
+                            )
+                        }
                         retry = 0
                         switched = true
                         UltraShareDiagnostics.event(
