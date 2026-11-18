@@ -12,6 +12,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import java.io.ByteArrayOutputStream
@@ -68,8 +69,19 @@ object UltraShareControlChannel {
         val output: DataOutputStream,
         val peerName: String,
         val peerId: String?,
+        val frames: UltraShareControlFrames.Session,
+        val incoming: Channel<ByteArray> = Channel(32),
         val lock: Any = Any(),
         var heartbeat: Job? = null
+    )
+
+    private data class ServerSession(
+        val socket: Socket,
+        val input: DataInputStream,
+        val output: DataOutputStream,
+        val frames: UltraShareControlFrames.Session,
+        val incoming: Channel<ByteArray> = Channel(32),
+        val lock: Any = Any()
     )
 
     private val clientSessions = ConcurrentHashMap<String, ClientSession>()
@@ -77,6 +89,7 @@ object UltraShareControlChannel {
     // session callback can never tear down a newly approved session for the same host.
     private val clientSessionGuard = Any()
     private val serverSessions = ConcurrentHashMap<String, Socket>()
+    private val serverApplicationSessions = ConcurrentHashMap<String, ServerSession>()
     private val serverSessionPeerIds = ConcurrentHashMap<String, String>()
     private val pairingAttemptLimiter = UltraSharePairingAttemptLimiter()
     private val diagnosticEvents = java.util.ArrayDeque<String>()
@@ -383,8 +396,11 @@ object UltraShareControlChannel {
                 }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
                 val remotePeerId = responseParts.getOrNull(3)?.takeIf(::isStablePeerId)
                 socket.soTimeout = SESSION_TIMEOUT_MS
+                val frameSession = createApplicationFrameSession(
+                    key, challenge, requestId, nameBytes, isClient = true
+                )
                 val session = ClientSession(
-                    socket, input, output, remoteName, remotePeerId
+                    socket, input, output, remoteName, remotePeerId, frameSession
                 )
                 synchronized(clientSessionGuard) { clientSessions[host] = session }
                 session.heartbeat = CoroutineScope(Dispatchers.IO).launch {
@@ -394,8 +410,23 @@ object UltraShareControlChannel {
                             synchronized(session.lock) {
                                 session.output.writeUTF("PING")
                                 session.output.flush()
-                                check(session.input.readUTF() == "PONG") {
-                                    "فقدت قناة التحكم استجابة نبض الحياة."
+                                var receivedPong = false
+                                while (!receivedPong) {
+                                    when (session.input.readUTF()) {
+                                        "PONG" -> receivedPong = true
+                                        "APP" -> {
+                                            val length = session.input.readInt()
+                                            require(length in (APPLICATION_FRAME_HEADER_BYTES + APPLICATION_FRAME_TAG_BYTES)..UltraShareControlFrames.MAX_WIRE_BYTES)
+                                            val wire = ByteArray(length)
+                                            session.input.readFully(wire)
+                                            val plaintext = session.frames.open(wire)
+                                            check(session.incoming.trySend(plaintext).isSuccess) {
+                                                "قائمة رسائل الجهاز ممتلئة؛ أُغلقت قناة التحكم لحماية الذاكرة."
+                                            }
+                                        }
+                                        "CLOSE" -> error("أغلق الجهاز الآخر قناة التحكم.")
+                                        else -> error("استجابة قناة التحكم غير معروفة.")
+                                    }
                                 }
                             }
                         } catch (_: Exception) {
@@ -406,6 +437,8 @@ object UltraShareControlChannel {
                                 val wasCurrentSession = clientSessions.remove(host, session)
                                 if (wasCurrentSession) {
                                     runCatching { session.socket.close() }
+                                    session.frames.close()
+                                    session.incoming.close()
                                     onSessionClosed(host)
                                 }
                             }
@@ -454,13 +487,57 @@ object UltraShareControlChannel {
         synchronized(clientSessionGuard) {
             val session = clientSessions.remove(host) ?: return
             session.heartbeat?.cancel()
+            session.frames.close()
+            session.incoming.close()
             runCatching { session.socket.close() }
         }
     }
 
     fun closeServerSession(host: String) {
+        serverApplicationSessions.remove(host)?.let { active ->
+            active.frames.close()
+            active.incoming.close()
+        }
         serverSessions.remove(host)?.let { socket -> runCatching { socket.close() } }
         serverSessionPeerIds.remove(host)
+    }
+
+    /** Send an authenticated application message over the approved client-side MPC2 socket. */
+    fun sendClientApplicationMessage(host: String, payload: ByteArray) {
+        val session = clientSessions[host] ?: error("لا توجد جلسة إرسال معتمدة لهذا الجهاز.")
+        val frame = session.frames.seal(payload)
+        synchronized(session.lock) {
+            check(session.socket.isConnected && !session.socket.isClosed)
+            session.output.writeUTF("APP")
+            session.output.writeInt(frame.size)
+            session.output.write(frame)
+            session.output.flush()
+        }
+    }
+
+    /** Receive the next authenticated application message from the approved client-side socket. */
+    suspend fun receiveClientApplicationMessage(host: String): ByteArray? {
+        val session = clientSessions[host] ?: return null
+        return session.incoming.receiveCatching().getOrNull()
+    }
+
+    /** Send an authenticated application message over the approved server-side MPC2 socket. */
+    fun sendServerApplicationMessage(host: String, payload: ByteArray) {
+        val session = serverApplicationSessions[host] ?: error("لا توجد جلسة استقبال معتمدة لهذا الجهاز.")
+        val frame = session.frames.seal(payload)
+        synchronized(session.lock) {
+            check(session.socket.isConnected && !session.socket.isClosed)
+            session.output.writeUTF("APP")
+            session.output.writeInt(frame.size)
+            session.output.write(frame)
+            session.output.flush()
+        }
+    }
+
+    /** Receive the next authenticated application message from the approved server-side socket. */
+    suspend fun receiveServerApplicationMessage(host: String): ByteArray? {
+        val session = serverApplicationSessions[host] ?: return null
+        return session.incoming.receiveCatching().getOrNull()
     }
 
     fun sessionPeerName(host: String): String? = clientSessions[host]?.peerName
@@ -571,11 +648,22 @@ object UltraShareControlChannel {
             if (decision == Decision.ACCEPTED) "PEER_APPROVED" else "PEER_REJECTED",
             mapOf("peerHost" to peerAddress, "peerName" to name)
         )
+        var acceptedServerSession: ServerSession? = null
         if (decision == Decision.ACCEPTED) {
             socket.soTimeout = SESSION_TIMEOUT_MS
+            val frameSession = createApplicationFrameSession(
+                key, challenge, requestId, nameBytes, isClient = false
+            )
+            val serverSession = ServerSession(socket, input, output, frameSession)
+            acceptedServerSession = serverSession
             serverSessions.put(peerAddress, socket)?.takeIf { it !== socket }?.let { previous ->
+                serverApplicationSessions.remove(peerAddress)?.let { old ->
+                    old.frames.close()
+                    old.incoming.close()
+                }
                 runCatching { previous.close() }
             }
+            serverApplicationSessions[peerAddress] = serverSession
             // Publish the authenticated session before the ACCEPT frame so the
             // data plane can validate it immediately after the client receives approval.
             publishedRequest = request
@@ -607,9 +695,20 @@ object UltraShareControlChannel {
         try {
             while (!socket.isClosed) {
                 when (input.readUTF()) {
-                    "PING" -> {
+                    "PING" -> synchronized(acceptedServerSession?.lock ?: output) {
                         output.writeUTF("PONG")
                         output.flush()
+                    }
+                    "APP" -> {
+                        val active = acceptedServerSession ?: error("جلسة التطبيق غير جاهزة.")
+                        val length = input.readInt()
+                        require(length in (APPLICATION_FRAME_HEADER_BYTES + APPLICATION_FRAME_TAG_BYTES)..UltraShareControlFrames.MAX_WIRE_BYTES)
+                        val wire = ByteArray(length)
+                        input.readFully(wire)
+                        val plaintext = active.frames.open(wire)
+                        check(active.incoming.trySend(plaintext).isSuccess) {
+                            "قائمة رسائل الجهاز ممتلئة؛ أُغلقت قناة التحكم لحماية الذاكرة."
+                        }
                     }
                     "CLOSE" -> return
                     else -> error("أمر قناة التحكم غير معروف.")
@@ -646,6 +745,10 @@ object UltraShareControlChannel {
                 serverSessions.remove(requestToClose.peerAddress, socket)
             ) {
                 serverSessionPeerIds.remove(requestToClose.peerAddress)
+                serverApplicationSessions.remove(requestToClose.peerAddress)?.let { active ->
+                    active.frames.close()
+                    active.incoming.close()
+                }
                 UltraShareDiagnostics.event(
                     "CONTROL_CHANNEL", "SERVER_SESSION_CLOSED",
                     mapOf("peerHost" to requestToClose.peerAddress, "peerName" to requestToClose.peerName)
@@ -665,6 +768,37 @@ object UltraShareControlChannel {
         }
     }
 
+
+    private const val APPLICATION_FRAME_HEADER_BYTES = 22
+    private const val APPLICATION_FRAME_TAG_BYTES = 16
+
+    private fun createApplicationFrameSession(
+        pairingKey: ByteArray,
+        challenge: ByteArray,
+        requestId: String,
+        peerName: ByteArray,
+        isClient: Boolean
+    ): UltraShareControlFrames.Session {
+        val master = deriveSubkey(pairingKey, "application-session-master")
+        val transcript = ByteArrayOutputStream().use { bytes ->
+            DataOutputStream(bytes).use { data ->
+                data.writeUTF("MPULTRA_MPC2_APPLICATION_SESSION")
+                data.writeInt(VERSION)
+                data.writeShort(challenge.size)
+                data.write(challenge)
+                data.writeUTF(requestId)
+                data.writeShort(peerName.size)
+                data.write(peerName)
+            }
+            bytes.toByteArray()
+        }
+        return try {
+            UltraShareControlFrames.createSession(master, transcript, isClient)
+        } finally {
+            master.fill(0)
+            transcript.fill(0)
+        }
+    }
 
     private fun isStablePeerId(value: String): Boolean =
         value.length == 32 && value.all { it.digitToIntOrNull(16) != null }
