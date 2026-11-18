@@ -224,7 +224,7 @@ class UltraShareV2ManifestTests(unittest.TestCase):
         self.assertEqual("MalekPlay Desktop", received[0][0])
         self.assertTrue(received[0][1])
 
-    def test_android_v2_batch_sender_and_desktop_receiver_interoperate(self):
+    def test_python_v2_batch_sender_and_receiver_loopback(self):
         import socket
         import tempfile
         import threading
