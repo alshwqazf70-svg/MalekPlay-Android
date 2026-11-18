@@ -24,10 +24,17 @@ internal object UltraShareMediaSignature {
             "webp" -> ascii(0, "RIFF") && ascii(8, "WEBP")
             "bmp" -> starts(0x42, 0x4d)
             "tif", "tiff" -> starts(0x49, 0x49, 0x2a, 0x00) || starts(0x4d, 0x4d, 0x00, 0x2a)
-            "mp4", "m4v", "mov", "3gp", "3g2", "heic", "heif", "avif" ->
+            "mp4", "m4v", "mov", "3gp", "3g2", "m4a", "heic", "heif", "avif" ->
                 count >= 12 && ascii(4, "ftyp")
             "mkv", "webm" -> starts(0x1a, 0x45, 0xdf, 0xa3)
             "avi" -> ascii(0, "RIFF") && ascii(8, "AVI ")
+            "ts", "mts", "m2ts" -> starts(0x47) || (count >= 5 && (prefix[4].toInt() and 0xff) == 0x47)
+            "mpg", "mpeg" -> starts(0x00, 0x00, 0x01, 0xba) || starts(0x00, 0x00, 0x01, 0xb3)
+            "wmv", "wma" -> starts(0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11)
+            "flv" -> ascii(0, "FLV")
+            "ogv" -> ascii(0, "OggS")
+            "aiff", "aif" -> ascii(0, "FORM") && (ascii(8, "AIFF") || ascii(8, "AIFC"))
+            "mid", "midi" -> ascii(0, "MThd")
             "mp3" -> ascii(0, "ID3") || (count >= 2 &&
                 (prefix[0].toInt() and 0xff) == 0xff && (prefix[1].toInt() and 0xe0) == 0xe0)
             "wav" -> ascii(0, "RIFF") && ascii(8, "WAVE")
