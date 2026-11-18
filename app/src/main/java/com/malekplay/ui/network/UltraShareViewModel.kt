@@ -10,6 +10,7 @@ import com.malekplay.network.UltraShareDiagnostics
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.isRetryableUltraSharePairingFailure
 import com.malekplay.network.UltraShareTransport
+import com.malekplay.network.UltraShareBatchTransport
 import com.malekplay.network.UltraShareControlChannel
 import com.malekplay.network.UltraShareTrustedPeerStore
 import com.malekplay.data.repository.MediaRepository
