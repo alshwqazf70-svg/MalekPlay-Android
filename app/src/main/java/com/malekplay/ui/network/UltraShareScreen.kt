@@ -2188,7 +2188,7 @@ fun UltraShareScreen(
                     Text(formatTransferBytes(received.sizeBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (received.publishedUri != null) {
                         Text(
-                            "حُفظ تلقائياً في التنزيلات / MalekPlayer / Received",
+                            "حُفظ تلقائياً في التنزيلات / MalekPlayer",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
