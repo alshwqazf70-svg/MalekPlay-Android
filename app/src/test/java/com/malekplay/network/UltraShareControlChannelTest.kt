@@ -393,6 +393,18 @@ class UltraShareControlChannelTest {
             assertEquals(memberId, acceptedRequest.peerId)
             assertTrue(acceptedRequest.applicationFramesEnabled)
             assertEquals(memberId, UltraShareControlChannel.serverSessionIdentity("127.0.0.1"))
+            assertTrue(
+                runCatching {
+                    UltraShareControlChannel.request(
+                        host = "127.0.0.1",
+                        pairingSecret = secret,
+                        peerName = "Unlisted peer",
+                        port = port,
+                        peerId = "dddddddddddddddddddddddddddddddd",
+                        notifyClientSessionReady = false
+                    )
+                }.isFailure
+            )
         } finally {
             roomKey.fill(0)
             UltraShareControlChannel.closeSession("127.0.0.1")
