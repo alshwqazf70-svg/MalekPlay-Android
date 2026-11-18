@@ -164,6 +164,7 @@ class UltraShareForegroundService : Service() {
     private val meshServerJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
     private val meshServerHandshakeJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
     private val meshClientJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+    private val meshClientHandshakeJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
     private val meshClientJoinedHosts = java.util.Collections.newSetFromMap(
         java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     )
@@ -176,6 +177,9 @@ class UltraShareForegroundService : Service() {
         // Clear approvals written by older app versions; no peer trust survives a new service.
         UltraShareTrustedPeerStore.clear(this)
         UltraShareDiagnostics.initialize(this)
+        UltraShareControlChannel.setClientSessionReadyListener { host ->
+            startMeshClientSession(host)
+        }
         UltraShareDiagnostics.event("SERVICE", "CREATED")
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -733,6 +737,7 @@ class UltraShareForegroundService : Service() {
         advertisementJob?.cancel()
         controlJob?.cancel()
         pendingConnectionDecision?.cancel()
+        UltraShareControlChannel.setClientSessionReadyListener(null)
         closeMeshRoom()
         serviceScope.cancel()
         releaseTransferLocks()
@@ -1181,6 +1186,29 @@ class UltraShareForegroundService : Service() {
         if (previous != null) pump.cancel() else pump.start()
     }
 
+
+    /** Start room negotiation immediately after the client-side MPC2 ACCEPT response. */
+    private fun startMeshClientSession(host: String) {
+        if (!UltraShareControlChannel.supportsClientApplicationFrames(host)) return
+        val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                ensureMeshClientJoined(host)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                UltraShareDiagnostics.failure("MESH_CLIENT_HANDSHAKE", failure, "peerHost=" + host)
+                updateState { current -> current.copy(
+                    status = "قناة الاتصال آمنة، لكن تعذّر إكمال الانضمام إلى غرفة Mesh.",
+                    error = failure.localizedMessage ?: "تعذر الانضمام إلى غرفة Mesh."
+                ) }
+            } finally {
+                meshClientHandshakeJobs.remove(host)
+            }
+        }
+        val previous = meshClientHandshakeJobs.putIfAbsent(host, job)
+        if (previous != null) job.cancel() else job.start()
+    }
+
     /** Join the authority room on an already-approved client MPC2 session. */
     private suspend fun ensureMeshClientJoined(host: String) {
         if (host in meshClientJoinedHosts ||
@@ -1264,6 +1292,7 @@ class UltraShareForegroundService : Service() {
         meshServerJobs.remove(host)?.cancel()
         meshServerHandshakeJobs.remove(host)?.cancel()
         meshClientJobs.remove(host)?.cancel()
+        meshClientHandshakeJobs.remove(host)?.cancel()
         meshClientJoinedHosts.remove(host)
     }
 
@@ -1274,6 +1303,8 @@ class UltraShareForegroundService : Service() {
         meshServerHandshakeJobs.clear()
         meshClientJobs.values.forEach { it.cancel() }
         meshClientJobs.clear()
+        meshClientHandshakeJobs.values.forEach { it.cancel() }
+        meshClientHandshakeJobs.clear()
         meshClientJoinedHosts.clear()
         synchronized(meshRoomGuard) {
             meshRoomCoordinator?.close()
