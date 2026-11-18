@@ -8,21 +8,25 @@ import org.junit.Test
 class UltraShareTransportTest {
 
     @Test
-    fun sharePolicyAllowsOrdinaryFilesButRejectsApkAndPdfByMimeOrExtension() {
+    fun sharePolicyAllowsOnlyVideoAudioAndRasterImageMedia() {
+        listOf("video/mp4", "video/x-matroska", "audio/mpeg", "image/jpeg", "image/webp")
+            .forEach { assertTrue(UltraShareTransport.isSupportedShareMimeType(it)) }
         listOf(
-            "video/mp4", "video/x-matroska", "audio/mpeg", "image/jpeg",
-            "application/zip", "text/plain", "application/octet-stream",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        ).forEach { assertTrue(UltraShareTransport.isSupportedShareMimeType(it)) }
-        listOf(
-            "video", "audio/", "", "not a mime type", "application/pdf",
-            "application/vnd.android.package-archive"
+            "video", "audio/", "", "not a mime type", "application/zip", "text/plain",
+            "application/octet-stream", "application/pdf",
+            "application/vnd.android.package-archive", "image/svg+xml"
         ).forEach { assertFalse(UltraShareTransport.isSupportedShareMimeType(it)) }
-        assertFalse(UltraShareTransport.isAllowedShareFile("renamed.apk", "application/octet-stream"))
+
+        assertTrue(UltraShareTransport.isAllowedShareFile("movie.mp4", "video/mp4"))
+        assertTrue(UltraShareTransport.isAllowedShareFile("track.mp3", "audio/mpeg"))
+        assertTrue(UltraShareTransport.isAllowedShareFile("photo.jpg", "image/jpeg"))
+        assertTrue(UltraShareTransport.isAllowedShareFile("provider-file.mp4", "application/octet-stream"))
+        assertFalse(UltraShareTransport.isAllowedShareFile("archive.zip", "application/zip"))
+        assertFalse(UltraShareTransport.isAllowedShareFile("document.txt", "text/plain"))
+        assertFalse(UltraShareTransport.isAllowedShareFile("unknown.bin", "application/octet-stream"))
+        assertFalse(UltraShareTransport.isAllowedShareFile("renamed.apk", "video/mp4"))
         assertFalse(UltraShareTransport.isAllowedShareFile("document.pdf", "application/octet-stream"))
-        assertFalse(UltraShareTransport.isAllowedShareFile("renamed.bin", "application/pdf"))
-        assertFalse(UltraShareTransport.isAllowedShareFile("renamed.bin", "application/vnd.android.package-archive"))
-        assertTrue(UltraShareTransport.isAllowedShareFile("empty.file", "application/octet-stream"))
+        assertFalse(UltraShareTransport.isAllowedShareFile("image.svg", "image/svg+xml"))
         assertFalse(UltraShareTransport.isAllowedShareFile("", "application/octet-stream"))
     }
 
