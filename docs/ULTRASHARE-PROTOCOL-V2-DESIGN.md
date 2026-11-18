@@ -71,7 +71,7 @@ The following are not part of the current V2 runtime:
 
 - Android CI currently runs emulator runtime tests on API 23, 29 and 35. This covers Android 6, Android 10 and Android 15 checkpoints, not every API level from 23 through 35.
 - JVM tests cover manifest validation, wire vectors, checkpoint recovery, durable receipts, listener readiness and cancellation. A full Kotlin sender-to-Kotlin receiver batch integration test is still required.
-- The desktop test named `test_android_v2_batch_sender_and_desktop_receiver_interoperate` currently invokes Python `send_batch_v2` and Python `receive_batch_v2`; it is not an Android-to-desktop test.
+- The desktop loopback test `test_python_v2_batch_sender_and_receiver_loopback` invokes Python `send_batch_v2` and Python `receive_batch_v2`; it is not an Android-to-desktop test.
 - Two physical Android devices are still required to validate bidirectional transfer, Wi-Fi Direct, hotspot, shared Wi-Fi, large files, screen-off behavior, process interruption and resume.
 - No repeatable same-network benchmark currently proves speed parity or superiority to Zapya.
 - Android V2 and desktop share validation now accept video/audio/image MIME families only; providers that report `application/octet-stream` are accepted only for recognized media filename extensions. SVG, documents, archives and executable/package extensions are rejected at the protocol boundary. The arbitrary-folder ZIP creation/extraction flow and its UI were removed. This is metadata-based validation, not full media-content magic-byte inspection.
