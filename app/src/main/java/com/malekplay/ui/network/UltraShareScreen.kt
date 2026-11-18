@@ -1317,7 +1317,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                     val output = context.contentResolver.openOutputStream(destination, "w")
                         ?: error("تعذر فتح وجهة الحفظ.")
                     received.file.inputStream().use { input ->
-                        output.use { target -> input.copyTo(target, UltraShareTransport.CHUNK_BYTES) }
+                        output.use { target -> input.copyTo(target, UltraShareBatchTransport.COPY_BUFFER_BYTES) }
                     }
                 }
                 _state.value = _state.value.copy(
