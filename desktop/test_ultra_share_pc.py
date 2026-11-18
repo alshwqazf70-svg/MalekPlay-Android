@@ -65,6 +65,7 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         self.assertFalse(is_allowed_share_file("unknown.bin", "application/octet-stream"))
         self.assertFalse(is_allowed_share_file("payload.apk", "video/mp4"))
         self.assertFalse(is_allowed_share_file("document.pdf", "application/octet-stream"))
+        self.assertFalse(is_allowed_share_file("image.svg", "image/png"))
 
     def test_metadata_round_trip_matches_android_wire_layout(self):
         digest = hashlib.sha256(b"hello").digest()
