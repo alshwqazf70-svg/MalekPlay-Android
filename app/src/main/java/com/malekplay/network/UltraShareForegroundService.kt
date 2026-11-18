@@ -1378,6 +1378,24 @@ class UltraShareForegroundService : Service() {
                 try {
                     val coordinator = meshRoomCoordinator ?: return@launch
                     if (!coordinator.state().isAuthority) return@launch
+                    // A member may reconnect through a new IP while the old socket
+                    // is closing. Do not remove its stable identity if another
+                    // authenticated primary session for that same peer is already live.
+                    val replacementSessionExists = (meshAuthorityMemberHosts + meshServerHandshakeJobs.keys)
+                        .any { candidateHost ->
+                            candidateHost != host &&
+                                UltraShareControlChannel.isServerSessionActive(candidateHost) &&
+                                canonicalMeshPeerId(
+                                    UltraShareControlChannel.serverSessionIdentity(candidateHost)
+                                ) == remoteId
+                        }
+                    if (replacementSessionExists) {
+                        UltraShareDiagnostics.event(
+                            "MESH_ROOM", "STALE_ROUTE_CLOSED_MEMBER_RETAINED",
+                            mapOf("peerId" to remoteId, "oldHost" to host)
+                        )
+                        return@launch
+                    }
                     val update = coordinator.removeMember(remoteId)
                     if (update != null) broadcastMeshRosterUpdate(update)
                     reconcileMeshDirectLinks()
