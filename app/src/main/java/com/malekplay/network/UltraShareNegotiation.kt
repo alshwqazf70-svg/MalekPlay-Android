@@ -29,7 +29,7 @@ object UltraShareNegotiation {
         fun isUsable(): Boolean =
             connected && reachable && host.isNotBlank() &&
                 host.length <= 64 && port in 1..65535 &&
-                UltraShareTransport.isValidPrivateLanHost(host)
+                UltraShareCore.isValidPrivateLanHost(host)
     }
 
     data class Offer(
@@ -115,7 +115,7 @@ object UltraShareNegotiation {
         )
         offer.candidates.forEach { candidate ->
             require(candidate.host.length <= 64 && candidate.port in 1..65535)
-            require(UltraShareTransport.isValidPrivateLanHost(candidate.host)) {
+            require(UltraShareCore.isValidPrivateLanHost(candidate.host)) {
                 "Connection offers may contain private IPv4 endpoints only."
             }
             fields += listOf(
@@ -155,7 +155,7 @@ object UltraShareNegotiation {
             ).also {
                 require(parts[3] in setOf("0", "1") && parts[4] in setOf("0", "1"))
                 require(it.host.isNotBlank() && it.host.length <= 64 && it.port in 1..65535)
-                require(UltraShareTransport.isValidPrivateLanHost(it.host)) {
+                require(UltraShareCore.isValidPrivateLanHost(it.host)) {
                     "Connection offer contains a non-private endpoint."
                 }
             }
