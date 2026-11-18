@@ -9,6 +9,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.runBlocking
@@ -265,6 +267,139 @@ class UltraShareBatchEndToEndTest {
             assertFalse(UltraShareMediaSignature.isValid(empty, "empty.mp3", "video/mp4"))
         } finally {
             empty.delete()
+        }
+    }
+
+    @Test
+    fun independentRoomEndpointsCanSendAndReceiveAtTheSameTime() = runBlocking {
+        val host = NetworkInterface.getNetworkInterfaces().toList()
+            .asSequence()
+            .filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList().asSequence() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .firstOrNull { it.isSiteLocalAddress && !it.isLoopbackAddress }
+            ?.hostAddress ?: error("No private IPv4 interface available for the simultaneous transfer test.")
+
+        fun freePort(): Int = ServerSocket(0).use { it.localPort }
+        val controlPort = freePort()
+        val secret = "864209753"
+        val root = kotlin.io.path.createTempDirectory("ultrashare-duplex").toFile()
+        val sourceA = File(root, "from-peer-a.mp4")
+        val sourceB = File(root, "from-peer-b.mp4")
+        val destinationA = File(root, "received-by-a")
+        val destinationB = File(root, "received-by-b")
+        val readyA = CompletableDeferred<Int>()
+        val readyB = CompletableDeferred<Int>()
+        val readyControl = CompletableDeferred<Unit>()
+        val resultA = CompletableDeferred<UltraShareBatchTransport.BatchOutcome>()
+        val resultB = CompletableDeferred<UltraShareBatchTransport.BatchOutcome>()
+
+        fun mediaBytes(seed: Int): ByteArray = ByteArray(900_000) { index ->
+            ((index * 19 + seed) and 0xff).toByte()
+        }.also { bytes ->
+            byteArrayOf(0, 0, 0, 24).copyInto(bytes, 0)
+            "ftypisom".toByteArray().copyInto(bytes, 4)
+        }
+
+        val payloadA = mediaBytes(7)
+        val payloadB = mediaBytes(29)
+        sourceA.writeBytes(payloadA)
+        sourceB.writeBytes(payloadB)
+
+        val receiverA = launch(Dispatchers.IO) {
+            UltraShareBatchTransport.serveMany(
+                port = 0,
+                pairingSecret = secret,
+                destinationDirectory = destinationA,
+                onListening = { readyA.complete(it) },
+                onBatchFinished = { _, batch -> resultA.complete(batch) }
+            )
+        }
+        val receiverB = launch(Dispatchers.IO) {
+            UltraShareBatchTransport.serveMany(
+                port = 0,
+                pairingSecret = secret,
+                destinationDirectory = destinationB,
+                onListening = { readyB.complete(it) },
+                onBatchFinished = { _, batch -> resultB.complete(batch) }
+            )
+        }
+        val control = launch(Dispatchers.IO) {
+            UltraShareControlChannel.serveOnce(
+                pairingSecret = secret,
+                port = controlPort,
+                onListening = { readyControl.complete(Unit) },
+                onRequest = { UltraShareControlChannel.Decision.ACCEPTED }
+            )
+        }
+
+        try {
+            withTimeout(5_000) {
+                readyA.await()
+                readyB.await()
+                readyControl.await()
+            }
+            val dataPortA = readyA.await()
+            val dataPortB = readyB.await()
+            assertEquals(
+                UltraShareControlChannel.Decision.ACCEPTED,
+                UltraShareControlChannel.request(
+                    host = host,
+                    pairingSecret = secret,
+                    peerName = "Simultaneous room peer",
+                    port = controlPort
+                )
+            )
+
+            val resolver = RuntimeEnvironment.getApplication().contentResolver
+            // Both directions start together. Each endpoint has its own receive
+            // directory and TCP listener, so one transfer must not serialize/block
+            // the independent transfer merely because both share a peer identity.
+            val transfers = listOf(
+                async(Dispatchers.IO) {
+                    UltraShareBatchTransport.sendBatch(
+                        resolver,
+                        listOf(UltraShareBatchTransport.Source(
+                            Uri.fromFile(sourceA), sourceA.name, "video/mp4", sourceA.length()
+                        )),
+                        host,
+                        dataPortA,
+                        secret
+                    )
+                },
+                async(Dispatchers.IO) {
+                    UltraShareBatchTransport.sendBatch(
+                        resolver,
+                        listOf(UltraShareBatchTransport.Source(
+                            Uri.fromFile(sourceB), sourceB.name, "video/mp4", sourceB.length()
+                        )),
+                        host,
+                        dataPortB,
+                        secret
+                    )
+                }
+            )
+            val sent = withTimeout(30_000) { transfers.awaitAll() }
+            val received = withTimeout(30_000) { listOf(resultA.await(), resultB.await()) }
+
+            assertEquals(2, sent.size)
+            assertTrue(sent.all { batch ->
+                batch.files.size == 1 &&
+                    batch.files.single().status == UltraShareBatchProtocol.FileStatus.COMPLETED
+            })
+            assertTrue(received.all { batch ->
+                batch.files.size == 1 &&
+                    batch.files.single().status == UltraShareBatchProtocol.FileStatus.COMPLETED
+            })
+            assertArrayEquals(payloadA, File(destinationA, sourceA.name).readBytes())
+            assertArrayEquals(payloadB, File(destinationB, sourceB.name).readBytes())
+        } finally {
+            UltraShareControlChannel.closeSession(host)
+            UltraShareControlChannel.closeServerSession(host)
+            control.cancelAndJoin()
+            receiverA.cancelAndJoin()
+            receiverB.cancelAndJoin()
+            root.deleteRecursively()
         }
     }
 
