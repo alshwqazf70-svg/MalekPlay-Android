@@ -182,7 +182,7 @@ object UltraShareCore {
     )
     private val BLOCKED_EXTENSIONS = setOf(
         "apk", "aab", "dex", "jar", "exe", "msi", "bat", "cmd", "sh",
-        "pdf", "zip", "rar", "7z", "tar", "gz", "bz2", "xz"
+        "pdf", "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "svg"
     )
 
     /** Accept media MIME families only; SVG is excluded because it can contain active content. */
