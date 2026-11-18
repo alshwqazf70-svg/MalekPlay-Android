@@ -85,7 +85,7 @@ MEDIA_EXTENSIONS = {
 }
 BLOCKED_EXTENSIONS = {
     ".apk", ".aab", ".dex", ".jar", ".exe", ".msi", ".bat", ".cmd", ".sh",
-    ".pdf", ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz",
+    ".pdf", ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".svg",
 }
 
 
