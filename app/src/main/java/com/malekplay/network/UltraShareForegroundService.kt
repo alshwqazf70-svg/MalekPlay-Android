@@ -73,7 +73,7 @@ data class UltraShareServiceState(
     val peerTransfers: List<UltraSharePeerTransfer> = emptyList(),
     /** Authenticated outbound MPC2 peers; distinct from inbound activePeers. */
     val approvedSenderPeerHosts: List<String> = emptyList(),
-    /** Outbound peers retained in memory for explicit user-triggered reconnection. */
+    /** Legacy UI compatibility only; always empty because disconnected peers are not retained. */
     val reconnectableSenderPeerHosts: List<String> = emptyList()
 )
 
@@ -581,8 +581,9 @@ class UltraShareForegroundService : Service() {
                         }
                     }
                 }
+                // A waiting room stays open until a peer actually joins. The five-minute
+                // idle window starts only after an authenticated peer session exists.
                 job.start()
-                scheduleIdleDisconnect()
             }
             ACTION_SEND_MULTI_BATCH -> {
                 val uris = intent.parcelableUriList(EXTRA_URIS).orEmpty()
