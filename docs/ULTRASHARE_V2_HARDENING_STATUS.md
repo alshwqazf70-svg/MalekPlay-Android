@@ -20,6 +20,15 @@ It is not a device-test or release-readiness certificate.
 
 These are source-level test additions only until the corresponding GitHub Actions run completes successfully. They do not prove Wi-Fi Direct or hotspot routing on physical phones.
 
+## Temporary connection behavior (latest source update)
+
+- Approved peer credentials and sender targets now exist only while the live MPC2 room session is active.
+- Disconnecting a peer removes its active control sockets and in-memory sender target; no reconnectable peer or secret is retained for a later session.
+- Stopping the receive room now closes both inbound and outbound approved peer sessions, rather than only peers shown in the inbound list.
+- Route recovery uses the currently active session identity only. A disconnected device must join the room again to establish a fresh session.
+
+This removes persistent/reconnectable pairing behavior from the service state. It does not remove the short-lived room admission code used to join the current room, and it does not prove that every Wi-Fi Direct/Hotspot combination works on physical devices.
+
 ## Still required before calling the engine ready
 
 - Run the Android Gradle unit-test suite, lint, and debug/release builds on this exact branch head.
