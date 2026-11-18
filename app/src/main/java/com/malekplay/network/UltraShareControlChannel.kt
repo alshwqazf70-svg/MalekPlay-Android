@@ -418,9 +418,7 @@ object UltraShareControlChannel {
                     runCatching { String(decodeHex(it), Charsets.UTF_8) }.getOrNull()
                 }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
                 val remotePeerId = responseParts.getOrNull(3)?.takeIf(::isStablePeerId)
-                if (!expectedPeerId.isNullOrBlank() && !remotePeerId.isNullOrBlank() &&
-                    !expectedPeerId.replace("-", "").equals(remotePeerId.replace("-", ""), ignoreCase = true)
-                ) {
+                if (!matchesExpectedUltraSharePeerIdentity(expectedPeerId, remotePeerId)) {
                     UltraShareDiagnostics.event(
                         "CONTROL_CHANNEL",
                         "AUTHENTICATED_PEER_IDENTITY_MISMATCH",
