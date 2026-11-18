@@ -81,7 +81,8 @@ object UltraShareControlChannel {
         val output: DataOutputStream,
         val frames: UltraShareControlFrames.Session,
         val incoming: Channel<ByteArray> = Channel(32),
-        val lock: Any = Any()
+        val lock: Any = Any(),
+        @Volatile var ready: Boolean = false
     )
 
     private val clientSessions = ConcurrentHashMap<String, ClientSession>()
@@ -505,9 +506,9 @@ object UltraShareControlChannel {
     /** Send an authenticated application message over the approved client-side MPC2 socket. */
     fun sendClientApplicationMessage(host: String, payload: ByteArray) {
         val session = clientSessions[host] ?: error("لا توجد جلسة إرسال معتمدة لهذا الجهاز.")
-        val frame = session.frames.seal(payload)
         synchronized(session.lock) {
             check(session.socket.isConnected && !session.socket.isClosed)
+            val frame = session.frames.seal(payload)
             session.output.writeUTF("APP")
             session.output.writeInt(frame.size)
             session.output.write(frame)
@@ -524,9 +525,11 @@ object UltraShareControlChannel {
     /** Send an authenticated application message over the approved server-side MPC2 socket. */
     fun sendServerApplicationMessage(host: String, payload: ByteArray) {
         val session = serverApplicationSessions[host] ?: error("لا توجد جلسة استقبال معتمدة لهذا الجهاز.")
-        val frame = session.frames.seal(payload)
         synchronized(session.lock) {
-            check(session.socket.isConnected && !session.socket.isClosed)
+            check(session.ready && session.socket.isConnected && !session.socket.isClosed) {
+                "جلسة الجهاز لم تكتمل تهيئتها بعد."
+            }
+            val frame = session.frames.seal(payload)
             session.output.writeUTF("APP")
             session.output.writeInt(frame.size)
             session.output.write(frame)
@@ -692,6 +695,7 @@ object UltraShareControlChannel {
         output.writeInt(frame.size)
         output.write(frame)
         output.flush()
+        acceptedServerSession?.ready = true
         try {
             while (!socket.isClosed) {
                 when (input.readUTF()) {
