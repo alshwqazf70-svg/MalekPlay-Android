@@ -15,7 +15,6 @@ android {
         applicationId = "com.malekplay"
         minSdk = 23
         targetSdk = 36
-        targetSdk = 35
         versionCode = providers.gradleProperty("malekplayVersionCode")
             .orNull?.toIntOrNull() ?: 2
         versionName = providers.gradleProperty("malekplayVersionName")
