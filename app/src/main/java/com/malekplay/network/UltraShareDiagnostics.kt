@@ -303,7 +303,7 @@ object UltraShareDiagnostics {
     }
 
     internal fun jsonObject(values: Map<String, Any?>): String =
-        values.entries.joinToString(prefix = "{", postfix = "}") { (key, value) ->
+        values.entries.joinToString(separator = ",", prefix = "{", postfix = "}") { (key, value) ->
             jsonString(key) + ":" + jsonValue(value)
         }
 
