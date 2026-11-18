@@ -308,7 +308,8 @@ class UltraShareV2ManifestTests(unittest.TestCase):
                            ("document.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
                            ("x.apk", "application/octet-stream"),
                            ("x.pdf", "application/pdf"),
-                           ("image.svg", "image/svg+xml")):
+                           ("image.svg", "image/svg+xml"),
+                           ("spoofed.svg", "image/png")):
             entry = FileEntry(str(uuid.uuid4()), name, mime, 1, bytes(32))
             with self.assertRaises(ValueError):
                 validate_manifest(Manifest(str(uuid.uuid4()), (entry,)))
