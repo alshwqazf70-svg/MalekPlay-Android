@@ -180,7 +180,7 @@ internal object UltraShareNetworkRouting {
     fun findNonP2pLanFallbackHosts(context: Context, hosts: List<String>): List<String> =
         hosts.asSequence()
             .map { it.trim() }
-            .filter { UltraShareTransport.isValidPrivateLanHost(it) }
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
             .distinct()
             .filterNot { isLocalAddress(context, it) }
             .filter { hasNonP2pLanRoute(context, it) }
@@ -216,7 +216,7 @@ internal object UltraShareNetworkRouting {
             }.toSet()
             candidates.asSequence()
                 .map { it.trim() }
-                .filter { it in localAddresses && UltraShareTransport.isValidPrivateLanHost(it) }
+                .filter { it in localAddresses && UltraShareCore.isValidPrivateLanHost(it) }
                 .distinct()
                 .toList()
         }.getOrDefault(emptyList())
