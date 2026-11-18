@@ -395,9 +395,23 @@ class UltraShareViewModel @Inject constructor(
                 .onFailure { failure ->
                     UltraShareDiagnostics.failure("HOTSPOT_FALLBACK_START", failure)
                     hotspotFallbackStarted = false
+                    val lanHosts = (
+                        _state.value.localAddresses +
+                            UltraShareForegroundService.state.value.localAddresses
+                    ).filter(UltraShareCore::isValidPrivateLanHost).distinct()
+                    val lanReady = lanHosts.isNotEmpty()
                     _state.value = _state.value.copy(
-                        error = failure.localizedMessage
-                            ?: "فشل Wi-Fi Direct وتعذر تشغيل نقطة الاتصال المحلية."
+                        localAddresses = lanHosts,
+                        invitationId = "",
+                        lanFallbackReady = lanReady,
+                        wifiDirectHost = null,
+                        wifiDirectScanning = false,
+                        error = if (lanReady) null else failure.localizedMessage
+                            ?: "فشل Wi-Fi Direct وتعذر تشغيل نقطة الاتصال المحلية.",
+                        status = if (lanReady)
+                            "تعذر تشغيل نقطة الاتصال؛ سنستخدم شبكة Wi-Fi الحالية. صِل الجهازين بالشبكة نفسها ثم امسح رمز LAN."
+                        else
+                            "تعذر Wi-Fi Direct ونقطة الاتصال؛ ما زال الاستقبال يعمل، ويمكن إعادة المحاولة بعد تفعيل Wi-Fi أو نقطة الاتصال."
                     )
                 }
         }
