@@ -164,7 +164,9 @@ class UltraShareForegroundService : Service() {
     private val meshServerJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
     private val meshServerHandshakeJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
     private val meshClientJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
-    private val meshClientJoinedHosts = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val meshClientJoinedHosts = java.util.Collections.newSetFromMap(
+        java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    )
     private val meshClientJoinMutex = kotlinx.coroutines.sync.Mutex()
     private val meshRoomHandshakeMutex = kotlinx.coroutines.sync.Mutex()
 
@@ -1072,18 +1074,21 @@ class UltraShareForegroundService : Service() {
                     UltraShareBatchTransport.DEFAULT_PORT
                 )
                 val keyOffer = coordinator.createKeyOffer()
-                UltraShareControlChannel.sendServerApplicationMessage(
-                    host, UltraShareMeshControlProtocol.encode(keyOffer)
-                )
-                val keyAckBytes = withTimeoutOrNull(12_000L) {
-                    UltraShareControlChannel.receiveServerApplicationMessage(host)
-                } ?: error("انتهت مهلة تأكيد مفتاح غرفة Mesh.")
-                val keyAck = UltraShareMeshControlProtocol.decode(keyAckBytes)
-                    ?: error("رسالة تأكيد مفتاح الغرفة غير صالحة.")
-                check(coordinator.verifyAcknowledgement(
-                    peerId, keyAck, UltraShareMeshControlProtocol.Type.KEY_ACK, keyOffer.payload
-                )) { "لم يتم التحقق من تأكيد مفتاح الغرفة من الجهاز المقترن." }
-                keyOffer.payload.fill(0)
+                try {
+                    UltraShareControlChannel.sendServerApplicationMessage(
+                        host, UltraShareMeshControlProtocol.encode(keyOffer)
+                    )
+                    val keyAckBytes = withTimeoutOrNull(12_000L) {
+                        UltraShareControlChannel.receiveServerApplicationMessage(host)
+                    } ?: error("انتهت مهلة تأكيد مفتاح غرفة Mesh.")
+                    val keyAck = UltraShareMeshControlProtocol.decode(keyAckBytes)
+                        ?: error("رسالة تأكيد مفتاح الغرفة غير صالحة.")
+                    check(coordinator.verifyAcknowledgement(
+                        peerId, keyAck, UltraShareMeshControlProtocol.Type.KEY_ACK, keyOffer.payload
+                    )) { "لم يتم التحقق من تأكيد مفتاح الغرفة من الجهاز المقترن." }
+                } finally {
+                    keyOffer.payload.fill(0)
+                }
 
                 coordinator.upsertMember(peerId, remote)
                 val rosterUpdate = coordinator.createRosterUpdate()
