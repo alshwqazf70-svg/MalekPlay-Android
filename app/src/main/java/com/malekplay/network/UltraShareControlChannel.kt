@@ -709,10 +709,13 @@ object UltraShareControlChannel {
             return
         }
 
-        output.writeInt(frame.size)
-        output.write(frame)
-        output.flush()
-        acceptedServerSession?.ready = true
+        val activeSession = requireNotNull(acceptedServerSession)
+        synchronized(activeSession.lock) {
+            output.writeInt(frame.size)
+            output.write(frame)
+            output.flush()
+            activeSession.ready = true
+        }
         try {
             while (!socket.isClosed) {
                 when (input.readUTF()) {
