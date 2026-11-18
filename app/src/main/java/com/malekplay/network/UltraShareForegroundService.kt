@@ -519,7 +519,7 @@ class UltraShareForegroundService : Service() {
                                     updateState { current -> current.copy(
                                         dataChannelReady = ready,
                                         error = if (ready) current.error else
-                                            "بدأ مستمع نقل الملفات على منفذ غير متوقع؛ لن يظهر رمز QR حتى تتم معالجة ذلك."
+                                            "منفذ نقل الملفات V2 غير متوقع؛ سيظل الاقتران عبر QR متاحاً، لكن نقل الوسائط لن يبدأ حتى إصلاح المنفذ."
                                     ) }
                                 },
                                 pairingSecretResolver = { peerHost ->
