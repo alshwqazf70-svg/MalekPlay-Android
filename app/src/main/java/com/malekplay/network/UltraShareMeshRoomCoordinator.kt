@@ -201,6 +201,24 @@ internal class UltraShareMeshRoomCoordinator(
         return MessageDigest.isEqual(expected, acknowledgement.payload)
     }
 
+    /**
+     * Derives a direct-link credential only for two members in the currently
+     * authenticated room roster. The room key never leaves this coordinator.
+     */
+    @Synchronized
+    fun deriveDirectLinkCredential(firstPeerId: String, secondPeerId: String): String {
+        ensureOpen()
+        val activeRoomId = roomId ?: error("No Mesh room is active.")
+        val key = roomKey ?: error("Mesh room key has not been established.")
+        val first = canonicalId(firstPeerId)
+        val second = canonicalId(secondPeerId)
+        require(first != second) { "A direct link cannot connect a peer to itself." }
+        require(members.containsKey(first) && members.containsKey(second)) {
+            "Both endpoints must belong to the authenticated current room roster."
+        }
+        return UltraShareMeshLinkCredential.derivePairingSecret(activeRoomId, key, first, second)
+    }
+
     @Synchronized
     fun state(): RoomState {
         ensureOpen()
