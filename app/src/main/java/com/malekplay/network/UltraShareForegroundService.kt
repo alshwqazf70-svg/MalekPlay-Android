@@ -158,6 +158,14 @@ class UltraShareForegroundService : Service() {
     private var receiveTransferActive = false
     private var receiveTransferCount = 0
     @Volatile private var idleDisconnectJob: Job? = null
+    // Mesh room state is process-local and is destroyed with the foreground service.
+    private val meshRoomGuard = Any()
+    @Volatile private var meshRoomCoordinator: UltraShareMeshRoomCoordinator? = null
+    private val meshServerJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+    private val meshClientJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+    private val meshClientJoinedHosts = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val meshClientJoinMutex = kotlinx.coroutines.sync.Mutex()
+
 
     override fun onCreate() {
         super.onCreate()
@@ -530,9 +538,13 @@ class UltraShareForegroundService : Service() {
                                     }
                                 },
                                 onSessionClosed = { request ->
+                                    stopMeshSession(request.peerAddress)
                                     disconnectApprovedPeer(request.peerAddress)
                                     scheduleIdleDisconnect()
                                 },
+                                onSessionReady = { request ->
+                                    startMeshServerSession(request)
+                                }
 
                             ) { request ->
                                 UltraShareDiagnostics.event(
@@ -973,6 +985,271 @@ class UltraShareForegroundService : Service() {
             status = "أُغلقت الغرفة تلقائياً بعد خمس دقائق من عدم النشاط."
         ) }
         finishService()
+    }
+
+
+    private fun canonicalMeshPeerId(raw: String?): String? {
+        val value = raw?.replace("-", "")?.lowercase(java.util.Locale.ROOT) ?: return null
+        return value.takeIf { it.length == 32 && it.all { ch -> ch.digitToIntOrNull(16) != null } }
+    }
+
+    private fun meshPeer(
+        peerId: String,
+        displayName: String,
+        addresses: List<String>,
+        port: Int
+    ): UltraShareMeshTopology.Peer {
+        val candidates = addresses.distinct().mapNotNull { host ->
+            if (!UltraShareCore.isValidPrivateLanHost(host)) return@mapNotNull null
+            UltraShareNegotiation.Candidate(
+                transport = UltraShareNegotiation.Transport.WLAN,
+                host = host,
+                port = port,
+                connected = true,
+                reachable = true,
+                priority = 100
+            )
+        }.take(UltraShareMeshRoster.MAX_CANDIDATES_PER_PEER)
+        return UltraShareMeshTopology.Peer(
+            peerId = peerId,
+            displayName = displayName.take(96).ifBlank { "MalekPlayer Android" },
+            candidates = candidates
+        )
+    }
+
+    private fun getOrCreateMeshAuthority(): UltraShareMeshRoomCoordinator {
+        val localId = canonicalMeshPeerId(UltraShareDiscovery.localPeerId(this))
+            ?: error("تعذر الحصول على هوية الجهاز المحلية لإنشاء غرفة Mesh.")
+        synchronized(meshRoomGuard) {
+            val current = meshRoomCoordinator
+            if (current != null) {
+                check(current.state().isAuthority) {
+                    "هذا الجهاز عضو في غرفة Mesh أخرى وليس سلطة إنشاء الغرفة."
+                }
+                return current
+            }
+            val local = meshPeer(
+                localId,
+                Build.MODEL?.take(96) ?: "MalekPlayer Android",
+                findLocalIpv4Addresses(),
+                UltraShareBatchTransport.DEFAULT_PORT
+            )
+            return UltraShareMeshRoomCoordinator(localId).also { coordinator ->
+                coordinator.createAuthorityRoom(local, System.currentTimeMillis().coerceAtLeast(1L))
+                meshRoomCoordinator = coordinator
+            }
+        }
+    }
+
+    private fun getOrCreateMeshJoiner(): UltraShareMeshRoomCoordinator {
+        val localId = canonicalMeshPeerId(UltraShareDiscovery.localPeerId(this))
+            ?: error("تعذر الحصول على هوية الجهاز المحلية للانضمام إلى غرفة Mesh.")
+        synchronized(meshRoomGuard) {
+            val current = meshRoomCoordinator
+            if (current != null) return current
+            return UltraShareMeshRoomCoordinator(localId).also { meshRoomCoordinator = it }
+        }
+    }
+
+    /** Runs after MPC2 ACCEPT has been flushed; one job owns reads for this server session. */
+    private fun startMeshServerSession(request: UltraShareControlChannel.Request) {
+        val peerId = canonicalMeshPeerId(request.peerId) ?: return
+        val host = request.peerAddress
+        if (!UltraShareControlChannel.supportsServerApplicationFrames(host)) return
+        val job = serviceScope.launch {
+            try {
+                val coordinator = getOrCreateMeshAuthority()
+                val remote = meshPeer(
+                    peerId, request.peerName, listOf(host),
+                    UltraShareBatchTransport.DEFAULT_PORT
+                )
+                val keyOffer = coordinator.createKeyOffer()
+                UltraShareControlChannel.sendServerApplicationMessage(
+                    host, UltraShareMeshControlProtocol.encode(keyOffer)
+                )
+                val keyAckBytes = withTimeoutOrNull(12_000L) {
+                    UltraShareControlChannel.receiveServerApplicationMessage(host)
+                } ?: error("انتهت مهلة تأكيد مفتاح غرفة Mesh.")
+                val keyAck = UltraShareMeshControlProtocol.decode(keyAckBytes)
+                    ?: error("رسالة تأكيد مفتاح الغرفة غير صالحة.")
+                check(coordinator.verifyAcknowledgement(
+                    peerId, keyAck, UltraShareMeshControlProtocol.Type.KEY_ACK, keyOffer.payload
+                )) { "لم يتم التحقق من تأكيد مفتاح الغرفة من الجهاز المقترن." }
+                keyOffer.payload.fill(0)
+
+                coordinator.upsertMember(peerId, remote)
+                val rosterUpdate = coordinator.createRosterUpdate()
+                UltraShareControlChannel.sendServerApplicationMessage(
+                    host, UltraShareMeshControlProtocol.encode(rosterUpdate)
+                )
+                val rosterAckBytes = withTimeoutOrNull(12_000L) {
+                    UltraShareControlChannel.receiveServerApplicationMessage(host)
+                } ?: error("انتهت مهلة تأكيد قائمة أعضاء الغرفة.")
+                val rosterAck = UltraShareMeshControlProtocol.decode(rosterAckBytes)
+                    ?: error("رسالة تأكيد قائمة الأعضاء غير صالحة.")
+                check(coordinator.verifyAcknowledgement(
+                    peerId, rosterAck, UltraShareMeshControlProtocol.Type.ROSTER_ACK,
+                    rosterUpdate.payload
+                )) { "قائمة أعضاء الغرفة لم تحصل على تأكيد موثوق." }
+
+                UltraShareDiagnostics.event(
+                    "MESH_ROOM", "PEER_JOINED",
+                    mapOf("peerId" to peerId, "peerHost" to host, "revision" to coordinator.state().revision)
+                )
+                updateState { current -> current.copy(
+                    status = "انضم " + request.peerName + " إلى غرفة Mesh الآمنة.",
+                    error = null
+                ) }
+
+                // Push the new authenticated roster to previously approved clients.
+                val existingHosts = UltraShareControlChannel.activeServerApplicationSessionHosts()
+                    .filterNot { it == host }
+                existingHosts.forEach { existingHost ->
+                    runCatching {
+                        UltraShareControlChannel.sendServerApplicationMessage(
+                            existingHost, UltraShareMeshControlProtocol.encode(rosterUpdate)
+                        )
+                    }.onFailure { failure ->
+                        UltraShareDiagnostics.failure(
+                            "MESH_ROSTER_BROADCAST", failure, "peerHost=" + existingHost
+                        )
+                    }
+                }
+                startMeshServerMessagePump(host)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                UltraShareDiagnostics.failure("MESH_SERVER_SESSION", failure, "peerHost=" + host)
+                updateState { current -> current.copy(
+                    status = "اتصال MPC2 نشط، لكن مزامنة غرفة Mesh لم تكتمل.",
+                    error = failure.localizedMessage ?: "تعذر مزامنة غرفة Mesh."
+                ) }
+            } finally {
+                meshServerJobs.remove(host)
+            }
+        }
+        val previous = meshServerJobs.putIfAbsent(host, job)
+        if (previous != null) job.cancel()
+    }
+
+    private fun startMeshServerMessagePump(host: String) {
+        val pump = serviceScope.launch {
+            try {
+                while (UltraShareControlChannel.supportsServerApplicationFrames(host)) {
+                    val bytes = UltraShareControlChannel.receiveServerApplicationMessage(host) ?: break
+                    val message = UltraShareMeshControlProtocol.decode(bytes) ?: continue
+                    if (message.type == UltraShareMeshControlProtocol.Type.ROSTER_ACK) {
+                        UltraShareDiagnostics.event(
+                            "MESH_ROOM", "ROSTER_ACK_RECEIVED",
+                            mapOf("peerHost" to host, "revision" to message.revision)
+                        )
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                UltraShareDiagnostics.failure("MESH_SERVER_MESSAGE_PUMP", failure, "peerHost=" + host)
+            }
+        }
+        val previous = meshServerJobs.putIfAbsent(host, pump)
+        if (previous != null) pump.cancel()
+    }
+
+    /** Join the authority room on an already-approved client MPC2 session. */
+    private suspend fun ensureMeshClientJoined(host: String) {
+        if (host in meshClientJoinedHosts ||
+            !UltraShareControlChannel.supportsClientApplicationFrames(host)
+        ) return
+        meshClientJoinMutex.lock()
+        try {
+            if (host in meshClientJoinedHosts ||
+                !UltraShareControlChannel.supportsClientApplicationFrames(host)
+            ) return
+            val authorityId = canonicalMeshPeerId(UltraShareControlChannel.sessionPeerId(host))
+                ?: error("هوية سلطة غرفة Mesh غير متاحة في جلسة MPC2.")
+            val coordinator = getOrCreateMeshJoiner()
+            val keyOfferBytes = withTimeoutOrNull(12_000L) {
+                UltraShareControlChannel.receiveClientApplicationMessage(host)
+            } ?: error("لم يصل مفتاح غرفة Mesh من الجهاز المضيف.")
+            val keyOffer = UltraShareMeshControlProtocol.decode(keyOfferBytes)
+                ?: error("رسالة مفتاح غرفة Mesh غير صالحة.")
+            check(keyOffer.type == UltraShareMeshControlProtocol.Type.KEY_OFFER &&
+                canonicalMeshPeerId(keyOffer.senderPeerId) == authorityId
+            ) { "هوية مرسل مفتاح غرفة Mesh لا تطابق هوية MPC2." }
+            val keyAck = coordinator.acceptKeyOffer(authorityId, keyOffer)
+            UltraShareControlChannel.sendClientApplicationMessage(
+                host, UltraShareMeshControlProtocol.encode(keyAck)
+            )
+            val rosterBytes = withTimeoutOrNull(12_000L) {
+                UltraShareControlChannel.receiveClientApplicationMessage(host)
+            } ?: error("لم تصل قائمة أعضاء غرفة Mesh.")
+            val rosterUpdate = UltraShareMeshControlProtocol.decode(rosterBytes)
+                ?: error("رسالة قائمة أعضاء غرفة Mesh غير صالحة.")
+            val rosterAck = coordinator.acceptRosterUpdate(authorityId, rosterUpdate)
+            UltraShareControlChannel.sendClientApplicationMessage(
+                host, UltraShareMeshControlProtocol.encode(rosterAck)
+            )
+            meshClientJoinedHosts.add(host)
+            UltraShareDiagnostics.event(
+                "MESH_ROOM", "JOINED_AUTHORITY_ROOM",
+                mapOf("authorityPeerId" to authorityId, "revision" to coordinator.state().revision)
+            )
+            startMeshClientMessagePump(host, authorityId, coordinator)
+        } finally {
+            meshClientJoinMutex.unlock()
+        }
+    }
+
+    private fun startMeshClientMessagePump(
+        host: String,
+        authorityId: String,
+        coordinator: UltraShareMeshRoomCoordinator
+    ) {
+        val pump = serviceScope.launch {
+            try {
+                while (UltraShareControlChannel.supportsClientApplicationFrames(host)) {
+                    val bytes = UltraShareControlChannel.receiveClientApplicationMessage(host) ?: break
+                    val message = UltraShareMeshControlProtocol.decode(bytes) ?: continue
+                    if (message.type == UltraShareMeshControlProtocol.Type.ROSTER_UPDATE) {
+                        val ack = coordinator.acceptRosterUpdate(authorityId, message)
+                        UltraShareControlChannel.sendClientApplicationMessage(
+                            host, UltraShareMeshControlProtocol.encode(ack)
+                        )
+                        UltraShareDiagnostics.event(
+                            "MESH_ROOM", "ROSTER_UPDATED",
+                            mapOf("authorityPeerId" to authorityId, "revision" to coordinator.state().revision)
+                        )
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                UltraShareDiagnostics.failure("MESH_CLIENT_MESSAGE_PUMP", failure, "peerHost=" + host)
+            } finally {
+                meshClientJoinedHosts.remove(host)
+                meshClientJobs.remove(host)
+            }
+        }
+        val previous = meshClientJobs.putIfAbsent(host, pump)
+        if (previous != null) pump.cancel()
+    }
+
+    private fun stopMeshSession(host: String) {
+        meshServerJobs.remove(host)?.cancel()
+        meshClientJobs.remove(host)?.cancel()
+        meshClientJoinedHosts.remove(host)
+    }
+
+    private fun closeMeshRoom() {
+        meshServerJobs.values.forEach { it.cancel() }
+        meshServerJobs.clear()
+        meshClientJobs.values.forEach { it.cancel() }
+        meshClientJobs.clear()
+        meshClientJoinedHosts.clear()
+        synchronized(meshRoomGuard) {
+            meshRoomCoordinator?.close()
+            meshRoomCoordinator = null
+        }
     }
 
     private fun beginTransfer(isReceiving: Boolean) {
