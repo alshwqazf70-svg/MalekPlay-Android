@@ -16,6 +16,7 @@ Every message binds a canonical 128-bit room ID, canonical sender peer ID, posit
 ## Service integration
 
 - The server-side session-ready callback fires only after ACCEPT is flushed.
+- Pairing UI notifies/starts the foreground service immediately after client-side MPC2 approval, so the room handshake does not wait for the first media transfer.
 - The service serializes authority room handshakes so concurrent peer joins cannot race room revisions.
 - Each joining peer receives the room key only through its approved encrypted MPC2 session and must return a verified KEY_ACK.
 - The authority updates the authenticated roster and requires a verified ROSTER_ACK from the joining peer.
