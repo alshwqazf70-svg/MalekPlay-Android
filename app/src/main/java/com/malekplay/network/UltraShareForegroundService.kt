@@ -1089,6 +1089,7 @@ class UltraShareForegroundService : Service() {
                 meshRoomHandshakeMutex.lock()
                 roomLockAcquired = true
                 val coordinator = getOrCreateMeshAuthority()
+                ensureMeshDirectServerReady()
                 val remote = meshPeer(
                     peerId, request.peerName, listOf(host),
                     UltraShareBatchTransport.DEFAULT_PORT
@@ -1148,6 +1149,7 @@ class UltraShareForegroundService : Service() {
                         )
                     }
                 }
+                reconcileMeshDirectLinks()
                 meshServerHandshakeJobs.remove(host)
                 startMeshServerMessagePump(host)
             } catch (cancelled: CancellationException) {
@@ -1254,6 +1256,9 @@ class UltraShareForegroundService : Service() {
             val rosterUpdate = UltraShareMeshControlProtocol.decode(rosterBytes)
                 ?: error("رسالة قائمة أعضاء غرفة Mesh غير صالحة.")
             val rosterAck = coordinator.acceptRosterUpdate(authorityId, rosterUpdate)
+            // Publish the direct-link listener before ACK: the authority may immediately
+            // distribute this roster revision to the other members.
+            ensureMeshDirectServerReady()
             UltraShareControlChannel.sendClientApplicationMessage(
                 host, UltraShareMeshControlProtocol.encode(rosterAck)
             )
@@ -1263,6 +1268,7 @@ class UltraShareForegroundService : Service() {
                 mapOf("authorityPeerId" to authorityId, "revision" to coordinator.state().revision)
             )
             startMeshClientMessagePump(host, authorityId, coordinator)
+            reconcileMeshDirectLinks()
         } finally {
             meshClientJoinMutex.unlock()
         }
@@ -1283,6 +1289,7 @@ class UltraShareForegroundService : Service() {
                         UltraShareControlChannel.sendClientApplicationMessage(
                             host, UltraShareMeshControlProtocol.encode(ack)
                         )
+                        reconcileMeshDirectLinks()
                         UltraShareDiagnostics.event(
                             "MESH_ROOM", "ROSTER_UPDATED",
                             mapOf("authorityPeerId" to authorityId, "revision" to coordinator.state().revision)
@@ -1303,6 +1310,11 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun stopMeshSession(host: String) {
+        val remoteId = canonicalMeshPeerId(
+            UltraShareControlChannel.serverSessionIdentity(host)
+                ?: UltraShareControlChannel.sessionPeerId(host)
+        )
+        if (remoteId != null) meshDirectEdges.remove(remoteId)
         meshServerJobs.remove(host)?.cancel()
         meshServerHandshakeJobs.remove(host)?.cancel()
         meshClientJobs.remove(host)?.cancel()
@@ -1311,6 +1323,13 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun closeMeshRoom() {
+        meshDirectServerJob?.cancel()
+        meshDirectServerJob = null
+        meshDirectServerReady?.cancel()
+        meshDirectServerReady = null
+        meshDirectDialJobs.values.forEach { it.cancel() }
+        meshDirectDialJobs.clear()
+        meshDirectEdges.clear()
         meshServerJobs.values.forEach { it.cancel() }
         meshServerJobs.clear()
         meshServerHandshakeJobs.values.forEach { it.cancel() }
