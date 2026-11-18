@@ -1793,10 +1793,10 @@ fun UltraShareScreen(
                         enabled = !state.sending
                     ) { Text("موسيقى") }
                     OutlinedButton(
-                        onClick = { pickFiles.launch(arrayOf("*/*")) },
+                        onClick = { pickFiles.launch(arrayOf("video/*", "audio/*", "image/*")) },
                         modifier = Modifier.weight(1f),
                         enabled = !state.sending
-                    ) { Text("ملفات") }
+                    ) { Text("وسائط") }
                 }
                 OutlinedButton(
                     onClick = { requestWifiDirectAction { viewModel.scanNearbyGroups() } },
@@ -1896,8 +1896,8 @@ fun UltraShareScreen(
                                 TextButton(onClick = { pendingMediaUris = emptyList() }, enabled = !state.sending) { Text("إفراغ") }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { pickFiles.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
-                                    Text("إضافة ملفات")
+                                OutlinedButton(onClick = { pickFiles.launch(arrayOf("video/*", "audio/*", "image/*")) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
+                                    Text("إضافة وسائط")
                                 }
                                 Button(
                                     onClick = {
@@ -1929,9 +1929,9 @@ fun UltraShareScreen(
                     }
                 }
                 if (pendingMediaUris.isEmpty()) {
-                    OutlinedButton(onClick = { pickFiles.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+                    OutlinedButton(onClick = { pickFiles.launch(arrayOf("video/*", "audio/*", "image/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
                         Icon(Icons.Filled.Send, contentDescription = null)
-                        Text("اختيار ملفات للإرسال", modifier = Modifier.padding(start = 8.dp))
+                        Text("اختيار وسائط للإرسال", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
                 if (state.queueTotal > 0) {
