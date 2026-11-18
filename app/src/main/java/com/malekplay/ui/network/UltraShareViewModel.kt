@@ -707,7 +707,8 @@ class UltraShareViewModel @Inject constructor(
                         sessionId = sessionId,
                         host = connectedHost,
                         secret = secret.trim(),
-                        candidates = sendRoutes
+                        candidates = sendRoutes,
+                        peerId = expectedRemotePeerId
                     )
                     UltraShareForegroundService.registerApprovedSendTarget(approvedTarget)
                     // Every authenticated QR/peer connection is full-duplex: the joining
