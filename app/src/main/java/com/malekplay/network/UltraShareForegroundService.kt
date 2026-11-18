@@ -1563,6 +1563,7 @@ class UltraShareForegroundService : Service() {
                                     this@UltraShareForegroundService, link.endpoint.host
                                 ),
                                 peerId = localId,
+                                expectedPeerId = link.remotePeer.peerId,
                                 notifyClientSessionReady = false,
                                 onSessionClosed = { closedHost ->
                                     meshDirectEdges.remove(link.remotePeer.peerId)
@@ -2320,6 +2321,7 @@ class UltraShareForegroundService : Service() {
                                 port = reconnectPort,
                                 network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, activeHost),
                                 peerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
+                                expectedPeerId = expectedPeerId,
                                 notifyClientSessionReady = reconnectMeshSecret == null,
                                 onSessionClosed = { disconnectedHost ->
                                     canonicalMeshPeerId(expectedPeerId)?.let { meshDirectEdges.remove(it) }
@@ -2466,6 +2468,7 @@ class UltraShareForegroundService : Service() {
                             network = UltraShareNetworkRouting.findNetworkForHost(this@UltraShareForegroundService, candidate.host),
                             networks = UltraShareNetworkRouting.findNetworksForHost(this@UltraShareForegroundService, candidate.host),
                             peerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
+                            expectedPeerId = expectedPeerId,
                             notifyClientSessionReady = alternateMeshSecret == null,
                             onSessionClosed = { disconnectedHost ->
                                 canonicalMeshPeerId(expectedPeerId)?.let { meshDirectEdges.remove(it) }
