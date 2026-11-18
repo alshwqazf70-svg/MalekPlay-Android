@@ -21,6 +21,7 @@ object UltraShareBatchProtocol {
     const val MAX_NAME_BYTES = 180
     const val MAX_MIME_BYTES = 192
     const val MAX_FILE_BYTES = UltraShareCore.MAX_FILE_BYTES
+    const val MAX_BATCH_BYTES = 20L * 1024 * 1024 * 1024
 
     private const val MAGIC = 0x4D505532 // MPU2
     private const val ID_BYTES = 16
@@ -97,7 +98,9 @@ object UltraShareBatchProtocol {
             require(entry.sizeBytes in 0..MAX_FILE_BYTES)
             require(entry.sha256.size == DIGEST_BYTES)
         }
-        manifest.totalBytes
+        require(manifest.totalBytes <= MAX_BATCH_BYTES) {
+            "إجمالي حجم الدفعة يتجاوز الحد الأقصى البالغ 20 جيجابايت."
+        }
         return manifest
     }
 
