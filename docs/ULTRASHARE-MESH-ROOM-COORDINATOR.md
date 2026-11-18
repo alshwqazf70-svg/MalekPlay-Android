@@ -19,7 +19,7 @@ Adds `UltraShareMeshRoomCoordinator`, a synchronized in-memory state machine for
 - `UltraShareControlChannel.serveOnce` exposes `onSessionReady`, called only after the authenticated ACCEPT frame has been flushed and the application-frame session is ready.
 - The service starts one serialized room-handshake job per approved server-side MPC2 session.
 - The authority sends KEY_OFFER, verifies KEY_ACK, adds the authenticated peer, sends ROSTER_UPDATE, and verifies ROSTER_ACK.
-- The service joins an authority room on an approved client-side MPC2 session before starting a V2 media send, when the peer negotiated application-frame support.
+- The pairing caller notifies the foreground service immediately after client-side MPC2 approval; the service starts the room join at once. The V2 send path retains a guarded fallback if service startup raced with pairing.
 - A single client message pump processes later authenticated roster updates and sends acknowledgements. The authority broadcasts newer rosters to its existing approved MPC2 clients.
 - Session jobs and in-memory room keys are cleaned up on session/service shutdown.
 - Legacy MPC2 peers without application-frame capability remain usable; Mesh setup is skipped for those sessions.
