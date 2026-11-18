@@ -490,7 +490,7 @@ def _hash_path(path: Path) -> bytes:
     return digest.digest()
 
 
-def _media_signature_matches(path: Path, filename: str) -> bool:
+def _media_signature_matches(path: Path, filename: str, mime_type: str) -> bool:
     """Validate actual media container bytes; unknown formats fail closed."""
     try:
         with Path(path).open("rb") as stream:
@@ -498,6 +498,15 @@ def _media_signature_matches(path: Path, filename: str) -> bool:
     except OSError:
         return False
     ext = Path(filename).suffix.lower().lstrip(".")
+    image_exts = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff"}
+    audio_exts = {"mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr", "aiff", "aif", "mid", "midi"}
+    video_exts = {"mp4", "m4v", "mkv", "mov", "webm", "avi", "3gp", "3g2", "mpg", "mpeg", "ts", "mts", "m2ts", "wmv", "flv", "ogv"}
+    expected_family = "image" if ext in image_exts else "audio" if ext in audio_exts else "video" if ext in video_exts else None
+    declared_family = mime_type.lower().split("/", 1)[0]
+    if expected_family is None or declared_family not in {expected_family, "application"}:
+        return False
+    if declared_family == "application" and mime_type.lower() not in {"application/octet-stream", "application/unknown"}:
+        return False
     def starts(value: bytes) -> bool:
         return head.startswith(value)
     def at(offset: int, value: bytes) -> bool:
@@ -625,7 +634,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
                         and candidate.is_file()
                         and candidate.stat().st_size == entry.size_bytes
                         and hmac.compare_digest(_hash_path(candidate), entry.sha256)
-                        and _media_signature_matches(candidate, entry.name)
+                        and _media_signature_matches(candidate, entry.name, entry.mime_type)
                     ):
                         existing = candidate
                 except (OSError, ValueError):
@@ -702,7 +711,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
                         "path": None,
                     })
                     continue
-                if not _media_signature_matches(partial, entry.name):
+                if not _media_signature_matches(partial, entry.name, entry.mime_type):
                     partial.unlink(missing_ok=True)
                     outcomes.append({
                         "file_id": entry.file_id, "status": STATUS_FAILED,
