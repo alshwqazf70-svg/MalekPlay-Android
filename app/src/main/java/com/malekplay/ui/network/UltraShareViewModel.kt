@@ -12,7 +12,6 @@ import com.malekplay.network.isRetryableUltraSharePairingFailure
 import com.malekplay.network.UltraShareCore
 import com.malekplay.network.UltraShareBatchTransport
 import com.malekplay.network.UltraShareControlChannel
-import com.malekplay.network.UltraShareTrustedPeerStore
 import com.malekplay.data.repository.MediaRepository
 import com.malekplay.network.UltraShareDiscovery
 import com.malekplay.network.UltraShareNegotiation
@@ -601,9 +600,10 @@ class UltraShareViewModel @Inject constructor(
                     val connectedHost = acceptedHost
                     val peerName = UltraShareControlChannel.sessionPeerName(connectedHost)
                         ?: "جهاز MalekPlay المستقبل"
+                    // Reuse identity only for a currently live session. Disconnected peers
+                    // are deliberately not retained for reconnect after the room ends.
                     val retainedPeerSessions =
-                        UltraShareForegroundService.reconnectableSendTargets().map { it.host to it.sessionId } +
-                            _state.value.reconnectablePeers.map { it.host to it.sessionId }
+                        UltraShareForegroundService.approvedSendTargets().map { it.host to it.sessionId }
                     val sessionId = UltraShareControlChannel.sessionPeerId(connectedHost)
                         ?: UltraShareMultiRecipientCoordinator.resolveSessionId(
                             connectedHost,
@@ -776,55 +776,18 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     fun reconnectPeer(host: String) {
-        val peer = _state.value.reconnectablePeers.firstOrNull { it.host == host }
-        val retainedTarget = UltraShareForegroundService.reconnectableSendTarget(host)
-        val secret = retainedTarget?.secret ?: _state.value.pairingSecret
-        if (!UltraShareCore.isValidPairingSecret(secret)) {
-            _state.value = _state.value.copy(error = "انتهت صلاحية رمز الاقتران في الذاكرة. أعد مسح QR أو أدخل رمز الجهاز للاتصال مجدداً.")
-            return
-        }
-        viewModelScope.launch {
-            // V2 data ports are allocated per receiver-service lifetime. Refresh the
-            // authenticated peer's candidates before reusing a previously saved route.
-            val discovered = runCatching {
-                UltraShareDiscovery.discoverPeers(context = context)
-            }.getOrDefault(emptyList())
-            val expectedPeerId = peer?.sessionId ?: retainedTarget?.sessionId
-            val freshPeer = discovered.firstOrNull { candidate ->
-                expectedPeerId != null && candidate.peerId == expectedPeerId
-            } ?: discovered.firstOrNull { candidate ->
-                candidate.host == host || candidate.candidates.any { it.host == host }
-            }
-            if (freshPeer != null) {
-                requestConnection(
-                    freshPeer.host,
-                    secret,
-                    candidates = freshPeer.candidates,
-                    alternateHosts = freshPeer.candidates.map { it.host }
-                )
-            } else {
-                // Keep the legacy fixed-port path available when discovery is offline.
-                requestConnection(host, secret)
-            }
-        }
+        // No saved device pairing exists. A disconnected peer must scan a fresh QR
+        // invitation and create a new short-lived room session.
+        _state.value = _state.value.copy(
+            error = "انتهت جلسة هذا الجهاز. امسح رمز QR جديداً للاتصال من جديد."
+        )
     }
 
     fun forgetPeer(host: String) {
-        // "Forget device" must revoke both the live route and the persisted consent.
-        val peerId = (_state.value.activePeers + _state.value.reconnectablePeers)
-            .firstOrNull { it.host == host }?.sessionId
-        peerId?.takeIf(UltraShareTrustedPeerStore::isValidPeerId)?.let {
-            UltraShareTrustedPeerStore.forget(context, it)
-        }
-        UltraShareForegroundService.forgetApprovedPeer(host)
-        val next = UltraShareForegroundService.approvedSendTargets().lastOrNull()
-        _state.value = _state.value.copy(
-            approvedPeerHost = next?.host,
-            peerDataChannelReady = next?.candidates?.any { it.reachable } == true,
-            approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
-            approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host },
-            reconnectablePeers = _state.value.reconnectablePeers.filterNot { it.host == host }
-        )
+        // Forget is equivalent to closing the current temporary connection.
+        UltraShareForegroundService.disconnectApprovedPeer(host)
+        forgetApprovedSenderTarget(host)
+        UltraShareForegroundService.stopIfUnpaired(context)
     }
 
     /** Disconnect only the currently selected sender peer; keep other approved peers available. */
