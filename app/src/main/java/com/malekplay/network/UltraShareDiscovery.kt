@@ -26,6 +26,7 @@ import kotlinx.coroutines.withContext
 /** LAN discovery for the native UltraShare V2 peer and data-plane protocol. */
 object UltraShareDiscovery {
     const val DISCOVERY_PORT = 38742
+    const val LEGACY_V1_DATA_PORT = 38741
     private const val PROBE_V1 = "MPULTRA_DISCOVER|1"
     private const val PROBE_V2 = "MPULTRA_DISCOVER|2"
     private const val OFFER_PREFIX_V1 = "MPULTRA_OFFER|1|"
