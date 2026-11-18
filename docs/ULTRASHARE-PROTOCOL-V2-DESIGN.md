@@ -74,7 +74,7 @@ The following are not part of the current V2 runtime:
 - The desktop test named `test_android_v2_batch_sender_and_desktop_receiver_interoperate` currently invokes Python `send_batch_v2` and Python `receive_batch_v2`; it is not an Android-to-desktop test.
 - Two physical Android devices are still required to validate bidirectional transfer, Wi-Fi Direct, hotspot, shared Wi-Fi, large files, screen-off behavior, process interruption and resume.
 - No repeatable same-network benchmark currently proves speed parity or superiority to Zapya.
-- The current share-file policy rejects APK/PDF but still accepts generic MIME types and ZIP archives. If the product contract is media-only, Android, desktop and folder-archive paths must be narrowed together; UI filtering alone is not a security boundary.
+- Android V2 and desktop share validation now accept video/audio/image MIME families only; providers that report `application/octet-stream` are accepted only for recognized media filename extensions. SVG, documents, archives and executable/package extensions are rejected at the protocol boundary. The arbitrary-folder ZIP creation/extraction flow and its UI were removed. This is metadata-based validation, not full media-content magic-byte inspection.
 - There is no explicit aggregate batch-size ceiling or complete destination free-space preflight yet.
 - Frame size is fixed at 512 KiB; it has not been benchmarked across the full Android 6–15 device range.
 
