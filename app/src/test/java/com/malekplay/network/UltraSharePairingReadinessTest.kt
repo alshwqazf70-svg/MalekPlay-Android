@@ -52,7 +52,7 @@ class UltraSharePairingReadinessTest {
         receiving, control, data, hotspot, peers, secret, ssid, password, hosts
     )
 
-    @Test fun wifiDirectQrWaitsForActiveGroupInvitationAndBothListeners() {
+    @Test fun wifiDirectQrWaitsForControlButNotTheOptionalDataListener() {
         assertTrue(
             UltraSharePairingReadiness.canShowWifiDirectQr(
                 receiving = true,
@@ -73,7 +73,7 @@ class UltraSharePairingReadinessTest {
                 invitationId = "ephemeral-peer-123"
             )
         )
-        assertFalse(
+        assertTrue(
             UltraSharePairingReadiness.canShowWifiDirectQr(
                 receiving = true,
                 controlChannelReady = true,
@@ -153,10 +153,10 @@ class UltraSharePairingReadinessTest {
         )
     }
 
-    @Test fun qrWaitsForBothControlAndDataListeners() {
+    @Test fun qrWaitsForTheControlListenerButNotTheOptionalDataListener() {
         assertTrue(ready())
         assertFalse(ready(control = false))
-        assertFalse(ready(data = false))
+        assertTrue(ready(data = false))
         assertFalse(ready(control = false, data = false))
     }
 
