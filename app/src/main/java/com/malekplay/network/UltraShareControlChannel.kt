@@ -304,7 +304,9 @@ object UltraShareControlChannel {
                     // Skip only stale-state/argument failures; preserve cancellation,
                     // permission failures and unrelated programming defects.
                     if (failure is CancellationException ||
-                        (failure !is IllegalStateException && failure !is IllegalArgumentException)
+                        (failure !is IllegalStateException &&
+                            failure !is IllegalArgumentException &&
+                            failure !is SecurityException)
                     ) throw failure
                     val routeFailure = java.io.IOException("Android network route is no longer usable.", failure)
                     lastRouteFailure = routeFailure
