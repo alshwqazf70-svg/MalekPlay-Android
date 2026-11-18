@@ -11,6 +11,15 @@ It is not a device-test or release-readiness certificate.
 - The desktop V2 frame size is aligned to Android's 512 KiB frame limit.
 - Regression tests were added for aggregate-size rejection and MP4 signature validation, including a renamed executable and a MIME-family mismatch.
 
+## New automated integration coverage added
+
+- A Robolectric/JVM integration test now starts the Kotlin MPC2 approval server and Kotlin V2 receiver, then transfers a multi-file batch from the Kotlin sender over real loopback/LAN TCP sockets. It verifies the final per-file statuses, published bytes, and SHA-256 digests.
+- A gated Kotlin-to-Python integration test starts the actual desktop V2 receiver process, establishes an approved MPC2 session, sends media through the Android Kotlin sender, and verifies the Python receiver's published file.
+- A gated Python-to-Kotlin integration test starts the actual Python V2 sender process, establishes an approved MPC2 session against the Kotlin control server, sends media to the Kotlin receiver, and verifies the received bytes.
+- The Android GitHub Actions JVM test job now installs the desktop Python dependency and enables both cross-language socket tests with `ULTRASHARE_CROSS_LANG=1`. They are skipped during ordinary local unit-test runs unless explicitly enabled.
+
+These are source-level test additions only until the corresponding GitHub Actions run completes successfully. They do not prove Wi-Fi Direct or hotspot routing on physical phones.
+
 ## Still required before calling the engine ready
 
 - Run the Android Gradle unit-test suite, lint, and debug/release builds on this exact branch head.
