@@ -2302,6 +2302,8 @@ class UltraShareForegroundService : Service() {
                                 peerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
                                 notifyClientSessionReady = reconnectMeshSecret == null,
                                 onSessionClosed = { disconnectedHost ->
+                                    canonicalMeshPeerId(expectedPeerId)?.let { meshDirectEdges.remove(it) }
+                                    stopMeshSession(disconnectedHost)
                                     disconnectApprovedPeer(disconnectedHost)
                                     scheduleIdleDisconnect()
                                 }
@@ -2445,6 +2447,8 @@ class UltraShareForegroundService : Service() {
                             peerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
                             notifyClientSessionReady = alternateMeshSecret == null,
                             onSessionClosed = { disconnectedHost ->
+                                canonicalMeshPeerId(expectedPeerId)?.let { meshDirectEdges.remove(it) }
+                                stopMeshSession(disconnectedHost)
                                 disconnectApprovedPeer(disconnectedHost)
                                 scheduleIdleDisconnect()
                             }
