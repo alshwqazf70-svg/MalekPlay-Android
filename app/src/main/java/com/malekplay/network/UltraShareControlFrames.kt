@@ -11,11 +11,9 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Bounded authenticated application frames for an already authenticated MPC2 session.
- *
- * This codec is intentionally not wired into UltraShareControlChannel yet. The caller
- * must supply a fresh per-handshake master secret and a transcript context that binds
- * the challenge and request identity. Never persist or log either value.
+ * Bounded AES-GCM authenticated application frames integrated with approved MPC2 sessions.
+ * The caller supplies fresh per-handshake master material and a transcript binding the
+ * challenge and request identity. Never persist or log either value.
  */
 object UltraShareControlFrames {
     private const val MAGIC = 0x4D504D46 // MPMF
