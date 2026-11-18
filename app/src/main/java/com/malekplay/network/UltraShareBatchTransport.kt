@@ -150,7 +150,7 @@ object UltraShareBatchTransport {
                                 socket
                             )
                             try {
-                                val peerIdentity = UltraShareControlChannel.serverSessionIdentity(peer) ?: peer
+                                val peerIdentity = UltraShareControlChannel.authenticatedPeerIdForHost(peer) ?: peer
                                 // Resume checkpoints are scoped to the receive directory.
                                 // Include that directory in the lock key so independent rooms/
                                 // endpoints never block each other merely because they share a peer.
@@ -565,7 +565,12 @@ object UltraShareBatchTransport {
         // Detect the explicit reachability probe before running the expensive PIN KDF.
         if (isDiscoveryProbeProof(proof)) throw DiscoveryProbeConnection()
         val peerHost = socket.inetAddress.hostAddress.orEmpty()
-        val selectedPairingSecret = pairingSecretResolver?.invoke(peerHost) ?: pairingSecret
+        val selectedPairingSecret = if (pairingSecretResolver != null) {
+            pairingSecretResolver(peerHost)
+                ?: error("لم يتم العثور على مفتاح نقل موثق لهذا الجهاز.")
+        } else {
+            pairingSecret
+        }
         require(UltraShareCore.isValidPairingSecret(selectedPairingSecret)) {
             "لا توجد بيانات اعتماد صالحة لهذا الجهاز."
         }
