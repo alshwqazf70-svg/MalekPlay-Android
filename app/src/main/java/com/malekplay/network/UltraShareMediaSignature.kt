@@ -22,6 +22,9 @@ internal object UltraShareMediaSignature {
         if (declaredFamily !in setOf(family, "application")) return false
         if (declaredFamily == "application" &&
             mimeType.lowercase() !in setOf("application/octet-stream", "application/unknown")) return false
+        // Empty media files have no signature bytes. Accept them only after the
+        // filename/MIME family has already passed the media-only policy above.
+        if (file.isFile && file.length() == 0L) return true
         val prefix = ByteArray(16)
         val count = runCatching {
             FileInputStream(file).use { input ->
