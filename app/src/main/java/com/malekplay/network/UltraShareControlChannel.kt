@@ -531,6 +531,7 @@ object UltraShareControlChannel {
     /** Receive the next authenticated application message from the approved client-side socket. */
     suspend fun receiveClientApplicationMessage(host: String): ByteArray? {
         val session = clientSessions[host] ?: return null
+        if (!session.applicationFramesEnabled) return null
         return session.incoming.receiveCatching().getOrNull()
     }
 
@@ -552,6 +553,7 @@ object UltraShareControlChannel {
     /** Receive the next authenticated application message from the approved server-side socket. */
     suspend fun receiveServerApplicationMessage(host: String): ByteArray? {
         val session = serverApplicationSessions[host] ?: return null
+        if (!session.applicationFramesEnabled) return null
         return session.incoming.receiveCatching().getOrNull()
     }
 
