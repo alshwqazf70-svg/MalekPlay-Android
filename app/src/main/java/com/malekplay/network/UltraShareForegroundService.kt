@@ -166,6 +166,7 @@ class UltraShareForegroundService : Service() {
     private val meshClientJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
     private val meshClientJoinedHosts = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val meshClientJoinMutex = kotlinx.coroutines.sync.Mutex()
+    private val meshRoomHandshakeMutex = kotlinx.coroutines.sync.Mutex()
 
 
     override fun onCreate() {
@@ -1061,6 +1062,7 @@ class UltraShareForegroundService : Service() {
         val host = request.peerAddress
         if (!UltraShareControlChannel.supportsServerApplicationFrames(host)) return
         val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+            meshRoomHandshakeMutex.lock()
             try {
                 val coordinator = getOrCreateMeshAuthority()
                 val remote = meshPeer(
@@ -1131,6 +1133,7 @@ class UltraShareForegroundService : Service() {
                 ) }
             } finally {
                 meshServerHandshakeJobs.remove(host)
+                meshRoomHandshakeMutex.unlock()
             }
         }
         val previous = meshServerHandshakeJobs.putIfAbsent(host, job)
@@ -1220,7 +1223,7 @@ class UltraShareForegroundService : Service() {
         authorityId: String,
         coordinator: UltraShareMeshRoomCoordinator
     ) {
-        val pump = serviceScope.launch {
+        val pump = serviceScope.launch(start = CoroutineStart.LAZY) {
             try {
                 while (UltraShareControlChannel.supportsClientApplicationFrames(host)) {
                     val bytes = UltraShareControlChannel.receiveClientApplicationMessage(host) ?: break
