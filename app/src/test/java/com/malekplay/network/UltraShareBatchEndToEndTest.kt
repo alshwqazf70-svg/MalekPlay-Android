@@ -9,15 +9,19 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 class UltraShareBatchEndToEndTest {
@@ -96,6 +100,76 @@ class UltraShareBatchEndToEndTest {
             receiver.cancelAndJoin()
             sourceDirectory.deleteRecursively()
             receivedDirectory.deleteRecursively()
+        }
+    }
+    @Test
+    fun kotlinSenderInteroperatesWithPythonV2ReceiverOverRealTcp() = runBlocking {
+        assumeTrue("Enable cross-language socket test in CI", System.getenv("ULTRASHARE_CROSS_LANG") == "1")
+        val host = NetworkInterface.getNetworkInterfaces().toList()
+            .asSequence().filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList().asSequence() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .firstOrNull { it.isSiteLocalAddress && !it.isLoopbackAddress }
+            ?.hostAddress ?: error("No private IPv4 interface available for the cross-language test.")
+        fun freePort(): Int = ServerSocket(0).use { it.localPort }
+        val controlPort = freePort()
+        var dataPort = freePort()
+        while (dataPort == controlPort) dataPort = freePort()
+        val root = File(System.getProperty("user.dir")).absoluteFile
+        val script = File(root, "desktop/ultra_share_v2_cross_language_receiver.py")
+        check(script.isFile) { "Missing Python V2 receiver test harness: $script" }
+        val temp = kotlin.io.path.createTempDirectory("ultrashare-cross-language").toFile()
+        val output = File(temp, "received")
+        val source = File(temp, "python-interop.mp4")
+        val readyControl = File(temp, "control.ready")
+        val readyData = File(temp, "data.ready")
+        val resultFile = File(temp, "result.json")
+        val logFile = File(temp, "python.log")
+        val secret = "123456789"
+        val payload = ByteArray(1_400_000) { index -> (index * 29).toByte() }.also { bytes ->
+            byteArrayOf(0, 0, 0, 24).copyInto(bytes, 0)
+            "ftypisom".toByteArray().copyInto(bytes, 4)
+        }
+        source.writeBytes(payload)
+        val process = ProcessBuilder(
+            System.getenv("PYTHON")?.takeIf { it.isNotBlank() } ?: "python3",
+            script.absolutePath,
+            "--control-port", controlPort.toString(),
+            "--data-port", dataPort.toString(),
+            "--secret", secret,
+            "--output", output.absolutePath,
+            "--control-ready", readyControl.absolutePath,
+            "--data-ready", readyData.absolutePath,
+            "--result", resultFile.absolutePath
+        ).directory(root).redirectErrorStream(true).redirectOutput(logFile).start()
+        try {
+            withTimeout(15_000) {
+                while (!readyControl.isFile || !readyData.isFile) {
+                    if (!process.isAlive) error("Python receiver exited early: ${logFile.readText()}")
+                    delay(50)
+                }
+            }
+            assertEquals(UltraShareControlChannel.Decision.ACCEPTED,
+                UltraShareControlChannel.request(host, secret, "Kotlin to Python", controlPort))
+            val resolver = RuntimeEnvironment.getApplication<android.app.Application>().contentResolver
+            val sent = UltraShareBatchTransport.sendBatch(
+                resolver,
+                listOf(UltraShareBatchTransport.Source(Uri.fromFile(source), source.name, "video/mp4", source.length())),
+                host, dataPort, secret
+            )
+            assertEquals(1, sent.files.size)
+            assertEquals(UltraShareBatchProtocol.FileStatus.COMPLETED, sent.files.single().status)
+            val exitCode = withContext(Dispatchers.IO) {
+                if (process.waitFor(25, TimeUnit.SECONDS)) process.exitValue() else -1
+            }
+            assertEquals("Python receiver failed: ${logFile.readText()}", 0, exitCode)
+            val report = resultFile.readText()
+            assertTrue("Python did not report a completed file: $report", report.contains("\"status\": 2"))
+            assertArrayEquals(payload, File(output, source.name).readBytes())
+        } finally {
+            UltraShareControlChannel.closeSession(host)
+            if (process.isAlive) process.destroyForcibly()
+            temp.deleteRecursively()
         }
     }
 }
