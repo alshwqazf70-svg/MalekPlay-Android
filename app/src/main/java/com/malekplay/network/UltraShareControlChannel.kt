@@ -138,6 +138,7 @@ object UltraShareControlChannel {
         localPeerId: String? = null,
         onSessionClosed: suspend (Request) -> Unit = {},
         onListening: (Int) -> Unit = {},
+        onSessionReady: suspend (Request) -> Unit = {},
         onRequest: suspend (Request) -> Decision
     ) = withContext(Dispatchers.IO) {
         require(UltraShareCore.isValidPairingSecret(pairingSecret))
@@ -173,7 +174,7 @@ object UltraShareControlChannel {
                                 client.keepAlive = true
                                 handleIncoming(
                                     client, pairingSecret, localPeerName, localPeerId,
-                                    onRequest, onSessionClosed
+                                    onRequest, onSessionClosed, onSessionReady
                                 )
                             }
                         } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -596,7 +597,8 @@ object UltraShareControlChannel {
         localPeerName: String,
         localPeerId: String?,
         onRequest: suspend (Request) -> Decision,
-        onSessionClosed: suspend (Request) -> Unit
+        onSessionClosed: suspend (Request) -> Unit,
+        onSessionReady: suspend (Request) -> Unit
     ) {
         val peerAddress = socket.inetAddress.hostAddress.orEmpty()
         check(pairingAttemptLimiter.isAllowed(peerAddress)) {
@@ -720,6 +722,9 @@ object UltraShareControlChannel {
             output.flush()
             activeSession.ready = true
         }
+        // This hook runs only after the authenticated ACCEPT response has been
+        // flushed and the application-frame session is ready for encrypted messages.
+        onSessionReady(request)
         try {
             while (!socket.isClosed) {
                 when (input.readUTF()) {
