@@ -109,8 +109,8 @@ class UltraShareMeshTopologyTest {
         )
         val plan = UltraShareMeshTopology.plan(peer("A"), listOf(reachable, unreachable))
 
-        assertEquals(2, plan.requiredEdges.size)
-        assertEquals(2, plan.missingEdges.size)
+        assertEquals(3, plan.requiredEdges.size)
+        assertEquals(3, plan.missingEdges.size)
         assertEquals(listOf("B"), plan.outgoingLinks.map { it.remotePeer.peerId })
     }
 
