@@ -58,24 +58,12 @@ internal fun readStreamWithProgress(
 }
 
 object UltraShareTransport {
-    const val DEFAULT_PORT = 38741
-    const val CHUNK_BYTES = 256 * 1024
-    const val MIN_TUNABLE_CHUNK_BYTES = 64 * 1024
-    private const val SOCKET_BUFFER_BYTES = 1024 * 1024
-    private const val IO_BUFFER_BYTES = 1024 * 1024
-    private const val DIGEST_BUFFER_BYTES = 1024 * 1024
     const val MAX_FILE_BYTES = 100L * 1024 * 1024 * 1024
-    private const val MAGIC = 0x4D505531 // MPU1
-    private const val VERSION = 1
     private const val SECRET_BYTES = 32
     private const val PIN_LENGTH = 9
     private const val PIN_KDF_ITERATIONS = 210_000
     private const val PIN_SALT_BYTES = 16
     private const val CHALLENGE_BYTES = 32
-    private const val NONCE_PREFIX_BYTES = 4
-    private const val GCM_TAG_BYTES = 16
-    private const val SOCKET_TIMEOUT_MS = 20_000
-    private const val HANDSHAKE_TIMEOUT_MS = 5_000
     private val destinationPublicationLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
 
     /** Serialize final-name selection and publication across all receive protocols. */
@@ -119,16 +107,6 @@ object UltraShareTransport {
         (value.length == PIN_LENGTH && value.all { it in '0'..'9' }) ||
             (value.length == SECRET_BYTES * 2 && value.all { it in "0123456789abcdefABCDEF" })
 
-    /**
-     * Keeps benchmark tuning within the v1 receiver's maximum encrypted-frame size.
-     * Smaller frames remain wire-compatible; larger frames require a negotiated protocol version.
-     */
-    internal fun validateChunkBytes(value: Int): Int {
-        require(value in MIN_TUNABLE_CHUNK_BYTES..CHUNK_BYTES) {
-            "حجم كتلة النقل يجب أن يكون بين 64 و256 كيلوبايت في البروتوكول الحالي."
-        }
-        return value
-    }
 
     /** Accepts only literal private/link-local IPv4 endpoints; never resolves hostnames. */
     fun isValidPrivateLanHost(host: String): Boolean = runCatching {
