@@ -725,6 +725,14 @@ class LegacyUltraShareViewModel @Inject constructor(
                         current.hotspotPassword
                     )
                 }.getOrNull()
+            current.invitationId.isNullOrBlank() && !current.hotspotStarting ->
+                runCatching {
+                    val lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+                        context, current.localAddresses
+                    )
+                    if (lanHosts.isEmpty()) null
+                    else UltraShareQrCode.createReceiverPayload(lanHosts, current.pairingSecret)
+                }.getOrNull()
             else -> null
         } ?: return
 
@@ -784,6 +792,29 @@ class LegacyUltraShareViewModel @Inject constructor(
         if (!_state.value.receiving || _state.value.pairedSession ||
             _state.value.hotspotActive || _state.value.hotspotStarting
         ) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            // Android 6–7 have no LocalOnlyHotspot API. Keep the receiver and
+            // publish a LAN QR when a real WLAN/Ethernet route is available;
+            // the user may also enable the system hotspot manually.
+            UltraShareForegroundService.refreshLocalAddresses(context)
+            val lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+                context, _state.value.localAddresses
+            )
+            _state.value = _state.value.copy(
+                localAddresses = lanHosts,
+                hotspotStarting = false,
+                error = if (lanHosts.isEmpty())
+                    "هذا الإصدار لا يدعم إنشاء نقطة اتصال داخل التطبيق. اتصل بشبكة Wi-Fi مشتركة أو فعّل نقطة اتصال النظام يدوياً؛ سيظهر QR تلقائياً عند توفر عنوان محلي."
+                else null,
+                status = if (lanHosts.isEmpty())
+                    "الاستقبال يعمل؛ ننتظر شبكة محلية صالحة لعرض رمز الاقتران."
+                else
+                    "الاستقبال يعمل عبر الشبكة المحلية. امسح رمز QR للانضمام."
+            )
+            publishStableReceiverQrIfReady()
+            return
+        }
+        _state.value = _state.value.copy(hotspotStarting = true)
         viewModelScope.launch {
             runCatching { UltraShareForegroundService.startLocalHotspot(context) }
                 .onFailure { failure ->
@@ -793,6 +824,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                         error = failure.localizedMessage
                             ?: "تعذر تشغيل نقطة الاتصال المحلية البديلة. تحقق من دعم Wi-Fi في الجهاز."
                     )
+                    publishStableReceiverQrIfReady()
                 }
         }
     }
