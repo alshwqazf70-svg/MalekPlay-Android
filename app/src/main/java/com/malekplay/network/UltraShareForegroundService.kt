@@ -1347,10 +1347,12 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun closeMeshRoom() {
-        meshDirectServerJob?.cancel()
-        meshDirectServerJob = null
-        meshDirectServerReady?.cancel()
-        meshDirectServerReady = null
+        synchronized(meshDirectServerGuard) {
+            meshDirectServerJob?.cancel()
+            meshDirectServerJob = null
+            meshDirectServerReady?.cancel()
+            meshDirectServerReady = null
+        }
         meshDirectDialJobs.values.forEach { it.cancel() }
         meshDirectDialJobs.clear()
         meshDirectEdges.clear()
