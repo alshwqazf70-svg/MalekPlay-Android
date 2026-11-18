@@ -33,7 +33,7 @@ class UltraShareBatchEndToEndTest {
             .flatMap { it.inetAddresses.toList().asSequence() }
             .filterIsInstance<java.net.Inet4Address>()
             .firstOrNull { it.isSiteLocalAddress && !it.isLoopbackAddress }
-            ?.hostAddress ?: return@runBlocking
+            ?.hostAddress ?: error("No private IPv4 interface available for the Kotlin batch integration test.")
 
         fun freePort(): Int = ServerSocket(0).use { it.localPort }
         val controlPort = freePort()
