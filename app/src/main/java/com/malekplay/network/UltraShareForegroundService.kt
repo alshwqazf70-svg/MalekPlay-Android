@@ -2249,9 +2249,6 @@ class UltraShareForegroundService : Service() {
                     this@UltraShareForegroundService, activeHost
                 )
                 val controlReady = UltraShareControlChannel.hasAnyActiveSession(activeHost)
-                val dataReady = UltraShareDiscovery.probeDataEndpoint(
-                    activeHost, dataPort, dataNetworks
-                )
                 // A V1 listener accepts only one transfer socket. Never probe it:
                 // a speculative TCP connect could consume and terminate that listener.
                 // The legacy discovery offer already identifies its advertised V1 port.
