@@ -693,9 +693,9 @@ object UltraShareControlChannel {
         val stableLocalPeerId = localPeerId?.replace("-", "")?.lowercase()
             ?.takeIf(::isStablePeerId)
         val payload = if (decision == Decision.ACCEPTED) {
-            val identity = stableLocalPeerId?.let { "|$it" }.orEmpty()
+            val identity = stableLocalPeerId.orEmpty()
             val capabilities = if (applicationFramesEnabled) "|$APPLICATION_CAPABILITY_MARKER" else ""
-            "ACCEPT|$requestId|$encodedLocalName$identity$capabilities"
+            "ACCEPT|$requestId|$encodedLocalName|$identity$capabilities"
         } else "REJECT|$requestId"
         val nonce = ByteArray(NONCE_BYTES).also(SecureRandom()::nextBytes)
         val ciphertext = encrypt(key, nonce, payload)
