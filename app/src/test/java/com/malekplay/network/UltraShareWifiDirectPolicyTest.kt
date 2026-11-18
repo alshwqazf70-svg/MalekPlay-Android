@@ -61,6 +61,9 @@ class UltraShareWifiDirectPolicyTest {
         assertTrue(isRetryableUltraSharePairingFailure(
             IllegalArgumentException("إصدار قناة التحكم غير متوافق.")
         ))
+        assertTrue(isRetryableUltraSharePairingFailure(
+            IllegalStateException("هوية الجهاز لا تطابق الجهاز المكتشف؛ سنجرّب مسار IP آخر.")
+        ))
         assertFalse(isRetryableUltraSharePairingFailure(IllegalArgumentException("invalid QR")))
         assertFalse(isRetryableUltraSharePairingFailure(SecurityException("permission denied")))
     }
