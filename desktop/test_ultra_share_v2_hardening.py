@@ -32,6 +32,13 @@ class UltraShareV2HardeningTests(unittest.TestCase):
             self.assertFalse(_media_signature_matches(invalid, "renamed.mp4", "video/mp4"))
             self.assertFalse(_media_signature_matches(valid, "valid.mp4", "image/jpeg"))
 
+    def test_zero_byte_media_is_accepted_after_media_policy_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            empty = Path(directory) / "empty.mp3"
+            empty.write_bytes(b"")
+            self.assertTrue(_media_signature_matches(empty, "empty.mp3", "audio/mpeg"))
+            self.assertFalse(_media_signature_matches(empty, "empty.pdf", "application/pdf"))
+
     def test_signature_validation_fails_closed_for_unknown_extensions(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "sample.xyz"
