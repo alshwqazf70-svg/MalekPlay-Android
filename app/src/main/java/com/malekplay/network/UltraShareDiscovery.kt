@@ -26,7 +26,9 @@ import kotlinx.coroutines.withContext
 /** LAN discovery for the native UltraShare V2 peer and data-plane protocol. */
 object UltraShareDiscovery {
     const val DISCOVERY_PORT = 38742
+    private const val PROBE_V1 = "MPULTRA_DISCOVER|1"
     private const val PROBE_V2 = "MPULTRA_DISCOVER|2"
+    private const val OFFER_PREFIX_V1 = "MPULTRA_OFFER|1|"
     private const val RECEIVE_TIMEOUT_MS = 500
     private const val SCAN_WINDOW_MS = 4_000L
     private const val MAX_PACKET_BYTES = 2048
@@ -110,11 +112,13 @@ object UltraShareDiscovery {
 
     suspend fun advertiseWhileReceiving(
         transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT,
+        legacyTransferPort: Int = 38741,
         context: Context? = null,
         displayName: String = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlayer Android",
         transferPortProvider: (() -> Int)? = null
     ) = withContext(Dispatchers.IO) {
         require(transferPort in 1..65535)
+        require(legacyTransferPort in 1..65535)
         val peerId = context?.let(::stablePeerId) ?: UUID.randomUUID().toString()
         val safeDisplayName = displayName.trim().take(64).ifBlank { "MalekPlayer Android" }
         fun routeFingerprint(routes: List<BroadcastRoute>): List<String> =
@@ -184,6 +188,10 @@ object UltraShareDiscovery {
                         val request = packet.data.copyOfRange(packet.offset, packet.offset + packet.length)
                             .toString(Charsets.UTF_8)
                         when (request) {
+                            PROBE_V1 -> {
+                                val response = "$OFFER_PREFIX_V1$legacyTransferPort|MalekPlayer".toByteArray(Charsets.UTF_8)
+                                socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
+                            }
                             PROBE_V2 -> {
                                 val advertisedPort = transferPortProvider?.invoke() ?: transferPort
                                 if (advertisedPort in 1..65535) {
@@ -229,16 +237,20 @@ object UltraShareDiscovery {
     ): List<Peer> = withContext(Dispatchers.IO) {
         require(scanWindowMs in 500L..15_000L)
         val routes = findBroadcastRoutes(context)
-        require(routes.isNotEmpty()) { "تعذر تحديد عنوان البث لشبكة Wi-Fi المحلية." }
-        val activeSockets = routes.groupBy { it.network }.mapNotNull { (network, networkRoutes) ->
+        // Discovery must remain best-effort: lack of an enumerated broadcast route
+        // must not become a pairing prerequisite. findBroadcastRoutes normally
+        // supplies the limited-broadcast fallback; retain it even on OEM failures.
+        val effectiveRoutes = routes.ifEmpty { listOf(BroadcastRoute(null, InetAddress.getByName("255.255.255.255"))) }
+        val activeSockets = effectiveRoutes.groupBy { it.network }.mapNotNull { (network, networkRoutes) ->
             runCatching {
                 Triple(network, createDiscoverySocket(network, 0), networkRoutes)
             }.getOrNull()
         }.ifEmpty {
-            listOf(Triple(null, createDiscoverySocket(null, 0), routes))
+            listOf(Triple(null, createDiscoverySocket(null, 0), effectiveRoutes))
         }
         try {
-            val probes = listOf(PROBE_V2).map { it.toByteArray(Charsets.UTF_8) }
+            // Keep V1 discovery alive for older MalekPlay builds while preferring V2.
+            val probes = listOf(PROBE_V2, PROBE_V1).map { it.toByteArray(Charsets.UTF_8) }
             activeSockets.forEach { (_, socket, networkRoutes) ->
                 networkRoutes.forEach { route ->
                     probes.forEach { probe ->
@@ -247,6 +259,7 @@ object UltraShareDiscovery {
                 }
             }
             val peers = LinkedHashMap<String, Peer>()
+            val v2SourceHosts = HashSet<String>()
             val deadline = System.nanoTime() + scanWindowMs * 1_000_000L
             val buffer = ByteArray(MAX_PACKET_BYTES)
             while (System.nanoTime() < deadline) {
@@ -273,18 +286,42 @@ object UltraShareDiscovery {
                         }
                         val v2 = UltraShareNegotiation.decode(message)
                         if (v2 != null) {
+                            // Test every advertised private path independently. A bad,
+                            // stale or unavailable secondary route must not hide the peer
+                            // or prevent the user from pairing through the UDP source IP.
+                            val safeCandidates = v2.candidates.filter {
+                                UltraShareCore.isValidPrivateLanHost(it.host) && it.port in 1..65535
+                            }
                             val testedCandidates = probeCandidates(
-                                v2.candidates.filter {
-                                    it.connected && UltraShareCore.isValidPrivateLanHost(it.host)
+                                safeCandidates.map { candidate ->
+                                    if (candidate.connected) candidate else candidate.copy(reachable = false)
                                 }, context
                             )
                             val endpoint = UltraShareNegotiation.selectCandidate(testedCandidates)
-                                ?: return@forEach
+                            v2SourceHosts += host
                             peers.remove("host:$host")
-                            val incoming = Peer(endpoint.host, endpoint.port, v2.displayName, v2.peerId, testedCandidates)
+                            val incoming = Peer(
+                                host = endpoint?.host ?: host,
+                                port = endpoint?.port ?: UltraShareBatchTransport.DEFAULT_PORT,
+                                name = v2.displayName,
+                                peerId = v2.peerId,
+                                candidates = testedCandidates
+                            )
                             val identity = "id:${v2.peerId.lowercase(java.util.Locale.ROOT)}"
                             peers[identity] = peers[identity]?.let { mergePeerSightings(it, incoming) } ?: incoming
                             return@forEach
+                        }
+                        // Legacy V1 peers have no stable identity or route list. Keep
+                        // their observed private source address so MPC2 pairing can
+                        // still be attempted; transfer compatibility is negotiated later.
+                        if (message.startsWith(OFFER_PREFIX_V1)) {
+                            val parts = message.removePrefix(OFFER_PREFIX_V1).split('|', limit = 2)
+                            val port = parts.getOrNull(0)?.toIntOrNull() ?: return@forEach
+                            if (port !in 1..65535 || host in v2SourceHosts) return@forEach
+                            val name = parts.getOrNull(1)?.trim()?.take(64)
+                                ?.takeIf { it.isNotBlank() } ?: "MalekPlayer"
+                            val legacy = Peer(host, port, name)
+                            peers.putIfAbsent(identityKey(legacy), legacy)
                         }
                     } catch (_: SocketTimeoutException) {
                         // Continue polling the remaining network-bound sockets.
@@ -334,6 +371,15 @@ object UltraShareDiscovery {
                     }
                 }
                 .distinctBy { "${it.transport}:${it.host}:${it.port}" }
+                .sortedWith(
+                    compareBy<UltraShareNegotiation.Candidate> {
+                        when (it.transport) {
+                            UltraShareNegotiation.Transport.WIFI_DIRECT -> 0
+                            UltraShareNegotiation.Transport.WLAN -> 1
+                            UltraShareNegotiation.Transport.HOTSPOT -> 2
+                        }
+                    }.thenByDescending { it.priority }
+                )
                 .take(8)
         }.getOrDefault(emptyList())
 
@@ -393,13 +439,10 @@ object UltraShareDiscovery {
             )
         }
         val attempts = UltraShareNetworkRouting.orderedRoutesWithDefaultFallback(routes)
+        // Pairing/control reachability is the only discovery gate. The data-plane
+        // listener is probed separately and must never suppress an otherwise valid peer.
         return attempts.any { network ->
-            if (!probeEndpoint(candidate.host, UltraShareControlChannel.DEFAULT_PORT, network)) {
-                false
-            } else {
-                // Verify the actual V2 data listener on the same route as control.
-                probeV2DataEndpoint(candidate.host, candidate.port, network)
-            }
+            probeEndpoint(candidate.host, UltraShareControlChannel.DEFAULT_PORT, network)
         }
     }
 
