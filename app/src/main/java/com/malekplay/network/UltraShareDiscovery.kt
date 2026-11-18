@@ -331,6 +331,13 @@ object UltraShareDiscovery {
     ): Peer? {
         if (!UltraShareCore.isValidPrivateLanHost(sourceHost)) return null
         val endpoint = UltraShareNegotiation.selectCandidate(testedCandidates)
+        if (endpoint == null) {
+            UltraShareDiagnostics.event(
+                "DISCOVERY",
+                "PEER_VISIBLE_WITHOUT_VERIFIED_SECONDARY_ROUTE",
+                mapOf("sourceHost" to sourceHost, "peerIdPresent" to offer.peerId.isNotBlank())
+            )
+        }
         return Peer(
             host = endpoint?.host ?: sourceHost,
             port = endpoint?.port ?: UltraShareBatchTransport.DEFAULT_PORT,
