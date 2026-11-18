@@ -34,7 +34,7 @@ The room coordinator now participates in live foreground-service orchestration. 
 - Retry/re-discovery can re-establish a direct MPC2 link with the same roster-derived pair credential.
 
 
-- MPC2 listener admission is aligned with the room ceiling of 16 participants. The V2 receive server still has its existing four-peer concurrent transfer limit per device; additional data sessions wait/fail according to the existing bounded transport behavior.
+- MPC2 listener admission is aligned with the room ceiling of 16 participants. The V2 receive server still has its existing four-peer concurrent transfer limit per device; additional inbound data sessions are refused while all four slots are occupied.
 
 ## Important boundaries
 
