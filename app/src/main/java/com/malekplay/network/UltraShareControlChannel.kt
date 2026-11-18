@@ -419,7 +419,7 @@ object UltraShareControlChannel {
                 }?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay"
                 val remotePeerId = responseParts.getOrNull(3)?.takeIf(::isStablePeerId)
                 if (!expectedPeerId.isNullOrBlank() && !remotePeerId.isNullOrBlank() &&
-                    !expectedPeerId.equals(remotePeerId, ignoreCase = true)
+                    !expectedPeerId.replace("-", "").equals(remotePeerId.replace("-", ""), ignoreCase = true)
                 ) {
                     UltraShareDiagnostics.event(
                         "CONTROL_CHANNEL",
