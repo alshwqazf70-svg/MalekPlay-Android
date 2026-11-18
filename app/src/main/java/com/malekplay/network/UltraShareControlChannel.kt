@@ -124,7 +124,7 @@ object UltraShareControlChannel {
         onListening: (Int) -> Unit = {},
         onRequest: suspend (Request) -> Decision
     ) = withContext(Dispatchers.IO) {
-        require(UltraShareTransport.isValidPairingSecret(pairingSecret))
+        require(UltraShareCore.isValidPairingSecret(pairingSecret))
         require(port in 1..65535)
         val permits = Semaphore(4)
         ServerSocket().use { server ->
@@ -191,10 +191,10 @@ object UltraShareControlChannel {
         peerId: String? = null,
         onSessionClosed: (String) -> Unit = {}
     ): Decision = withContext(Dispatchers.IO) {
-        require(UltraShareTransport.isValidPrivateLanHost(host) || host == "127.0.0.1") {
+        require(UltraShareCore.isValidPrivateLanHost(host) || host == "127.0.0.1") {
             "عنوان الجهاز غير صالح."
         }
-        require(UltraShareTransport.isValidPairingSecret(pairingSecret)) {
+        require(UltraShareCore.isValidPairingSecret(pairingSecret)) {
             "رمز الاقتران غير صالح."
         }
         require(port in 1..65535)
@@ -344,7 +344,7 @@ object UltraShareControlChannel {
             val challenge = ByteArray(CHALLENGE_BYTES)
             input.readFully(challenge)
             diagnostic("CLIENT challenge received: " + challenge.size + " bytes")
-            val key = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
+            val key = UltraShareCore.derivePairingKey(pairingSecret, challenge)
             try {
             // Append the stable device token to the opaque request ID. This remains
             // wire-compatible with older peers (which already accept up to 64 hex chars)
@@ -541,7 +541,7 @@ object UltraShareControlChannel {
             "اسم الجهاز غير صالح."
         }
 
-        val key = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
+        val key = UltraShareCore.derivePairingKey(pairingSecret, challenge)
         var publishedRequest: Request? = null
         try {
         val expectedMac = requestAuthentication(key, challenge, requestId, nameBytes)
