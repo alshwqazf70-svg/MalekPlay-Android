@@ -8,7 +8,7 @@ This is an internal control-message channel, not a file-data path. Video and aud
 
 ## Negotiation and backward compatibility
 
-- New clients place the `MPC2APP1` capability marker in the authenticated request ID while preserving the final 32-hex stable peer token when present.
+- New clients place a fixed 16-hex capability marker (hex encoding of `MPMPAPP1`) in the authenticated request ID while preserving the final 32-hex stable peer token when present. Keeping the marker hexadecimal preserves legacy peers' stable-ID parsing.
 - A new server echoes the marker in the encrypted ACCEPT payload only when the connecting client advertised support.
 - A new client enables application frames only when the encrypted ACCEPT response echoes the marker.
 - Older peers can continue pairing and heartbeat operation without receiving APP frames. The new APIs reject sends when the peer did not negotiate support.
