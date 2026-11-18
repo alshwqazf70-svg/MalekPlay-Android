@@ -695,7 +695,7 @@ class LegacyUltraShareViewModel @Inject constructor(
         ).also { wifiDirectSession = it }
     }
 
-    /** Publish one immutable QR payload after the receiver endpoints are ready. */
+    /** Publish one immutable QR payload as soon as the authenticated control listener is ready. */
     private fun publishStableReceiverQrIfReady() {
         val current = _state.value
         if (!current.receiving || current.pairedSession || current.receiverQrPayload != null) return
