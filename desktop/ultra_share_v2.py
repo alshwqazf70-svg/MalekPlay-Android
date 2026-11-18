@@ -67,7 +67,23 @@ def _safe_name(value: str) -> str:
     return cleaned
 
 
+MEDIA_EXTENSIONS = {
+    "mp4", "m4v", "mkv", "mov", "webm", "avi", "3gp", "3g2", "mpg", "mpeg",
+    "ts", "mts", "m2ts", "wmv", "flv", "ogv",
+    "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr",
+    "aiff", "aif", "mid", "midi",
+    "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff",
+}
+BLOCKED_EXTENSIONS = {
+    "apk", "aab", "dex", "jar", "exe", "msi", "bat", "cmd", "sh",
+    "pdf", "zip", "rar", "7z", "tar", "gz", "bz2", "xz",
+}
+
+
 def _valid_mime(value: str) -> bool:
+    if not isinstance(value, str) or not 3 <= len(value) <= 160:
+        return False
+    token = r"[A-Za-z0-9!#def _valid_mime(value: str) -> bool:
     if not isinstance(value, str) or not 3 <= len(value) <= 160:
         return False
     token = r"[A-Za-z0-9!#$&^_.+-]+"
@@ -81,6 +97,22 @@ def _valid_mime(value: str) -> bool:
 
 def _allowed_share_file(filename: str, mime: str) -> bool:
     return not _safe_name(filename).lower().endswith((".apk", ".pdf")) and _valid_mime(mime)
+^_.+-]+"
+    import re
+    if re.fullmatch(token + "/" + token, value) is None:
+        return False
+    category, _ = value.lower().split("/", 1)
+    return category in {"video", "audio", "image"} and value.lower() != "image/svg+xml"
+
+
+def _allowed_share_file(filename: str, mime: str) -> bool:
+    safe = _safe_name(filename)
+    extension = safe.rsplit(".", 1)[-1].lower() if "." in safe else ""
+    if extension in BLOCKED_EXTENSIONS:
+        return False
+    if _valid_mime(mime):
+        return True
+    return mime.strip().lower() in {"application/octet-stream", "application/unknown"} and extension in MEDIA_EXTENSIONS
 
 def validate_manifest(manifest: Manifest) -> Manifest:
     _uuid_bytes(manifest.batch_id)
@@ -97,7 +129,7 @@ def validate_manifest(manifest: Manifest) -> Manifest:
         if not 1 <= len(entry.name.encode("utf-8")) <= MAX_NAME_BYTES:
             raise ValueError("Filename exceeds V2 limit.")
         if not _allowed_share_file(entry.name, entry.mime_type):
-            raise ValueError("APK and PDF files cannot be shared.")
+            raise ValueError("Only video, audio and image media can be shared.")
         if len(entry.mime_type.encode("utf-8")) > MAX_MIME_BYTES:
             raise ValueError("MIME type exceeds V2 limit.")
         if not isinstance(entry.size_bytes, int) or not 0 <= entry.size_bytes <= MAX_FILE_BYTES:
