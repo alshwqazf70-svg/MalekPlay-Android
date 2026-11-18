@@ -20,6 +20,11 @@ import org.junit.Test
 
 class UltraShareBatchTransportTest {
     @Test
+    fun receiverSupportsEightBoundedConcurrentPeerTransfers() {
+        assertEquals(8, UltraShareBatchTransport.DEFAULT_MAX_PEERS)
+    }
+
+    @Test
     fun readAtMostMakesProgressWhenBulkReadReturnsZero() {
         val delegate = java.io.ByteArrayInputStream(byteArrayOf(4, 8, 15, 16, 23, 42))
         val unusual = object : java.io.InputStream() {
