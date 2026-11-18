@@ -297,16 +297,9 @@ object UltraShareDiscovery {
                                     if (candidate.connected) candidate else candidate.copy(reachable = false)
                                 }, context
                             )
-                            val endpoint = UltraShareNegotiation.selectCandidate(testedCandidates)
+                            val incoming = peerFromOffer(host, v2, testedCandidates) ?: return@forEach
                             v2SourceHosts += host
                             peers.remove("host:$host")
-                            val incoming = Peer(
-                                host = endpoint?.host ?: host,
-                                port = endpoint?.port ?: UltraShareBatchTransport.DEFAULT_PORT,
-                                name = v2.displayName,
-                                peerId = v2.peerId,
-                                candidates = testedCandidates
-                            )
                             val identity = "id:${v2.peerId.lowercase(java.util.Locale.ROOT)}"
                             peers[identity] = peers[identity]?.let { mergePeerSightings(it, incoming) } ?: incoming
                             return@forEach
@@ -314,13 +307,8 @@ object UltraShareDiscovery {
                         // Legacy V1 peers have no stable identity or route list. Keep
                         // their observed private source address so MPC2 pairing can
                         // still be attempted; transfer compatibility is negotiated later.
-                        if (message.startsWith(OFFER_PREFIX_V1)) {
-                            val parts = message.removePrefix(OFFER_PREFIX_V1).split('|', limit = 2)
-                            val port = parts.getOrNull(0)?.toIntOrNull() ?: return@forEach
-                            if (port !in 1..65535 || host in v2SourceHosts) return@forEach
-                            val name = parts.getOrNull(1)?.trim()?.take(64)
-                                ?.takeIf { it.isNotBlank() } ?: "MalekPlayer"
-                            val legacy = Peer(host, port, name)
+                        val legacy = decodeLegacyOffer(message, host) ?: return@forEach
+                        if (host !in v2SourceHosts) {
                             peers.putIfAbsent(identityKey(legacy), legacy)
                         }
                     } catch (_: SocketTimeoutException) {
@@ -334,6 +322,34 @@ object UltraShareDiscovery {
         } finally {
             activeSockets.forEach { (_, socket, _) -> runCatching { socket.close() } }
         }
+    }
+
+    /** Build a visible peer even when every optional advertised route is offline. */
+    internal fun peerFromOffer(
+        sourceHost: String,
+        offer: UltraShareNegotiation.Offer,
+        testedCandidates: List<UltraShareNegotiation.Candidate>
+    ): Peer? {
+        if (!UltraShareCore.isValidPrivateLanHost(sourceHost)) return null
+        val endpoint = UltraShareNegotiation.selectCandidate(testedCandidates)
+        return Peer(
+            host = endpoint?.host ?: sourceHost,
+            port = endpoint?.port ?: UltraShareBatchTransport.DEFAULT_PORT,
+            name = offer.displayName,
+            peerId = offer.peerId,
+            candidates = testedCandidates
+        )
+    }
+
+    /** Decode the legacy discovery envelope without granting it any trust by name. */
+    internal fun decodeLegacyOffer(message: String, sourceHost: String): Peer? {
+        if (!sourceHost.let(UltraShareCore::isValidPrivateLanHost) ||
+            !message.startsWith(OFFER_PREFIX_V1)
+        ) return null
+        val parts = message.removePrefix(OFFER_PREFIX_V1).split('|', limit = 2)
+        val port = parts.getOrNull(0)?.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
+        val name = parts.getOrNull(1)?.trim()?.take(64)?.takeIf { it.isNotBlank() } ?: "MalekPlayer"
+        return Peer(sourceHost, port, name)
     }
 
     private fun localCandidates(port: Int): List<UltraShareNegotiation.Candidate> =
