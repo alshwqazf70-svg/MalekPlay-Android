@@ -23,7 +23,18 @@ internal object UltraShareMediaSignature {
         if (declaredFamily == "application" &&
             mimeType.lowercase() !in setOf("application/octet-stream", "application/unknown")) return false
         val prefix = ByteArray(16)
-        val count = runCatching { FileInputStream(file).use { it.read(prefix) } }.getOrDefault(-1)
+        val count = runCatching {
+            FileInputStream(file).use { input ->
+                var total = 0
+                while (total < prefix.size) {
+                    val read = input.read(prefix, total, prefix.size - total)
+                    if (read < 0) break
+                    if (read == 0) continue
+                    total += read
+                }
+                total
+            }
+        }.getOrDefault(-1)
         if (count < 0) return false
         fun starts(vararg bytes: Int) = count >= bytes.size &&
             bytes.indices.all { (prefix[it].toInt() and 0xff) == bytes[it] }
