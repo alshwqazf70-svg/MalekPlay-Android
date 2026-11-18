@@ -1,12 +1,12 @@
 # UltraShare Mesh roster protocol checkpoint
 
-Branch: \`feature/zapya-engineering-analysis\`
+Branch: `feature/zapya-engineering-analysis`
 
 Adds the versioned, bounded HMAC-authenticated room-membership snapshot codec and JVM tests.
 
 ## Wire contract
 
-- Frame prefix: \`MPMESH|1|\`
+- Frame prefix: `MPMESH|1|`
 - Includes room ID, issuer stable peer ID, revision, creation timestamp, and 2–16 members.
 - Each member carries a stable 128-bit identity, display name, and up to eight reachable private-LAN route candidates.
 - HMAC-SHA256 authenticates the exact binary payload using a domain-separated key.
