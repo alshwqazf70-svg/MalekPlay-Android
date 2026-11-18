@@ -122,6 +122,22 @@ internal class UltraShareMeshRoomCoordinator(
         return createRosterWire()
     }
 
+    /**
+     * Remove a disconnected/expired member from an authority-owned room.
+     * A one-member room remains valid locally so the authority can invite a
+     * replacement; no roster wire is emitted until at least two members remain.
+     */
+    @Synchronized
+    fun removeMember(authenticatedPeerId: String): UltraShareMeshControlProtocol.Message? {
+        ensureAuthority()
+        val peerId = canonicalId(authenticatedPeerId)
+        require(peerId != localId) { "The room authority cannot remove itself as a member." }
+        if (members.remove(peerId) == null) return null
+        check(revision < Long.MAX_VALUE) { "Room revision exhausted." }
+        revision++
+        return if (members.size >= 2) createRosterUpdate() else null
+    }
+
     /** Builds the HMAC-authenticated room roster; at least two members are required by the wire codec. */
     @Synchronized
     fun createRosterUpdate(): UltraShareMeshControlProtocol.Message {
