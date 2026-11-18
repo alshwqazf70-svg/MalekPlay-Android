@@ -115,7 +115,10 @@ class UltraShareBatchEndToEndTest {
         val controlPort = freePort()
         var dataPort = freePort()
         while (dataPort == controlPort) dataPort = freePort()
-        val root = File(System.getProperty("user.dir")).absoluteFile
+        var root = File(System.getProperty("user.dir")).absoluteFile
+        while (!File(root, "desktop/ultra_share_v2_cross_language_receiver.py").isFile && root.parentFile != null) {
+            root = root.parentFile!!
+        }
         val script = File(root, "desktop/ultra_share_v2_cross_language_receiver.py")
         check(script.isFile) { "Missing Python V2 receiver test harness: $script" }
         val temp = kotlin.io.path.createTempDirectory("ultrashare-cross-language").toFile()
@@ -214,8 +217,11 @@ class UltraShareBatchEndToEndTest {
         var process: Process? = null
         try {
             withTimeout(5_000) { dataReady.await(); controlReady.await() }
-            val script = File(File(System.getProperty("user.dir")).absoluteFile,
-                "desktop/ultra_share_v2_cross_language_sender.py")
+            var root = File(System.getProperty("user.dir")).absoluteFile
+            while (!File(root, "desktop/ultra_share_v2_cross_language_sender.py").isFile && root.parentFile != null) {
+                root = root.parentFile!!
+            }
+            val script = File(root, "desktop/ultra_share_v2_cross_language_sender.py")
             check(script.isFile) { "Missing Python V2 sender test harness: $script" }
             val runningProcess = ProcessBuilder(
                 System.getenv("PYTHON")?.takeIf { it.isNotBlank() } ?: "python3",
@@ -226,7 +232,7 @@ class UltraShareBatchEndToEndTest {
                 "--secret", secret,
                 "--source", source.absolutePath,
                 "--result", resultFile.absolutePath
-            ).directory(File(System.getProperty("user.dir")).absoluteFile)
+            ).directory(root)
                 .redirectErrorStream(true).redirectOutput(logFile).start()
             process = runningProcess
             val exitCode = withContext(Dispatchers.IO) {
