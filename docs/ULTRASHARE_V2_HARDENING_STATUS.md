@@ -43,3 +43,13 @@ This removes persistent/reconnectable pairing behavior from the service state. I
 ## Verification caveat
 
 The source changes above were committed, but no successful CI status or workflow run was returned for the current branch head during this work. No physical-device transfer, thermal measurement, or throughput benchmark has been performed here. Do not mark the engine production-ready until the remaining checks pass.
+
+## Full-duplex group transfer update
+
+- Each authenticated QR join now starts the joining phone's own temporary receive listeners; the room creator and joiners therefore expose both a sender and a receiver while their session is active.
+- The control listener accepts up to four concurrent peer sessions. The V2 data listener accepts up to four concurrent incoming peer sockets, and the multi-recipient sender fans out to up to four peers concurrently.
+- Sending to all approved room members and receiving from several members are independent operations. A local outgoing queue does not disable the inbound V2 listener.
+- Receive-session serialization is now scoped by both peer identity and destination directory. Independent room endpoints sharing a peer identity no longer block each other's resume-state locks.
+- Added a Kotlin TCP integration test that starts two independent V2 receive endpoints and starts both outbound batches together, then verifies both completions and byte-for-byte payloads. This is a JVM/Robolectric socket test, not a test on two physical phones.
+- Group topology remains hub-and-spoke: each joining phone has a bidirectional session with the room host. Direct peer-to-peer links between two joining phones are not automatically created; the host can send a selected batch to all connected members.
+- CI must pass the new JVM test, lint, APK/AAB builds, and API 23/29/36 runtime test jobs before this change is called verified.
