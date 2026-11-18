@@ -521,6 +521,24 @@ class UltraShareForegroundService : Service() {
                                         error = if (ready) current.error else
                                             "بدأ مستمع نقل الملفات على منفذ غير متوقع؛ لن يظهر رمز QR حتى تتم معالجة ذلك."
                                     ) }
+                                },
+                                pairingSecretResolver = { peerHost ->
+                                    val remoteId = canonicalMeshPeerId(
+                                        UltraShareControlChannel.authenticatedPeerIdForHost(peerHost)
+                                    )
+                                    val localId = canonicalMeshPeerId(
+                                        UltraShareDiscovery.localPeerId(this@UltraShareForegroundService)
+                                    )
+                                    val coordinator = meshRoomCoordinator
+                                    if (remoteId != null && meshDirectEdges.containsKey(remoteId)) {
+                                        checkNotNull(coordinator) { "غرفة Mesh غير متاحة أثناء نقل مباشر." }
+                                            .deriveDirectLinkCredential(
+                                                checkNotNull(localId) { "هوية الجهاز المحلية غير متاحة." },
+                                                remoteId
+                                            )
+                                    } else {
+                                        secret
+                                    }
                                 }
                             )
                         } catch (cancelled: CancellationException) {
