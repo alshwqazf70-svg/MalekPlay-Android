@@ -29,7 +29,7 @@ This phase extends the authenticated room exchange into direct peer control sess
 - Existing tests cover pair-key derivation, deterministic topology planning, room roster authentication, and encrypted MPC2 application frames.
 
 
-- MPC2 listener admission is aligned with the room ceiling of 16 participants. The V2 receive server still has its existing four-peer concurrent transfer limit per device; additional data sessions wait/fail according to the existing bounded transport behavior.
+- MPC2 listener admission is aligned with the room ceiling of 16 participants. The V2 receive server still has its existing four-peer concurrent transfer limit per device; additional inbound data sessions are refused while all four slots are occupied.
 
 ## Remaining validation
 
