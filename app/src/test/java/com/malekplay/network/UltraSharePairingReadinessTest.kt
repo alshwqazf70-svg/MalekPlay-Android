@@ -25,6 +25,19 @@ class UltraSharePairingReadinessTest {
         assertTrue(matchesExpectedUltraSharePeerIdentity(null, "any-peer"))
     }
 
+    @Test fun approvedSendTargetKeepsSessionIdSeparateFromRemotePeerIdentity() {
+        val target = UltraShareApprovedSendTarget(
+            sessionId = "temporary-session-123",
+            host = "192.168.1.20",
+            secret = "123456789",
+            peerId = "stable-remote-peer"
+        )
+        assertEquals("temporary-session-123", target.sessionId)
+        assertEquals("stable-remote-peer", target.peerId)
+        assertTrue(matchesExpectedUltraSharePeerIdentity(target.peerId, "stable-remote-peer"))
+        assertFalse(matchesExpectedUltraSharePeerIdentity(target.peerId, "different-peer"))
+    }
+
     @Test fun invitationHostHintsRemainStableOnlyForTheSameSessionId() {
         val stored = listOf("192.168.1.10", "192.168.49.1")
         val refreshed = listOf("192.168.1.11")
