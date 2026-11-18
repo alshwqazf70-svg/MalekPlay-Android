@@ -2371,13 +2371,21 @@ class UltraShareForegroundService : Service() {
                 throw cancelled
             } catch (failure: IOException) {
                 lastFailure = failure
-                if (failure.message?.startsWith("ULTRASHARE_LEGACY_PEER:") == true) {
+                val failureMessage = failure.message.orEmpty()
+                if (failureMessage.startsWith("ULTRASHARE_LEGACY_PEER:")) {
                     UltraShareDiagnostics.event(
                         "DATA_SEND_RECOVERY",
                         "LEGACY_V1_PEER_DETECTED_PAIRING_KEPT",
-                        mapOf("activeHost" to activeHost, "dataPort" to dataPortForHost(activeHost, activeCandidates, UltraShareBatchTransport.DEFAULT_PORT))
+                        mapOf(
+                            "activeHost" to activeHost,
+                            "dataPort" to UltraShareNegotiation.dataPortForHost(
+                                activeHost,
+                                activeCandidates,
+                                UltraShareBatchTransport.DEFAULT_PORT
+                            )
+                        )
                     )
-                    throw IOException(failure.message.removePrefix("ULTRASHARE_LEGACY_PEER:").trim())
+                    throw IOException(failureMessage.removePrefix("ULTRASHARE_LEGACY_PEER:").trim())
                 }
                 UltraShareDiagnostics.failure(
                     "DATA_SEND_RECOVERY",
