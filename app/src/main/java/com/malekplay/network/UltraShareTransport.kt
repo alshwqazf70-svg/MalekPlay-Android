@@ -221,17 +221,7 @@ object UltraShareTransport {
     /** Reject executable packages and PDF documents while allowing other ordinary files. */
     fun isSupportedShareMimeType(raw: String): Boolean {
         val candidate = raw.trim().lowercase(Locale.ROOT)
-        val token = "[A-Za-z0-9!#    /** Ultra Share transfers ordinary files without media-type or extension filtering. */
-    fun isSupportedShareMimeType(raw: String): Boolean {
-        val candidate = raw.trim().lowercase(Locale.ROOT)
         val token = "[A-Za-z0-9!#$&^_.+-]+"
-        return candidate.length in 3..160 &&
-            Regex("^$token/$token$").matches(candidate)
-    }
-
-    /** Every named file with a readable content URI is eligible for transfer. */
-    fun isAllowedShareFile(fileName: String, mimeType: String): Boolean =
-        fileName.isNotBlank() && isSupportedShareMimeType(mimeType)^_.+-]+"
         return candidate.length in 3..160 &&
             Regex("^$token/$token$").matches(candidate) &&
             candidate != "application/pdf" &&
