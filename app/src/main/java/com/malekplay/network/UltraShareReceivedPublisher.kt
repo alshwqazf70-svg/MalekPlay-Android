@@ -18,18 +18,15 @@ import java.io.File
 import kotlin.coroutines.resume
 
 /**
- * Automatically publishes received files to Downloads/MalekPlayer/Received.
+ * Automatically publishes received files to Downloads/MalekPlayer.
  * A durable app-owned copy already exists before this publisher is called, so a
  * MediaStore/legacy storage failure never loses the successfully received file.
  * Empty files and unknown MIME types are intentionally supported.
  */
 object UltraShareReceivedPublisher {
 
-    internal const val PUBLIC_APP_RELATIVE_PATH = "Download/MalekPlayer/Received"
-    internal const val PUBLIC_DOWNLOADS_RELATIVE_PATH = "Download"
-
-    internal fun publicRelativePaths(): List<String> =
-        listOf(PUBLIC_APP_RELATIVE_PATH, PUBLIC_DOWNLOADS_RELATIVE_PATH)
+    internal const val PUBLIC_APP_RELATIVE_PATH = "Download/MalekPlayer"
+    internal fun publicRelativePaths(): List<String> = listOf(PUBLIC_APP_RELATIVE_PATH)
 
     suspend fun publish(context: Context, received: UltraShareCore.ReceivedFile): Uri? =
         withContext(Dispatchers.IO) {
@@ -40,22 +37,20 @@ object UltraShareReceivedPublisher {
             val name = UltraShareCore.sanitizeFileName(received.fileName)
             val mime = received.mimeType.ifBlank { "application/octet-stream" }
 
-            // Primary destination is the public app folder. If Android's media
-            // provider rejects it, retry the same file directly in Downloads root.
+            // Keep every public copy inside the requested MalekPlayer directory.
+            // Never silently spill into the generic Downloads root.
             val publicUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 publishMediaStore(app, received, name, mime, PUBLIC_APP_RELATIVE_PATH)
-                    ?: publishMediaStore(app, received, name, mime, PUBLIC_DOWNLOADS_RELATIVE_PATH)
             } else {
                 publishLegacyDownloads(app, received, name, mime, PUBLIC_APP_RELATIVE_PATH)
-                    ?: publishLegacyDownloads(app, received, name, mime, PUBLIC_DOWNLOADS_RELATIVE_PATH)
             }
             if (publicUri != null) return@withContext publicUri
 
             // defaultReceiveDirectory() is already an app-owned persistent
-            // MalekPlayer/Received folder. Keep the verified file there as fallback.
+            // MalekPlayer folder. Keep the verified file there as fallback.
             val fallback = UltraShareCore.defaultReceiveDirectory(app)
             check(fallback.isDirectory || fallback.mkdirs()) {
-                "تعذر إنشاء مجلد MalekPlayer/Received لحفظ الملف المستلم."
+                "تعذر إنشاء مجلد MalekPlayer لحفظ الملف المستلم."
             }
             val retained = UltraShareCore.withDestinationPublicationLock(fallback) {
                 // The transport has already placed the verified source in this folder.
@@ -71,7 +66,7 @@ object UltraShareReceivedPublisher {
             }
             UltraShareDiagnostics.event(
                 "RECEIVED_PUBLISH",
-                "SAVED_TO_APP_RECEIVED_FOLDER",
+                "SAVED_TO_APP_MALEKPLAYER_FOLDER",
                 mapOf("file" to name, "sizeBytes" to received.sizeBytes, "path" to fallback.absolutePath)
             )
             null
