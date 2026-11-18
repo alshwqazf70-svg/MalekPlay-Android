@@ -31,13 +31,13 @@ object UltraShareReceivedPublisher {
     internal fun publicRelativePaths(): List<String> =
         listOf(PUBLIC_APP_RELATIVE_PATH, PUBLIC_DOWNLOADS_RELATIVE_PATH)
 
-    suspend fun publish(context: Context, received: UltraShareTransport.ReceivedFile): Uri? =
+    suspend fun publish(context: Context, received: UltraShareCore.ReceivedFile): Uri? =
         withContext(Dispatchers.IO) {
             check(received.file.isFile && received.file.length() == received.sizeBytes) {
                 "الملف المستلم غير مكتمل؛ لن نحفظ نسخة ناقصة."
             }
             val app = context.applicationContext
-            val name = UltraShareTransport.sanitizeFileName(received.fileName)
+            val name = UltraShareCore.sanitizeFileName(received.fileName)
             val mime = received.mimeType.ifBlank { "application/octet-stream" }
 
             // Primary destination is the public app folder. If Android's media
@@ -53,11 +53,11 @@ object UltraShareReceivedPublisher {
 
             // defaultReceiveDirectory() is already an app-owned persistent
             // MalekPlayer/Received folder. Keep the verified file there as fallback.
-            val fallback = UltraShareTransport.defaultReceiveDirectory(app)
+            val fallback = UltraShareCore.defaultReceiveDirectory(app)
             check(fallback.isDirectory || fallback.mkdirs()) {
                 "تعذر إنشاء مجلد MalekPlayer/Received لحفظ الملف المستلم."
             }
-            val retained = UltraShareTransport.withDestinationPublicationLock(fallback) {
+            val retained = UltraShareCore.withDestinationPublicationLock(fallback) {
                 // The transport has already placed the verified source in this folder.
                 // Otherwise allocate a collision-free name so a repeated filename can
                 // never overwrite an earlier received file.
@@ -80,7 +80,7 @@ object UltraShareReceivedPublisher {
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun publishMediaStore(
         context: Context,
-        received: UltraShareTransport.ReceivedFile,
+        received: UltraShareCore.ReceivedFile,
         name: String,
         mime: String,
         relativePath: String
@@ -150,7 +150,7 @@ object UltraShareReceivedPublisher {
     @Suppress("DEPRECATION")
     private suspend fun publishLegacyDownloads(
         context: Context,
-        received: UltraShareTransport.ReceivedFile,
+        received: UltraShareCore.ReceivedFile,
         name: String,
         mime: String,
         relativePath: String
@@ -168,7 +168,7 @@ object UltraShareReceivedPublisher {
             check(directory.isDirectory || directory.mkdirs()) {
                 "تعذر إنشاء مجلد التنزيلات."
             }
-            val destination = UltraShareTransport.withDestinationPublicationLock(directory) {
+            val destination = UltraShareCore.withDestinationPublicationLock(directory) {
                 uniqueFile(directory, name).also { target ->
                     copyVerified(received.file, target, received.sizeBytes)
                 }
