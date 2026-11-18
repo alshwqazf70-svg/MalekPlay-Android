@@ -65,7 +65,7 @@ The following are not part of the current V2 runtime:
 - DFile native sender/receiver and DFile staging/manifest helpers;
 - native NSTACKX source acquisition, NDK and CMake build wiring.
 
-`UltraShareTransport.kt` is retained only as a shared support layer for validation, pairing-key derivation, file metadata and safe publication. It is not the former V1 file-transfer engine and must not be deleted until its shared call sites are moved to a correctly named V2 support module.
+`UltraShareCore.kt` is the shared V2 support layer for validation, pairing-key derivation, file metadata and safe publication. The misleading `UltraShareTransport` helper name and source file have been retired; the actual file-data engine is `UltraShareBatchTransport`.
 
 ## 5. Known verification gaps
 
