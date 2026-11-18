@@ -582,6 +582,19 @@ class UltraShareForegroundService : Service() {
                     startSendingQueueToPeers(uris, targets, intent.getBooleanExtra(EXTRA_PRESERVE_DELIVERIES, false))
                 }
             }
+            ACTION_SEND -> {
+                // Keep the single-item entry point, but route it through the V2 batch
+                // engine exactly like every other send path. There is no legacy V1 sender.
+                val uri = intent.parcelableUri<Uri>(EXTRA_URI)
+                val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
+                val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
+                if (uri == null) {
+                    updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
+                    finishService()
+                } else {
+                    startSendingQueue(listOf(uri), host, secret)
+                }
+            }
             ACTION_SEND_BATCH -> {
                 val uris = intent.parcelableUriList(EXTRA_URIS).orEmpty()
                 val host = intent.getStringExtra(EXTRA_HOST).orEmpty()
