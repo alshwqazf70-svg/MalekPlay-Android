@@ -2222,7 +2222,7 @@ class UltraShareForegroundService : Service() {
                     )
                     val activeRoom = meshRoomCoordinator?.let { runCatching { it.state() }.getOrNull() }
                     val isAuthorityJoinSession = remoteControlPeer != null &&
-                        activeRoom?.authorityPeerId == remoteControlPeer &&
+                        (activeRoom == null || activeRoom.authorityPeerId == remoteControlPeer) &&
                         !meshDirectEdges.containsKey(remoteControlPeer)
                     if (isAuthorityJoinSession) ensureMeshClientJoined(activeHost)
                 }
