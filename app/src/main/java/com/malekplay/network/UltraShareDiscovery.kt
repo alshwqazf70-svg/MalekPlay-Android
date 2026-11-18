@@ -275,7 +275,7 @@ object UltraShareDiscovery {
                         if (v2 != null) {
                             val testedCandidates = probeCandidates(
                                 v2.candidates.filter {
-                                    it.connected && UltraShareTransport.isValidPrivateLanHost(it.host)
+                                    it.connected && UltraShareCore.isValidPrivateLanHost(it.host)
                                 }, context
                             )
                             val endpoint = UltraShareNegotiation.selectCandidate(testedCandidates)
@@ -413,7 +413,7 @@ object UltraShareDiscovery {
         port: Int,
         networks: List<android.net.Network>
     ): Boolean {
-        if (!UltraShareTransport.isValidPrivateLanHost(host) || port !in 1..65535) return false
+        if (!UltraShareCore.isValidPrivateLanHost(host) || port !in 1..65535) return false
         // Exhaust every peer-specific Android Network first, then retain the
         // system default route as a final compatibility fallback (some OEMs do
         // not expose the P2P/SoftAP Network object to ConnectivityManager).
