@@ -1249,10 +1249,18 @@ class UltraShareForegroundService : Service() {
             }
             // Do not hold the room-wide handshake mutex while an optional listener binds.
             if (roomJoined) {
-                runCatching { ensureMeshDirectServerReady() }.onFailure { failure ->
+                try {
+                    ensureMeshDirectServerReady()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
                     UltraShareDiagnostics.failure("MESH_DIRECT_LISTENER_OPTIONAL", failure)
                 }
-                runCatching { reconcileMeshDirectLinks() }.onFailure { failure ->
+                try {
+                    reconcileMeshDirectLinks()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
                     UltraShareDiagnostics.failure("MESH_DIRECT_RECONCILE_AFTER_JOIN", failure)
                 }
             }
@@ -1439,10 +1447,18 @@ class UltraShareForegroundService : Service() {
         }
         // Listener binding and topology dialing must not block other authenticated sessions.
         if (roomJoined) {
-            runCatching { ensureMeshDirectServerReady() }.onFailure { failure ->
+            try {
+                ensureMeshDirectServerReady()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
                 UltraShareDiagnostics.failure("MESH_DIRECT_LISTENER_OPTIONAL", failure)
             }
-            runCatching { reconcileMeshDirectLinks() }.onFailure { failure ->
+            try {
+                reconcileMeshDirectLinks()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
                 UltraShareDiagnostics.failure("MESH_DIRECT_RECONCILE_AFTER_JOIN", failure)
             }
         }
