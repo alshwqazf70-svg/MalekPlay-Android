@@ -2,7 +2,7 @@
 
 Branch: `feature/zapya-engineering-analysis`
 
-Adds `UltraShareMeshRoomCoordinator`, a synchronized in-memory state machine for room authority and joiner roles.
+Adds `UltraShareMeshRoomCoordinator`, a synchronized in-memory state machine for room authority and joiner roles, now connected to the foreground service's MPC2 application-message channel.
 
 ## Implemented state transitions
 
@@ -14,10 +14,18 @@ Adds `UltraShareMeshRoomCoordinator`, a synchronized in-memory state machine for
 - KEY_ACK and ROSTER_ACK bind SHA-256 digests to the exact key or roster payload.
 - Closing the coordinator zeroes its in-memory room key and clears room membership.
 
-## Integration contract
+## Foreground-service integration now present
 
-The coordinator intentionally does not open sockets or launch coroutines. The service must call it only from a single receive consumer for each approved MPC2 session, after matching the message sender to `sessionPeerId` / authenticated server request identity. It must send the returned ACK through the same approved MPC2 session. The key offer and roster update must never be passed through discovery, QR, logs, or persistent storage.
+- `UltraShareControlChannel.serveOnce` exposes `onSessionReady`, called only after the authenticated ACCEPT frame has been flushed and the application-frame session is ready.
+- The service starts one serialized room-handshake job per approved server-side MPC2 session.
+- The authority sends KEY_OFFER, verifies KEY_ACK, adds the authenticated peer, sends ROSTER_UPDATE, and verifies ROSTER_ACK.
+- The service joins an authority room on an approved client-side MPC2 session before starting a V2 media send, when the peer negotiated application-frame support.
+- A single client message pump processes later authenticated roster updates and sends acknowledgements. The authority broadcasts newer rosters to its existing approved MPC2 clients.
+- Session jobs and in-memory room keys are cleaned up on session/service shutdown.
+- Legacy MPC2 peers without application-frame capability remain usable; Mesh setup is skipped for those sessions.
 
-## Not yet complete
+## Remaining integration and verification
 
-This is a testable room lifecycle component, not proof of live service integration or a complete mesh. The foreground service still needs per-session consumers and dispatch, room authority election/coordination for multi-hop joins, stable peer-ID keyed session registry, topology edge dialing, and direct data-plane verification. A room roster alone does not create B↔C sockets. Run Gradle unit tests and a successful Android build, then validate at least three physical devices before release.
+This is now live service orchestration for the authority-to-client room exchange, not a complete peer mesh. The server-side session map is still keyed by remote IP. The service does not yet dial all missing topology edges, establish B↔C direct MPC2 sessions, bind per-pair derived credentials to those sockets, or route V2 data directly between non-authority peers. The server currently records authenticated roster ACKs from existing peers; it does not yet reconcile a complete stable-peer-ID session registry.
+
+The added JVM test exercises KEY_OFFER / KEY_ACK / ROSTER_UPDATE / ROSTER_ACK over a real local MPC2 encrypted application-frame socket. Source changes and tests still require Gradle execution/CI confirmation, successful Android build, and at least three physical-device tests before claiming a complete Mesh or publishing an APK.
