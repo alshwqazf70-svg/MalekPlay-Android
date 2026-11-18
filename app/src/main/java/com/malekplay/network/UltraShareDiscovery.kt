@@ -343,7 +343,7 @@ object UltraShareDiscovery {
 
     /** Decode the legacy discovery envelope without granting it any trust by name. */
     internal fun decodeLegacyOffer(message: String, sourceHost: String): Peer? {
-        if (!sourceHost.let(UltraShareCore::isValidPrivateLanHost) ||
+        if (!UltraShareCore.isValidPrivateLanHost(sourceHost) ||
             !message.startsWith(OFFER_PREFIX_V1)
         ) return null
         val parts = message.removePrefix(OFFER_PREFIX_V1).split('|', limit = 2)
