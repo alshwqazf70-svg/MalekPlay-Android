@@ -711,6 +711,7 @@ class UltraShareForegroundService : Service() {
         advertisementJob?.cancel()
         controlJob?.cancel()
         pendingConnectionDecision?.cancel()
+        UltraShareControlChannel.setClientSessionReadyListener(null)
         closeMeshRoom()
         releaseTransferLocks()
         activeBatchTransferPort = 0
