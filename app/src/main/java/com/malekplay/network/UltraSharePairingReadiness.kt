@@ -80,6 +80,18 @@ internal object UltraSharePairingReadiness {
         controlSessionActive && dataEndpointReachable
 }
 
+/** A known peer ID must match; a missing ID is allowed only for legacy peers. */
+internal fun matchesExpectedUltraSharePeerIdentity(
+    expectedPeerId: String?,
+    authenticatedPeerId: String?
+): Boolean {
+    if (expectedPeerId.isNullOrBlank() || authenticatedPeerId.isNullOrBlank()) return true
+    return expectedPeerId.replace("-", "").equals(
+        authenticatedPeerId.replace("-", ""),
+        ignoreCase = true
+    )
+}
+
 /** Retry only immediate route-establishment failures; never replay user approval timeouts. */
 internal fun isRetryableUltraSharePairingFailure(failure: Throwable): Boolean {
     val visited = java.util.Collections.newSetFromMap(
