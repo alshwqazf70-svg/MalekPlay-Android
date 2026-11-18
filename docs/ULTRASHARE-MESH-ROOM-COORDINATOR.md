@@ -1,31 +1,46 @@
-# UltraShare Mesh room lifecycle coordinator
+# UltraShare Mesh room lifecycle and direct-link orchestration
 
 Branch: `feature/zapya-engineering-analysis`
 
-Adds `UltraShareMeshRoomCoordinator`, a synchronized in-memory state machine for room authority and joiner roles, now connected to the foreground service's MPC2 application-message channel.
+The room coordinator now participates in live foreground-service orchestration. The service uses the authenticated MPC2 control channel for room setup and creates direct peer links from the verified roster. V2 remains the only media data plane.
 
-## Implemented state transitions
+## Room and roster lifecycle
 
 - Authority creates a fresh UUID room ID and cryptographically random 32-byte room key.
-- Authority emits KEY_OFFER; the receiver accepts it only when the message sender matches the authenticated MPC2 peer identity.
-- Authority registers only peers whose stable identity matches the authenticated MPC2 identity.
-- Authority produces HMAC-authenticated roster snapshots as members change.
-- Joiner accepts a roster only when room ID, authority identity, HMAC, envelope revision, roster revision, and local membership all match; revisions must strictly increase.
-- KEY_ACK and ROSTER_ACK bind SHA-256 digests to the exact key or roster payload.
-- Closing the coordinator zeroes its in-memory room key and clears room membership.
+- KEY_OFFER is delivered only through an approved encrypted MPC2 application-frame session.
+- The receiver accepts the key only when the envelope sender matches the authenticated MPC2 peer identity.
+- Authority registers members only against authenticated stable peer IDs.
+- HMAC-authenticated roster snapshots carry the room membership and private IPv4 candidate routes.
+- Joiners verify room ID, authority identity, HMAC, revision, and self-membership before acknowledging the roster.
+- Closing the coordinator wipes the in-memory room key and clears membership.
 
-## Foreground-service integration now present
+## Direct MPC2 link layer
 
-- `UltraShareControlChannel.serveOnce` exposes `onSessionReady`, called only after the authenticated ACCEPT frame has been flushed and the application-frame session is ready.
-- The service starts one serialized room-handshake job per approved server-side MPC2 session.
-- The authority sends KEY_OFFER, verifies KEY_ACK, adds the authenticated peer, sends ROSTER_UPDATE, and verifies ROSTER_ACK.
-- The pairing caller notifies the foreground service immediately after client-side MPC2 approval; the service starts the room join at once. The V2 send path retains a guarded fallback if service startup raced with pairing.
-- A single client message pump processes later authenticated roster updates and sends acknowledgements. The authority broadcasts newer rosters to its existing approved MPC2 clients.
-- Session jobs and in-memory room keys are cleaned up on session/service shutdown.
-- Legacy MPC2 peers without application-frame capability remain usable; Mesh setup is skipped for those sessions.
+- Each joined member attempts to open a dedicated direct-link MPC2 listener on port `38746`.
+- The listener has no room-wide PIN. It selects a pair-specific 32-byte credential using the stable peer ID announced in the MPC2 request.
+- The credential is derived from the room key, room ID, and canonical sorted peer-ID pair. The resolver returns a credential only when both peers exist in the locally authenticated roster.
+- The direct server verifies the credential before asking the service to accept the member. The service binds the request identity to the roster and registers the peer as an approved send target.
+- The local topology planner computes the complete undirected graph, treats active primary MPC2 sessions as existing edges, and elects one deterministic initiator per missing edge.
+- The elected initiator dials the remote peer's direct MPC2 listener. The returned peer identity is checked against the exact roster member before the edge is marked active.
+- Direct connection attempts retry transient failures up to three times. A missing route or unavailable listener does not invalidate the room handshake.
 
-## Remaining integration and verification
+## V2 media authentication
 
-This is now live service orchestration for the authority-to-client room exchange, not a complete peer mesh. The server-side session map is still keyed by remote IP. The service does not yet dial all missing topology edges, establish B↔C direct MPC2 sessions, bind per-pair derived credentials to those sockets, or route V2 data directly between non-authority peers. The server currently records authenticated roster ACKs from existing peers; it does not yet reconcile a complete stable-peer-ID session registry.
+- Media bytes continue to travel directly over `UltraShareBatchTransport` V2; the authority does not relay B-to-C media.
+- The V2 sender uses the pair-specific credential held by the approved direct send target.
+- The V2 receiver resolves the expected credential from the authenticated MPC2 peer identity and active direct-edge state. It does not fall back to the room PIN when a direct-edge credential is expected.
+- Existing authority/member sessions continue using their original approved pairing secret.
+- Resume checkpoint identity uses the stable authenticated peer ID when available.
+- Retry/re-discovery can re-establish a direct MPC2 link with the same roster-derived pair credential.
 
-The added JVM test exercises KEY_OFFER / KEY_ACK / ROSTER_UPDATE / ROSTER_ACK over a real local MPC2 encrypted application-frame socket. Source changes and tests still require Gradle execution/CI confirmation, successful Android build, and at least three physical-device tests before claiming a complete Mesh or publishing an APK.
+## Important boundaries
+
+This is live source integration for direct MPC2 link setup and V2 per-peer credential selection, but it is not yet a verified production Mesh.
+
+- Current roster candidates are the private IPv4 address observed by the room authority, tagged as WLAN. Full multi-interface candidate exchange and robust cross-subnet Wi-Fi Direct/Hotspot routing remain to be completed.
+- Control-channel registries are still keyed by remote host/IP, so simultaneous alternate sessions to the same peer address require a future session-ID keyed registry.
+- The V2 listener must be running on each participating device. The current pairing flow starts the reverse receive listener for the joining device; the authority must remain in receive mode.
+- The new JVM tests cover per-peer MPC2 credential resolution and V2 credential selection, but have not yet been executed in Gradle/CI.
+- No three-or-more physical-device test has verified B-to-C direct media delivery, concurrent bidirectional transfers, disconnect recovery, or resume over a direct edge.
+
+Do not mark Mesh complete or publish a release APK until Gradle/CI, Android runtime tests, and physical multi-device transfer tests pass.
