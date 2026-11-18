@@ -897,7 +897,6 @@ private fun forgetApprovedSenderTarget(host: String) {
                             error = "تم إيقاف الاستقبال، لكن Android لم يؤكد تنظيف مجموعة Wi-Fi Direct بالكامل. أعد تشغيل Wi-Fi قبل محاولة جديدة."
                         )
                     }
-                    stopNstackxIfIdle()
                 }
             }.onFailure { failure ->
                 wifiDirectCleanupInProgress = false
@@ -1129,7 +1128,6 @@ private fun forgetApprovedSenderTarget(host: String) {
             } finally {
                 scanJob = null
                 _state.value = _state.value.copy(scanning = false)
-                stopNstackxIfIdle()
             }
         }
     }
@@ -1920,16 +1918,6 @@ private fun forgetApprovedSenderTarget(host: String) {
         bluetoothSession = null
         bleSession?.close()
         bleSession = null
-        nstackxStartJob?.cancel()
-        // The native engine is process-global and may currently own DFile sessions
-        // for the foreground service. Detach this screen's callback first; stop the
-        // engine only when no foreground receive/approved peer session depends on it.
-        NstackxAndroidDiscoverySession.detachPeerListener()
-        val serviceState = UltraShareForegroundService.state.value
-        if (!serviceState.receiving && serviceState.activePeers.isEmpty()) {
-            NstackxAndroidDiscoverySession.stop()
-        }
-        nstackxPeerNames.clear()
         // Transfer jobs belong to the foreground service and deliberately outlive this ViewModel.
         super.onCleared()
     }
