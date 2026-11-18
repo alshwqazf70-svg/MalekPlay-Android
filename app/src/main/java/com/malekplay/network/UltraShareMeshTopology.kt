@@ -90,17 +90,18 @@ internal object UltraShareMeshTopology {
         val missing = required - normalizedActive
         val outgoing = missing.asSequence()
             .filter { it.initiatorPeerId.equals(localPeer.peerId, ignoreCase = true) }
-            .map { edge ->
+            .mapNotNull { edge ->
                 val remote = peersById[edge.responderPeerId.lowercase()]
                     ?: error("Mesh responder is missing from the peer roster.")
+                // One offline or not-yet-discovered member must not abort every
+                // other direct edge. Keep its edge in missingEdges and retry after
+                // the next roster/network reconciliation.
                 val endpoint = UltraShareNegotiation.orderedCandidates(remote.candidates)
                     .firstOrNull {
                         it.reachable &&
                             UltraShareCore.isValidPrivateLanHost(it.host) &&
                             it.port in 1..65535
-                    } ?: throw IllegalStateException(
-                    "No verified direct route is available for peer ${remote.peerId}."
-                )
+                    } ?: return@mapNotNull null
                 DirectLink(edge, remote, endpoint)
             }
             .toList()
