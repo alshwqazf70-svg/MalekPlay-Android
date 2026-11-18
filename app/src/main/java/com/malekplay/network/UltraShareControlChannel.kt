@@ -93,6 +93,9 @@ object UltraShareControlChannel {
     // Serialize replacement, explicit close, and stale-heartbeat cleanup so an old
     // session callback can never tear down a newly approved session for the same host.
     private val clientSessionGuard = Any()
+    // Keep the server socket, application-frame session and authenticated identity
+    // replacement/cleanup atomic for peers that reconnect from the same IP.
+    private val serverSessionGuard = Any()
     private val serverSessions = ConcurrentHashMap<String, Socket>()
     private val serverApplicationSessions = ConcurrentHashMap<String, ServerSession>()
     private val serverSessionPeerIds = ConcurrentHashMap<String, String>()
@@ -548,15 +551,18 @@ object UltraShareControlChannel {
     }
 
     fun closeServerSession(host: String) {
-        // Close first to unblock the server's single socket reader.
-        serverSessions.remove(host)?.let { socket -> runCatching { socket.close() } }
-        serverApplicationSessions.remove(host)?.let { active ->
-            synchronized(active.lock) {
-                active.frames.close()
-                active.incoming.close()
+        // Retire all host-keyed state as one operation. A concurrent reconnect
+        // must never have its newly installed session removed by this cleanup.
+        synchronized(serverSessionGuard) {
+            serverSessions.remove(host)?.let { socket -> runCatching { socket.close() } }
+            serverApplicationSessions.remove(host)?.let { active ->
+                synchronized(active.lock) {
+                    active.frames.close()
+                    active.incoming.close()
+                }
             }
+            serverSessionPeerIds.remove(host)
         }
-        serverSessionPeerIds.remove(host)
     }
 
     /** Send an authenticated application message over the approved client-side MPC2 socket. */
@@ -767,22 +773,24 @@ object UltraShareControlChannel {
             )
             val serverSession = ServerSession(socket, input, output, applicationFramesEnabled, frameSession)
             acceptedServerSession = serverSession
-            serverSessions.put(peerAddress, socket)?.takeIf { it !== socket }?.let { previous ->
-                // Retire the old socket first, then zero its frame keys under its writer lock.
-                runCatching { previous.close() }
-                serverApplicationSessions.remove(peerAddress)?.let { old ->
-                    synchronized(old.lock) {
-                        old.frames.close()
-                        old.incoming.close()
+            synchronized(serverSessionGuard) {
+                serverSessions.put(peerAddress, socket)?.takeIf { it !== socket }?.let { previous ->
+                    // Retire the old socket first, then zero its frame keys under its writer lock.
+                    runCatching { previous.close() }
+                    serverApplicationSessions.remove(peerAddress)?.let { old ->
+                        synchronized(old.lock) {
+                            old.frames.close()
+                            old.incoming.close()
+                        }
                     }
                 }
+                serverApplicationSessions[peerAddress] = serverSession
+                // Publish the authenticated session before the ACCEPT frame so the
+                // data plane can validate it immediately after the client receives approval.
+                serverSessionPeerIds.remove(peerAddress)
+                request.peerId?.let { serverSessionPeerIds[peerAddress] = it }
             }
-            serverApplicationSessions[peerAddress] = serverSession
-            // Publish the authenticated session before the ACCEPT frame so the
-            // data plane can validate it immediately after the client receives approval.
             publishedRequest = request
-            serverSessionPeerIds.remove(peerAddress)
-            request.peerId?.let { serverSessionPeerIds[peerAddress] = it }
         }
         val encodedLocalName = encodeHex(localPeerName.take(48).toByteArray(Charsets.UTF_8))
         val stableLocalPeerId = localPeerId?.replace("-", "")?.lowercase()
@@ -864,16 +872,25 @@ object UltraShareControlChannel {
             // Also covers exceptions while preparing the authenticated response.
             // remove(key, value) ensures an old coroutine cannot erase a replacement.
             val requestToClose = publishedRequest
-            if (requestToClose != null &&
-                serverSessions.remove(requestToClose.peerAddress, socket)
-            ) {
-                serverSessionPeerIds.remove(requestToClose.peerAddress)
-                serverApplicationSessions.remove(requestToClose.peerAddress)?.let { active ->
-                    synchronized(active.lock) {
-                        active.frames.close()
-                        active.incoming.close()
+            val removedCurrentSession = requestToClose != null &&
+                synchronized(serverSessionGuard) {
+                    if (!serverSessions.remove(requestToClose.peerAddress, socket)) {
+                        false
+                    } else {
+                        serverSessionPeerIds.remove(requestToClose.peerAddress)
+                        val active = serverApplicationSessions[requestToClose.peerAddress]
+                        if (active?.socket === socket &&
+                            serverApplicationSessions.remove(requestToClose.peerAddress, active)
+                        ) {
+                            synchronized(active.lock) {
+                                active.frames.close()
+                                active.incoming.close()
+                            }
+                        }
+                        true
                     }
                 }
+            if (requestToClose != null && removedCurrentSession) {
                 UltraShareDiagnostics.event(
                     "CONTROL_CHANNEL", "SERVER_SESSION_CLOSED",
                     mapOf("peerHost" to requestToClose.peerAddress, "peerName" to requestToClose.peerName)
