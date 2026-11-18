@@ -94,6 +94,14 @@ object UltraShareControlChannel {
     private val serverSessions = ConcurrentHashMap<String, Socket>()
     private val serverApplicationSessions = ConcurrentHashMap<String, ServerSession>()
     private val serverSessionPeerIds = ConcurrentHashMap<String, String>()
+
+    @Volatile private var clientSessionReadyListener: ((String) -> Unit)? = null
+
+    /** Registers a service-owned observer for newly approved client-side MPC2 sessions. */
+    fun setClientSessionReadyListener(listener: ((String) -> Unit)?) {
+        clientSessionReadyListener = listener
+    }
+
     private val pairingAttemptLimiter = UltraSharePairingAttemptLimiter()
     private val diagnosticEvents = java.util.ArrayDeque<String>()
     private const val MAX_DIAGNOSTIC_EVENTS = 100
@@ -454,6 +462,14 @@ object UltraShareControlChannel {
                     }
                 }
                 retained = true
+                runCatching { clientSessionReadyListener?.invoke(host) }
+                    .onFailure { failure ->
+                        UltraShareDiagnostics.failure(
+                            "CONTROL_CHANNEL_CLIENT_SESSION_READY_CALLBACK",
+                            failure,
+                            "host=" + host
+                        )
+                    }
                 UltraShareDiagnostics.event(
                     "CONTROL_CHANNEL", "CLIENT_SESSION_APPROVED",
                     mapOf("peerHost" to host, "peerName" to remoteName, "peerIdPresent" to (remotePeerId != null))
