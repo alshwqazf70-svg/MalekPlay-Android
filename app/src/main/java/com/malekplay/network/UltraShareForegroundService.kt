@@ -215,6 +215,7 @@ class UltraShareForegroundService : Service() {
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
+                closeMeshRoom()
                 (currentState().activePeers.map { it.host } +
                     approvedSendTargets().map { it.host }).distinct().forEach { host ->
                     disconnectApprovedPeer(host)
@@ -728,6 +729,7 @@ class UltraShareForegroundService : Service() {
         advertisementJob?.cancel()
         controlJob?.cancel()
         pendingConnectionDecision?.cancel()
+        closeMeshRoom()
         serviceScope.cancel()
         releaseTransferLocks()
         runCatching { hotspotReservation?.close() }
@@ -969,6 +971,7 @@ class UltraShareForegroundService : Service() {
         receiveJob?.cancel()
         batchReceiveJob?.cancel()
         stopLocalHotspot()
+        closeMeshRoom()
         updateState { current -> current.copy(
             receiving = false,
             sending = false,
@@ -1849,6 +1852,9 @@ class UltraShareForegroundService : Service() {
 
         while (true) {
             try {
+                if (UltraShareControlChannel.supportsClientApplicationFrames(activeHost)) {
+                    ensureMeshClientJoined(activeHost)
+                }
                 val dataPort = UltraShareNegotiation.dataPortForHost(
                     activeHost, activeCandidates, UltraShareBatchTransport.DEFAULT_PORT
                 )
