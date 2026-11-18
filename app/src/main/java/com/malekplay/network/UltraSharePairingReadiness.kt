@@ -87,7 +87,9 @@ internal fun isRetryableUltraSharePairingFailure(failure: Throwable): Boolean {
     var current: Throwable? = failure
     while (current != null && visited.add(current)) {
         if (current is java.net.ConnectException ||
-            current is java.net.NoRouteToHostException
+            current is java.net.NoRouteToHostException ||
+            (current is IllegalArgumentException &&
+                current.message == "إصدار قناة التحكم غير متوافق.")
         ) return true
         current = current.cause
     }
