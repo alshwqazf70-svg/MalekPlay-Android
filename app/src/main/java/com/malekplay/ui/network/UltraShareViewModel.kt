@@ -417,11 +417,31 @@ class UltraShareViewModel @Inject constructor(
                         "FALLBACK_BLOCKED_GROUP_CLEANUP_FAILED",
                         mapOf("reason" to reason.take(160))
                     )
-                    hotspotFallbackStarted = false
-                    _state.value = _state.value.copy(
-                        invitationId = "",
-                        error = "تعذر إيقاف اكتشاف/إعلان Wi-Fi Direct أو إغلاق المجموعة السابقة بأمان؛ لم أشغّل نقطة الاتصال لتجنب تداخل الشبكتين."
+                    val lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+                        context,
+                        _state.value.localAddresses + UltraShareForegroundService.state.value.localAddresses
                     )
+                    if (lanHosts.isNotEmpty()) {
+                        // A same-WLAN route does not create or replace a radio group,
+                        // so it remains safe even when P2P cleanup cannot be verified.
+                        _state.value = _state.value.copy(
+                            invitationId = "",
+                            localAddresses = lanHosts,
+                            lanFallbackReady = true,
+                            wifiDirectHost = null,
+                            wifiDirectScanning = false,
+                            hotspotStarting = false,
+                            error = null,
+                            status = "تعذر إغلاق مجموعة Wi-Fi Direct؛ نستخدم الشبكة المحلية الحالية دون تشغيل نقطة اتصال جديدة."
+                        )
+                    } else {
+                        hotspotFallbackStarted = false
+                        _state.value = _state.value.copy(
+                            invitationId = "",
+                            lanFallbackReady = false,
+                            error = "تعذر إغلاق مجموعة Wi-Fi Direct ولا توجد شبكة LAN بديلة مؤكدة؛ لم نشغّل نقطة اتصال قد تتعارض مع المجموعة."
+                        )
+                    }
                 }
             }
         }
