@@ -1365,6 +1365,15 @@ class UltraShareForegroundService : Service() {
             } finally {
                 keyOfferBytes.fill(0)
             }
+            UltraShareDiagnostics.event(
+                "MESH_CLIENT_HANDSHAKE", "KEY_OFFER_RECEIVED",
+                mapOf(
+                    "peerHost" to host,
+                    "senderPeerId" to keyOffer.senderPeerId,
+                    "revision" to keyOffer.revision,
+                    "payloadBytes" to keyOffer.payload.size
+                )
+            )
             try {
                 check(keyOffer.type == UltraShareMeshControlProtocol.Type.KEY_OFFER &&
                     canonicalMeshPeerId(keyOffer.senderPeerId) == authorityId
