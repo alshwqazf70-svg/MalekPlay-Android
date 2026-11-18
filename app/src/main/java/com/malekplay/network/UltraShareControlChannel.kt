@@ -490,22 +490,24 @@ object UltraShareControlChannel {
         synchronized(clientSessionGuard) {
             val session = clientSessions.remove(host) ?: return
             session.heartbeat?.cancel()
+            // Close first to unblock a heartbeat reader that currently owns the lock.
+            runCatching { session.socket.close() }
             synchronized(session.lock) {
                 session.frames.close()
                 session.incoming.close()
-                runCatching { session.socket.close() }
             }
         }
     }
 
     fun closeServerSession(host: String) {
+        // Close first to unblock the server's single socket reader.
+        serverSessions.remove(host)?.let { socket -> runCatching { socket.close() } }
         serverApplicationSessions.remove(host)?.let { active ->
             synchronized(active.lock) {
                 active.frames.close()
                 active.incoming.close()
             }
         }
-        serverSessions.remove(host)?.let { socket -> runCatching { socket.close() } }
         serverSessionPeerIds.remove(host)
     }
 
