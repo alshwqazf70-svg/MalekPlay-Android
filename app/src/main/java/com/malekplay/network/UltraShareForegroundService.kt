@@ -1060,7 +1060,7 @@ class UltraShareForegroundService : Service() {
         val peerId = canonicalMeshPeerId(request.peerId) ?: return
         val host = request.peerAddress
         if (!UltraShareControlChannel.supportsServerApplicationFrames(host)) return
-        val job = serviceScope.launch {
+        val job = serviceScope.launch(start = CoroutineStart.LAZY) {
             try {
                 val coordinator = getOrCreateMeshAuthority()
                 val remote = meshPeer(
@@ -1134,11 +1134,11 @@ class UltraShareForegroundService : Service() {
             }
         }
         val previous = meshServerHandshakeJobs.putIfAbsent(host, job)
-        if (previous != null) job.cancel()
+        if (previous != null) job.cancel() else job.start()
     }
 
     private fun startMeshServerMessagePump(host: String) {
-        val pump = serviceScope.launch {
+        val pump = serviceScope.launch(start = CoroutineStart.LAZY) {
             try {
                 while (UltraShareControlChannel.supportsServerApplicationFrames(host)) {
                     val bytes = UltraShareControlChannel.receiveServerApplicationMessage(host) ?: break
@@ -1157,7 +1157,7 @@ class UltraShareForegroundService : Service() {
             }
         }
         val previous = meshServerJobs.putIfAbsent(host, pump)
-        if (previous != null) pump.cancel()
+        if (previous != null) pump.cancel() else pump.start()
     }
 
     /** Join the authority room on an already-approved client MPC2 session. */
@@ -1236,7 +1236,7 @@ class UltraShareForegroundService : Service() {
             }
         }
         val previous = meshClientJobs.putIfAbsent(host, pump)
-        if (previous != null) pump.cancel()
+        if (previous != null) pump.cancel() else pump.start()
     }
 
     private fun stopMeshSession(host: String) {
