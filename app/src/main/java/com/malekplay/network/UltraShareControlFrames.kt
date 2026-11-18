@@ -82,7 +82,9 @@ object UltraShareControlFrames {
             require(magic == MAGIC && version == VERSION && direction == receiveDirection) {
                 "Unsupported control frame header."
             }
-            require(MessageDigest.isEqual(prefix, receivePrefix)) { "Control frame session prefix mismatch." }
+            if (!MessageDigest.isEqual(prefix, receivePrefix)) {
+                throw SecurityException("Control frame authentication failed.")
+            }
             require(sequence >= 0L && sequence == nextReceiveSequence) {
                 "Control frame replayed, skipped, or out of order."
             }
