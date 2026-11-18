@@ -2252,9 +2252,17 @@ class UltraShareForegroundService : Service() {
                 val dataReady = UltraShareDiscovery.probeDataEndpoint(
                     activeHost, dataPort, dataNetworks
                 )
+                if (!dataReady && UltraShareDiscovery.probeLegacyDataEndpoint(
+                        activeHost, dataPort, dataNetworks
+                    )
+                ) {
+                    throw IOException(
+                        "ULTRASHARE_LEGACY_PEER: تم الاقتران بالجهاز بنجاح، لكن مستقبل الملفات لديه يستخدم بروتوكول V1 بينما هذا الإصدار يرسل عبر V2. أبقينا قناة الاقتران كما هي ولم نغلقها؛ يلزم تحديث الطرف الآخر أو تفعيل مستقبل V1 قبل نقل الملفات."
+                    )
+                }
                 if (!UltraSharePairingReadiness.canSendData(controlReady, dataReady)) {
                     throw IOException(
-                        "قناة الاقتران موجودة، لكن منفذ نقل الملفات غير متاح عبر مسارات الشبكة الحالية. لم يبدأ إرسال أي ملف؛ أعد الاتصال أو تحقق من بقاء الهاتفين على شبكة MalekPlayer."
+                        "قناة الاقتران موجودة، لكن منفذ نقل الملفات V2 غير متاح عبر مسارات الشبكة الحالية. لم يبدأ إرسال أي ملف، وما زالت جلسة الاقتران مستقلة عن هذا الفشل."
                     )
                 }
                 return UltraShareBatchTransport.sendBatch(
@@ -2271,6 +2279,14 @@ class UltraShareForegroundService : Service() {
                 throw cancelled
             } catch (failure: IOException) {
                 lastFailure = failure
+                if (failure.message?.startsWith("ULTRASHARE_LEGACY_PEER:") == true) {
+                    UltraShareDiagnostics.event(
+                        "DATA_SEND_RECOVERY",
+                        "LEGACY_V1_PEER_DETECTED_PAIRING_KEPT",
+                        mapOf("activeHost" to activeHost, "dataPort" to dataPortForHost(activeHost, activeCandidates, UltraShareBatchTransport.DEFAULT_PORT))
+                    )
+                    throw IOException(failure.message.removePrefix("ULTRASHARE_LEGACY_PEER:").trim())
+                }
                 UltraShareDiagnostics.failure(
                     "DATA_SEND_RECOVERY",
                     failure,
