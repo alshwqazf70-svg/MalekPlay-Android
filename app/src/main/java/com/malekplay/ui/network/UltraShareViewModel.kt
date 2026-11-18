@@ -616,7 +616,9 @@ class UltraShareViewModel @Inject constructor(
                     // are deliberately not retained for reconnect after the room ends.
                     val retainedPeerSessions =
                         UltraShareForegroundService.approvedSendTargets().map { it.host to it.sessionId }
-                    val sessionId = UltraShareControlChannel.sessionPeerId(connectedHost)
+                    val authenticatedRemotePeerId =
+                        UltraShareControlChannel.sessionPeerId(connectedHost) ?: expectedRemotePeerId
+                    val sessionId = authenticatedRemotePeerId
                         ?: UltraShareMultiRecipientCoordinator.resolveSessionId(
                             connectedHost,
                             retainedPeerSessions.distinctBy { it.first },
@@ -708,7 +710,7 @@ class UltraShareViewModel @Inject constructor(
                         host = connectedHost,
                         secret = secret.trim(),
                         candidates = sendRoutes,
-                        peerId = expectedRemotePeerId
+                        peerId = authenticatedRemotePeerId
                     )
                     UltraShareForegroundService.registerApprovedSendTarget(approvedTarget)
                     // Every authenticated QR/peer connection is full-duplex: the joining
