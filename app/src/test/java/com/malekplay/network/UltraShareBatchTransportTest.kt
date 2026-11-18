@@ -482,4 +482,37 @@ class UltraShareBatchTransportTest {
     fun verificationTimeoutRejectsNegativeBatchSize() {
         UltraShareBatchTransport.verificationTimeoutMillis(-1L)
     }
+
+    @Test
+    fun v2ReceiverSelectsThePairSpecificCredentialForMeshPeers() {
+        val fallback = "123456789"
+        val direct = "0123456789abcdef".repeat(4)
+        val selected = UltraShareBatchTransport.selectPeerPairingSecret(
+            fallbackSecret = fallback,
+            peerHost = "192.168.1.22",
+            resolver = { direct }
+        )
+        assertEquals(direct, selected)
+        assertEquals(
+            fallback,
+            UltraShareBatchTransport.selectPeerPairingSecret(
+                fallbackSecret = fallback,
+                peerHost = "192.168.1.23",
+                resolver = null
+            )
+        )
+    }
+
+    @Test
+    fun v2ReceiverRejectsMissingPerPeerCredentialInsteadOfFallingBack() {
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+            UltraShareBatchTransport.selectPeerPairingSecret(
+                fallbackSecret = "123456789",
+                peerHost = "192.168.1.22",
+                resolver = { null }
+            )
+        }
+    }
+
+
 }
