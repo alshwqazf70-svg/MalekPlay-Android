@@ -26,7 +26,7 @@ class UltraShareV2HardeningTests(unittest.TestCase):
             valid = Path(folder) / "valid.mp4"
             invalid = Path(folder) / "renamed.mp4"
             valid.write_bytes(bytes.fromhex("000000186674797069736f6d") + bytes(8))
-            valid.write_bytes(bytes.fromhex("000000186674797069736f6d") + bytes(8))
+            invalid.write_bytes(b"MZ-not-a-video")
             self.assertTrue(_media_signature_matches(valid, "valid.mp4"))
             self.assertFalse(_media_signature_matches(invalid, "renamed.mp4"))
 
