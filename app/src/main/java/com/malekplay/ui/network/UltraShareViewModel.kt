@@ -1873,7 +1873,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                         ?: error("تعذر فتح وجهة الحفظ.")
                     file.inputStream().use { input ->
                         output.use { target ->
-                            val copied = input.copyTo(target, UltraShareTransport.CHUNK_BYTES)
+                            val copied = input.copyTo(target, UltraShareBatchTransport.COPY_BUFFER_BYTES)
                             check(copied == sizeBytes) { "لم يكتمل نسخ الملف إلى المكان المحدد." }
                         }
                     }
