@@ -220,7 +220,8 @@ object UltraShareControlChannel {
         networks: List<Network> = emptyList(),
         peerId: String? = null,
         onSessionClosed: (String) -> Unit = {},
-        onSessionReady: (String) -> Unit = {}
+        onSessionReady: (String) -> Unit = {},
+        notifyClientSessionReady: Boolean = true
     ): Decision = withContext(Dispatchers.IO) {
         require(UltraShareCore.isValidPrivateLanHost(host) || host == "127.0.0.1") {
             "عنوان الجهاز غير صالح."
@@ -468,7 +469,7 @@ object UltraShareControlChannel {
                     }
                 }
                 retained = true
-                runCatching { clientSessionReadyListener?.invoke(host) }
+                if (notifyClientSessionReady) runCatching { clientSessionReadyListener?.invoke(host) }
                     .onFailure { failure ->
                         UltraShareDiagnostics.failure(
                             "CONTROL_CHANNEL_CLIENT_SESSION_READY_LISTENER",
