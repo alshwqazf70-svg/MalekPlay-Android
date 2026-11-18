@@ -1433,11 +1433,12 @@ fun UltraShareScreen(
         if (!grants.values.all { it }) {
             Toast.makeText(
                 context,
-                "لم يُمنح إذن Wi-Fi Direct. لم نبدأ اتصالاً مباشراً؛ يمكنك منح الإذن من إعدادات التطبيق ثم إعادة المحاولة.",
+                "لم يُمنح إذن Wi-Fi Direct؛ لن نوقف الاقتران. سنواصل تشغيل الاستقبال ونستخدم Wi-Fi العادية أو نقطة الاتصال كبديل متاح.",
                 Toast.LENGTH_LONG
             ).show()
-            return@rememberLauncherForActivityResult
         }
+        // Permission denial disables only the optional P2P route. The receiver
+        // and authenticated LAN/QR pairing must still start.
         action?.invoke()
     }
     val requestWifiDirectAction: (() -> Unit) -> Unit = { action ->
