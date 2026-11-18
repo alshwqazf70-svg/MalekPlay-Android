@@ -18,7 +18,9 @@ This document describes the in-app engine used by MalekPlay. NSTACKX/DFinder and
 3. **Data plane**
    - `UltraShareBatchTransport` over TCP is the only file data plane.
    - One authenticated TCP connection carries a bounded batch manifest and its files.
-   - The receiver validates the manifest, file lengths, transfer identity and SHA-256 digests before publishing received files.
+   - `UltraShareCore` contains shared validation, pairing-key, metadata and safe-publication helpers; it is not a transport engine.
+   - Android and desktop enforce media-only payloads: video, audio and raster images. Documents, archives, application packages and SVG are rejected at the protocol boundary. The folder-to-ZIP send/extract workflow has been removed.
+   - The receiver validates the manifest, file lengths, transfer identity and SHA-256 digests before publishing received media.
    - Resume state is checkpointed atomically; only checkpointed bytes are eligible for resume.
    - The retired MPU1 single-file sender/receiver and all V1 downgrade paths have been removed. Older clients without V2 are reported as unsupported; the app never silently switches protocols.
 
@@ -38,4 +40,4 @@ This document describes the in-app engine used by MalekPlay. NSTACKX/DFinder and
 
 ## Verification boundary
 
-CI can verify compilation, JVM protocol/transport tests, and emulator runtime tests. These do not prove Wi-Fi Direct interoperability between two physical Android devices. Final acceptance still requires two-phone tests covering discovery, QR pairing, bidirectional transfer, large files, interrupted transfer/resume, and screen-off/background behavior.
+CI is configured for compilation, JVM protocol/transport tests, desktop Python tests and emulator checkpoints at API 23, 29 and 35. The current GitHub commit-status query did not expose a completed check result for the latest changes. The test suite still needs a true Kotlin↔Python V2 socket integration test and a full Kotlin sender↔receiver batch integration test. Emulator tests do not prove Wi-Fi Direct interoperability between two physical Android devices. Final acceptance still requires two-phone tests covering discovery, QR pairing, bidirectional transfer, large files, interrupted transfer/resume, and screen-off/background behavior.
