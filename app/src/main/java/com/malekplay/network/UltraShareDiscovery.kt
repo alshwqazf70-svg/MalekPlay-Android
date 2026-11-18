@@ -23,7 +23,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-/** LAN discovery with v2 candidate offers and a v1 compatibility path. */
+/** LAN discovery for the native UltraShare V2 peer and data-plane protocol. */
 object UltraShareDiscovery {
     const val DISCOVERY_PORT = 38742
     private const val PROBE_V2 = "MPULTRA_DISCOVER|2"
@@ -247,7 +247,6 @@ object UltraShareDiscovery {
                 }
             }
             val peers = LinkedHashMap<String, Peer>()
-            val v2SourceHosts = HashSet<String>()
             val deadline = System.nanoTime() + scanWindowMs * 1_000_000L
             val buffer = ByteArray(MAX_PACKET_BYTES)
             while (System.nanoTime() < deadline) {
@@ -281,7 +280,6 @@ object UltraShareDiscovery {
                             )
                             val endpoint = UltraShareNegotiation.selectCandidate(testedCandidates)
                                 ?: return@forEach
-                            v2SourceHosts += host
                             peers.remove("host:$host")
                             val incoming = Peer(endpoint.host, endpoint.port, v2.displayName, v2.peerId, testedCandidates)
                             val identity = "id:${v2.peerId.lowercase(java.util.Locale.ROOT)}"
