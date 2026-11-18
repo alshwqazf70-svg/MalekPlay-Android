@@ -26,6 +26,8 @@ import kotlin.coroutines.resume
 object UltraShareReceivedPublisher {
 
     internal const val PUBLIC_APP_RELATIVE_PATH = "Download/MalekPlayer"
+    private const val PUBLIC_DOWNLOADS_RELATIVE_PATH = "Download"
+
     internal fun publicRelativePaths(): List<String> = listOf(PUBLIC_APP_RELATIVE_PATH)
 
     suspend fun publish(context: Context, received: UltraShareCore.ReceivedFile): Uri? =
