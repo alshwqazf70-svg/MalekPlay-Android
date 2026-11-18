@@ -52,14 +52,14 @@ data class UltraShareServiceState(
     val dataChannelReady: Boolean = false,
     val controlChannelError: String? = null,
     val sending: Boolean = false,
-    val progress: UltraShareTransport.Progress? = null,
-    val sendProgress: UltraShareTransport.Progress? = null,
-    val receiveProgress: UltraShareTransport.Progress? = null,
+    val progress: UltraShareCore.Progress? = null,
+    val sendProgress: UltraShareCore.Progress? = null,
+    val receiveProgress: UltraShareCore.Progress? = null,
     val hotspotSsid: String? = null,
     val hotspotPassword: String? = null,
     val hotspotStarting: Boolean = false,
     val hotspotActive: Boolean = false,
-    val receivedFile: UltraShareTransport.ReceivedFile? = null,
+    val receivedFile: UltraShareCore.ReceivedFile? = null,
     val status: String? = null,
     val error: String? = null,
     val queueCompleted: Int = 0,
@@ -117,12 +117,12 @@ data class UltraSharePeerTransfer(
 /** Keeps the shared progress indicator truthful while other peers are still receiving. */
 internal fun latestActivePeerReceiveProgress(
     transfers: List<UltraSharePeerTransfer>
-): UltraShareTransport.Progress? =
+): UltraShareCore.Progress? =
     transfers.asSequence()
         .filter { it.status == "يستقبل الآن" }
         .maxByOrNull { it.updatedAtMillis }
         ?.let { active ->
-            UltraShareTransport.Progress(
+            UltraShareCore.Progress(
                 active.fileName,
                 active.transferredBytes,
                 active.totalBytes,
@@ -258,7 +258,7 @@ class UltraShareForegroundService : Service() {
             }
             ACTION_RECEIVE -> {
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
-                if (!UltraShareTransport.isValidPairingSecret(secret)) {
+                if (!UltraShareCore.isValidPairingSecret(secret)) {
                     updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
                     finishService()
                     return START_NOT_STICKY
@@ -326,7 +326,7 @@ class UltraShareForegroundService : Service() {
                                 // so the sender can verify it after authenticated pairing.
                                 port = UltraShareBatchTransport.DEFAULT_PORT,
                                 pairingSecret = secret,
-                                destinationDirectory = UltraShareTransport.defaultReceiveDirectory(this@UltraShareForegroundService),
+                                destinationDirectory = UltraShareCore.defaultReceiveDirectory(this@UltraShareForegroundService),
                                 maxPeers = UltraShareBatchTransport.DEFAULT_MAX_PEERS,
                                 onPeerStarted = { peer ->
                                     UltraShareDiagnostics.event("DATA_CHANNEL", "V2_PEER_AUTHENTICATED", mapOf("peerHost" to peer))
@@ -370,11 +370,11 @@ class UltraShareForegroundService : Service() {
                                         )
                                         current.copy(
                                             peerTransfers = current.peerTransfers.filterNot { it.host == peer } + item,
-                                            receiveProgress = UltraShareTransport.Progress(
+                                            receiveProgress = UltraShareCore.Progress(
                                                 progress.fileName, progress.transferredBytes, progress.totalBytes,
                                                 progress.bytesPerSecond, true
                                             ),
-                                            progress = if (current.sending) null else UltraShareTransport.Progress(
+                                            progress = if (current.sending) null else UltraShareCore.Progress(
                                                 progress.fileName, progress.transferredBytes, progress.totalBytes,
                                                 progress.bytesPerSecond, true
                                             ),
@@ -835,7 +835,7 @@ class UltraShareForegroundService : Service() {
         }
     }
 
-    private fun updateNotification(progress: UltraShareTransport.Progress) {
+    private fun updateNotification(progress: UltraShareCore.Progress) {
         val current = currentState()
         // A single notification progress bar cannot truthfully represent two simultaneous
         // transfers. Show a neutral concurrent status instead of oscillating percentages.
@@ -848,7 +848,7 @@ class UltraShareForegroundService : Service() {
         notificationManager.notify(NOTIFICATION_ID, buildNotification(visibleProgress))
     }
 
-    private fun buildNotification(progress: UltraShareTransport.Progress?): Notification {
+    private fun buildNotification(progress: UltraShareCore.Progress?): Notification {
         val current = currentState()
         val text = when {
             current.sending && current.receiving -> "الإرسال والاستقبال يعملان معاً"
@@ -959,7 +959,7 @@ class UltraShareForegroundService : Service() {
         replaceQueue: Boolean = true,
         candidates: List<UltraShareNegotiation.Candidate> = emptyList()
     ) {
-        if (uris.isEmpty() || host.isBlank() || !UltraShareTransport.isValidPrivateLanHost(host) || !UltraShareTransport.isValidPairingSecret(secret)) {
+        if (uris.isEmpty() || host.isBlank() || !UltraShareCore.isValidPrivateLanHost(host) || !UltraShareCore.isValidPairingSecret(secret)) {
             updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
             finishService()
             return
@@ -1042,7 +1042,7 @@ class UltraShareForegroundService : Service() {
                                     bytesPerSecond = progress.bytesPerSecond,
                                     status = "يرسل الآن"
                                 )
-                                val sendProgress = UltraShareTransport.Progress(
+                                val sendProgress = UltraShareCore.Progress(
                                     progress.fileName, progress.transferredBytes, progress.totalBytes,
                                     progress.bytesPerSecond, false
                                 )
@@ -1162,8 +1162,8 @@ class UltraShareForegroundService : Service() {
     ) {
         if (uris.isEmpty() || targets.isEmpty() || sendJob != null) return
         if (targets.any {
-                !UltraShareTransport.isValidPrivateLanHost(it.host) ||
-                    !UltraShareTransport.isValidPairingSecret(it.secret)
+                !UltraShareCore.isValidPrivateLanHost(it.host) ||
+                    !UltraShareCore.isValidPairingSecret(it.secret)
             }
         ) {
             updateState { current -> current.copy(error = "بيانات أحد الأجهزة المقترنة غير صالحة.") }
@@ -1700,10 +1700,10 @@ class UltraShareForegroundService : Service() {
                 }
             }
         require(size >= 0L) { "تعذر معرفة حجم الملف؛ اختر ملفاً من مدير الملفات يدعم عرض الحجم." }
-        val mimeType = UltraShareTransport.sanitizeMimeType(
+        val mimeType = UltraShareCore.sanitizeMimeType(
             contentResolver.getType(uri) ?: "application/octet-stream"
         )
-        require(UltraShareTransport.isAllowedShareFile(name, mimeType)) {
+        require(UltraShareCore.isAllowedShareFile(name, mimeType)) {
             "لا يمكن مشاركة ملفات APK أو PDF."
         }
         return Triple(name, mimeType, size)
@@ -1815,8 +1815,8 @@ class UltraShareForegroundService : Service() {
         private val reconnectableSendTargetsByHost = LinkedHashMap<String, UltraShareApprovedSendTarget>()
 
         internal fun registerApprovedSendTarget(target: UltraShareApprovedSendTarget) {
-            require(UltraShareTransport.isValidPrivateLanHost(target.host))
-            require(UltraShareTransport.isValidPairingSecret(target.secret))
+            require(UltraShareCore.isValidPrivateLanHost(target.host))
+            require(UltraShareCore.isValidPairingSecret(target.secret))
             synchronized(approvedSendTargetsByHost) {
                 approvedSendTargetsByHost[target.host] = target
                 reconnectableSendTargetsByHost[target.host] = target
@@ -1989,8 +1989,8 @@ class UltraShareForegroundService : Service() {
             val encodedTargets = org.json.JSONArray().apply {
                 targets.forEach { target ->
                     require(target.sessionId.isNotBlank())
-                    require(UltraShareTransport.isValidPrivateLanHost(target.host))
-                    require(UltraShareTransport.isValidPairingSecret(target.secret))
+                    require(UltraShareCore.isValidPrivateLanHost(target.host))
+                    require(UltraShareCore.isValidPairingSecret(target.secret))
                     val routeOffer = target.candidates.take(8).takeIf { it.isNotEmpty() }?.let {
                         UltraShareNegotiation.encode(
                             UltraShareNegotiation.Offer(
@@ -2022,8 +2022,8 @@ class UltraShareForegroundService : Service() {
                 (0 until array.length()).mapNotNull { index ->
                     val item = array.optJSONObject(index) ?: return@mapNotNull null
                     val sessionId = item.optString("sessionId").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                    val host = item.optString("host").takeIf { UltraShareTransport.isValidPrivateLanHost(it) } ?: return@mapNotNull null
-                    val secret = item.optString("secret").takeIf { UltraShareTransport.isValidPairingSecret(it) } ?: return@mapNotNull null
+                    val host = item.optString("host").takeIf { UltraShareCore.isValidPrivateLanHost(it) } ?: return@mapNotNull null
+                    val secret = item.optString("secret").takeIf { UltraShareCore.isValidPairingSecret(it) } ?: return@mapNotNull null
                     val offer = item.optString("routeOffer").takeIf { it.isNotBlank() && it != "null" }
                     UltraShareApprovedSendTarget(
                         sessionId = sessionId,
