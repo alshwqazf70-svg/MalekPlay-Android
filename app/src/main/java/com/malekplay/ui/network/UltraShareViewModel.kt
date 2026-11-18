@@ -212,7 +212,9 @@ class UltraShareViewModel @Inject constructor(
                         Build.VERSION.SDK_INT < Build.VERSION_CODES.O &&
                             hotspotFallbackStarted &&
                             serviceState.receiving &&
-                            serviceState.localAddresses.any(UltraShareCore::isValidPrivateLanHost)
+                            UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+                                context, serviceState.localAddresses
+                            ).isNotEmpty()
                         ),
                     pendingConnection = serviceState.pendingConnection,
                     activePeers = serviceState.activePeers,
@@ -249,7 +251,7 @@ class UltraShareViewModel @Inject constructor(
     fun latchReceiverQrPayload(payload: String) {
         if (payload.isBlank() || payload.length > 16_384) return
         val current = _state.value
-        if (!current.receiving || current.activePeers.isNotEmpty() ||
+        if (!current.receiving ||
             !UltraShareCore.isValidPairingSecret(current.pairingSecret)
         ) return
         val stablePayload = com.malekplay.network.UltraSharePairingReadiness.stableQrPayload(
@@ -348,39 +350,27 @@ class UltraShareViewModel @Inject constructor(
         val session = wifiDirectSession
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             val beginLanFallback: () -> Unit = {
-                val hasExistingLan = (
+                val lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+                    context,
                     _state.value.localAddresses + UltraShareForegroundService.state.value.localAddresses
-                ).any(UltraShareCore::isValidPrivateLanHost)
+                )
+                val hasExistingLan = lanHosts.isNotEmpty()
                 _state.value = _state.value.copy(
                     invitationId = "",
+                    localAddresses = lanHosts,
                     lanFallbackReady = hasExistingLan,
                     wifiDirectHost = null,
                     wifiDirectScanning = false,
                     error = if (hasExistingLan) null
-                        else "تعذر Wi-Fi Direct، وهذا الإصدار لا يدعم نقطة الاتصال المحلية داخل التطبيق. اتصل الهاتفان بشبكة Wi-Fi نفسها ثم أعد المحاولة.",
+                        else "تعذر Wi-Fi Direct، وهذا الإصدار لا يدعم نقطة الاتصال المحلية داخل التطبيق. اتصل الهاتفان بشبكة Wi-Fi نفسها أو فعّل نقطة اتصال النظام يدوياً.",
                     status = if (hasExistingLan)
                         "تعذر Wi-Fi Direct؛ نستخدم شبكة Wi-Fi الحالية كبديل. يجب أن يكون الهاتف الآخر على الشبكة نفسها."
-                    else "تعذر Wi-Fi Direct ولا توجد شبكة محلية بديلة متاحة."
+                    else "الاستقبال يعمل؛ ننتظر شبكة محلية أو نقطة اتصال نظام لعرض رمز QR."
                 )
             }
-            if (session == null) {
-                beginLanFallback()
-            } else {
-                cleanupWifiDirectBeforeFallback(session) { removed ->
-                    if (removed) {
-                        beginLanFallback()
-                    } else {
-                        // Allow an explicit retry after cleanup failure; do not leave
-                        // the fallback latch permanently closed for this receive session.
-                        hotspotFallbackStarted = false
-                        _state.value = _state.value.copy(
-                            invitationId = "",
-                            lanFallbackReady = false,
-                            error = "تعذر إيقاف اكتشاف/إعلان Wi-Fi Direct أو إغلاق المجموعة السابقة؛ لم أفعّل مساراً بديلاً قبل تأكيد التنظيف."
-                        )
-                    }
-                }
-            }
+            // Android 6–7 cannot create LocalOnlyHotspot. LAN fallback does not
+            // replace a radio group, so it must not wait for P2P cleanup permission.
+            beginLanFallback()
             return
         }
         val beginFallback: () -> Unit = {
@@ -395,10 +385,10 @@ class UltraShareViewModel @Inject constructor(
                 .onFailure { failure ->
                     UltraShareDiagnostics.failure("HOTSPOT_FALLBACK_START", failure)
                     hotspotFallbackStarted = false
-                    val lanHosts = (
-                        _state.value.localAddresses +
-                            UltraShareForegroundService.state.value.localAddresses
-                    ).filter(UltraShareCore::isValidPrivateLanHost).distinct()
+                    val lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+                        context,
+                        _state.value.localAddresses + UltraShareForegroundService.state.value.localAddresses
+                    )
                     val lanReady = lanHosts.isNotEmpty()
                     _state.value = _state.value.copy(
                         localAddresses = lanHosts,
