@@ -377,7 +377,10 @@ class UltraShareForegroundService : Service() {
                                 port = UltraShareBatchTransport.DEFAULT_PORT,
                                 pairingSecret = secret,
                                 destinationDirectory = UltraShareCore.defaultReceiveDirectory(this@UltraShareForegroundService),
-                                maxPeers = UltraShareBatchTransport.DEFAULT_MAX_PEERS,
+                                maxPeers = UltraShareBatchTransport.recommendedMaxPeers(
+                                    (getSystemService(ACTIVITY_SERVICE) as? android.app.ActivityManager)
+                                        ?.memoryClass ?: UltraShareBatchTransport.DEFAULT_MAX_PEERS * 32
+                                ),
                                 onPeerStarted = { peer ->
                                     UltraShareDiagnostics.event("DATA_CHANNEL", "V2_PEER_AUTHENTICATED", mapOf("peerHost" to peer))
                                     beginTransfer(isReceiving = true)
