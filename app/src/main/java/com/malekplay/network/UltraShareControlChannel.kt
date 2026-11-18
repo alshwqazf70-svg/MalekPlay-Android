@@ -438,8 +438,10 @@ object UltraShareControlChannel {
                                 val wasCurrentSession = clientSessions.remove(host, session)
                                 if (wasCurrentSession) {
                                     runCatching { session.socket.close() }
-                                    session.frames.close()
-                                    session.incoming.close()
+                                    synchronized(session.lock) {
+                                        session.frames.close()
+                                        session.incoming.close()
+                                    }
                                     onSessionClosed(host)
                                 }
                             }
@@ -488,16 +490,20 @@ object UltraShareControlChannel {
         synchronized(clientSessionGuard) {
             val session = clientSessions.remove(host) ?: return
             session.heartbeat?.cancel()
-            session.frames.close()
-            session.incoming.close()
-            runCatching { session.socket.close() }
+            synchronized(session.lock) {
+                session.frames.close()
+                session.incoming.close()
+                runCatching { session.socket.close() }
+            }
         }
     }
 
     fun closeServerSession(host: String) {
         serverApplicationSessions.remove(host)?.let { active ->
-            active.frames.close()
-            active.incoming.close()
+            synchronized(active.lock) {
+                active.frames.close()
+                active.incoming.close()
+            }
         }
         serverSessions.remove(host)?.let { socket -> runCatching { socket.close() } }
         serverSessionPeerIds.remove(host)
@@ -750,8 +756,10 @@ object UltraShareControlChannel {
             ) {
                 serverSessionPeerIds.remove(requestToClose.peerAddress)
                 serverApplicationSessions.remove(requestToClose.peerAddress)?.let { active ->
-                    active.frames.close()
-                    active.incoming.close()
+                    synchronized(active.lock) {
+                        active.frames.close()
+                        active.incoming.close()
+                    }
                 }
                 UltraShareDiagnostics.event(
                     "CONTROL_CHANNEL", "SERVER_SESSION_CLOSED",
