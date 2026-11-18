@@ -98,7 +98,8 @@ internal fun isRetryableUltraSharePairingFailure(failure: Throwable): Boolean {
     while (current != null && visited.add(current)) {
         if (current is java.net.ConnectException ||
             current is java.net.NoRouteToHostException ||
-            current is java.net.SocketTimeoutException ||
+            (current is java.net.SocketTimeoutException &&
+                !current.message.orEmpty().contains("approval", ignoreCase = true)) ||
             current is java.net.SocketException ||
             current is java.io.EOFException ||
             (current is IllegalArgumentException &&
