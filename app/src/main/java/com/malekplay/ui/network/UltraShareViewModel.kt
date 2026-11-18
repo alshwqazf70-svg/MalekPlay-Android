@@ -322,16 +322,16 @@ class UltraShareViewModel @Inject constructor(
     ) {
         session.stopInvitationDiscoveryChecked { discoveryStopped ->
             if (!discoveryStopped) {
-                UltraShareDiagnostics.event("WIFI_DIRECT", "FALLBACK_BLOCKED_DISCOVERY_CLEANUP_FAILED")
-                onComplete(false)
-                return@stopInvitationDiscoveryChecked
+                // A stale DNS-SD request must not prevent us from attempting to
+                // remove the actual P2P group and activate a usable LAN fallback.
+                UltraShareDiagnostics.event("WIFI_DIRECT", "DISCOVERY_CLEANUP_FAILED_CONTINUING_GROUP_REMOVAL")
             }
             session.stopInvitationAdvertisementChecked { advertisementStopped ->
                 if (!advertisementStopped) {
-                    UltraShareDiagnostics.event("WIFI_DIRECT", "FALLBACK_BLOCKED_ADVERTISEMENT_CLEANUP_FAILED")
-                    onComplete(false)
-                    return@stopInvitationAdvertisementChecked
+                    UltraShareDiagnostics.event("WIFI_DIRECT", "ADVERTISEMENT_CLEANUP_FAILED_CONTINUING_GROUP_REMOVAL")
                 }
+                // Group removal is the safety boundary: only its confirmed result
+                // decides whether another Wi-Fi transport may be started.
                 session.removeGroup(onComplete)
             }
         }
