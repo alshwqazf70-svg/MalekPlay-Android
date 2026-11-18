@@ -1299,7 +1299,16 @@ private fun forgetApprovedSenderTarget(host: String) {
         }
         invitationPreferences.edit().putString("active_invitation_id", invitationId).apply()
         val session = runCatching { ensureWifiDirectSession() }.getOrElse { failure ->
-            _state.value = _state.value.copy(error = failure.localizedMessage ?: "تعذر تهيئة Wi-Fi Direct.")
+            UltraShareDiagnostics.failure("WIFI_DIRECT_SESSION_INITIALIZATION", failure)
+            if (wifiDirectPrimaryAttempt && _state.value.receiving) {
+                startHotspotFallback(
+                    failure.localizedMessage ?: "تعذر تهيئة Wi-Fi Direct؛ ننتقل إلى مسار الشبكة المحلية."
+                )
+            } else {
+                _state.value = _state.value.copy(
+                    error = failure.localizedMessage ?: "تعذر تهيئة Wi-Fi Direct."
+                )
+            }
             return
         }
         _state.value = _state.value.copy(
