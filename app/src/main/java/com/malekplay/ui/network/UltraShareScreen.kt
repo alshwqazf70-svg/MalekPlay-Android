@@ -699,7 +699,10 @@ class LegacyUltraShareViewModel @Inject constructor(
     private fun publishStableReceiverQrIfReady() {
         val current = _state.value
         if (!current.receiving || current.pairedSession || current.receiverQrPayload != null) return
-        if (!current.controlChannelReady || !current.dataChannelReady ||
+        // Pairing uses the authenticated MPC2 control listener. The V2 data
+        // listener is independent and may recover after pairing; it must not hide
+        // the QR or prevent devices from connecting.
+        if (!current.controlChannelReady ||
             !UltraShareCore.isValidPairingSecret(current.pairingSecret)
         ) return
 
@@ -732,7 +735,7 @@ class LegacyUltraShareViewModel @Inject constructor(
         ) return
         _state.value = latest.copy(receiverQrPayload = payload)
         UltraShareDiagnostics.event(
-            "PAIRING_QR", "QR_PUBLISHED_STABLE",
+            "PAIRING_QR", if (current.dataChannelReady) "QR_PUBLISHED_STABLE" else "QR_PUBLISHED_WITHOUT_DATA_LISTENER",
             mapOf("mode" to if (current.wifiDirectInvitationReady) "WIFI_DIRECT" else "HOTSPOT",
                 "invitationId" to current.invitationId.orEmpty(), "payloadLength" to payload.length)
         )
