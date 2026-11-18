@@ -300,9 +300,9 @@ object UltraShareControlChannel {
                         (routeFailure.message?.take(100)?.let { " - " + it } ?: ""))
                     false
                 } catch (failure: RuntimeException) {
-                    // An OEM may invalidate a Network between discovery and bindSocket().
-                    // Skip only stale-state/argument failures; preserve cancellation,
-                    // permission failures and unrelated programming defects.
+                    // An OEM may invalidate or deny binding a Network between
+                    // discovery and bindSocket(). Skip this route and retain the default
+                    // route fallback; never swallow cancellation or unrelated defects.
                     if (failure is CancellationException ||
                         (failure !is IllegalStateException &&
                             failure !is IllegalArgumentException &&
