@@ -170,7 +170,8 @@ class UltraSharePairingReadinessTest {
         fun canShow(
             fallback: Boolean,
             hosts: List<String> = listOf("192.168.1.20"),
-            data: Boolean = true
+            data: Boolean = true,
+            peers: Int = 0
         ) = UltraSharePairingReadiness.canShowLanQr(
                 receiving = true,
                 controlChannelReady = true,
