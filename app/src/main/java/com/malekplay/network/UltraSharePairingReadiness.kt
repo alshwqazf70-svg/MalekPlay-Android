@@ -32,7 +32,6 @@ internal object UltraSharePairingReadiness {
     ): Boolean =
         receiving &&
             controlChannelReady &&
-            dataChannelReady &&
             activePeerCount == 0 &&
             UltraShareCore.isValidPairingSecret(pairingSecret) &&
             !invitationId.isNullOrBlank()
@@ -48,7 +47,6 @@ internal object UltraSharePairingReadiness {
     ): Boolean =
         receiving &&
             controlChannelReady &&
-            dataChannelReady &&
             lanFallbackReady &&
             activePeerCount == 0 &&
             UltraShareCore.isValidPairingSecret(pairingSecret) &&
@@ -67,7 +65,6 @@ internal object UltraSharePairingReadiness {
     ): Boolean =
         receiving &&
             controlChannelReady &&
-            dataChannelReady &&
             hotspotActive &&
             activePeerCount == 0 &&
             UltraShareCore.isValidPairingSecret(pairingSecret) &&
