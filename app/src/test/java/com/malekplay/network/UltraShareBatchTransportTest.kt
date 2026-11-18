@@ -45,8 +45,8 @@ class UltraShareBatchTransportTest {
         val digest = java.security.MessageDigest.getInstance("SHA-256")
             .digest(ByteArray(0))
         val entry = UltraShareBatchProtocol.newEntry(
-            name = "empty.dat",
-            mimeType = "application/octet-stream",
+            name = "empty.mp3",
+            mimeType = "audio/mpeg",
             sizeBytes = 0L,
             sha256 = digest
         )
