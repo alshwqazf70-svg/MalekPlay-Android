@@ -2279,7 +2279,7 @@ class UltraShareForegroundService : Service() {
                 // I/O failures and retry the authenticated path before abandoning it.
                 if (retry < 2) {
                     retry++
-                    var samePathReady = UltraShareControlChannel.isSessionActive(activeHost)
+                    var samePathReady = UltraShareControlChannel.hasAnyActiveSession(activeHost)
                     if (!samePathReady) {
                         UltraShareDiagnostics.event(
                             "DATA_SEND_RECOVERY",
