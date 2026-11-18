@@ -84,7 +84,7 @@ class UltraShareBatchProtocolTest {
     @Test fun rejectsMalformedMimeTypes() {
         listOf("", "application", "/pdf", "application/", "application/pdf;broken").forEach { mime ->
             assertTrue("Expected malformed MIME type to be rejected: $mime",
-                !UltraShareTransport.isSupportedShareMimeType(mime))
+                !UltraShareCore.isSupportedShareMimeType(mime))
         }
     }
 
