@@ -45,7 +45,7 @@ class UltraShareNegotiationTest {
         assertEquals(38742, UltraShareNegotiation.dataPortForHost("192.168.1.99", candidates, 38742))
     }
 
-    @Test fun rejectsPublicOrNonPrivateEndpointsDuringOfferEncodingAndDecoding() {
+    @Test fun rejectsPublicEndpointsDuringEncodingAndFiltersThemDuringDecoding() {
         val publicCandidate = UltraShareNegotiation.Candidate(
             UltraShareNegotiation.Transport.WLAN,
             "8.8.8.8",
