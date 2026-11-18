@@ -34,12 +34,12 @@ object UltraShareQrCode {
     fun createReceiverPayload(hosts: List<String>, pairingSecret: String): String {
         val safeHosts = hosts.asSequence()
             .map { it.trim() }
-            .filter { UltraShareTransport.isValidPrivateLanHost(it) }
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
         require(safeHosts.isNotEmpty()) { "لا يوجد عنوان شبكة محلي صالح لرمز QR." }
-        require(UltraShareTransport.isValidPairingSecret(pairingSecret)) {
+        require(UltraShareCore.isValidPairingSecret(pairingSecret)) {
             "رمز الاقتران غير صالح."
         }
         return Uri.Builder()
@@ -64,11 +64,11 @@ object UltraShareQrCode {
         }
         val safeHosts = hosts.asSequence()
             .map { it.trim() }
-            .filter { UltraShareTransport.isValidPrivateLanHost(it) }
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
-        require(UltraShareTransport.isValidPairingSecret(pairingSecret)) {
+        require(UltraShareCore.isValidPairingSecret(pairingSecret)) {
             "رمز الاقتران غير صالح."
         }
         return Uri.Builder()
@@ -92,12 +92,12 @@ object UltraShareQrCode {
     ): String {
         val safeHosts = hosts.asSequence()
             .map { it.trim() }
-            .filter { UltraShareTransport.isValidPrivateLanHost(it) }
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
         require(safeHosts.isNotEmpty()) { "لا يوجد عنوان صالح لنقطة اتصال MalekPlayer." }
-        require(UltraShareTransport.isValidPairingSecret(pairingSecret)) { "رمز الاقتران غير صالح." }
+        require(UltraShareCore.isValidPairingSecret(pairingSecret)) { "رمز الاقتران غير صالح." }
         require(ssid.isNotBlank() && ssid.length <= 32) { "اسم شبكة MalekPlayer غير صالح." }
         require(password.length in 8..63) { "كلمة مرور شبكة MalekPlayer غير صالحة." }
         return Uri.Builder()
@@ -114,10 +114,10 @@ object UltraShareQrCode {
 
     fun createPayload(host: String, port: Int, pairingSecret: String): String {
         require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ قناة الاقتران غير متوافق." }
-        require(UltraShareTransport.isValidPrivateLanHost(host)) {
+        require(UltraShareCore.isValidPrivateLanHost(host)) {
             "عنوان QR يجب أن يكون IPv4 خاصاً بالشبكة المحلية."
         }
-        require(UltraShareTransport.isValidPairingSecret(pairingSecret)) {
+        require(UltraShareCore.isValidPairingSecret(pairingSecret)) {
             "رمز الاقتران غير صالح."
         }
         return Uri.Builder()
@@ -156,7 +156,7 @@ object UltraShareQrCode {
             listOfNotNull(uri.getQueryParameter("host"))
         }).asSequence()
             .map { it.trim() }
-            .filter { UltraShareTransport.isValidPrivateLanHost(it) }
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
@@ -165,7 +165,7 @@ object UltraShareQrCode {
         val port = requireNotNull(uri.getQueryParameter("port")) { "منفذ الجهاز غير موجود في رمز QR." }
             .toIntOrNull() ?: throw IllegalArgumentException("منفذ الاقتران غير صالح.")
         val secret = requireNotNull(uri.getQueryParameter("secret")) { "رمز الاقتران غير موجود في رمز QR." }
-        require(UltraShareTransport.isValidPairingSecret(secret)) { "رمز الاقتران في QR غير صالح." }
+        require(UltraShareCore.isValidPairingSecret(secret)) { "رمز الاقتران في QR غير صالح." }
         require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ MalekPlayer Ultra Share غير متوافق." }
         val hotspotSsid = if (version == HOTSPOT_VERSION) {
             requireNotNull(uri.getQueryParameter("ssid")) { "اسم شبكة Wi-Fi غير موجود في QR." }
