@@ -624,9 +624,9 @@ object UltraShareBatchTransport {
                         val md = MessageDigest.getInstance("SHA-256")
                         val buffer = ByteArray(BUFFER_BYTES)
                         while (true) {
-                            val count = stream.read(buffer)
-                            if (count < 0) break
-                            if (count > 0) md.update(buffer, 0, count)
+                            val count = readAtMost(stream, buffer, buffer.size)
+                            if (count == 0) break
+                            md.update(buffer, 0, count)
                         }
                         md.digest()
                     }
