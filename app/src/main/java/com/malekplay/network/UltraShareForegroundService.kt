@@ -1313,6 +1313,8 @@ class UltraShareForegroundService : Service() {
         val remoteId = canonicalMeshPeerId(
             UltraShareControlChannel.serverSessionIdentity(host)
                 ?: UltraShareControlChannel.sessionPeerId(host)
+                ?: currentState().activePeers.firstOrNull { it.host == host }?.sessionId
+                ?: approvedSendTarget(host)?.sessionId
         )
         if (remoteId != null) meshDirectEdges.remove(remoteId)
         meshServerJobs.remove(host)?.cancel()
