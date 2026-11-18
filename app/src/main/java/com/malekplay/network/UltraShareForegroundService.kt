@@ -161,6 +161,8 @@ class UltraShareForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // Clear approvals written by older app versions; no peer trust survives a new service.
+        UltraShareTrustedPeerStore.clear(this)
         UltraShareDiagnostics.initialize(this)
         UltraShareDiagnostics.event("SERVICE", "CREATED")
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
