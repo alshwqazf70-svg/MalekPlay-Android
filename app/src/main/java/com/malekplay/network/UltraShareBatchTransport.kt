@@ -46,6 +46,18 @@ import javax.crypto.spec.SecretKeySpec
  */
 object UltraShareBatchTransport {
     const val DEFAULT_MAX_PEERS = 8
+    const val MAX_CONCURRENT_PEERS = 16
+
+    /** Scale parallel receive workers to the Android app heap rather than risking OOM on old phones. */
+    internal fun recommendedMaxPeers(memoryClassMb: Int): Int {
+        require(memoryClassMb > 0)
+        return when {
+            memoryClassMb >= 512 -> MAX_CONCURRENT_PEERS
+            memoryClassMb >= 256 -> DEFAULT_MAX_PEERS
+            else -> 4
+        }
+    }
+
     const val DEFAULT_PORT = 38_742
     const val COPY_BUFFER_BYTES = 1024 * 1024
     private const val BUFFER_BYTES = 1024 * 1024
@@ -119,7 +131,7 @@ object UltraShareBatchTransport {
     ) = withContext(Dispatchers.IO) {
         require(UltraShareCore.isValidPairingSecret(pairingSecret))
         require(port in 0..65535)
-        require(maxPeers in 1..8) { "عدد الأجهزة المتزامنة يجب أن يكون بين 1 و8." }
+        require(maxPeers in 1..MAX_CONCURRENT_PEERS) { "عدد الأجهزة المتزامنة يتجاوز الحد الآمن لهذا الإصدار." }
         check(destinationDirectory.exists() || destinationDirectory.mkdirs())
         check(destinationDirectory.isDirectory)
         val permits = Semaphore(maxPeers)
