@@ -34,7 +34,7 @@ internal object UltraSharePairingReadiness {
             controlChannelReady &&
             dataChannelReady &&
             activePeerCount == 0 &&
-            UltraShareTransport.isValidPairingSecret(pairingSecret) &&
+            UltraShareCore.isValidPairingSecret(pairingSecret) &&
             !invitationId.isNullOrBlank()
 
     fun canShowLanQr(
@@ -51,8 +51,8 @@ internal object UltraSharePairingReadiness {
             dataChannelReady &&
             lanFallbackReady &&
             activePeerCount == 0 &&
-            UltraShareTransport.isValidPairingSecret(pairingSecret) &&
-            localAddresses.any(UltraShareTransport::isValidPrivateLanHost)
+            UltraShareCore.isValidPairingSecret(pairingSecret) &&
+            localAddresses.any(UltraShareCore::isValidPrivateLanHost)
 
     fun canShowHotspotQr(
         receiving: Boolean,
@@ -70,10 +70,10 @@ internal object UltraSharePairingReadiness {
             dataChannelReady &&
             hotspotActive &&
             activePeerCount == 0 &&
-            UltraShareTransport.isValidPairingSecret(pairingSecret) &&
+            UltraShareCore.isValidPairingSecret(pairingSecret) &&
             !hotspotSsid.isNullOrBlank() &&
             !hotspotPassword.isNullOrBlank() &&
-            localAddresses.any(UltraShareTransport::isValidPrivateLanHost)
+            localAddresses.any(UltraShareCore::isValidPrivateLanHost)
 
     fun canSendData(controlSessionActive: Boolean, dataEndpointReachable: Boolean): Boolean =
         controlSessionActive && dataEndpointReachable
