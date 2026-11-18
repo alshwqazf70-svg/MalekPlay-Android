@@ -454,9 +454,9 @@ class UltraShareForegroundService : Service() {
                                             updateState { current -> current.copy(
                                                 receivedFile = received.copy(publishedUri = publishedUri),
                                                 status = if (publishedUri != null) {
-                                                "استُلم ${received.fileName} وحُفظ في التنزيلات/MalekPlayer/Received"
+                                                "استُلم ${received.fileName} وحُفظ في التنزيلات/MalekPlayer"
                                             } else {
-                                                "استُلم ${received.fileName} وحُفظ في مجلد MalekPlayer/Received داخل ملفات التطبيق"
+                                                "استُلم ${received.fileName} وحُفظ في مجلد MalekPlayer داخل ملفات التطبيق"
                                             },
                                                 error = null
                                             ) }
