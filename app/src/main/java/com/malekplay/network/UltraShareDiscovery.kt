@@ -243,9 +243,23 @@ object UltraShareDiscovery {
         val activeSockets = effectiveRoutes.groupBy { it.network }.mapNotNull { (network, networkRoutes) ->
             runCatching {
                 Triple(network, createDiscoverySocket(network, 0), networkRoutes)
+            }.onFailure { failure ->
+                UltraShareDiagnostics.failure(
+                    "DISCOVERY_SCAN_SOCKET_OPEN",
+                    failure,
+                    "networkHandle=${network?.networkHandle ?: 0L}"
+                )
             }.getOrNull()
         }.ifEmpty {
-            listOf(Triple(null, createDiscoverySocket(null, 0), effectiveRoutes))
+            runCatching {
+                listOf(Triple(null, createDiscoverySocket(null, 0), effectiveRoutes))
+            }.onFailure { failure ->
+                UltraShareDiagnostics.failure("DISCOVERY_SCAN_FALLBACK_SOCKET_OPEN", failure)
+            }.getOrDefault(emptyList())
+        }
+        if (activeSockets.isEmpty()) {
+            UltraShareDiagnostics.event("DISCOVERY", "SCAN_UNAVAILABLE_PAIRING_FALLBACK_REMAINS_AVAILABLE")
+            return@withContext emptyList()
         }
         try {
             // Keep V1 discovery alive for older MalekPlay builds while preferring V2.
