@@ -155,7 +155,7 @@ class UltraShareBatchProtocolTest {
     }
 
     @Test fun v2UsesSeparateDataPortAndHasBoundedPeerConcurrency() {
-        assertEquals(UltraShareTransport.DEFAULT_PORT + 1, UltraShareBatchTransport.DEFAULT_PORT)
+        assertEquals(38_742, UltraShareBatchTransport.DEFAULT_PORT)
         assertEquals(4, UltraShareBatchTransport.DEFAULT_MAX_PEERS)
     }
     @Test fun pairingAcknowledgementRequiresBothValidSecretAndApprovedSession() {
