@@ -28,6 +28,9 @@ This phase extends the authenticated room exchange into direct peer control sess
 - V2 credential selection uses the direct peer credential when supplied and rejects a missing resolver result instead of falling back.
 - Existing tests cover pair-key derivation, deterministic topology planning, room roster authentication, and encrypted MPC2 application frames.
 
+
+- MPC2 listener admission is aligned with the room ceiling of 16 participants. The V2 receive server still has its existing four-peer concurrent transfer limit per device; additional data sessions wait/fail according to the existing bounded transport behavior.
+
 ## Remaining validation
 
 - Gradle unit tests and Android lint/build have not been confirmed.
