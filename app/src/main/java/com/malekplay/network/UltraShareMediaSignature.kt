@@ -10,6 +10,18 @@ import java.io.FileInputStream
 internal object UltraShareMediaSignature {
     fun isValid(file: File, fileName: String, mimeType: String): Boolean {
         val ext = fileName.substringAfterLast('.', "").lowercase()
+        val family = when (ext) {
+            "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff" -> "image"
+            "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr",
+            "aiff", "aif", "mid", "midi" -> "audio"
+            "mp4", "m4v", "mkv", "mov", "webm", "avi", "3gp", "3g2", "mpg", "mpeg",
+            "ts", "mts", "m2ts", "wmv", "flv", "ogv" -> "video"
+            else -> return false
+        }
+        val declaredFamily = mimeType.substringBefore('/').lowercase()
+        if (declaredFamily !in setOf(family, "application")) return false
+        if (declaredFamily == "application" &&
+            mimeType.lowercase() !in setOf("application/octet-stream", "application/unknown")) return false
         val prefix = ByteArray(16)
         val count = runCatching { FileInputStream(file).use { it.read(prefix) } }.getOrDefault(-1)
         if (count < 0) return false
