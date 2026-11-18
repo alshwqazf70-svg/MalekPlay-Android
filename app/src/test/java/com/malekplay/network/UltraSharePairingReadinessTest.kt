@@ -124,12 +124,22 @@ class UltraSharePairingReadinessTest {
                 invitationId = "ephemeral-peer-123"
             )
         )
-        assertFalse(
+        assertTrue(
             UltraSharePairingReadiness.canShowWifiDirectQr(
                 receiving = true,
                 controlChannelReady = true,
                 dataChannelReady = true,
                 activePeerCount = 1,
+                pairingSecret = "123456789",
+                invitationId = "ephemeral-peer-123"
+            )
+        )
+        assertTrue(
+            UltraSharePairingReadiness.canShowWifiDirectQr(
+                receiving = true,
+                controlChannelReady = true,
+                dataChannelReady = false,
+                activePeerCount = 8,
                 pairingSecret = "123456789",
                 invitationId = "ephemeral-peer-123"
             )
@@ -198,7 +208,7 @@ class UltraSharePairingReadinessTest {
     @Test fun qrWaitsForEveryHotspotInvitationRequirement() {
         assertFalse(ready(receiving = false))
         assertFalse(ready(hotspot = false))
-        assertFalse(ready(peers = 1))
+        assertTrue(ready(peers = 1))
         assertFalse(ready(secret = "123"))
         assertFalse(ready(ssid = null))
         assertFalse(ready(password = ""))
