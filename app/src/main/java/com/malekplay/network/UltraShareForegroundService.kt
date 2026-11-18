@@ -1663,7 +1663,7 @@ class UltraShareForegroundService : Service() {
                             sessionId = UltraShareControlChannel.sessionPeerId(activeHost)
                                 ?: UltraShareMultiRecipientCoordinator.resolveSessionId(
                                     activeHost,
-                                    reconnectableSendTargets().map { it.host to it.sessionId },
+                                    approvedSendTargets().map { it.host to it.sessionId },
                                     java.util.UUID.randomUUID().toString()
                                 )
                         )
