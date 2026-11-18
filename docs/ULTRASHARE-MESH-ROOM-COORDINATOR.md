@@ -33,6 +33,9 @@ The room coordinator now participates in live foreground-service orchestration. 
 - Resume checkpoint identity uses the stable authenticated peer ID when available.
 - Retry/re-discovery can re-establish a direct MPC2 link with the same roster-derived pair credential.
 
+
+- MPC2 listener admission is aligned with the room ceiling of 16 participants. The V2 receive server still has its existing four-peer concurrent transfer limit per device; additional data sessions wait/fail according to the existing bounded transport behavior.
+
 ## Important boundaries
 
 This is live source integration for direct MPC2 link setup and V2 per-peer credential selection, but it is not yet a verified production Mesh.
