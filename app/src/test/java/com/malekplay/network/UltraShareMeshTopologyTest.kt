@@ -95,6 +95,26 @@ class UltraShareMeshTopologyTest {
     }
 
     @Test
+    fun unreachableMemberDoesNotAbortOtherReachableDirectLinks() {
+        val reachable = peer("B")
+        val unreachable = peer("C").copy(
+            candidates = listOf(
+                UltraShareNegotiation.Candidate(
+                    UltraShareNegotiation.Transport.WLAN,
+                    "192.168.1.13",
+                    UltraShareBatchTransport.DEFAULT_PORT,
+                    reachable = false
+                )
+            )
+        )
+        val plan = UltraShareMeshTopology.plan(peer("A"), listOf(reachable, unreachable))
+
+        assertEquals(2, plan.requiredEdges.size)
+        assertEquals(2, plan.missingEdges.size)
+        assertEquals(listOf("B"), plan.outgoingLinks.map { it.remotePeer.peerId })
+    }
+
+    @Test
     fun rejectsDuplicateIdentityWithConflictingPeerDetails() {
         val first = peer("B")
         val conflicting = first.copy(displayName = "Different device")
