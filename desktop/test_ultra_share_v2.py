@@ -247,7 +247,7 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             source_root = Path(source_dir)
             first = source_root / "مقطع.mp4"
             second = source_root / "empty.mp3"
-            first.write_bytes(b"ultra-share-v2" * 8192)
+            first.write_bytes(bytes.fromhex("000000186674797069736f6d") + b"ultra-share-v2" * 8192)
             second.write_bytes(b"")
             received = []
             failures = []
