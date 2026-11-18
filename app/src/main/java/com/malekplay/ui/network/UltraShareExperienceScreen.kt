@@ -83,7 +83,7 @@ import com.malekplay.network.UltraShareQueueStore
 import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraSharePlatformCompatibility
 import com.malekplay.network.UltraShareNetworkRouting
-import com.malekplay.network.UltraShareTransport
+import com.malekplay.network.UltraShareCore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -950,7 +950,7 @@ fun UltraShareExperienceScreen(
                             visiblePeers.getOrNull(index)?.let { peer ->
                                 host = peer.host
                                 page = UltraSharePage.SEND
-                                if (state.approvedPeerHost != peer.host || !UltraShareTransport.isValidPairingSecret(secret)) {
+                                if (state.approvedPeerHost != peer.host || !UltraShareCore.isValidPairingSecret(secret)) {
                                     secret = ""
                                 }
                             }
@@ -997,7 +997,7 @@ fun UltraShareExperienceScreen(
                                     Text(peer.host, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
                                 }
                                 Button(colors = ultraShareButtonColors(), onClick = {
-                                    val sessionReady = state.approvedPeerHost == peer.host && UltraShareTransport.isValidPairingSecret(secret)
+                                    val sessionReady = state.approvedPeerHost == peer.host && UltraShareCore.isValidPairingSecret(secret)
                                     host = peer.host
                                     page = UltraSharePage.SEND
                                     if (!sessionReady) {
@@ -1293,7 +1293,7 @@ fun UltraShareExperienceScreen(
                 showDevicePicker = false
                 host = selectedHost
                 page = UltraSharePage.SEND
-                val sessionReady = state.approvedPeerHost == selectedHost && UltraShareTransport.isValidPairingSecret(secret)
+                val sessionReady = state.approvedPeerHost == selectedHost && UltraShareCore.isValidPairingSecret(secret)
                 if (!sessionReady) {
                     secret = ""
                 }
@@ -1474,7 +1474,7 @@ private fun isUltraShareAllowedFile(context: Context, uri: Uri): Boolean = runCa
                 if (column >= 0) cursor.getString(column) else null
             } else null
         } ?: uri.lastPathSegment.orEmpty()
-    if (!UltraShareTransport.isAllowedShareFile(displayName, mime)) {
+    if (!UltraShareCore.isAllowedShareFile(displayName, mime)) {
         return@runCatching false
     }
 
