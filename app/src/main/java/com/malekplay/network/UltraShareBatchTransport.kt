@@ -114,8 +114,10 @@ object UltraShareBatchTransport {
         onProgress: (String, FileProgress) -> Unit = { _, _ -> },
         onBatchFinished: suspend (String, BatchOutcome) -> Unit = { _, _ -> },
         onPeerError: (String, Throwable) -> Unit = { _, _ -> },
-        onListening: (Int) -> Unit = {}
+        onListening: (Int) -> Unit = {},
+        pairingSecretResolver: ((String) -> String?)? = null
     ) = withContext(Dispatchers.IO) {
+        require(UltraShareCore.isValidPairingSecret(pairingSecret))
         require(port in 0..65535)
         require(maxPeers in 1..8) { "عدد الأجهزة المتزامنة يجب أن يكون بين 1 و8." }
         check(destinationDirectory.exists() || destinationDirectory.mkdirs())
@@ -162,7 +164,8 @@ object UltraShareBatchTransport {
                                     )
                                     check(peerState.exists() || peerState.mkdirs())
                                     receiveSession(
-                                        socket, pairingSecret, destinationDirectory, peerState,
+                                        socket, pairingSecret, pairingSecretResolver,
+                                        destinationDirectory, peerState,
                                         onAuthenticated = {
                                             authenticated = true
                                             onPeerStarted(peer)
@@ -544,6 +547,7 @@ object UltraShareBatchTransport {
     private suspend fun receiveSession(
         socket: Socket,
         pairingSecret: String,
+        pairingSecretResolver: ((String) -> String?)?,
         destinationDirectory: File,
         stateDirectory: File,
         onAuthenticated: () -> Unit,
@@ -560,14 +564,18 @@ object UltraShareBatchTransport {
         val proof = ByteArray(32).also(input::readFully)
         // Detect the explicit reachability probe before running the expensive PIN KDF.
         if (isDiscoveryProbeProof(proof)) throw DiscoveryProbeConnection()
-        val secret = UltraShareCore.derivePairingKey(pairingSecret, challenge)
+        val peerHost = socket.inetAddress.hostAddress.orEmpty()
+        val selectedPairingSecret = pairingSecretResolver?.invoke(peerHost) ?: pairingSecret
+        require(UltraShareCore.isValidPairingSecret(selectedPairingSecret)) {
+            "لا توجد بيانات اعتماد صالحة لهذا الجهاز."
+        }
+        val secret = UltraShareCore.derivePairingKey(selectedPairingSecret, challenge)
         var noncePrefixToWipe: ByteArray? = null
         var receiveKeyToWipe: ByteArray? = null
         var sendKeyToWipe: ByteArray? = null
         var readPhase = "HANDSHAKE"
         try {
         val authenticated = MessageDigest.isEqual(proof, hmac(secret, challenge))
-        val peerHost = socket.inetAddress.hostAddress.orEmpty()
         // Do not reveal whether the short pairing secret was correct until the
         // independent control-channel approval for this peer has also been verified.
         val approved = isPeerSessionAuthorized(
