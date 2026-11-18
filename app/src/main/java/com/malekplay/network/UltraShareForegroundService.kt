@@ -1418,7 +1418,8 @@ class UltraShareForegroundService : Service() {
                                 )
                                 val remoteId = canonicalMeshPeerId(request.peerId)
                                 val coordinator = meshRoomCoordinator
-                                if (localId == null || remoteId == null || coordinator == null ||
+                                if (!request.applicationFramesEnabled ||
+                                    localId == null || remoteId == null || coordinator == null ||
                                     coordinator.state().members.none { it.peerId == remoteId }
                                 ) {
                                     UltraShareControlChannel.Decision.REJECTED
