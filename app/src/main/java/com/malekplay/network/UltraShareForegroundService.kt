@@ -81,10 +81,13 @@ internal data class UltraShareApprovedSendTarget(
     val sessionId: String,
     val host: String,
     val secret: String,
-    val candidates: List<UltraShareNegotiation.Candidate> = emptyList()
+    val candidates: List<UltraShareNegotiation.Candidate> = emptyList(),
+    /** Stable remote device identity; never substitute the local/session UI identifier. */
+    val peerId: String? = null
 ) {
     override fun toString(): String =
         "UltraShareApprovedSendTarget(sessionId=" + sessionId +
+            ", peerIdPresent=" + !peerId.isNullOrBlank() +
             ", host=" + host + ", secret=[REDACTED], candidates=" + candidates.size + ")"
 }
 
@@ -609,7 +612,8 @@ class UltraShareForegroundService : Service() {
                                     UltraShareApprovedSendTarget(
                                         sessionId = authenticatedPeerId,
                                         host = request.peerAddress,
-                                        secret = secret
+                                        secret = secret,
+                                        peerId = request.peerId
                                     )
                                 )
                                 updateState { current -> current.copy(
@@ -1439,7 +1443,8 @@ class UltraShareForegroundService : Service() {
                                             host = request.peerAddress,
                                             secret = secret,
                                             candidates = coordinator.state().members
-                                                .first { it.peerId == remoteId }.candidates
+                                                .first { it.peerId == remoteId }.candidates,
+                                            peerId = remoteId
                                         )
                                     )
                                     // Mark the authenticated edge before ACCEPT is flushed so a
@@ -1594,7 +1599,8 @@ class UltraShareForegroundService : Service() {
                                     sessionId = link.remotePeer.peerId,
                                     host = link.endpoint.host,
                                     secret = credential,
-                                    candidates = link.remotePeer.candidates
+                                    candidates = link.remotePeer.candidates,
+                                    peerId = link.remotePeer.peerId
                                 )
                             )
                             meshDirectEdges[link.remotePeer.peerId] = link.edge
@@ -1761,7 +1767,7 @@ class UltraShareForegroundService : Service() {
                             host = host,
                             secret = secret,
                             candidates = candidates,
-                            expectedPeerId = approvedSendTarget(host)?.sessionId,
+                            expectedPeerId = approvedSendTarget(host)?.peerId,
                             onHostChanged = { activeV2Host = it }
                         ) { progress ->
                             if (v2ProgressFileId != null && v2ProgressFileId != progress.fileId) {
@@ -2021,7 +2027,7 @@ class UltraShareForegroundService : Service() {
                                 host = activePeerHost,
                                 secret = auth.secret,
                                 candidates = auth.candidates,
-                                expectedPeerId = auth.sessionId,
+                                expectedPeerId = auth.peerId,
                                 onHostChanged = { newHost ->
                                     val previousHost = activePeerHost
                                     activePeerHost = newHost
@@ -2370,7 +2376,8 @@ class UltraShareForegroundService : Service() {
                                         sessionId = stableSessionId,
                                         host = activeHost,
                                         secret = activeSecret,
-                                        candidates = activeCandidates
+                                        candidates = activeCandidates,
+                                        peerId = expectedPeerId
                                     )
                                 )
                             }
@@ -2518,7 +2525,8 @@ class UltraShareForegroundService : Service() {
                                     sessionId = alternateSessionId,
                                     host = activeHost,
                                     secret = activeSecret,
-                                    candidates = activeCandidates
+                                    candidates = activeCandidates,
+                                    peerId = expectedPeerId
                                 )
                             )
                         }
@@ -2870,6 +2878,7 @@ class UltraShareForegroundService : Service() {
                     }
                     put(org.json.JSONObject().apply {
                         put("sessionId", target.sessionId)
+                        put("peerId", target.peerId ?: org.json.JSONObject.NULL)
                         put("host", target.host)
                         put("secret", target.secret)
                         put("routeOffer", routeOffer ?: org.json.JSONObject.NULL)
@@ -2897,7 +2906,8 @@ class UltraShareForegroundService : Service() {
                         sessionId = sessionId,
                         host = host,
                         secret = secret,
-                        candidates = offer?.let(UltraShareNegotiation::decode)?.candidates.orEmpty()
+                        candidates = offer?.let(UltraShareNegotiation::decode)?.candidates.orEmpty(),
+                        peerId = item.optString("peerId").takeIf { it.isNotBlank() && it != "null" }
                     )
                 }.distinctBy { it.sessionId }.distinctBy { it.host }
             }.getOrDefault(emptyList())
