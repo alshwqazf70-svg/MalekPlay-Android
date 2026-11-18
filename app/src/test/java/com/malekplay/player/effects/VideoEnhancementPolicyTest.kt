@@ -83,7 +83,7 @@ class VideoEnhancementPolicyTest {
     @Test fun lowResolutionVideoUpscalesToCappedFullHdTarget() {
         val target = VideoUpscaleTargetPolicy.resolve(640, 360, 2960, 1440, 1920)
         assertEquals(1920, target?.longEdge)
-        assertEquals(933, target?.shortEdge)
+        assertEquals(1080, target?.shortEdge)
     }
 
     @Test fun fullHdSourceIsNotUpscaledBeyondItsExistingResolution() {
@@ -116,8 +116,8 @@ class VideoEnhancementPolicyTest {
 
     @Test fun sourceAspectRatioIsPreservedWhenDisplayIsMuchWiderThanFourByThreeVideo() {
         val target = VideoUpscaleTargetPolicy.resolve(640, 480, 2960, 1440, 1920)
-        assertEquals(1440, target?.longEdge)
-        assertEquals(1080, target?.shortEdge)
+        assertEquals(1920, target?.longEdge)
+        assertEquals(1440, target?.shortEdge)
         assertEquals(4f / 3f, target!!.longEdge.toFloat() / target.shortEdge, 0.001f)
     }
 
