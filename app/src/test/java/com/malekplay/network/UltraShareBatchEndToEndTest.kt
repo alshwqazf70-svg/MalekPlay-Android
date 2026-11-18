@@ -29,6 +29,12 @@ import java.util.concurrent.TimeUnit
 @RunWith(RobolectricTestRunner::class)
 class UltraShareBatchEndToEndTest {
     @Test
+    fun defaultReceiveDirectoryIsNamedMalekPlayer() {
+        val directory = UltraShareCore.defaultReceiveDirectory(RuntimeEnvironment.getApplication())
+        assertEquals("MalekPlayer", directory.name)
+    }
+
+    @Test
     fun approvedKotlinSenderTransfersAndPublishesMultipleMediaFilesOverTcp() = runBlocking {
         val host = NetworkInterface.getNetworkInterfaces().toList()
             .asSequence()
