@@ -189,10 +189,10 @@ class UltraShareDiscoveryTest {
     }
 
     @Test
-    fun legacyPeersFallBackToTheirLanAddress() {
+    fun peerWithoutStableIdFallsBackToItsLanAddress() {
         val peer = UltraShareDiscovery.Peer(
             host = "192.168.1.15",
-            port = UltraShareTransport.DEFAULT_PORT,
+            port = UltraShareBatchTransport.DEFAULT_PORT,
             name = "Legacy device"
         )
         assertEquals("host:192.168.1.15", UltraShareDiscovery.identityKey(peer))
