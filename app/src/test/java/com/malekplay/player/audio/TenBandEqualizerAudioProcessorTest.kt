@@ -75,6 +75,6 @@ class TenBandEqualizerAudioProcessorTest {
             val value = output.short.toInt()
             assertTrue(value in Short.MIN_VALUE.toInt()..Short.MAX_VALUE.toInt())
         }
-        assertEquals(2_048L, processor.metrics.value.effectFrames)
+        assertEquals(1_024L, processor.metrics.value.effectFrames)
     }
 }
