@@ -92,7 +92,7 @@ object UltraShareBatchTransport {
     data class FileOutcome(
         val fileId: String,
         val fileName: String,
-        val receivedFile: UltraShareTransport.ReceivedFile?,
+        val receivedFile: UltraShareCore.ReceivedFile?,
         val status: UltraShareBatchProtocol.FileStatus,
         val transferredBytes: Long,
         val error: String? = null
@@ -224,8 +224,8 @@ object UltraShareBatchTransport {
         onProgress: (FileProgress) -> Unit = {}
     ): BatchOutcome = withContext(Dispatchers.IO) {
         require(sources.isNotEmpty() && sources.size <= UltraShareBatchProtocol.MAX_FILES)
-        require(UltraShareTransport.isValidPrivateLanHost(host))
-        require(UltraShareTransport.isValidPairingSecret(pairingSecret))
+        require(UltraShareCore.isValidPrivateLanHost(host))
+        require(UltraShareCore.isValidPairingSecret(pairingSecret))
         if (!UltraShareControlChannel.hasAnyActiveSession(host)) {
             throw IOException("انتهت قناة الموافقة؛ يجب إعادة الاتصال قبل بدء نقل V2.")
         }
@@ -235,9 +235,9 @@ object UltraShareBatchTransport {
             mapOf("peerHost" to host, "fileCount" to sources.size)
         )
         val prepared = sources.map { source ->
-            require(source.sizeBytes in 0..UltraShareTransport.MAX_FILE_BYTES)
-            val name = UltraShareTransport.sanitizeFileName(source.name)
-            val mime = UltraShareTransport.sanitizeMimeType(source.mimeType)
+            require(source.sizeBytes in 0..UltraShareCore.MAX_FILE_BYTES)
+            val name = UltraShareCore.sanitizeFileName(source.name)
+            val mime = UltraShareCore.sanitizeMimeType(source.mimeType)
             val digest = resolver.openInputStream(source.uri)?.use { input ->
                 val md = MessageDigest.getInstance("SHA-256")
                 val buffer = ByteArray(BUFFER_BYTES)
@@ -358,7 +358,7 @@ object UltraShareBatchTransport {
             UltraShareDiagnostics.event("DATA_SEND", "TCP_HANDSHAKE_STARTED", mapOf("peerHost" to host))
             check(input.readInt() == HANDSHAKE_MAGIC) { "الجهاز الآخر لا يدعم جلسة بيانات V2." }
             val challenge = ByteArray(CHALLENGE_BYTES).also(input::readFully)
-            val secret = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
+            val secret = UltraShareCore.derivePairingKey(pairingSecret, challenge)
             var noncePrefixToWipe: ByteArray? = null
             var sendKeyToWipe: ByteArray? = null
             var receiveKeyToWipe: ByteArray? = null
@@ -556,7 +556,7 @@ object UltraShareBatchTransport {
         val proof = ByteArray(32).also(input::readFully)
         // Detect the explicit reachability probe before running the expensive PIN KDF.
         if (isDiscoveryProbeProof(proof)) throw DiscoveryProbeConnection()
-        val secret = UltraShareTransport.derivePairingKey(pairingSecret, challenge)
+        val secret = UltraShareCore.derivePairingKey(pairingSecret, challenge)
         var noncePrefixToWipe: ByteArray? = null
         var receiveKeyToWipe: ByteArray? = null
         var sendKeyToWipe: ByteArray? = null
@@ -608,7 +608,7 @@ object UltraShareBatchTransport {
         )
         val completedFiles = HashMap<String, File>()
         val partials = manifest.entries.map { entry ->
-            val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
+            val identity = UltraShareCore.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
             val partial = File(stateDirectory, ".ultrashare-v2-$identity.part")
             val checkpoint = File(stateDirectory, ".ultrashare-v2-$identity.resume")
             val checkpointTemp = File(stateDirectory, ".ultrashare-v2-$identity.resume.tmp")
@@ -616,7 +616,7 @@ object UltraShareBatchTransport {
             val digestHex = entry.sha256.joinToString("") { "%02x".format(it) }
             val completed = receipt.takeIf { it.isFile }?.let { marker ->
                 runCatching {
-                    val safeName = UltraShareTransport.completedReceiptFileName(
+                    val safeName = UltraShareCore.completedReceiptFileName(
                         marker.readText(Charsets.UTF_8), entry.sizeBytes, digestHex
                     ) ?: return@runCatching null
                     val candidate = File(destinationDirectory, safeName)
@@ -666,7 +666,7 @@ object UltraShareBatchTransport {
         val outcomes = ArrayList<FileOutcome>(manifest.entries.size)
         for ((index, entry) in manifest.entries.withIndex()) {
             val (partial, offset) = partials.getValue(entry.id)
-            val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
+            val identity = UltraShareCore.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
             val checkpoint = File(stateDirectory, ".ultrashare-v2-$identity.resume")
             val checkpointTemp = File(stateDirectory, ".ultrashare-v2-$identity.resume.tmp")
             val digestHex = entry.sha256.joinToString("") { "%02x".format(it) }
@@ -846,9 +846,9 @@ object UltraShareBatchTransport {
                     "FILE_PUBLICATION_STARTED",
                     mapOf("peerHost" to peerHost, "batchId" to manifest.batchId, "fileId" to entry.id)
                 )
-                UltraShareTransport.withDestinationPublicationLock(destinationDirectory) {
+                UltraShareCore.withDestinationPublicationLock(destinationDirectory) {
                     val target = uniqueDestination(destinationDirectory, entry.name)
-                    val identity = UltraShareTransport.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
+                    val identity = UltraShareCore.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
                     val marker = File(stateDirectory, ".ultrashare-v2-$identity.received")
                     val markerTemp = File(stateDirectory, ".ultrashare-v2-$identity.received.tmp")
                     val receiptContent =
@@ -894,7 +894,7 @@ object UltraShareBatchTransport {
             )
             outcomes += FileOutcome(
                 entry.id, entry.name,
-                UltraShareTransport.ReceivedFile(destination, entry.name, entry.sizeBytes, entry.mimeType),
+                UltraShareCore.ReceivedFile(destination, entry.name, entry.sizeBytes, entry.mimeType),
                 UltraShareBatchProtocol.FileStatus.COMPLETED, entry.sizeBytes
             )
         }
@@ -1096,7 +1096,7 @@ object UltraShareBatchTransport {
             .coerceAtMost(Long.MAX_VALUE.toDouble()).toLong()
 
     private fun uniqueDestination(directory: File, name: String): File {
-        val safe = UltraShareTransport.sanitizeFileName(name)
+        val safe = UltraShareCore.sanitizeFileName(name)
         val original = File(directory, safe)
         if (!original.exists()) return original
         val dot = safe.lastIndexOf('.').takeIf { it > 0 } ?: safe.length
@@ -1134,7 +1134,7 @@ internal fun resumableFileOffset(
     expectedSizeBytes: Long,
     expectedDigestHex: String
 ): Long {
-    require(expectedSizeBytes in 0..UltraShareTransport.MAX_FILE_BYTES)
+    require(expectedSizeBytes in 0..UltraShareCore.MAX_FILE_BYTES)
     require(expectedDigestHex.matches(Regex("[0-9a-f]{64}")))
     require(partial.parentFile?.canonicalFile == checkpoint.parentFile?.canonicalFile)
     val fields = runCatching { checkpoint.readText(Charsets.UTF_8).split(':') }.getOrNull()
@@ -1171,7 +1171,7 @@ internal fun writeUltraShareResumeCheckpointAtomically(
     durableOffset: Long
 ) {
     require(temp.parentFile?.canonicalFile == checkpoint.parentFile?.canonicalFile)
-    require(expectedSizeBytes in 0..UltraShareTransport.MAX_FILE_BYTES)
+    require(expectedSizeBytes in 0..UltraShareCore.MAX_FILE_BYTES)
     require(digestHex.matches(Regex("[0-9a-f]{64}")))
     require(durableOffset in 0..expectedSizeBytes)
     writeFileAtomically(
