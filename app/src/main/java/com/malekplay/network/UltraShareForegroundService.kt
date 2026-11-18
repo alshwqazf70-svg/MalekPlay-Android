@@ -1109,54 +1109,107 @@ class UltraShareForegroundService : Service() {
 
     /** Runs after MPC2 ACCEPT has been flushed; one job owns reads for this server session. */
     private fun startMeshServerSession(request: UltraShareControlChannel.Request) {
-        val peerId = canonicalMeshPeerId(request.peerId) ?: return
+        val peerId = canonicalMeshPeerId(request.peerId)
         val host = request.peerAddress
-        if (!UltraShareControlChannel.supportsServerApplicationFrames(host)) return
+        if (peerId == null) {
+            UltraShareDiagnostics.event(
+                "MESH_SERVER_SESSION", "SKIPPED_INVALID_PEER_ID",
+                mapOf("peerHost" to host, "peerIdPresent" to !request.peerId.isNullOrBlank())
+            )
+            return
+        }
+        if (!request.applicationFramesEnabled ||
+            !UltraShareControlChannel.supportsServerApplicationFrames(host)
+        ) {
+            UltraShareDiagnostics.event(
+                "MESH_SERVER_SESSION", "SKIPPED_APPLICATION_FRAMES_UNAVAILABLE",
+                mapOf("peerHost" to host, "capabilityAdvertised" to request.applicationFramesEnabled)
+            )
+            return
+        }
         val job = serviceScope.launch(start = CoroutineStart.LAZY) {
             var roomLockAcquired = false
+            var roomJoined = false
             try {
+                UltraShareDiagnostics.event(
+                    "MESH_SERVER_SESSION", "HANDSHAKE_QUEUED",
+                    mapOf("peerHost" to host, "peerId" to peerId)
+                )
                 meshRoomHandshakeMutex.lock()
                 roomLockAcquired = true
+                UltraShareDiagnostics.event(
+                    "MESH_SERVER_SESSION", "HANDSHAKE_LOCK_ACQUIRED",
+                    mapOf("peerHost" to host)
+                )
                 val coordinator = getOrCreateMeshAuthority()
-                runCatching { ensureMeshDirectServerReady() }.onFailure { failure ->
-                    UltraShareDiagnostics.failure("MESH_DIRECT_LISTENER_OPTIONAL", failure)
-                }
                 val remote = meshPeer(
                     peerId, request.peerName, listOf(host),
                     UltraShareBatchTransport.DEFAULT_PORT
                 )
+
+                // Send the room key immediately after the authenticated MPC2 session is ready.
+                // Starting the optional direct-link listener here used to consume the same
+                // 12-second window in which the client was waiting for KEY_OFFER.
                 val keyOffer = coordinator.createKeyOffer()
+                val keyOfferWire = UltraShareMeshControlProtocol.encode(keyOffer)
                 try {
-                    UltraShareControlChannel.sendServerApplicationMessage(
-                        host, UltraShareMeshControlProtocol.encode(keyOffer)
+                    UltraShareDiagnostics.event(
+                        "MESH_ROOM", "KEY_OFFER_SEND_STARTED",
+                        mapOf("peerHost" to host, "revision" to keyOffer.revision, "bytes" to keyOfferWire.size)
                     )
-                    val keyAckBytes = withTimeoutOrNull(12_000L) {
+                    UltraShareControlChannel.sendServerApplicationMessage(host, keyOfferWire)
+                    UltraShareDiagnostics.event(
+                        "MESH_ROOM", "KEY_OFFER_SENT",
+                        mapOf("peerHost" to host, "revision" to keyOffer.revision)
+                    )
+                    val keyAckBytes = withTimeoutOrNull(30_000L) {
                         UltraShareControlChannel.receiveServerApplicationMessage(host)
                     } ?: error("انتهت مهلة تأكيد مفتاح غرفة Mesh.")
-                    val keyAck = UltraShareMeshControlProtocol.decode(keyAckBytes)
-                        ?: error("رسالة تأكيد مفتاح الغرفة غير صالحة.")
-                    check(coordinator.verifyAcknowledgement(
-                        peerId, keyAck, UltraShareMeshControlProtocol.Type.KEY_ACK, keyOffer.payload
-                    )) { "لم يتم التحقق من تأكيد مفتاح الغرفة من الجهاز المقترن." }
+                    try {
+                        UltraShareDiagnostics.event(
+                            "MESH_ROOM", "KEY_ACK_RECEIVED",
+                            mapOf("peerHost" to host, "bytes" to keyAckBytes.size)
+                        )
+                        val keyAck = UltraShareMeshControlProtocol.decode(keyAckBytes)
+                            ?: error("رسالة تأكيد مفتاح الغرفة غير صالحة.")
+                        check(coordinator.verifyAcknowledgement(
+                            peerId, keyAck, UltraShareMeshControlProtocol.Type.KEY_ACK, keyOffer.payload
+                        )) { "لم يتم التحقق من تأكيد مفتاح الغرفة من الجهاز المقترن." }
+                    } finally {
+                        keyAckBytes.fill(0)
+                    }
                 } finally {
+                    keyOfferWire.fill(0)
                     keyOffer.payload.fill(0)
                 }
 
                 coordinator.upsertMember(peerId, remote)
                 meshAuthorityMemberHosts.add(host)
                 val rosterUpdate = coordinator.createRosterUpdate()
-                UltraShareControlChannel.sendServerApplicationMessage(
-                    host, UltraShareMeshControlProtocol.encode(rosterUpdate)
-                )
-                val rosterAckBytes = withTimeoutOrNull(12_000L) {
-                    UltraShareControlChannel.receiveServerApplicationMessage(host)
-                } ?: error("انتهت مهلة تأكيد قائمة أعضاء الغرفة.")
-                val rosterAck = UltraShareMeshControlProtocol.decode(rosterAckBytes)
-                    ?: error("رسالة تأكيد قائمة الأعضاء غير صالحة.")
-                check(coordinator.verifyAcknowledgement(
-                    peerId, rosterAck, UltraShareMeshControlProtocol.Type.ROSTER_ACK,
-                    rosterUpdate.payload
-                )) { "قائمة أعضاء الغرفة لم تحصل على تأكيد موثوق." }
+                val rosterWire = UltraShareMeshControlProtocol.encode(rosterUpdate)
+                try {
+                    UltraShareControlChannel.sendServerApplicationMessage(host, rosterWire)
+                    UltraShareDiagnostics.event(
+                        "MESH_ROOM", "ROSTER_UPDATE_SENT",
+                        mapOf("peerHost" to host, "revision" to rosterUpdate.revision, "bytes" to rosterWire.size)
+                    )
+                    val rosterAckBytes = withTimeoutOrNull(30_000L) {
+                        UltraShareControlChannel.receiveServerApplicationMessage(host)
+                    } ?: error("انتهت مهلة تأكيد قائمة أعضاء الغرفة.")
+                    try {
+                        val rosterAck = UltraShareMeshControlProtocol.decode(rosterAckBytes)
+                            ?: error("رسالة تأكيد قائمة الأعضاء غير صالحة.")
+                        check(coordinator.verifyAcknowledgement(
+                            peerId, rosterAck, UltraShareMeshControlProtocol.Type.ROSTER_ACK,
+                            rosterUpdate.payload
+                        )) { "قائمة أعضاء الغرفة لم تحصل على تأكيد موثوق." }
+                    } finally {
+                        rosterAckBytes.fill(0)
+                    }
+                } finally {
+                    rosterWire.fill(0)
+                    rosterUpdate.payload.fill(0)
+                }
 
                 UltraShareDiagnostics.event(
                     "MESH_ROOM", "PEER_JOINED",
@@ -1168,10 +1221,15 @@ class UltraShareForegroundService : Service() {
                 ) }
 
                 // Push the new authenticated roster to previously approved clients.
-                broadcastMeshRosterUpdate(rosterUpdate, excludedHost = host)
-                reconcileMeshDirectLinks()
+                val latestRoster = coordinator.createRosterUpdate()
+                try {
+                    broadcastMeshRosterUpdate(latestRoster, excludedHost = host)
+                } finally {
+                    latestRoster.payload.fill(0)
+                }
                 meshServerHandshakeJobs.remove(host)
                 startMeshServerMessagePump(host)
+                roomJoined = true
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -1188,6 +1246,23 @@ class UltraShareForegroundService : Service() {
             } finally {
                 meshServerHandshakeJobs.remove(host)
                 if (roomLockAcquired) meshRoomHandshakeMutex.unlock()
+            }
+            // Do not hold the room-wide handshake mutex while an optional listener binds.
+            if (roomJoined) {
+                try {
+                    ensureMeshDirectServerReady()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    UltraShareDiagnostics.failure("MESH_DIRECT_LISTENER_OPTIONAL", failure)
+                }
+                try {
+                    reconcileMeshDirectLinks()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    UltraShareDiagnostics.failure("MESH_DIRECT_RECONCILE_AFTER_JOIN", failure)
+                }
             }
         }
         val previous = meshServerHandshakeJobs.putIfAbsent(host, job)
@@ -1282,49 +1357,110 @@ class UltraShareForegroundService : Service() {
         if (host in meshClientJoinedHosts ||
             !UltraShareControlChannel.supportsClientApplicationFrames(host)
         ) return
+        var roomJoined = false
         meshClientJoinMutex.lock()
         try {
             if (host in meshClientJoinedHosts ||
                 !UltraShareControlChannel.supportsClientApplicationFrames(host)
             ) return
+            UltraShareDiagnostics.event(
+                "MESH_CLIENT_HANDSHAKE", "STARTED",
+                mapOf("peerHost" to host)
+            )
             val authorityId = canonicalMeshPeerId(UltraShareControlChannel.sessionPeerId(host))
                 ?: error("هوية سلطة غرفة Mesh غير متاحة في جلسة MPC2.")
             val coordinator = getOrCreateMeshJoiner()
-            val keyOfferBytes = withTimeoutOrNull(12_000L) {
+            val keyOfferBytes = withTimeoutOrNull(30_000L) {
                 UltraShareControlChannel.receiveClientApplicationMessage(host)
             } ?: error("لم يصل مفتاح غرفة Mesh من الجهاز المضيف.")
-            val keyOffer = UltraShareMeshControlProtocol.decode(keyOfferBytes)
-                ?: error("رسالة مفتاح غرفة Mesh غير صالحة.")
-            check(keyOffer.type == UltraShareMeshControlProtocol.Type.KEY_OFFER &&
-                canonicalMeshPeerId(keyOffer.senderPeerId) == authorityId
-            ) { "هوية مرسل مفتاح غرفة Mesh لا تطابق هوية MPC2." }
-            val keyAck = coordinator.acceptKeyOffer(authorityId, keyOffer)
-            UltraShareControlChannel.sendClientApplicationMessage(
-                host, UltraShareMeshControlProtocol.encode(keyAck)
+            val keyOffer = try {
+                UltraShareMeshControlProtocol.decode(keyOfferBytes)
+                    ?: error("رسالة مفتاح غرفة Mesh غير صالحة.")
+            } finally {
+                keyOfferBytes.fill(0)
+            }
+            UltraShareDiagnostics.event(
+                "MESH_CLIENT_HANDSHAKE", "KEY_OFFER_RECEIVED",
+                mapOf(
+                    "peerHost" to host,
+                    "senderPeerId" to keyOffer.senderPeerId,
+                    "revision" to keyOffer.revision,
+                    "payloadBytes" to keyOffer.payload.size
+                )
             )
-            val rosterBytes = withTimeoutOrNull(12_000L) {
+            try {
+                check(keyOffer.type == UltraShareMeshControlProtocol.Type.KEY_OFFER &&
+                    canonicalMeshPeerId(keyOffer.senderPeerId) == authorityId
+                ) { "هوية مرسل مفتاح غرفة Mesh لا تطابق هوية MPC2." }
+                val keyAck = coordinator.acceptKeyOffer(authorityId, keyOffer)
+                val keyAckWire = UltraShareMeshControlProtocol.encode(keyAck)
+                try {
+                    UltraShareControlChannel.sendClientApplicationMessage(host, keyAckWire)
+                    UltraShareDiagnostics.event(
+                        "MESH_CLIENT_HANDSHAKE", "KEY_ACK_SENT",
+                        mapOf("peerHost" to host, "revision" to keyAck.revision)
+                    )
+                } finally {
+                    keyAckWire.fill(0)
+                    keyAck.payload.fill(0)
+                }
+            } finally {
+                keyOffer.payload.fill(0)
+            }
+
+            val rosterBytes = withTimeoutOrNull(30_000L) {
                 UltraShareControlChannel.receiveClientApplicationMessage(host)
             } ?: error("لم تصل قائمة أعضاء غرفة Mesh.")
-            val rosterUpdate = UltraShareMeshControlProtocol.decode(rosterBytes)
-                ?: error("رسالة قائمة أعضاء غرفة Mesh غير صالحة.")
-            val rosterAck = coordinator.acceptRosterUpdate(authorityId, rosterUpdate)
-            // Publish the direct-link listener before ACK when available: the authority may
-            // immediately distribute this roster revision to the other members.
-            runCatching { ensureMeshDirectServerReady() }.onFailure { failure ->
-                UltraShareDiagnostics.failure("MESH_DIRECT_LISTENER_OPTIONAL", failure)
+            val rosterUpdate = try {
+                UltraShareMeshControlProtocol.decode(rosterBytes)
+                    ?: error("رسالة قائمة أعضاء غرفة Mesh غير صالحة.")
+            } finally {
+                rosterBytes.fill(0)
             }
-            UltraShareControlChannel.sendClientApplicationMessage(
-                host, UltraShareMeshControlProtocol.encode(rosterAck)
-            )
+            try {
+                val rosterAck = coordinator.acceptRosterUpdate(authorityId, rosterUpdate)
+                val rosterAckWire = UltraShareMeshControlProtocol.encode(rosterAck)
+                try {
+                    // ACK first: the authority must not wait for an optional listener to start.
+                    UltraShareControlChannel.sendClientApplicationMessage(host, rosterAckWire)
+                    UltraShareDiagnostics.event(
+                        "MESH_CLIENT_HANDSHAKE", "ROSTER_ACK_SENT",
+                        mapOf("peerHost" to host, "revision" to rosterAck.revision)
+                    )
+                } finally {
+                    rosterAckWire.fill(0)
+                    rosterAck.payload.fill(0)
+                }
+            } finally {
+                rosterUpdate.payload.fill(0)
+            }
+
             meshClientJoinedHosts.add(host)
             UltraShareDiagnostics.event(
                 "MESH_ROOM", "JOINED_AUTHORITY_ROOM",
                 mapOf("authorityPeerId" to authorityId, "revision" to coordinator.state().revision)
             )
             startMeshClientMessagePump(host, authorityId, coordinator)
-            reconcileMeshDirectLinks()
+            roomJoined = true
         } finally {
             meshClientJoinMutex.unlock()
+        }
+        // Listener binding and topology dialing must not block other authenticated sessions.
+        if (roomJoined) {
+            try {
+                ensureMeshDirectServerReady()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                UltraShareDiagnostics.failure("MESH_DIRECT_LISTENER_OPTIONAL", failure)
+            }
+            try {
+                reconcileMeshDirectLinks()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                UltraShareDiagnostics.failure("MESH_DIRECT_RECONCILE_AFTER_JOIN", failure)
+            }
         }
     }
 

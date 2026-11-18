@@ -459,6 +459,10 @@ object UltraShareControlChannel {
                                             check(session.incoming.trySend(plaintext).isSuccess) {
                                                 "قائمة رسائل الجهاز ممتلئة؛ أُغلقت قناة التحكم لحماية الذاكرة."
                                             }
+                                            UltraShareDiagnostics.event(
+                                                "CONTROL_CHANNEL", "CLIENT_APP_FRAME_QUEUED",
+                                                mapOf("peerHost" to host, "payloadBytes" to plaintext.size)
+                                            )
                                         }
                                         "CLOSE" -> error("أغلق الجهاز الآخر قناة التحكم.")
                                         else -> error("استجابة قناة التحكم غير معروفة.")
@@ -577,13 +581,24 @@ object UltraShareControlChannel {
             session.output.write(frame)
             session.output.flush()
         }
+        UltraShareDiagnostics.event(
+            "CONTROL_CHANNEL", "CLIENT_APP_FRAME_SENT",
+            mapOf("peerHost" to host, "payloadBytes" to payload.size)
+        )
     }
 
     /** Receive the next authenticated application message from the approved client-side socket. */
     suspend fun receiveClientApplicationMessage(host: String): ByteArray? {
         val session = clientSessions[host] ?: return null
         if (!session.applicationFramesEnabled) return null
-        return session.incoming.receiveCatching().getOrNull()
+        val payload = session.incoming.receiveCatching().getOrNull()
+        if (payload != null) {
+            UltraShareDiagnostics.event(
+                "CONTROL_CHANNEL", "CLIENT_APP_FRAME_CONSUMED",
+                mapOf("peerHost" to host, "payloadBytes" to payload.size)
+            )
+        }
+        return payload
     }
 
     /** Send an authenticated application message over the approved server-side MPC2 socket. */
@@ -599,13 +614,24 @@ object UltraShareControlChannel {
             session.output.write(frame)
             session.output.flush()
         }
+        UltraShareDiagnostics.event(
+            "CONTROL_CHANNEL", "SERVER_APP_FRAME_SENT",
+            mapOf("peerHost" to host, "payloadBytes" to payload.size)
+        )
     }
 
     /** Receive the next authenticated application message from the approved server-side socket. */
     suspend fun receiveServerApplicationMessage(host: String): ByteArray? {
         val session = serverApplicationSessions[host] ?: return null
         if (!session.applicationFramesEnabled) return null
-        return session.incoming.receiveCatching().getOrNull()
+        val payload = session.incoming.receiveCatching().getOrNull()
+        if (payload != null) {
+            UltraShareDiagnostics.event(
+                "CONTROL_CHANNEL", "SERVER_APP_FRAME_CONSUMED",
+                mapOf("peerHost" to host, "payloadBytes" to payload.size)
+            )
+        }
+        return payload
     }
 
     fun supportsClientApplicationFrames(host: String): Boolean =
@@ -840,6 +866,10 @@ object UltraShareControlChannel {
                         check(active.incoming.trySend(plaintext).isSuccess) {
                             "قائمة رسائل الجهاز ممتلئة؛ أُغلقت قناة التحكم لحماية الذاكرة."
                         }
+                        UltraShareDiagnostics.event(
+                            "CONTROL_CHANNEL", "SERVER_APP_FRAME_QUEUED",
+                            mapOf("peerHost" to request.peerAddress, "payloadBytes" to plaintext.size)
+                        )
                     }
                     "CLOSE" -> return
                     else -> error("أمر قناة التحكم غير معروف.")
