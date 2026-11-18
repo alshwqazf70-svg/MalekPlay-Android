@@ -256,7 +256,15 @@ fun UltraShareExperienceScreen(
                 )
             } else if (pendingReceiverStart) {
                 pendingReceiverStart = false
-                Toast.makeText(context, "يلزم إذن الأجهزة القريبة لإنشاء شبكة الاستقبال.", Toast.LENGTH_LONG).show()
+                // Permission denial disables only the optional Wi-Fi Direct route.
+                // Start the authenticated receiver anyway; the ViewModel falls back
+                // to a same-LAN invitation when a usable non-P2P route exists.
+                viewModel.startReceiving()
+                Toast.makeText(
+                    context,
+                    "لم يُمنح إذن Wi-Fi Direct؛ سيستمر الاستقبال عبر الشبكة المحلية إذا كانت متاحة.",
+                    Toast.LENGTH_LONG
+                ).show()
             } else if (wasAdvertisingInvitation) {
                 viewModel.disableWifiDirectInvitation()
             }
@@ -584,9 +592,9 @@ fun UltraShareExperienceScreen(
         }
     }
     // Keep the payload latched in the ViewModel, but hide the QR while a peer is paired.
-    val qrPayload = state.receiverQrPayload.takeIf {
-        state.receiving && state.activePeers.isEmpty()
-    }
+    // Keep the room invitation visible after the first peer joins so more
+    // devices can join the same group using the same one-session secret.
+    val qrPayload = state.receiverQrPayload.takeIf { state.receiving }
     val qrBitmap = remember(qrPayload) {
         qrPayload?.let { runCatching { UltraShareQrCode.createBitmap(it) }.getOrNull() }
     }
