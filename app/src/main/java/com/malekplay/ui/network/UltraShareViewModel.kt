@@ -550,6 +550,9 @@ class UltraShareViewModel @Inject constructor(
                                 onSessionClosed = { disconnectedHost ->
                                     UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
                                     forgetApprovedSenderTarget(disconnectedHost)
+                                },
+                                onSessionReady = { readyHost ->
+                                    UltraShareForegroundService.startMeshSession(context, readyHost)
                                 }
                             )
                             UltraShareDiagnostics.event(
