@@ -58,6 +58,9 @@ class UltraShareWifiDirectPolicyTest {
             )
         )
         assertFalse(isRetryableUltraSharePairingFailure(java.net.SocketTimeoutException("approval timeout")))
+        assertTrue(isRetryableUltraSharePairingFailure(
+            IllegalArgumentException("إصدار قناة التحكم غير متوافق.")
+        ))
         assertFalse(isRetryableUltraSharePairingFailure(IllegalArgumentException("invalid QR")))
         assertFalse(isRetryableUltraSharePairingFailure(SecurityException("permission denied")))
     }
