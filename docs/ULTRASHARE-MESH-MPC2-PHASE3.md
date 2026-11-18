@@ -1,37 +1,39 @@
-# UltraShare Mesh MPC2 control protocol — phase 3
+# UltraShare Mesh MPC2 protocol — direct-link integration
 
 Branch: `feature/zapya-engineering-analysis`
 
-This phase adds a typed, bounded envelope for Mesh room-control messages and connects the room handshake to the foreground service's authenticated MPC2 application-frame sessions. The envelope itself is not a substitute for MPC2 AES-GCM authentication, sequence enforcement, or peer approval.
+This phase extends the authenticated room exchange into direct peer control sessions. Room keys and roster messages remain confined to approved encrypted MPC2 application frames; media bytes remain on V2.
 
-## Message types
+## Direct-link authentication
 
-- `KEY_OFFER`: exactly 32 bytes of fresh room-key material, carried inside the encrypted MPC2 application frame.
-- `KEY_ACK`: SHA-256 digest acknowledging the accepted key offer.
-- `ROSTER_UPDATE`: UTF-8 `MPMESH|1|` authenticated roster wire payload, bounded to 12 KiB.
-- `ROSTER_ACK`: SHA-256 digest acknowledging the exact roster payload.
+- Every joined device opens a dedicated direct MPC2 listener on port `38746`.
+- The listener extracts the stable peer ID from the capability-enabled MPC2 request and asks a resolver for that exact peer's room-derived credential.
+- The resolver derives a pair-specific HMAC-SHA256 credential only when the remote ID and local ID are both in the authenticated room roster.
+- Unknown identities, absent roster membership, invalid credentials, and mismatched remote identities are rejected.
+- Direct sessions suppress the initial room-join callback; a direct peer is not mistaken for the room authority.
+- The topology planner uses active authority links as existing edges and schedules only missing direct links, with a deterministic initiator for each edge.
 
-Every message binds a canonical 128-bit room ID, canonical sender peer ID, positive revision, type, and bounded payload. Unknown types, malformed IDs, non-positive revisions, invalid payload sizes, oversized messages, and trailing bytes are rejected.
+## V2 data-plane binding
 
-## Service integration
+- V2 sends to a direct peer use the same pair-specific credential as its direct MPC2 link.
+- V2 receive selects the direct credential using the authenticated peer identity associated with the source host.
+- A direct edge with a missing credential fails closed rather than falling back to the room PIN.
+- Legacy/authority control sessions continue to use their existing pairing secret.
+- Stable peer identity scopes V2 receive resume state when a live MPC2 identity is available.
+- Reconnection uses the direct listener and pair-specific credential when the remote peer remains in the active roster.
 
-- The server-side session-ready callback fires only after ACCEPT is flushed.
-- Pairing UI notifies/starts the foreground service immediately after client-side MPC2 approval, so the room handshake does not wait for the first media transfer.
-- The service serializes authority room handshakes so concurrent peer joins cannot race room revisions.
-- Each joining peer receives the room key only through its approved encrypted MPC2 session and must return a verified KEY_ACK.
-- The authority updates the authenticated roster and requires a verified ROSTER_ACK from the joining peer.
-- Existing capable clients receive newer roster revisions through their own single client-side message pump and return ROSTER_ACK.
-- Message envelopes are bound to the stable peer identity authenticated by the corresponding MPC2 session.
-- Room state is in-memory only; session/service cleanup cancels pumps and closes the coordinator, which wipes its room key.
+## Tests added (not yet executed)
 
-## Security and lifecycle boundary
+- MPC2 accepts a per-peer credential resolver and authenticates only the announced stable peer identity.
+- V2 credential selection uses the direct peer credential when supplied and rejects a missing resolver result instead of falling back.
+- Existing tests cover pair-key derivation, deterministic topology planning, room roster authentication, and encrypted MPC2 application frames.
 
-- Never put the room key in discovery broadcasts, QR codes, diagnostics, logs, preferences, or files.
-- A KEY_ACK / ROSTER_ACK digest must match the exact payload sent; a revision must never roll back.
-- Roster HMAC validation remains mandatory after envelope decoding.
-- Keep one service-owned receive consumer per MPC2 session; multiple consumers would race on the same incoming channel.
-- Legacy peers without negotiated application-frame support do not enter the Mesh room protocol.
+## Remaining validation
 
-## What this phase does not claim
+- Gradle unit tests and Android lint/build have not been confirmed.
+- No physical three-phone test has yet verified the B↔C direct link and V2 media transfer.
+- Candidate exchange currently contains only the private IPv4 address observed by the authority; multi-interface WLAN/Hotspot/Wi-Fi Direct route exchange is still outstanding.
+- Host/IP keyed session registries remain a limitation for multiple simultaneous sessions sharing one remote address.
+- Verify that all peers keep the V2 receiver active before treating the room as full-duplex.
 
-The room-control exchange is integrated, but the app does not yet create all missing direct topology edges, establish B↔C direct links, use the pair-specific derived credential for those links, or verify direct V2 file delivery between non-authority peers. The server session registry remains host/IP keyed. The new end-to-end JVM test is source only until Gradle runs it. Do not mark Mesh complete or publish a release APK until CI/build and multi-device transfer tests pass.
+A source-level direct-link path is now present, but do not describe it as fully tested or release-ready until CI and physical-device validation pass.
