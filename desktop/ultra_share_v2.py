@@ -490,6 +490,38 @@ def _hash_path(path: Path) -> bytes:
     return digest.digest()
 
 
+def _media_signature_matches(path: Path, filename: str) -> bool:
+    """Validate actual media container bytes; unknown formats fail closed."""
+    try:
+        with Path(path).open("rb") as stream:
+            head = stream.read(16)
+    except OSError:
+        return False
+    ext = Path(filename).suffix.lower().lstrip(".")
+    def starts(value: bytes) -> bool:
+        return head.startswith(value)
+    def at(offset: int, value: bytes) -> bool:
+        return len(head) >= offset + len(value) and head[offset:offset + len(value)] == value
+    if ext in {"jpg", "jpeg"}: return starts(bytes.fromhex("ffd8ff"))
+    if ext == "png": return starts(bytes.fromhex("89504e470d0a1a0a"))
+    if ext == "gif": return starts(b"GIF87a") or starts(b"GIF89a")
+    if ext == "webp": return at(0, b"RIFF") and at(8, b"WEBP")
+    if ext == "bmp": return starts(b"BM")
+    if ext in {"tif", "tiff"}: return starts(b"II*\\x00") or starts(b"MM\\x00*")
+    if ext in {"mp4", "m4v", "mov", "3gp", "3g2", "heic", "heif", "avif"}:
+        return at(4, b"ftyp")
+    if ext in {"mkv", "webm"}: return starts(bytes.fromhex("1a45dfa3"))
+    if ext == "avi": return at(0, b"RIFF") and at(8, b"AVI ")
+    if ext == "mp3":
+        return starts(b"ID3") or (len(head) >= 2 and head[0] == 0xff and head[1] & 0xe0 == 0xe0)
+    if ext == "wav": return at(0, b"RIFF") and at(8, b"WAVE")
+    if ext == "flac": return starts(b"fLaC")
+    if ext in {"ogg", "opus"}: return starts(b"OggS")
+    if ext == "aac": return len(head) >= 2 and head[0] == 0xff and head[1] & 0xf6 == 0xf0
+    if ext == "amr": return starts(b"#!AMR")
+    return False
+
+
 def _unique_v2_destination(directory: Path, filename: str) -> Path:
     name = _safe_v2_name(filename)
     candidate = directory / name
@@ -586,6 +618,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
                         and candidate.is_file()
                         and candidate.stat().st_size == entry.size_bytes
                         and hmac.compare_digest(_hash_path(candidate), entry.sha256)
+                        and _media_signature_matches(candidate, entry.name)
                     ):
                         existing = candidate
                 except (OSError, ValueError):
@@ -598,6 +631,14 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
                     partial.unlink()
                 offsets[entry.file_id] = partial.stat().st_size if partial.is_file() else 0
             partials[entry.file_id] = partial
+
+        required_remaining = sum(
+            entry.size_bytes - offsets[entry.file_id] for entry in manifest.entries
+        )
+        free_bytes = __import__("shutil").disk_usage(directory).free
+        reserve_bytes = 64 * 1024 * 1024
+        if free_bytes < required_remaining + reserve_bytes:
+            raise OSError("Insufficient free storage for this V2 batch (64 MiB reserve required).")
 
         v2_write_frame(connection, send_key, nonce_prefix, send_sequence,
                        _encode_v2_offsets(manifest, offsets))
@@ -651,6 +692,15 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
                     outcomes.append({
                         "file_id": entry.file_id, "status": STATUS_FAILED,
                         "transferred": transferred, "error": "SHA-256 verification failed.",
+                        "path": None,
+                    })
+                    continue
+                if not _media_signature_matches(partial, entry.name):
+                    partial.unlink(missing_ok=True)
+                    outcomes.append({
+                        "file_id": entry.file_id, "status": STATUS_FAILED,
+                        "transferred": transferred,
+                        "error": "Media content signature does not match the declared file type.",
                         "path": None,
                     })
                     continue
