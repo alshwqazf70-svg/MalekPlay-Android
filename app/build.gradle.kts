@@ -10,7 +10,6 @@ plugins {
 android {
     namespace = "com.malekplay"
     compileSdk = 35
-    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "com.malekplay"
@@ -82,17 +81,6 @@ android {
         }
     }
 
-
-    // Enable only after the native platform adapters and JNI bridge are complete.
-    // Phase 6 CI will pass -PenableNstackxNativeBuild=true explicitly.
-    if (providers.gradleProperty("enableNstackxNativeBuild").orNull == "true") {
-        externalNativeBuild {
-            cmake {
-                path = file("../native/nstackx/CMakeLists.txt")
-                version = "3.22.1"
-            }
-        }
-    }
 
     packaging {
         resources {
