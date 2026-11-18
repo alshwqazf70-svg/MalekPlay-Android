@@ -105,7 +105,7 @@ object UltraShareReceivedPublisher {
             val output = resolver.openOutputStream(uri, "w")
                 ?: error("تعذر فتح ملف التنزيلات للحفظ.")
             val copied = received.file.inputStream().use { input ->
-                output.use { target -> input.copyTo(target, UltraShareTransport.CHUNK_BYTES) }
+                output.use { target -> input.copyTo(target, UltraShareBatchTransport.COPY_BUFFER_BYTES) }
             }
             check(copied == received.sizeBytes && received.file.length() == received.sizeBytes) {
                 "لم يكتمل نسخ الملف إلى التنزيلات."
@@ -222,7 +222,7 @@ object UltraShareReceivedPublisher {
         try {
             val copied = source.inputStream().use { input ->
                 temporary.outputStream().use { output ->
-                    input.copyTo(output, UltraShareTransport.CHUNK_BYTES).also { output.fd.sync() }
+                    input.copyTo(output, UltraShareBatchTransport.COPY_BUFFER_BYTES).also { output.fd.sync() }
                 }
             }
             check(copied == expectedBytes && temporary.length() == expectedBytes) {
