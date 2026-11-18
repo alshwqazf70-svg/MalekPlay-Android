@@ -26,9 +26,7 @@ import kotlinx.coroutines.withContext
 /** LAN discovery with v2 candidate offers and a v1 compatibility path. */
 object UltraShareDiscovery {
     const val DISCOVERY_PORT = 38742
-    private const val PROBE_V1 = "MPULTRA_DISCOVER|1"
     private const val PROBE_V2 = "MPULTRA_DISCOVER|2"
-    private const val OFFER_PREFIX_V1 = "MPULTRA_OFFER|1|"
     private const val RECEIVE_TIMEOUT_MS = 500
     private const val SCAN_WINDOW_MS = 4_000L
     private const val MAX_PACKET_BYTES = 2048
@@ -112,7 +110,6 @@ object UltraShareDiscovery {
 
     suspend fun advertiseWhileReceiving(
         transferPort: Int = UltraShareBatchTransport.DEFAULT_PORT,
-        legacyTransferPort: Int = UltraShareTransport.DEFAULT_PORT,
         context: Context? = null,
         displayName: String = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlayer Android",
         transferPortProvider: (() -> Int)? = null
@@ -187,10 +184,6 @@ object UltraShareDiscovery {
                         val request = packet.data.copyOfRange(packet.offset, packet.offset + packet.length)
                             .toString(Charsets.UTF_8)
                         when (request) {
-                            PROBE_V1 -> {
-                                val response = "$OFFER_PREFIX_V1$legacyTransferPort|MalekPlayer".toByteArray(Charsets.UTF_8)
-                                socket.send(DatagramPacket(response, response.size, packet.address, packet.port))
-                            }
                             PROBE_V2 -> {
                                 val advertisedPort = transferPortProvider?.invoke() ?: transferPort
                                 if (advertisedPort in 1..65535) {
@@ -245,7 +238,7 @@ object UltraShareDiscovery {
             listOf(Triple(null, createDiscoverySocket(null, 0), routes))
         }
         try {
-            val probes = listOf(PROBE_V2, PROBE_V1).map { it.toByteArray(Charsets.UTF_8) }
+            val probes = listOf(PROBE_V2).map { it.toByteArray(Charsets.UTF_8) }
             activeSockets.forEach { (_, socket, networkRoutes) ->
                 networkRoutes.forEach { route ->
                     probes.forEach { probe ->
@@ -294,14 +287,6 @@ object UltraShareDiscovery {
                             val identity = "id:${v2.peerId.lowercase(java.util.Locale.ROOT)}"
                             peers[identity] = peers[identity]?.let { mergePeerSightings(it, incoming) } ?: incoming
                             return@forEach
-                        }
-                        if (!message.startsWith(OFFER_PREFIX_V1)) return@forEach
-                        val parts = message.removePrefix(OFFER_PREFIX_V1).split('|', limit = 2)
-                        val port = parts.getOrNull(0)?.toIntOrNull() ?: return@forEach
-                        val name = parts.getOrNull(1)?.take(64)?.takeIf { it.isNotBlank() } ?: "MalekPlayer"
-                        if (port !in 1..65535) return@forEach
-                        if (host !in v2SourceHosts && peers["host:$host"] == null) {
-                            peers["host:$host"] = Peer(host, port, name)
                         }
                     } catch (_: SocketTimeoutException) {
                         // Continue polling the remaining network-bound sockets.
