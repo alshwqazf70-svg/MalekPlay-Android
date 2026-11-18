@@ -1392,36 +1392,9 @@ fun UltraShareScreen(
         else if (!state.receiving) secret = ""
     }
 
-    // Android 6–9 need the legacy write permission for the public Downloads/MalekPlayer
-    // copy. Denial must never block pairing or receiving: the verified app-private
-    // MalekPlayer directory remains the safe fallback.
-    var pendingLegacyStorageAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    val legacyStoragePermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        val action = pendingLegacyStorageAction
-        pendingLegacyStorageAction = null
-        if (!granted) {
-            Toast.makeText(
-                context,
-                "لم يُمنح إذن التخزين؛ سيبقى الاقتران والاستقبال متاحين، وستُحفظ الملفات داخل مجلد MalekPlayer الخاص بالتطبيق.",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-        action?.invoke()
-    }
-    val runAfterLegacyStoragePermission: (() -> Unit) -> Unit = { action ->
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
-            ContextCompat.checkSelfPermission(
-                context, Manifest.permission.WRITE_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            action()
-        } else {
-            pendingLegacyStorageAction = action
-            legacyStoragePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        }
-    }
+    // Pairing and receiving never request broad storage access. The receiver
+    // always writes a verified copy to its app-owned MalekPlayer directory;
+    // newer Android versions additionally publish it to public Downloads via MediaStore.
 
     // Independent on-device QR scanner: does not require Google Play Services scanner modules.
     var pendingWifiDirectAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -1478,12 +1451,10 @@ fun UltraShareScreen(
     // Hotspot/LAN QR formats do not invoke Wi-Fi P2P APIs and must not request
     // nearby-device/location permissions. Only legacy DNS-SD invitations need them.
     fun acceptPairingWithRequiredPermissions(pairing: UltraShareQrCode.PairingDetails) {
-        runAfterLegacyStoragePermission {
-            if (pairing.invitationId.isNullOrBlank()) {
-                acceptPairing(pairing)
-            } else {
-                requestWifiDirectAction { acceptPairing(pairing) }
-            }
+        if (pairing.invitationId.isNullOrBlank()) {
+            acceptPairing(pairing)
+        } else {
+            requestWifiDirectAction { acceptPairing(pairing) }
         }
     }
 
@@ -1685,7 +1656,7 @@ fun UltraShareScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             OutlinedButton(
-                onClick = { if (!state.receiving) runAfterLegacyStoragePermission { requestWifiDirectAction { viewModel.startReceiving() } } },
+                onClick = { if (!state.receiving) requestWifiDirectAction { viewModel.startReceiving() } },
                 modifier = Modifier.weight(1f).height(94.dp),
                 enabled = !state.sending && !state.receiving
             ) {
@@ -1808,7 +1779,7 @@ fun UltraShareScreen(
                 Button(
                     onClick = {
                         if (state.receiving) viewModel.stopReceiving()
-                        else runAfterLegacyStoragePermission { requestWifiDirectAction { viewModel.startReceiving() } }
+                        else requestWifiDirectAction { viewModel.startReceiving() }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.sending
