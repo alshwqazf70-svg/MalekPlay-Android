@@ -179,7 +179,9 @@ class UltraShareForegroundService : Service() {
     private val meshDirectDialJobs = java.util.concurrent.ConcurrentHashMap<UltraShareMeshTopology.Edge, Job>()
     private val meshDirectEdges = java.util.concurrent.ConcurrentHashMap<String, UltraShareMeshTopology.Edge>()
     /** Primary authority-side MPC2 sessions whose peers are present in the room roster. */
-    private val meshAuthorityMemberHosts = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val meshAuthorityMemberHosts = java.util.Collections.newSetFromMap(
+        java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    )
 
 
     override fun onCreate() {
