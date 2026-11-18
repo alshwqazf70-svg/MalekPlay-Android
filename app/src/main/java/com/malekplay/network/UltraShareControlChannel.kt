@@ -872,14 +872,16 @@ object UltraShareControlChannel {
             // Also covers exceptions while preparing the authenticated response.
             // remove(key, value) ensures an old coroutine cannot erase a replacement.
             val requestToClose = publishedRequest
-            val removedCurrentSession = requestToClose != null &&
+            val removedCurrentSession = if (requestToClose == null) {
+                false
+            } else {
                 synchronized(serverSessionGuard) {
                     if (!serverSessions.remove(requestToClose.peerAddress, socket)) {
                         false
                     } else {
                         serverSessionPeerIds.remove(requestToClose.peerAddress)
                         val active = serverApplicationSessions[requestToClose.peerAddress]
-                        if (active?.socket === socket &&
+                        if (active != null && active.socket === socket &&
                             serverApplicationSessions.remove(requestToClose.peerAddress, active)
                         ) {
                             synchronized(active.lock) {
@@ -890,6 +892,7 @@ object UltraShareControlChannel {
                         true
                     }
                 }
+            }
             if (requestToClose != null && removedCurrentSession) {
                 UltraShareDiagnostics.event(
                     "CONTROL_CHANNEL", "SERVER_SESSION_CLOSED",
