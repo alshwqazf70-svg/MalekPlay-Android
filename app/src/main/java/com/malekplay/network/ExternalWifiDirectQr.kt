@@ -46,7 +46,7 @@ object ExternalWifiDirectQr {
             ?.takeIf { it.isNotBlank() && it.length <= 128 }
             ?: throw IllegalArgumentException("معرّف الجلسة غير موجود أو غير صالح.")
         val host = parameters["ip"]
-            ?.takeIf(UltraShareTransport::isValidPrivateLanHost)
+            ?.takeIf(UltraShareCore::isValidPrivateLanHost)
             ?: throw IllegalArgumentException("عنوان المضيف في QR ليس عنوان شبكة محلية صالحاً.")
         val frequency = parameters["freq"]?.let { value ->
             val parsed = value.toIntOrNull()
