@@ -296,6 +296,7 @@ class UltraShareControlChannelTest {
         val peerId = "0123456789abcdef0123456789abcdef"
         val sessionReady = CompletableDeferred<UltraShareControlChannel.Request>()
         val clientSessionReady = CompletableDeferred<String>()
+        val explicitSessionReady = CompletableDeferred<String>()
         UltraShareControlChannel.setClientSessionReadyListener { host ->
             clientSessionReady.complete(host)
         }
@@ -317,12 +318,14 @@ class UltraShareControlChannelTest {
                     pairingSecret = secret,
                     peerName = "Sender",
                     port = port,
-                    peerId = peerId
+                    peerId = peerId,
+                    onSessionReady = { readyHost -> explicitSessionReady.complete(readyHost) }
                 )
             )
             val readyRequest = withTimeout(3_000L) { sessionReady.await() }
             assertEquals(peerId, readyRequest.peerId)
             assertEquals("127.0.0.1", withTimeout(3_000L) { clientSessionReady.await() })
+            assertEquals("127.0.0.1", withTimeout(3_000L) { explicitSessionReady.await() })
             assertTrue(UltraShareControlChannel.supportsServerApplicationFrames("127.0.0.1"))
             assertTrue(UltraShareControlChannel.supportsClientApplicationFrames("127.0.0.1"))
             val outbound = "encrypted client-to-server roster".toByteArray()
