@@ -115,6 +115,37 @@ class UltraShareMeshRoomCoordinatorTest {
         } finally { authority.close() }
     }
 
+    @Test fun disconnectedMemberRemovalIsPropagatedAndAcknowledgedByRemainingPeer() {
+        val authority = UltraShareMeshRoomCoordinator(a)
+        val remaining = UltraShareMeshRoomCoordinator(b)
+        try {
+            authority.createAuthorityRoom(peer(a, "192.168.1.10"), 1_800_000_000_000L)
+            remaining.acceptKeyOffer(a, authority.createKeyOffer())
+            authority.upsertMember(b, peer(b, "192.168.1.11"))
+            authority.upsertMember(c, peer(c, "192.168.1.12"))
+
+            val initialRoster = authority.createRosterUpdate()
+            remaining.acceptRosterUpdate(a, initialRoster)
+
+            val removalUpdate = requireNotNull(authority.removeMember(c))
+            val ack = remaining.acceptRosterUpdate(a, removalUpdate)
+            assertEquals(4L, remaining.state().revision)
+            assertEquals(setOf(a.replace("-", ""), b.replace("-", "")),
+                remaining.state().members.map { it.peerId }.toSet())
+            assertTrue(
+                authority.verifyAcknowledgement(
+                    b,
+                    ack,
+                    UltraShareMeshControlProtocol.Type.ROSTER_ACK,
+                    removalUpdate.payload
+                )
+            )
+        } finally {
+            authority.close()
+            remaining.close()
+        }
+    }
+
     @Test fun authorityRejectsUnboundOrSelfPeerRegistration() {
         val authority = UltraShareMeshRoomCoordinator(a)
         try {
