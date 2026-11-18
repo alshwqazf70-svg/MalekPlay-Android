@@ -24,21 +24,16 @@ class UltraShareReceivedPublisherTest {
     @Test
     fun savesToAppFolderBeforeFallingBackToDownloadsRoot() {
         assertEquals(
-            listOf("Download/MalekPlayer/Received", "Download"),
+            listOf("Download/MalekPlayer"),
             UltraShareReceivedPublisher.publicRelativePaths()
         )
     }
 
     @Test
-    fun legacyDownloadsFallbackTargetsTheActualDownloadsRoot() {
-        assertEquals("", UltraShareReceivedPublisher.legacyDownloadsSubdirectory("Download"))
-    }
-
-    @Test
-    fun legacyAppFolderRemainsInsideDownloads() {
+    fun legacyAppFolderIsCreatedDirectlyInsideDownloads() {
         assertEquals(
-            "MalekPlayer/Received",
-            UltraShareReceivedPublisher.legacyDownloadsSubdirectory("Download/MalekPlayer/Received")
+            "MalekPlayer",
+            UltraShareReceivedPublisher.legacyDownloadsSubdirectory("Download/MalekPlayer")
         )
     }
 
