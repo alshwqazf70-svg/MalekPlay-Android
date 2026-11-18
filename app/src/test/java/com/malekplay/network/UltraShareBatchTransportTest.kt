@@ -20,8 +20,13 @@ import org.junit.Test
 
 class UltraShareBatchTransportTest {
     @Test
-    fun receiverSupportsEightBoundedConcurrentPeerTransfers() {
+    fun receiverScalesBoundedConcurrencyToTheAvailableAndroidHeap() {
         assertEquals(8, UltraShareBatchTransport.DEFAULT_MAX_PEERS)
+        assertEquals(4, UltraShareBatchTransport.recommendedMaxPeers(128))
+        assertEquals(8, UltraShareBatchTransport.recommendedMaxPeers(256))
+        assertEquals(16, UltraShareBatchTransport.recommendedMaxPeers(512))
+        assertEquals(16, UltraShareBatchTransport.recommendedMaxPeers(1024))
+        assertTrue(runCatching { UltraShareBatchTransport.recommendedMaxPeers(0) }.isFailure)
     }
 
     @Test
