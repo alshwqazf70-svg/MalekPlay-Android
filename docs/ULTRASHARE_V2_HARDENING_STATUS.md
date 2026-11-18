@@ -22,6 +22,8 @@ These are source-level test additions only until the corresponding GitHub Action
 
 ## Temporary connection behavior (latest source update)
 
+- The Android app now keeps API 23 (Android 6) as its minimum and targets/compiles against stable Android 16 (API 36). The emulator matrix is configured for API 23, 29, and 36. Android 17 remains a beta platform at the time of this update, so it is not treated as the stable compatibility baseline.
+
 - Approved peer credentials and sender targets now exist only while the live MPC2 room session is active.
 - Disconnecting a peer removes its active control sockets and in-memory sender target; no reconnectable peer or secret is retained for a later session.
 - Stopping the receive room now closes both inbound and outbound approved peer sessions, rather than only peers shown in the inbound list.
