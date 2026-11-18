@@ -90,7 +90,9 @@ internal fun isRetryableUltraSharePairingFailure(failure: Throwable): Boolean {
         if (current is java.net.ConnectException ||
             current is java.net.NoRouteToHostException ||
             (current is IllegalArgumentException &&
-                current.message == "إصدار قناة التحكم غير متوافق.")
+                current.message == "إصدار قناة التحكم غير متوافق.") ||
+            (current is IllegalStateException &&
+                current.message?.startsWith("هوية الجهاز لا تطابق الجهاز المكتشف") == true)
         ) return true
         current = current.cause
     }
