@@ -1129,6 +1129,7 @@ class UltraShareForegroundService : Service() {
         }
         val job = serviceScope.launch(start = CoroutineStart.LAZY) {
             var roomLockAcquired = false
+            var roomJoined = false
             try {
                 UltraShareDiagnostics.event(
                     "MESH_SERVER_SESSION", "HANDSHAKE_QUEUED",
@@ -1210,11 +1211,6 @@ class UltraShareForegroundService : Service() {
                     rosterUpdate.payload.fill(0)
                 }
 
-                // The direct-link listener is optional and must never delay KEY_OFFER or ACK.
-                runCatching { ensureMeshDirectServerReady() }.onFailure { failure ->
-                    UltraShareDiagnostics.failure("MESH_DIRECT_LISTENER_OPTIONAL", failure)
-                }
-
                 UltraShareDiagnostics.event(
                     "MESH_ROOM", "PEER_JOINED",
                     mapOf("peerId" to peerId, "peerHost" to host, "revision" to coordinator.state().revision)
@@ -1231,9 +1227,9 @@ class UltraShareForegroundService : Service() {
                 } finally {
                     latestRoster.payload.fill(0)
                 }
-                reconcileMeshDirectLinks()
                 meshServerHandshakeJobs.remove(host)
                 startMeshServerMessagePump(host)
+                roomJoined = true
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -1250,6 +1246,15 @@ class UltraShareForegroundService : Service() {
             } finally {
                 meshServerHandshakeJobs.remove(host)
                 if (roomLockAcquired) meshRoomHandshakeMutex.unlock()
+            }
+            // Do not hold the room-wide handshake mutex while an optional listener binds.
+            if (roomJoined) {
+                runCatching { ensureMeshDirectServerReady() }.onFailure { failure ->
+                    UltraShareDiagnostics.failure("MESH_DIRECT_LISTENER_OPTIONAL", failure)
+                }
+                runCatching { reconcileMeshDirectLinks() }.onFailure { failure ->
+                    UltraShareDiagnostics.failure("MESH_DIRECT_RECONCILE_AFTER_JOIN", failure)
+                }
             }
         }
         val previous = meshServerHandshakeJobs.putIfAbsent(host, job)
@@ -1344,6 +1349,7 @@ class UltraShareForegroundService : Service() {
         if (host in meshClientJoinedHosts ||
             !UltraShareControlChannel.supportsClientApplicationFrames(host)
         ) return
+        var roomJoined = false
         meshClientJoinMutex.lock()
         try {
             if (host in meshClientJoinedHosts ||
@@ -1421,19 +1427,24 @@ class UltraShareForegroundService : Service() {
                 rosterUpdate.payload.fill(0)
             }
 
-            // Listener startup is best-effort and deliberately happens after both protocol ACKs.
-            runCatching { ensureMeshDirectServerReady() }.onFailure { failure ->
-                UltraShareDiagnostics.failure("MESH_DIRECT_LISTENER_OPTIONAL", failure)
-            }
             meshClientJoinedHosts.add(host)
             UltraShareDiagnostics.event(
                 "MESH_ROOM", "JOINED_AUTHORITY_ROOM",
                 mapOf("authorityPeerId" to authorityId, "revision" to coordinator.state().revision)
             )
             startMeshClientMessagePump(host, authorityId, coordinator)
-            reconcileMeshDirectLinks()
+            roomJoined = true
         } finally {
             meshClientJoinMutex.unlock()
+        }
+        // Listener binding and topology dialing must not block other authenticated sessions.
+        if (roomJoined) {
+            runCatching { ensureMeshDirectServerReady() }.onFailure { failure ->
+                UltraShareDiagnostics.failure("MESH_DIRECT_LISTENER_OPTIONAL", failure)
+            }
+            runCatching { reconcileMeshDirectLinks() }.onFailure { failure ->
+                UltraShareDiagnostics.failure("MESH_DIRECT_RECONCILE_AFTER_JOIN", failure)
+            }
         }
     }
 
