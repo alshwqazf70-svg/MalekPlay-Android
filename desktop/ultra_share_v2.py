@@ -508,10 +508,17 @@ def _media_signature_matches(path: Path, filename: str) -> bool:
     if ext == "webp": return at(0, b"RIFF") and at(8, b"WEBP")
     if ext == "bmp": return starts(b"BM")
     if ext in {"tif", "tiff"}: return starts(b"II*\\x00") or starts(b"MM\\x00*")
-    if ext in {"mp4", "m4v", "mov", "3gp", "3g2", "heic", "heif", "avif"}:
+    if ext in {"mp4", "m4v", "mov", "3gp", "3g2", "m4a", "heic", "heif", "avif"}:
         return at(4, b"ftyp")
     if ext in {"mkv", "webm"}: return starts(bytes.fromhex("1a45dfa3"))
     if ext == "avi": return at(0, b"RIFF") and at(8, b"AVI ")
+    if ext in {"ts", "mts", "m2ts"}: return starts(b"\\x47") or (len(head) >= 5 and head[4] == 0x47)
+    if ext in {"mpg", "mpeg"}: return starts(bytes.fromhex("000001ba")) or starts(bytes.fromhex("000001b3"))
+    if ext in {"wmv", "wma"}: return starts(bytes.fromhex("3026b2758e66cf11"))
+    if ext == "flv": return starts(b"FLV")
+    if ext == "ogv": return starts(b"OggS")
+    if ext in {"aiff", "aif"}: return at(0, b"FORM") and (at(8, b"AIFF") or at(8, b"AIFC"))
+    if ext in {"mid", "midi"}: return starts(b"MThd")
     if ext == "mp3":
         return starts(b"ID3") or (len(head) >= 2 and head[0] == 0xff and head[1] & 0xe0 == 0xe0)
     if ext == "wav": return at(0, b"RIFF") and at(8, b"WAVE")
