@@ -83,6 +83,7 @@ class UltraShareQrCodeTest {
         assertEquals(listOf("192.168.1.25", "192.168.43.1", "10.0.0.1"), decoded.hosts)
         assertEquals(secret, decoded.pairingSecret)
         assertEquals(UltraShareControlChannel.DEFAULT_PORT, decoded.port)
+        assertEquals(null, decoded.invitationId)
     }
 
     @Test
