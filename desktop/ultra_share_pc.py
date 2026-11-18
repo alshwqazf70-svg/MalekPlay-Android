@@ -93,22 +93,7 @@ def is_supported_media_mime(value: str) -> bool:
     """Accept video/audio/raster-image MIME families only."""
     if not isinstance(value, str) or not 3 <= len(value) <= 160:
         return False
-    token = r"[A-Za-z0-9!#def is_supported_media_mime(value: str) -> bool:
-    """Compatibility name: accepts valid MIME types except APK/PDF MIME types."""
-    if not isinstance(value, str) or not 3 <= len(value) <= 160:
-        return False
     token = r"[A-Za-z0-9!#$&^_.+-]+"
-    if re.fullmatch(token + "/" + token, value) is None:
-        return False
-    return value.lower() not in {
-        "application/pdf", "application/x-pdf",
-        "application/vnd.android.package-archive",
-    }
-
-
-def is_allowed_share_file(filename: str, mime: str) -> bool:
-    return Path(filename).suffix.lower() not in {".apk", ".pdf"} and is_supported_media_mime(mime)
-^_.+-]+"
     if re.fullmatch(token + "/" + token, value) is None:
         return False
     category = value.lower().split("/", 1)[0]
@@ -122,6 +107,7 @@ def is_allowed_share_file(filename: str, mime: str) -> bool:
     if is_supported_media_mime(mime):
         return True
     return mime.strip().lower() in {"application/octet-stream", "application/unknown"} and extension in MEDIA_EXTENSIONS
+
 
 def recv_exact(sock: socket.socket, length: int) -> bytes:
     data = bytearray()
