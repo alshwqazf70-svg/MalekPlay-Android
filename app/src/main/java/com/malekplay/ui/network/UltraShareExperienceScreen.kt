@@ -565,7 +565,8 @@ fun UltraShareExperienceScreen(
                 pairingSecret = state.pairingSecret,
                 ssid = state.hotspotSsid,
                 wifiPassword = state.hotspotPassword,
-                invitationId = it
+                invitationId = it,
+                wifiSecurity = state.hotspotSecurity
             )
         }
     val hotspotQrPayload = state.localAddresses
@@ -589,7 +590,8 @@ fun UltraShareExperienceScreen(
                 pairingSecret = state.pairingSecret,
                 ssid = state.hotspotSsid,
                 wifiPassword = state.hotspotPassword,
-                invitationId = state.invitationId.takeIf { id -> id.isNotBlank() }
+                invitationId = state.invitationId.takeIf { id -> id.isNotBlank() },
+                wifiSecurity = state.hotspotSecurity
             )
         }
     val liveLanFallbackHosts = remember(context, state.localAddresses) {
