@@ -1,6 +1,7 @@
 package com.malekplay.ui.network
 
 import com.malekplay.network.UltraShareCore
+import com.malekplay.network.UltraShareForegroundService
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import android.net.Uri
@@ -66,6 +67,11 @@ fun SendFileScreen(
     var showManualPairing by remember(host) { mutableStateOf(host.isNotBlank() && host !in state.approvedSenderPeerHosts) }
     // Incoming authenticated pairing may approve a peer before this screen has a local host.
     val sendHost = host.ifBlank { state.approvedPeerHost ?: state.approvedSenderPeerHosts.firstOrNull().orEmpty() }
+    val selectedPeerBusy = sendHost.isNotBlank() &&
+        UltraShareForegroundService.isSendingToPeer(sendHost)
+    val availablePeerCount = state.approvedSenderPeerHosts.count { peerHost ->
+        !UltraShareForegroundService.isSendingToPeer(peerHost)
+    }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.VIDEO) }, modifier = Modifier.weight(1f), enabled = true) {
@@ -143,15 +149,20 @@ fun SendFileScreen(
             Button(colors = ultraShareButtonColors(),
                 onClick = { onSendBatch(sendHost) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = state.approvedSenderPeerCount > 0 && sendHost.isNotBlank()
-            ) { Text("إرسال ${selectedUris.size} ملف الآن") }
+                enabled = state.approvedSenderPeerCount > 0 && sendHost.isNotBlank() && !selectedPeerBusy
+            ) {
+                Text(
+                    if (selectedPeerBusy) "جارٍ الإرسال إلى هذا الجهاز"
+                    else "إرسال ${selectedUris.size} ملف الآن"
+                )
+            }
             if (state.approvedSenderPeerCount > 1) {
                 OutlinedButton(
                     onClick = onSendToAllPeers,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = true
+                    enabled = availablePeerCount > 0
                 ) {
-                    Text("إرسال إلى جميع الأجهزة المقترنة (${state.approvedSenderPeerCount})")
+                    Text("إرسال إلى الأجهزة المتاحة (${availablePeerCount})")
                 }
             }
         }
