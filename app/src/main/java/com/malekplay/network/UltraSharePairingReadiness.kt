@@ -134,7 +134,10 @@ internal fun matchesExpectedUltraSharePeerIdentity(
     expectedPeerId: String?,
     authenticatedPeerId: String?
 ): Boolean {
-    if (expectedPeerId.isNullOrBlank() || authenticatedPeerId.isNullOrBlank()) return true
+    // A legacy invitation may omit the expected ID. Once discovery supplied
+    // an expected identity, the authenticated handshake must present it too.
+    if (expectedPeerId.isNullOrBlank()) return true
+    if (authenticatedPeerId.isNullOrBlank()) return false
     return expectedPeerId.replace("-", "").equals(
         authenticatedPeerId.replace("-", ""),
         ignoreCase = true
