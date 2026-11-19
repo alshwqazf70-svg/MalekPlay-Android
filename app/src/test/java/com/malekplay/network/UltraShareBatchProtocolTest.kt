@@ -47,7 +47,7 @@ class UltraShareBatchProtocolTest {
         assertTrue(result.isFailure)
     }
 
-    @Test fun acceptsOrdinaryFilesAndRejectsOnlyBlockedApkAndPdfAtManifestBoundary() {
+    @Test fun acceptsOrdinaryFilesAndRejectsBlockedApkPdfAndSvgAtManifestBoundary() {
         listOf(
             "clip.mp4" to "video/mp4",
             "track.mp3" to "audio/mpeg",
@@ -56,8 +56,7 @@ class UltraShareBatchProtocolTest {
             "archive.zip" to "application/zip",
             "notes.txt" to "text/plain",
             "unknown.bin" to "application/octet-stream",
-            "report.docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "image.svg" to "image/svg+xml"
+            "report.docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ).forEach { (name, mime) ->
             val item = UltraShareBatchProtocol.newEntry(
                 name, mime, 1L, MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
@@ -71,7 +70,10 @@ class UltraShareBatchProtocolTest {
             "document.pdf" to "application/pdf",
             "renamed.pdf" to "text/plain",
             "package.apk" to "application/vnd.android.package-archive",
-            "renamed.apk" to "image/jpeg"
+            "renamed.apk" to "image/jpeg",
+            "image.svg" to "image/svg+xml",
+            "drawing.svg" to "image/png",
+            "drawing.png" to "image/svg+xml"
         ).forEach { (name, mime) ->
             val item = UltraShareBatchProtocol.newEntry(
                 name, mime, 1L, MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
