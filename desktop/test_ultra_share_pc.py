@@ -64,7 +64,7 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         self.assertTrue(is_allowed_share_file("movie.srt", "application/x-subrip"))
         self.assertTrue(is_allowed_share_file("captions.ass", "text/plain"))
         self.assertTrue(is_allowed_share_file("notes.txt", "text/plain"))
-        self.assertTrue(is_allowed_share_file("archive.zip", "application/zip"))
+        self.assertFalse(is_allowed_share_file("archive.zip", "application/zip"))
         self.assertTrue(is_allowed_share_file("unknown.bin", "application/octet-stream"))
         self.assertFalse(is_allowed_share_file("payload.apk", "video/mp4"))
         self.assertFalse(is_allowed_share_file("document.pdf", "application/octet-stream"))

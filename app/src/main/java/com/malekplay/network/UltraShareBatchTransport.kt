@@ -83,6 +83,26 @@ object UltraShareBatchTransport {
     private const val TYPE_FILE_END = 2
     private const val TYPE_BATCH_END = 3
     private val peerMutexRegistry = UltraSharePeerMutexRegistry()
+    private val failedPairingAttempts = HashMap<String, Pair<Int, Long>>()
+
+    private fun enforcePairingCooldown(peerHost: String) {
+        synchronized(failedPairingAttempts) {
+            val state = failedPairingAttempts[peerHost] ?: return
+            val now = System.nanoTime()
+            if (state.second > now) throw IOException("تم إيقاف محاولات الاقتران مؤقتاً لهذا الجهاز.")
+            if (state.second != 0L) failedPairingAttempts.remove(peerHost)
+        }
+    }
+
+    private fun recordPairingResult(peerHost: String, authenticated: Boolean) {
+        synchronized(failedPairingAttempts) {
+            if (authenticated) failedPairingAttempts.remove(peerHost) else {
+                val attempts = (failedPairingAttempts[peerHost]?.first ?: 0) + 1
+                val cooldownUntil = if (attempts >= 5) System.nanoTime() + 60_000_000_000L else 0L
+                failedPairingAttempts[peerHost] = (if (attempts >= 5) 0 else attempts) to cooldownUntil
+            }
+        }
+    }
 
     data class Source(
         val uri: Uri,
@@ -571,6 +591,7 @@ object UltraShareBatchTransport {
         // Detect the explicit reachability probe before running the expensive PIN KDF.
         if (isDiscoveryProbeProof(proof)) throw DiscoveryProbeConnection()
         val peerHost = socket.inetAddress.hostAddress.orEmpty()
+        enforcePairingCooldown(peerHost)
         if (!UltraShareControlChannel.hasAnyActiveSession(peerHost)) {
             throw IOException("لا توجد جلسة موافقة نشطة لهذا الجهاز.")
         }
@@ -586,6 +607,7 @@ object UltraShareBatchTransport {
         var readPhase = "HANDSHAKE"
         try {
         val authenticated = MessageDigest.isEqual(proof, hmac(secret, challenge))
+        recordPairingResult(peerHost, authenticated)
         // Do not reveal whether the short pairing secret was correct until the
         // independent control-channel approval for this peer has also been verified.
         val approved = isPeerSessionAuthorized(
