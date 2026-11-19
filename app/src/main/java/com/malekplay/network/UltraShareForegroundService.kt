@@ -131,7 +131,6 @@ class UltraShareForegroundService : Service() {
     @Volatile private var receiveJob: Job? = null
     @Volatile private var batchReceiveJob: Job? = null
     @Volatile private var activeBatchTransferPort: Int = 0
-    private val sendJobsByPeer = java.util.concurrent.ConcurrentHashMap<String, Job>()
     @Volatile private var pauseRequested = false
     private val pendingReplacementCount = java.util.concurrent.atomic.AtomicInteger(0)
     private var advertisementJob: Job? = null
@@ -2813,6 +2812,10 @@ class UltraShareForegroundService : Service() {
         const val ACTION_RETRY_FILE = "com.malekplay.ultrashare.RETRY_FILE"
 
         private val mutableState = MutableStateFlow(UltraShareServiceState())
+        // One process-wide service instance owns these peer-scoped jobs. Keeping
+        // the registry in the companion also lets the UI avoid duplicate sends
+        // to a busy peer while still offering other peers concurrently.
+        private val sendJobsByPeer = java.util.concurrent.ConcurrentHashMap<String, Job>()
         private val approvedSendTargetsByHost = LinkedHashMap<String, UltraShareApprovedSendTarget>()
 
         internal fun registerApprovedSendTarget(target: UltraShareApprovedSendTarget) {
@@ -2834,6 +2837,14 @@ class UltraShareForegroundService : Service() {
 
         internal fun approvedSendTarget(host: String): UltraShareApprovedSendTarget? =
             synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost[host] }
+
+        internal fun isSendingToPeer(host: String): Boolean {
+            val sessionId = approvedSendTarget(host)?.sessionId ?: host
+            return sendJobsByPeer.containsKey(sessionId)
+        }
+
+        internal fun availableSendTargets(): List<UltraShareApprovedSendTarget> =
+            approvedSendTargets().filterNot { sendJobsByPeer.containsKey(it.sessionId) }
 
         internal fun removeApprovedSendTarget(host: String) {
             synchronized(approvedSendTargetsByHost) { approvedSendTargetsByHost.remove(host) }
