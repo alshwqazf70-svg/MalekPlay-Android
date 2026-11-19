@@ -2167,7 +2167,7 @@ internal fun isCurrentWifiDirectGroupAttempt(
     callbackToken: Int
 ): Boolean = !sessionClosed && currentToken == callbackToken
 
-/** Use a neutral Wi-Fi Direct owner preference so either Android device may own the group. */
+/** Force WPA2-compatible group security on Android 16 for Android 6–15 joiners. */
 internal fun shouldForceLegacyWifiDirectSecurity(sdkInt: Int): Boolean = sdkInt >= 36
 
 internal fun wifiDirectQrSecurity(sdkInt: Int, isWpa3Sae: Boolean): String =
@@ -2176,5 +2176,6 @@ internal fun wifiDirectQrSecurity(sdkInt: Int, isWpa3Sae: Boolean): String =
 internal fun shouldStartWifiDirectOwnerPeerDeadline(clientCount: Int, wasConnected: Boolean): Boolean =
     clientCount > 0 || wasConnected
 
+/** Prefer local ownership for a creator and client role for a device joining an existing group. */
 internal fun wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner: Boolean): Int =
     if (preferThisDeviceAsGroupOwner) 15 else 0
