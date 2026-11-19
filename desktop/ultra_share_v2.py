@@ -7,6 +7,7 @@ approved MPC2 control channel.
 from __future__ import annotations
 
 import hashlib
+import re
 import struct
 import uuid
 from dataclasses import dataclass
