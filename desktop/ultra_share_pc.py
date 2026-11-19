@@ -354,7 +354,7 @@ def send_once(host: str, port: int, secret: str, source: Path,
             raise ValueError("The receiver returned malformed acknowledgement data.")
         if not accepted:
             raise OSError(message or "The receiver could not verify the file.")
-        print(f"\\nSent and verified: {filename}")
+        print(f"\nSent and verified: {filename}")
 
 
 def send_file(host: str, port: int, secret: str, source: Path) -> None:
@@ -370,7 +370,7 @@ def send_file(host: str, port: int, secret: str, source: Path) -> None:
         except (TimeoutError, ConnectionError) as exc:
             if attempt == 2:
                 raise
-            print(f"\\nConnection interrupted ({exc}); retrying {attempt + 1}/2...")
+            print(f"\nConnection interrupted ({exc}); retrying {attempt + 1}/2...")
             time.sleep(attempt + 1)
 
 
@@ -392,7 +392,7 @@ def send_files(host: str, port: int, secret: str, sources: list[Path]) -> None:
         raise ValueError("APK and PDF files cannot be shared: " +
                          ", ".join(source.name for source in unsupported))
     for index, source in enumerate(sources, start=1):
-        print(f"\\n[{index}/{len(sources)}] Sending {source.name}")
+        print(f"\n[{index}/{len(sources)}] Sending {source.name}")
         send_file(host, port, secret, source)
 
 
@@ -531,7 +531,7 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
         write_frame(connection, send_key, nonce_prefix, 1, acknowledgement)
         if not verified:
             raise OSError(message)
-        print(f"\\nReceived and verified: {final_path}")
+        print(f"\nReceived and verified: {final_path}")
         return final_path
 
 
@@ -663,7 +663,7 @@ def main() -> int:
                     def approve(peer_name: str, peer_host: str) -> bool:
                         try:
                             answer = input(
-                                f"\\n{peer_name} ({peer_host}) requests Ultra Share access. Accept? [y/N]: "
+                                f"\n{peer_name} ({peer_host}) requests Ultra Share access. Accept? [y/N]: "
                             ).strip().lower()
                         except EOFError:
                             return False
@@ -680,7 +680,7 @@ def main() -> int:
                 try:
                     outcomes = receive_batch_v2(args.v2_port, secret, args.output)
                     completed = sum(item["status"] == 2 for item in outcomes)
-                    print(f"\\nV2 batch received: {completed}/{len(outcomes)} files verified.")
+                    print(f"\nV2 batch received: {completed}/{len(outcomes)} files verified.")
                 except (ConnectionError, OSError, ValueError, PermissionError) as failure:
                     print(f"V2 transfer rejected or interrupted: {failure}", file=sys.stderr)
                     time.sleep(0.4)
