@@ -21,8 +21,6 @@ class AssExecutor(private val render: AssRender) {
 
     private val submitLock = Any()
 
-    private val task = AssTask(render)
-
     public fun renderFrame(presentationTimeUs: Long, type: AssTexType): AssFrame? {
         val future = synchronized(submitLock) {
             if (executorBusy) return lastFrame ?: assFrameNotChange
@@ -44,15 +42,27 @@ class AssExecutor(private val render: AssRender) {
     }
 
     public fun asyncRenderFrame(presentationTimeUs: Long, type: AssTexType, callback: (AssFrame?) -> Unit) {
-        if (task.executorBusy) {
-            // render thread is busy, keep last content
-            callback.invoke(assFrameNotChange)
-        } else {
-            task.presentationTimeUs = presentationTimeUs
-            task.callback = callback
-            task.type = type
-            // execute render task
-            executor.execute(task)
+        synchronized(submitLock) {
+            if (executorBusy) {
+                callback.invoke(lastFrame ?: assFrameNotChange)
+                return
+            }
+            executorBusy = true
+            try {
+                executor.execute {
+                    val result = try {
+                        render.renderFrame(presentationTimeUs / 1000, type).also { lastFrame = it }
+                    } catch (exception: Exception) {
+                        lastFrame
+                    } finally {
+                        executorBusy = false
+                    }
+                    runCatching { callback.invoke(result) }
+                }
+            } catch (rejected: java.util.concurrent.RejectedExecutionException) {
+                executorBusy = false
+                callback.invoke(lastFrame ?: assFrameNotChange)
+            }
         }
     }
 
