@@ -26,6 +26,7 @@ from ultra_share_pc import (
     send_file,
     send_files,
     write_frame,
+    encode_v2_discovery_offer,
 )
 
 
@@ -33,6 +34,28 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
     def test_windows_and_relative_paths_are_reduced_to_safe_names(self):
         self.assertEqual("clip.mp4", safe_name(r"C:\\Users\\Guest\\clip.mp4"))
         self.assertEqual("song.mp3", safe_name("../../music/song.mp3"))
+
+    def test_v2_discovery_offer_matches_android_negotiation_wire_format(self):
+        from urllib.parse import unquote
+        from ultra_share_pc import PROBE, PROBE_V2
+        self.assertEqual(b"MPULTRA_DISCOVER|1", PROBE)
+        self.assertEqual(b"MPULTRA_DISCOVER|2", PROBE_V2)
+        wire = encode_v2_discovery_offer(
+            "192.168.1.20", 38742, "Malek Player", "0123456789abcdef0123456789abcdef"
+        ).decode("utf-8")
+        fields = wire.split("|")
+        self.assertEqual(["MPULTRA_OFFER", "2"], fields[:2])
+        self.assertEqual("0123456789abcdef0123456789abcdef", unquote(fields[2]))
+        self.assertEqual("Malek Player", unquote(fields[3]))
+        self.assertEqual("1", fields[4])
+        candidate = fields[5].split(",")
+        self.assertEqual(["WLAN", "192.168.1.20", "38742", "1", "1", "0"], candidate)
+
+    def test_v2_discovery_rejects_non_lan_or_invalid_port(self):
+        with self.assertRaises(ValueError):
+            encode_v2_discovery_offer("8.8.8.8", 38742, "Desktop")
+        with self.assertRaises(ValueError):
+            encode_v2_discovery_offer("192.168.1.20", 70000, "Desktop")
 
     def test_invalid_empty_names_are_rejected(self):
         with self.assertRaises(ValueError):
