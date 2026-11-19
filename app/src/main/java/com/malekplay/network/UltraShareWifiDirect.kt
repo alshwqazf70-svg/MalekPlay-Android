@@ -774,7 +774,6 @@ object UltraShareWifiDirect {
                         return@requestGroupInfo
                     }
                     try {
-                        var usedCompatibilityConfig = false
                         val listener = object : WifiP2pManager.ActionListener {
                             override fun onSuccess() {
                                 if (!closed && isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) {
@@ -784,17 +783,6 @@ object UltraShareWifiDirect {
 
                             override fun onFailure(reason: Int) {
                                 if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return
-                                if (usedCompatibilityConfig && attempt == 0) {
-                                    // Some Android 16 OEM P2P stacks reject the
-                                    // compatibility config overload. Retry once with
-                                    // the platform's default legacy group creation.
-                                    finishGroupAttempt(token)
-                                    runCatching { manager.cancelConnect(channel, null) }
-                                    mainHandler.postDelayed({
-                                        if (!closed) createGroupAttempt(onCreated, 1)
-                                    }, 500L)
-                                    return
-                                }
                                 UltraShareDiagnostics.event(
                                     "WIFI_DIRECT",
                                     "CREATE_GROUP_REJECTED_BY_FRAMEWORK",
@@ -816,26 +804,40 @@ object UltraShareWifiDirect {
                         // Android 16 can negotiate WPA3-only P2P groups. Force the
                         // legacy WPA2 profile so Android 6–15 devices can join the
                         // same group through WifiManager.addNetwork/WifiNetworkSpecifier.
-                        val compatibilityConfig = if (shouldForceLegacyWifiDirectSecurity(Build.VERSION.SDK_INT) && attempt == 0) {
+                        val requiresLegacyCompatibility =
+                            shouldForceLegacyWifiDirectSecurity(Build.VERSION.SDK_INT)
+                        val compatibilityConfig = if (requiresLegacyCompatibility) {
                             runCatching {
                                 android.net.wifi.p2p.WifiP2pConfig.Builder()
                                     .setPccModeConnectionType(
                                         android.net.wifi.p2p.WifiP2pConfig.PCC_MODE_CONNECTION_TYPE_LEGACY_ONLY
                                     )
                                     .build()
-                            }.getOrNull()
-                        } else null
-                        if (compatibilityConfig != null) {
-                            val configuredCreation = runCatching {
-                                manager.createGroup(channel, compatibilityConfig, listener)
-                            }
-                            if (configuredCreation.isFailure) {
+                            }.getOrElse { failure ->
                                 UltraShareDiagnostics.failure(
                                     "WIFI_DIRECT_LEGACY_COMPAT_GROUP_CONFIG",
-                                    configuredCreation.exceptionOrNull()!!
+                                    failure
                                 )
-                                manager.createGroup(channel, listener)
+                                finishGroupAttempt(token)
+                                reportError(
+                                    "تعذر تهيئة مجموعة Wi-Fi Direct بوضع WPA2 المتوافق مع Android 6–15؛ سنستخدم مسار نقطة الاتصال البديل."
+                                )
+                                return@requestGroupInfo
                             }
+                        } else null
+                        if (requiresLegacyCompatibility && compatibilityConfig == null) {
+                            finishGroupAttempt(token)
+                            reportError(
+                                "تعذر تهيئة مجموعة Wi-Fi Direct بوضع WPA2 المتوافق مع Android 6–15؛ سنستخدم مسار نقطة الاتصال البديل."
+                            )
+                            return@requestGroupInfo
+                        }
+                        if (compatibilityConfig != null) {
+                            // Never silently retry with an unconstrained Android 16
+                            // group: that could become WPA3-SAE-only and strand
+                            // Android 6–15 joiners. Framework failure triggers the
+                            // existing LocalOnlyHotspot fallback instead.
+                            manager.createGroup(channel, compatibilityConfig, listener)
                         } else {
                             manager.createGroup(channel, listener)
                         }
