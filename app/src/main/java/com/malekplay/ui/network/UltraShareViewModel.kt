@@ -352,6 +352,10 @@ class UltraShareViewModel @Inject constructor(
             // Start the authenticated control/data listeners only. Wi-Fi Direct
             // group ownership is established first; LocalOnlyHotspot is fallback-only.
             UltraShareForegroundService.startReceiving(context, secret, createHotspot = false)
+            UltraShareForegroundService.updateWifiDirectLocalAddress(
+                context,
+                _state.value.wifiDirectLocalAddress
+            )
             // Publish current WLAN/LAN candidates immediately while P2P group setup
             // proceeds independently; this asynchronous refresh never gates pairing.
             UltraShareForegroundService.refreshLocalAddresses(context)
@@ -731,6 +735,10 @@ class UltraShareViewModel @Inject constructor(
                             context,
                             secret.trim(),
                             createHotspot = false
+                        )
+                        UltraShareForegroundService.updateWifiDirectLocalAddress(
+                            context,
+                            _state.value.wifiDirectLocalAddress
                         )
                     }
                     UltraShareForegroundService.registerApprovedPeer(
@@ -1441,6 +1449,10 @@ private fun forgetApprovedSenderTarget(host: String) {
                                 pending.secret,
                                 createHotspot = false
                             )
+                            UltraShareForegroundService.updateWifiDirectLocalAddress(
+                                context,
+                                _state.value.wifiDirectLocalAddress
+                            )
                         }.onSuccess {
                             _state.value = _state.value.copy(
                                 receiving = true,
@@ -1543,6 +1555,9 @@ private fun forgetApprovedSenderTarget(host: String) {
             onLocalAddress = { address ->
                 val safeAddress = address?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
                 _state.value = _state.value.copy(wifiDirectLocalAddress = safeAddress)
+                if (_state.value.receiving || UltraShareForegroundService.state.value.receiving) {
+                    UltraShareForegroundService.updateWifiDirectLocalAddress(context, safeAddress)
+                }
                 if (safeAddress != null) {
                     UltraShareDiagnostics.event(
                         "WIFI_DIRECT",
