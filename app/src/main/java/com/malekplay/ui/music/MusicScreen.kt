@@ -84,6 +84,7 @@ import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.library.LibraryViewModel
 import com.malekplay.ui.components.MediaDeleteButton
+import com.malekplay.ui.components.MediaBulkDeleteBar
 import com.malekplay.ui.components.loadMediaArtwork
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -287,6 +288,13 @@ fun MusicScreen(
                 androidx.compose.material3.TextButton(onClick = { selectedSongs.clear() }) { Text("إلغاء") }
                 androidx.compose.material3.TextButton(onClick = { onSendMedia(songs.filter { it.media.uri in selectedSongs }.map { it.media }) }) { Text("إرسال المحدد") }
             }
+        }
+        if (tabIndex == 0 && songSelectionMode) {
+            MediaBulkDeleteBar(
+                mediaItems = songs.filter { it.media.uri in selectedSongs }.map { it.media },
+                onDeleted = libraryViewModel::refresh,
+                onClearSelection = { selectedSongs.clear() }
+            )
         }
         when (tabIndex) {
             0 -> SongsTab(
