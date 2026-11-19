@@ -130,6 +130,45 @@ class UltraShareQrCodeTest {
         )
     }
 
+
+    @Test
+    fun unifiedV5QrRoundTripsSoftApCredentialsLanHostsAndP2pInvitation() {
+        val secret = UltraShareCore.createPairingSecret()
+        val payload = UltraShareQrCode.createUnifiedReceiverPayload(
+            hosts = listOf("192.168.49.1", "192.168.1.24", "192.168.1.24", "10.0.0.1"),
+            pairingSecret = secret,
+            ssid = "DIRECT-MalekPlay",
+            wifiPassword = "share12345",
+            invitationId = "mesh-peer-23"
+        )
+
+        val decoded = UltraShareQrCode.parsePayload(payload)
+
+        assertTrue(payload.contains("v=5"))
+        assertEquals("192.168.49.1", decoded.host)
+        assertEquals(listOf("192.168.49.1", "192.168.1.24", "10.0.0.1"), decoded.hosts)
+        assertEquals(secret, decoded.pairingSecret)
+        assertEquals("DIRECT-MalekPlay", decoded.hotspotSsid)
+        assertEquals("share12345", decoded.hotspotPassword)
+        assertEquals("mesh-peer-23", decoded.invitationId)
+        assertEquals(UltraShareControlChannel.DEFAULT_PORT, decoded.port)
+    }
+
+    @Test
+    fun unifiedV5QrSupportsLanOnlyAndWifiOnlyOptionalFields() {
+        val secret = UltraShareCore.createPairingSecret()
+        val lanOnly = UltraShareQrCode.parsePayload(
+            UltraShareQrCode.createUnifiedReceiverPayload(
+                hosts = listOf("192.168.1.25"),
+                pairingSecret = secret
+            )
+        )
+        assertEquals(listOf("192.168.1.25"), lanOnly.hosts)
+        assertEquals(null, lanOnly.hotspotSsid)
+        assertEquals(null, lanOnly.hotspotPassword)
+        assertEquals(null, lanOnly.invitationId)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun pairingParserRejectsForeignSchemes() {
         UltraShareQrCode.parsePayload("https://example.com/?secret=anything")
