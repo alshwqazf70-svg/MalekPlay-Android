@@ -1561,6 +1561,37 @@ private fun forgetApprovedSenderTarget(host: String) {
         }
     }
 
+    private fun publishDnsSdReceiverQrIfReady(invitationId: String) {
+        viewModelScope.launch {
+            // Give requestGroupInfo a short opportunity to publish WPA2 credentials.
+            // If this OEM withholds them, retain the compatible DNS-SD invitation QR.
+            delay(1_500L)
+            if (wifiDirectGroupSsid != null && wifiDirectGroupPassword != null) return@launch
+            val current = _state.value
+            val service = UltraShareForegroundService.state.value
+            if (!current.receiving || !service.controlChannelReady) return@launch
+            val secret = current.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
+                ?: service.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
+                ?: return@launch
+            val hosts = (current.localAddresses + service.localAddresses)
+                .map { it.trim() }
+                .filter { UltraShareCore.isValidPrivateLanHost(it) }
+                .distinct()
+                .take(8)
+            val payload = runCatching {
+                UltraShareQrCode.createReceiverPayload(
+                    hosts = hosts,
+                    pairingSecret = secret,
+                    invitationId = invitationId
+                )
+            }.getOrElse {
+                UltraShareDiagnostics.failure("DNS_SD_QR_CREATE", it)
+                return@launch
+            }
+            latchReceiverQrPayload(payload)
+        }
+    }
+
     private fun publishUnifiedReceiverQrIfReady() {
         val current = _state.value
         val service = UltraShareForegroundService.state.value
@@ -1656,6 +1687,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                 publishUnifiedReceiverQrIfReady()
                 session.advertiseInvitation(invitationId) {
                     UltraShareForegroundService.refreshLocalAddresses(context)
+                    publishDnsSdReceiverQrIfReady(invitationId)
                     _state.value = _state.value.copy(
                         invitationId = invitationId,
                         error = null,
