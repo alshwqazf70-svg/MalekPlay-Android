@@ -1,6 +1,7 @@
 package com.malekplay.network
 
 import java.util.concurrent.atomic.AtomicBoolean
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -86,8 +87,8 @@ class UltraShareWifiDirectPolicyTest {
 
     @Test
     fun wifiDirectOwnerNegotiationIsSymmetricForBothPairingDirections() {
-        assertTrue(wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner = true) == 7)
-        assertTrue(wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner = false) == 7)
+        assertEquals(15, wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner = true))
+        assertEquals(0, wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner = false))
     }
 
     @Test
