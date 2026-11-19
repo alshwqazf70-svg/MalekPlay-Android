@@ -96,7 +96,7 @@ fun SendFileScreen(
             Text("مكتبة الهاتف • ${libraryFiles.size} عنصر", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(libraryFiles, key = { it.id }) { file ->
-                    UltraShareMediaCard(file, file.uri in selectedUris) {
+                    UltraShareMediaCard(file, file.uri in selectedUris, enabled = !state.sending) {
                         onSelectedUrisChange(if (file.uri in selectedUris) selectedUris - file.uri else selectedUris + file.uri)
                     }
                 }
@@ -110,7 +110,7 @@ fun SendFileScreen(
             Button(colors = ultraShareButtonColors(),onClick = onScanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
                 Icon(Icons.Filled.QrCode, null); Text("مسح QR لجهاز الاستقبال")
             }
-            OutlinedButton(onClick = onShowNearby, modifier = Modifier.fillMaxWidth()) { Text("عرض الأجهزة القريبة") }
+            OutlinedButton(onClick = onShowNearby, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) { Text("عرض الأجهزة القريبة") }
             OutlinedButton(onClick = onOpenDevicePicker, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) { Text("اختيار جهاز من نافذة الأجهزة القريبة") }
         }
         if (sendHost.isNotBlank()) {
@@ -169,9 +169,9 @@ fun SendFileScreen(
 }
 
 @Composable
-private fun UltraShareMediaCard(file: MediaFile, selected: Boolean, onClick: () -> Unit) {
+private fun UltraShareMediaCard(file: MediaFile, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Card(
-        onClick = onClick,
+        onClick = { if (enabled) onClick() },
         modifier = Modifier.width(148.dp),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF38204F) else Color(0xFF21192D))

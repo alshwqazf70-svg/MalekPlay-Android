@@ -255,9 +255,9 @@ class UltraShareV2ManifestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as output_dir:
             source_root = Path(source_dir)
             first = source_root / "مقطع.mp4"
-            second = source_root / "empty.mp3"
+            second = source_root / "second.mp3"
             first.write_bytes(bytes.fromhex("000000186674797069736f6d") + b"ultra-share-v2" * 8192)
-            second.write_bytes(b"")
+            second.write_bytes(b"ID3" + b"audio-payload" * 128)
             received = []
             failures = []
 

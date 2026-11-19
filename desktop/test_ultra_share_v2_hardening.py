@@ -14,12 +14,12 @@ class UltraShareV2HardeningTests(unittest.TestCase):
     def test_batch_total_is_bounded(self):
         digest = hashlib.sha256(b"x").digest()
         entries = (
-            FileEntry(str(uuid.uuid4()), "a.mp4", "video/mp4", 11 * 1024**3, digest),
-            FileEntry(str(uuid.uuid4()), "b.mp4", "video/mp4", 10 * 1024**3, digest),
+            FileEntry(str(uuid.uuid4()), "a.mp4", "video/mp4", 60 * 1024**3, digest),
+            FileEntry(str(uuid.uuid4()), "b.mp4", "video/mp4", 41 * 1024**3, digest),
         )
         with self.assertRaises(ValueError):
             validate_manifest(Manifest(str(uuid.uuid4()), entries))
-        self.assertEqual(20 * 1024**3, MAX_BATCH_BYTES)
+        self.assertEqual(100 * 1024**3, MAX_BATCH_BYTES)
         self.assertEqual(512 * 1024, FRAME_BYTES)
 
     def test_content_signature_rejects_mislabeled_payload(self):
@@ -32,11 +32,11 @@ class UltraShareV2HardeningTests(unittest.TestCase):
             self.assertFalse(_media_signature_matches(invalid, "renamed.mp4", "video/mp4"))
             self.assertFalse(_media_signature_matches(valid, "valid.mp4", "image/jpeg"))
 
-    def test_zero_byte_media_is_accepted_after_media_policy_validation(self):
+    def test_zero_byte_files_are_rejected_before_publication(self):
         with tempfile.TemporaryDirectory() as directory:
             empty = Path(directory) / "empty.mp3"
             empty.write_bytes(b"")
-            self.assertTrue(_media_signature_matches(empty, "empty.mp3", "audio/mpeg"))
+            self.assertFalse(_media_signature_matches(empty, "empty.mp3", "audio/mpeg"))
             self.assertFalse(_media_signature_matches(empty, "empty.pdf", "application/pdf"))
 
     def test_signature_validation_fails_closed_for_unknown_extensions(self):
