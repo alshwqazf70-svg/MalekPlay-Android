@@ -37,7 +37,7 @@ object UltraShareWifiDirect {
         private val onConnected: (host: String?, isGroupOwner: Boolean) -> Unit,
         private val onError: (String) -> Unit,
         private val onLocalAddress: (String?) -> Unit,
-        private val onGroupInfo: (ssid: String, passphrase: String, ownerAddress: String?) -> Unit
+        private val onGroupInfo: (ssid: String, passphrase: String, ownerAddress: String?, wifiSecurity: String) -> Unit
     ) : Closeable {
         private val appContext = context.applicationContext
         @Volatile private var channel: WifiP2pManager.Channel = initialChannel
@@ -837,12 +837,19 @@ object UltraShareWifiDirect {
             val ssid = runCatching { ownerGroup.networkName?.trim().orEmpty() }.getOrDefault("")
             val passphrase = runCatching { ownerGroup.passphrase?.trim().orEmpty() }.getOrDefault("")
             val ownerAddress = "192.168.49.1"
+            val wifiSecurity = if (Build.VERSION.SDK_INT >= 36) {
+                runCatching {
+                    if (ownerGroup.securityType == android.net.wifi.p2p.WifiP2pGroup.SECURITY_TYPE_WPA3_SAE) {
+                        "wpa3"
+                    } else "wpa2"
+                }.getOrDefault("wpa2")
+            } else "wpa2"
             if (ssid.isNotBlank() && passphrase.length in 8..63) {
                 UltraShareDiagnostics.event(
                     "WIFI_DIRECT", "GROUP_SOFTAP_CREDENTIALS_READY",
                     mapOf("ssidPresent" to true, "passphraseLength" to passphrase.length)
                 )
-                runCatching { onGroupInfo(ssid, passphrase, ownerAddress) }
+                runCatching { onGroupInfo(ssid, passphrase, ownerAddress, wifiSecurity) }
                     .onFailure { UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_INFO_CALLBACK", it) }
             } else {
                 UltraShareDiagnostics.event(
@@ -1996,7 +2003,7 @@ object UltraShareWifiDirect {
         onConnected: (host: String?, isGroupOwner: Boolean) -> Unit,
         onError: (String) -> Unit,
         onLocalAddress: (String?) -> Unit = {},
-        onGroupInfo: (ssid: String, passphrase: String, ownerAddress: String?) -> Unit = { _, _, _ -> }
+        onGroupInfo: (ssid: String, passphrase: String, ownerAddress: String?, wifiSecurity: String) -> Unit = { _, _, _, _ -> }
     ): Session {
         val manager = context.applicationContext.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
             ?: error("هذا الجهاز لا يدعم Wi-Fi Direct.")
