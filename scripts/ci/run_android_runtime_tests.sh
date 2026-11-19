@@ -78,7 +78,7 @@ if [ -z "$instrumentation" ]; then
 fi
 
 set +e
-adb shell am instrument -w -r "$instrumentation" 2>&1 | \
+timeout 600s adb shell am instrument -w -r "$instrumentation" 2>&1 | \
   tee "ultrashare-diagnostics/instrumentation-api-$expected_api.txt"
 instrumentation_status=${PIPESTATUS[0]}
 set -e
