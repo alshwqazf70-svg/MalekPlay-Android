@@ -2109,7 +2109,7 @@ class UltraShareForegroundService : Service() {
                 retiringJobs.forEach { it.cancelAndJoin() }
                 requestedTargets.forEach { target ->
                     val currentJob = sendJobsByPeer[target.sessionId]
-                    if (currentJob in retiringJobs) {
+                    if (currentJob != null && retiringJobs.contains(currentJob)) {
                         sendJobsByPeer.remove(target.sessionId, currentJob)
                     }
                 }
