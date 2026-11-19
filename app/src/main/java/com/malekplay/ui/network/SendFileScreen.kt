@@ -58,12 +58,14 @@ fun SendFileScreen(
     onSecretChange: (String) -> Unit,
     onPastePairingDetails: () -> Unit,
     onRequestConnection: () -> Unit,
-    onSendBatch: () -> Unit,
+    onSendBatch: (String) -> Unit,
     onSendToAllPeers: () -> Unit,
     onResumeAllPeers: () -> Unit
 ) {
     // Selecting a discovered peer opens the secure pairing fields immediately.
     var showManualPairing by remember(host) { mutableStateOf(host.isNotBlank() && host !in state.approvedSenderPeerHosts) }
+    // Incoming authenticated pairing may approve a peer before this screen has a local host.
+    val sendHost = host.ifBlank { state.approvedPeerHost ?: state.approvedSenderPeerHosts.singleOrNull().orEmpty() }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.VIDEO) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
@@ -109,9 +111,9 @@ fun SendFileScreen(
         }
         OutlinedButton(onClick = onShowNearby, modifier = Modifier.fillMaxWidth()) { Text("عرض الأجهزة القريبة") }
         OutlinedButton(onClick = onOpenDevicePicker, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) { Text("اختيار جهاز من نافذة الأجهزة القريبة") }
-        if (host.isNotBlank()) {
-            InfoPanel("الجهاز المحدد", host + " • " + when {
-                host in state.approvedSenderPeerHosts -> "متصل وموثّق"
+        if (sendHost.isNotBlank()) {
+            InfoPanel("الجهاز المحدد", sendHost + " • " + when {
+                sendHost in state.approvedSenderPeerHosts -> "متصل وموثّق"
                 state.requestingConnection -> "بانتظار الموافقة"
                 else -> "بانتظار الاقتران"
             })
@@ -132,9 +134,9 @@ fun SendFileScreen(
         }
         if (selectedUris.isNotEmpty()) {
             Button(colors = ultraShareButtonColors(),
-                onClick = onSendBatch,
+                onClick = { onSendBatch(sendHost) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !state.sending && host.isNotBlank() && host in state.approvedSenderPeerHosts
+                enabled = !state.sending && sendHost.isNotBlank() && sendHost in state.approvedSenderPeerHosts
             ) { Text("إرسال ${selectedUris.size} ملف الآن") }
             if (state.approvedSenderPeerCount > 1) {
                 OutlinedButton(

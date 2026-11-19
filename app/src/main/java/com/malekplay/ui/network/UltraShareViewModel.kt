@@ -1717,9 +1717,31 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     fun sendBatch(uris: List<Uri>, host: String): Boolean {
-        UltraShareDiagnostics.event("TRANSFER", "BATCH_SEND_REQUESTED", mapOf("host" to host.trim(), "fileCount" to uris.size))
-        val target = UltraShareForegroundService.approvedSendTarget(host.trim())
-        if (uris.isEmpty() || _state.value.sending || target == null) return false
+        val approvedTargets = UltraShareForegroundService.approvedSendTargets()
+        val requestedHost = host.trim()
+        val resolvedHost = requestedHost.ifBlank {
+            _state.value.approvedPeerHost ?: approvedTargets.singleOrNull()?.host.orEmpty()
+        }
+        UltraShareDiagnostics.event(
+            "TRANSFER",
+            "BATCH_SEND_REQUESTED",
+            mapOf("host" to resolvedHost, "fileCount" to uris.size, "requestedHostPresent" to requestedHost.isNotBlank())
+        )
+        val target = UltraShareForegroundService.approvedSendTarget(resolvedHost)
+            ?: approvedTargets.singleOrNull()
+        if (uris.isEmpty() || _state.value.sending) return false
+        if (target == null) {
+            _state.value = _state.value.copy(
+                error = "لا يوجد جهاز مقترن ومعتمد للإرسال. أعد الاقتران أو اختر الجهاز من قائمة الأجهزة المتصلة."
+            )
+            return false
+        }
+        if (target.candidates.isEmpty()) {
+            _state.value = _state.value.copy(
+                error = "الجهاز موثّق، لكن مسار نقل الملفات لم يُعتمد بعد. أبقِ شاشة الاستقبال مفتوحة ثم أعد الاتصال."
+            )
+            return false
+        }
         return runCatching {
             UltraShareForegroundService.startSendingBatchToPeers(context, uris, listOf(target))
             _state.value = _state.value.copy(
