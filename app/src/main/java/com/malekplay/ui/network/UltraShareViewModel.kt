@@ -277,18 +277,36 @@ class UltraShareViewModel @Inject constructor(
         val existingDetails = existingPayload?.let {
             runCatching { UltraShareQrCode.parsePayload(it) }.getOrNull()
         }
+        val existingVersion = existingPayload?.let { Uri.parse(it).getQueryParameter("v") }
+        val candidateVersion = Uri.parse(payload).getQueryParameter("v")
+        val readiness = com.malekplay.network.UltraSharePairingReadiness
         val mayUpgradeToUnifiedV5 = existingPayload != null &&
-            com.malekplay.network.UltraSharePairingReadiness.shouldUpgradeStableQrToUnifiedV5(
-                existingVersion = Uri.parse(existingPayload).getQueryParameter("v"),
-                candidateVersion = Uri.parse(payload).getQueryParameter("v"),
+            readiness.shouldUpgradeStableQrToUnifiedV5(
+                existingVersion = existingVersion,
+                candidateVersion = candidateVersion,
                 existingInvitationId = existingDetails?.invitationId,
                 candidateInvitationId = candidateDetails.invitationId,
                 existingPairingSecret = existingDetails?.pairingSecret,
                 candidatePairingSecret = candidateDetails.pairingSecret
             )
-        // Prefer v5 once the P2P SoftAP credentials arrive, even if the fallback
-        // LAN/DNS-SD QR was already displayed. Thereafter keep the v5 bytes stable.
-        val stablePayload = if (mayUpgradeToUnifiedV5) payload else
+        val mayEnrichV5Routes = existingPayload != null && existingDetails != null &&
+            readiness.shouldEnrichUnifiedV5QrHosts(
+                existingVersion = existingVersion,
+                candidateVersion = candidateVersion,
+                existingInvitationId = existingDetails.invitationId,
+                candidateInvitationId = candidateDetails.invitationId,
+                existingPairingSecret = existingDetails.pairingSecret,
+                candidatePairingSecret = candidateDetails.pairingSecret,
+                existingSsid = existingDetails.hotspotSsid,
+                candidateSsid = candidateDetails.hotspotSsid,
+                existingWifiPassword = existingDetails.hotspotPassword,
+                candidateWifiPassword = candidateDetails.hotspotPassword,
+                existingHosts = existingDetails.hosts,
+                candidateHosts = candidateDetails.hosts
+            )
+        // Upgrade a fallback QR when P2P credentials arrive, then monotonically
+        // enrich v5 with LAN interfaces that finish enumerating after QR display.
+        val stablePayload = if (mayUpgradeToUnifiedV5 || mayEnrichV5Routes) payload else
             com.malekplay.network.UltraSharePairingReadiness.stableQrPayload(
                 existingPayload, payload
             ) ?: return
