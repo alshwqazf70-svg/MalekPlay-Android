@@ -934,7 +934,7 @@ class UltraShareForegroundService : Service() {
      */
     private fun scheduleIdleDisconnect() {
         idleDisconnectJob?.cancel()
-        val busy = synchronized(transferLockGuard) { sendTransferActive || receiveTransferCount > 0 } ||
+        val busy = transferLocks.hasActiveTransfers() ||
             sendJobsByPeer.isNotEmpty() || currentState().sending
         if (busy || (!currentState().receiving && currentState().activePeers.isEmpty() && approvedSendTargets().isEmpty())) {
             idleDisconnectJob = null
@@ -942,9 +942,7 @@ class UltraShareForegroundService : Service() {
         }
         idleDisconnectJob = serviceScope.launch {
             kotlinx.coroutines.delay(SESSION_IDLE_TIMEOUT_MS)
-            val transferStillActive = synchronized(transferLockGuard) {
-                sendTransferActive || receiveTransferCount > 0
-            } || sendJobsByPeer.isNotEmpty() || currentState().sending
+            val transferStillActive = transferLocks.hasActiveTransfers() || sendJobsByPeer.isNotEmpty() || currentState().sending
             if (transferStillActive) {
                 // The transfer's finally/endTransfer path will schedule a fresh idle window.
                 idleDisconnectJob = null
