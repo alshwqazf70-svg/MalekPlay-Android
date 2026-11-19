@@ -86,6 +86,15 @@ class UltraShareWifiDirectPolicyTest {
     }
 
 
+
+    @Test
+    fun qrSecurityUsesWpa3OnlyForAndroid16SaeGroups() {
+        assertEquals("wpa2", wifiDirectQrSecurity(23, isWpa3Sae = true))
+        assertEquals("wpa2", wifiDirectQrSecurity(35, isWpa3Sae = true))
+        assertEquals("wpa3", wifiDirectQrSecurity(36, isWpa3Sae = true))
+        assertEquals("wpa2", wifiDirectQrSecurity(36, isWpa3Sae = false))
+    }
+
     @Test
     fun idleOwnerGroupNeverStartsThePeerDisconnectDeadline() {
         assertFalse(shouldStartWifiDirectOwnerPeerDeadline(clientCount = 0, wasConnected = false))
