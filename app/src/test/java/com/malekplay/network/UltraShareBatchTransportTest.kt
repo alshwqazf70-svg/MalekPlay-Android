@@ -89,6 +89,60 @@ class UltraShareBatchTransportTest {
     }
 
     @Test
+    fun singleAndMultiPeerSendReservationsCannotClaimTheSamePeerConcurrently() {
+        val jobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+        val firstJob = kotlinx.coroutines.Job()
+        val secondJob = kotlinx.coroutines.Job()
+        val ready = java.util.concurrent.CountDownLatch(2)
+        val start = java.util.concurrent.CountDownLatch(1)
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
+        try {
+            val first = executor.submit<Boolean> {
+                ready.countDown()
+                check(start.await(2, java.util.concurrent.TimeUnit.SECONDS))
+                UltraShareSendJobRegistry.reserve(jobs, listOf("peer-a", "peer-b"), firstJob)
+            }
+            val second = executor.submit<Boolean> {
+                ready.countDown()
+                check(start.await(2, java.util.concurrent.TimeUnit.SECONDS))
+                UltraShareSendJobRegistry.reserve(jobs, listOf("peer-b", "peer-c"), secondJob)
+            }
+            assertTrue(ready.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            start.countDown()
+            val firstReserved = first.get(2, java.util.concurrent.TimeUnit.SECONDS)
+            val secondReserved = second.get(2, java.util.concurrent.TimeUnit.SECONDS)
+            assertTrue(firstReserved xor secondReserved)
+            assertEquals(2, jobs.size)
+            val winningJob = if (firstReserved) firstJob else secondJob
+            assertTrue(jobs.values.all { it === winningJob })
+        } finally {
+            start.countDown()
+            jobs.clear()
+            firstJob.cancel()
+            secondJob.cancel()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun independentPeerSendReservationsCanProceedConcurrently() {
+        val jobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+        val firstJob = kotlinx.coroutines.Job()
+        val secondJob = kotlinx.coroutines.Job()
+        try {
+            assertTrue(UltraShareSendJobRegistry.reserve(jobs, listOf("peer-b"), firstJob))
+            assertTrue(UltraShareSendJobRegistry.reserve(jobs, listOf("peer-c"), secondJob))
+            assertEquals(2, jobs.size)
+            assertTrue(jobs["peer-b"] === firstJob)
+            assertTrue(jobs["peer-c"] === secondJob)
+        } finally {
+            jobs.clear()
+            firstJob.cancel()
+            secondJob.cancel()
+        }
+    }
+
+    @Test
     fun receiverScalesBoundedConcurrencyToTheAvailableAndroidHeap() {
         assertEquals(8, UltraShareBatchTransport.DEFAULT_MAX_PEERS)
         assertEquals(4, UltraShareBatchTransport.recommendedMaxPeers(128))
