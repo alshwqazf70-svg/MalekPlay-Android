@@ -1078,7 +1078,9 @@ fun UltraShareExperienceScreen(
                                     state.status?.contains("استُلم") == true ||
                                     state.status?.contains("اكتملت دفعة") == true
                                 ) -> "receive"
-                            host.isNotBlank() || selectedUris.isNotEmpty() -> "send"
+                            state.approvedSenderPeerHosts.isNotEmpty() ||
+                                !state.approvedPeerHost.isNullOrBlank() ||
+                                host.isNotBlank() || selectedUris.isNotEmpty() -> "send"
                             else -> "receive"
                         },
                         localDeviceName = Build.MODEL?.take(40)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlayer Android",
