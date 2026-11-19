@@ -150,9 +150,9 @@ fun ReceiveScreen(
             ShareInfoCard(
                 title = "حالة المجموعة",
                 body = if (state.pendingConnection != null) {
-                    "طلب اتصال من ${state.pendingConnection.peerName} قيد التحقق."
+                    "تم التحقق من امتلاك ${state.pendingConnection.peerName} لسر جلسة الاقتران. لن تُفتح الجلسة ولن يبدأ نقل الملفات قبل موافقتك."
                 } else {
-                    "المجموعة جاهزة لاقتران جهاز آخر؛ يبدأ الاتصال تلقائياً بعد التحقق من QR أو الرمز."
+                    "المجموعة جاهزة. كل طلب اتصال موثّق يحتاج موافقة واحدة منك قبل فتح جلسة النقل."
                 }
             )
             Row(
@@ -218,8 +218,9 @@ fun ReceiveScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("طلب اتصال وارد", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("طلب اقتران موثّق — موافقتك مطلوبة", color = Color.White, fontWeight = FontWeight.Bold)
                     Text(request.peerName + " • " + request.peerAddress, color = Color.White)
+                    Text("لن يستطيع الجهاز الإرسال أو الاستقبال حتى تضغط قبول. إذا لم تتعرف على الجهاز فاضغط رفض.", color = Color.White.copy(alpha = 0.92f), style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onAcceptConnection, modifier = Modifier.weight(1f), colors = ultraShareButtonColors()) { Text("قبول") }
                         OutlinedButton(onClick = onRejectConnection, modifier = Modifier.weight(1f)) { Text("رفض") }
