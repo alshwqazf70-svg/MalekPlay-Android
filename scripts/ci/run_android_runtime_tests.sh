@@ -38,7 +38,11 @@ if [ "$booted" != true ]; then
 fi
 
 # Verify the Android-test Kotlin source set as an explicit CI gate.
-./gradlew --build-cache --stacktrace --max-workers=2 :app:compileDebugAndroidTestKotlin
+# CI prebuilds the x86_64 APKs before emulator startup; keep this gate as a no-op when outputs exist.
+if [ ! -s app/build/outputs/apk/debug/app-debug.apk ] || [ ! -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk ]; then
+  ./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 :app:assembleDebug :app:assembleDebugAndroidTest
+fi
+./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 :app:compileDebugAndroidTestKotlin
 
 # Build both APKs, then install/run through adb directly. Some hosted emulator/ddmlib
 # combinations incorrectly route a single universal APK through SplitApkInstaller
