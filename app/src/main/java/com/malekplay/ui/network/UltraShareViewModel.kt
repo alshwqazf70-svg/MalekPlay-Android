@@ -2318,6 +2318,12 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun resumePendingBatch(host: String) {
         val target = UltraShareForegroundService.approvedSendTarget(host.trim()) ?: return
+        if (UltraShareForegroundService.isSendingToPeer(target.host)) {
+            _state.value = _state.value.copy(
+                error = "يوجد إرسال نشط إلى هذا الجهاز بالفعل؛ يمكنك استئناف جهاز آخر بالتوازي."
+            )
+            return
+        }
         viewModelScope.launch {
             val peerEntries = UltraSharePeerDeliveryStore.observe(context).first()
                 .filter { it.peerSessionId == target.sessionId }
@@ -2351,6 +2357,12 @@ private fun forgetApprovedSenderTarget(host: String) {
     fun retryFile(entry: UltraShareQueueEntry, host: String) {
         val target = UltraShareForegroundService.approvedSendTarget(host.trim())
         if (target == null || entry.status != UltraShareQueueStore.STATUS_FAILED) return
+        if (UltraShareForegroundService.isSendingToPeer(target.host)) {
+            _state.value = _state.value.copy(
+                error = "يوجد إرسال نشط إلى هذا الجهاز بالفعل؛ اختر جهازاً آخر لإعادة المحاولة بالتوازي."
+            )
+            return
+        }
         runCatching {
             UltraShareForegroundService.startSendingBatchToPeers(
                 context, listOf(entry.parsedUri), listOf(target), preserveCompleted = true
