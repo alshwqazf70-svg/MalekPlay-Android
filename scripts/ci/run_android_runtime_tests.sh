@@ -46,14 +46,6 @@ if [ ! -d app/build/tmp/kotlin-classes/debugAndroidTest ]; then
   ./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 :app:compileDebugAndroidTestKotlin
 fi
 
-# Ensure the prebuilt x86_64 app and instrumentation APKs exist, then install/run
-# through adb directly to avoid emulator-runner split-installer inconsistencies.
-if [ ! -s app/build/outputs/apk/debug/app-debug.apk ] || [ ! -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk ]; then
-  ./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 \
-    :app:assembleDebug \
-    :app:assembleDebugAndroidTest
-fi
-
 app_apk="app/build/outputs/apk/debug/app-debug.apk"
 test_apk="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 test -s "$app_apk"
