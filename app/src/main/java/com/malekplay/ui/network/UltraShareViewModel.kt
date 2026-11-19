@@ -1924,7 +1924,6 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     fun send(uri: Uri, host: String, secret: String) {
-        if (_state.value.sending) return
         UltraShareDiagnostics.event("TRANSFER", "SEND_REQUESTED", mapOf("host" to host.trim()))
         runCatching {
             UltraShareForegroundService.startSending(context, uri, host, secret)
@@ -2043,7 +2042,6 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun resumePendingBatch(host: String) {
         val target = UltraShareForegroundService.approvedSendTarget(host.trim()) ?: return
-        if (_state.value.sending) return
         viewModelScope.launch {
             val peerEntries = UltraSharePeerDeliveryStore.observe(context).first()
                 .filter { it.peerSessionId == target.sessionId }
@@ -2076,9 +2074,7 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun retryFile(entry: UltraShareQueueEntry, host: String) {
         val target = UltraShareForegroundService.approvedSendTarget(host.trim())
-        if (_state.value.sending || target == null ||
-            entry.status != UltraShareQueueStore.STATUS_FAILED
-        ) return
+        if (target == null || entry.status != UltraShareQueueStore.STATUS_FAILED) return
         runCatching {
             UltraShareForegroundService.startSendingBatchToPeers(
                 context, listOf(entry.parsedUri), listOf(target), preserveCompleted = true
