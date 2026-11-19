@@ -271,10 +271,28 @@ class UltraShareViewModel @Inject constructor(
         if (!current.receiving ||
             !UltraShareCore.isValidPairingSecret(current.pairingSecret)
         ) return
-        val stablePayload = com.malekplay.network.UltraSharePairingReadiness.stableQrPayload(
-            current.receiverQrPayload, payload
-        ) ?: return
-        if (stablePayload == current.receiverQrPayload) return
+        val candidateDetails = runCatching { UltraShareQrCode.parsePayload(payload) }.getOrNull()
+            ?: return
+        val existingPayload = current.receiverQrPayload
+        val existingDetails = existingPayload?.let {
+            runCatching { UltraShareQrCode.parsePayload(it) }.getOrNull()
+        }
+        val mayUpgradeToUnifiedV5 = existingPayload != null &&
+            com.malekplay.network.UltraSharePairingReadiness.shouldUpgradeStableQrToUnifiedV5(
+                existingVersion = Uri.parse(existingPayload).getQueryParameter("v"),
+                candidateVersion = Uri.parse(payload).getQueryParameter("v"),
+                existingInvitationId = existingDetails?.invitationId,
+                candidateInvitationId = candidateDetails.invitationId,
+                existingPairingSecret = existingDetails?.pairingSecret,
+                candidatePairingSecret = candidateDetails.pairingSecret
+            )
+        // Prefer v5 once the P2P SoftAP credentials arrive, even if the fallback
+        // LAN/DNS-SD QR was already displayed. Thereafter keep the v5 bytes stable.
+        val stablePayload = if (mayUpgradeToUnifiedV5) payload else
+            com.malekplay.network.UltraSharePairingReadiness.stableQrPayload(
+                existingPayload, payload
+            ) ?: return
+        if (stablePayload == existingPayload) return
         _state.value = current.copy(receiverQrPayload = stablePayload)
         runCatching { UltraShareQrCode.parsePayload(stablePayload) }.getOrNull()
             ?.takeIf { it.invitationId == current.invitationId && !current.invitationId.isBlank() }
