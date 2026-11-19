@@ -20,6 +20,10 @@ android {
         versionName = providers.gradleProperty("malekplayVersionName")
             .orNull?.takeIf(String::isNotBlank) ?: "2.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        providers.gradleProperty("targetAbi").orNull?.takeIf(String::isNotBlank)?.let { abi ->
+            require(abi.matches(Regex("[A-Za-z0-9_-]+"))) { "Invalid targetAbi: $abi" }
+            ndk { abiFilters += abi }
+        }
     }
 
     androidResources {
