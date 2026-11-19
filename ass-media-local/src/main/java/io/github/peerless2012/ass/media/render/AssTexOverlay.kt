@@ -216,6 +216,7 @@ class AssTexOverlay(private val handler: AssHandler, private val render: AssRend
     }
 
     override fun configure(videoSize: Size) {
+        releaseGlResources()
         super.configure(videoSize)
         this.texSize = videoSize
         executor = AssExecutor(render)
@@ -251,19 +252,26 @@ class AssTexOverlay(private val handler: AssHandler, private val render: AssRend
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
     }
 
-    override fun release() {
-        if (fboId != 0) GlUtil.deleteFbo(fboId)
-        if (texId != 0) GlUtil.deleteTexture(texId)
-        if (scratchTextureId != 0) GlUtil.deleteTexture(scratchTextureId)
-        if (vertexBufferId != 0) GlUtil.deleteBuffer(vertexBufferId)
-        if (texCoordBufferId != 0) GlUtil.deleteBuffer(texCoordBufferId)
-        if (::glProgram.isInitialized) glProgram.delete()
+    private fun releaseGlResources() {
+        if (fboId != 0) runCatching { GlUtil.deleteFbo(fboId) }
+        if (texId != 0) runCatching { GlUtil.deleteTexture(texId) }
+        if (scratchTextureId != 0) runCatching { GlUtil.deleteTexture(scratchTextureId) }
+        if (vertexBufferId != 0) runCatching { GlUtil.deleteBuffer(vertexBufferId) }
+        if (texCoordBufferId != 0) runCatching { GlUtil.deleteBuffer(texCoordBufferId) }
+        if (::glProgram.isInitialized) runCatching { glProgram.delete() }
         if (::executor.isInitialized) executor.shutdownNow()
         fboId = 0
         texId = 0
         scratchTextureId = 0
+        scratchTextureWidth = 0
+        scratchTextureHeight = 0
         vertexBufferId = 0
         texCoordBufferId = 0
+        texDirty = true
+    }
+
+    override fun release() {
+        releaseGlResources()
         super.release()
     }
 }
