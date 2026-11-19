@@ -48,8 +48,6 @@ fun ReceiveScreen(
     onStartHotspot: () -> Unit,
     onStopHotspot: () -> Unit,
     onToggleReceiving: () -> Unit,
-    onAcceptConnection: () -> Unit,
-    onRejectConnection: () -> Unit,
     onOpenReceived: (Uri, String) -> Unit,
     onExportReceived: (String) -> Unit
 ) {
@@ -149,11 +147,7 @@ fun ReceiveScreen(
             }
             ShareInfoCard(
                 title = "حالة المجموعة",
-                body = if (state.pendingConnection != null) {
-                    "تم التحقق من امتلاك ${state.pendingConnection.peerName} لسر جلسة الاقتران. لن تُفتح الجلسة ولن يبدأ نقل الملفات قبل موافقتك."
-                } else {
-                    "المجموعة جاهزة. كل طلب اتصال موثّق يحتاج موافقة واحدة منك قبل فتح جلسة النقل."
-                }
+                body = "المجموعة جاهزة. بعد نجاح الاقتران برمز الجلسة المؤقت، تُقبل الأجهزة الموثّقة تلقائياً ويصبح الإرسال والاستقبال متاحين دون طلب موافقة إضافي."
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -220,22 +214,6 @@ fun ReceiveScreen(
             Text(if (state.receiving) "إيقاف الاستقبال" else "بدء الاستقبال")
         }
 
-        state.pendingConnection?.let { request ->
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF53678D)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("طلب اقتران موثّق — موافقتك مطلوبة", color = Color.White, fontWeight = FontWeight.Bold)
-                    Text(request.peerName + " • " + request.peerAddress, color = Color.White)
-                    Text("لن يستطيع الجهاز الإرسال أو الاستقبال حتى تضغط قبول. إذا لم تتعرف على الجهاز فاضغط رفض.", color = Color.White.copy(alpha = 0.92f), style = MaterialTheme.typography.bodySmall)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = onAcceptConnection, modifier = Modifier.weight(1f), colors = ultraShareButtonColors()) { Text("قبول") }
-                        OutlinedButton(onClick = onRejectConnection, modifier = Modifier.weight(1f)) { Text("رفض") }
-                    }
-                }
-            }
-        }
         state.receivedFile?.let { received ->
             ShareInfoCard("آخر ملف مستلم", received.fileName + "\n" + formatTransferBytes(received.sizeBytes))
             received.publishedUri?.let { uri ->
