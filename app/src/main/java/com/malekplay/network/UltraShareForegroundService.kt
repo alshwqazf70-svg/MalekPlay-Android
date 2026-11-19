@@ -1877,7 +1877,7 @@ class UltraShareForegroundService : Service() {
         }
         val sendKey = approvedSendTarget(host)?.sessionId ?: host
         val retiringSend = sendJobsByPeer[sendKey]
-        if (retiringSend?.isCancelled == true) {
+        if (retiringSend != null && (retiringSend.isCancelled || retiringSend.isCompleted)) {
             pendingReplacementCount.incrementAndGet()
             serviceScope.launch {
                 retiringSend.cancelAndJoin()
