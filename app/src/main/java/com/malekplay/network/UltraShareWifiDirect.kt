@@ -175,7 +175,7 @@ object UltraShareWifiDirect {
             }
             if (!legacyDiscoveryPrerequisite()) {
                 UltraShareDiagnostics.event("WIFI_DIRECT", "LOCATION_SERVICES_DISABLED", mapOf("sdkInt" to Build.VERSION.SDK_INT, "operation" to "advertise_invitation"))
-                reportError("على Android 6–12 يجب تشغيل خدمة الموقع لنشر واكتشاف دعوة Wi-Fi Direct.")
+                recordAdvertisementFailure("على Android 6–12 يجب تشغيل خدمة الموقع لنشر واكتشاف دعوة Wi-Fi Direct.")
                 return
             }
             val service = WifiP2pDnsSdServiceInfo.newInstance(
@@ -201,26 +201,35 @@ object UltraShareWifiDirect {
                                     }
                                 }
                                 override fun onFailure(reason: Int) {
-                                    reportError("تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
+                                    recordAdvertisementFailure("تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
                                 }
                             })
                         } catch (failure: SecurityException) {
-                            reportError("يلزم إذن الأجهزة القريبة لإعلان دعوة Wi-Fi Direct.")
+                            recordAdvertisementFailure("يلزم إذن الأجهزة القريبة لإعلان دعوة Wi-Fi Direct.")
                         } catch (failure: RuntimeException) {
                             UltraShareDiagnostics.failure("WIFI_DIRECT_ADD_LOCAL_INVITATION", failure)
-                            reportError(failure.localizedMessage ?: "تعذر إعلان دعوة Wi-Fi Direct.")
+                            recordAdvertisementFailure(failure.localizedMessage ?: "تعذر إعلان دعوة Wi-Fi Direct.")
                         }
                     }
                     override fun onFailure(reason: Int) {
-                        reportError("تعذر تحديث إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
+                        recordAdvertisementFailure("تعذر تحديث إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
                     }
                 })
             } catch (failure: SecurityException) {
-                reportError("يلزم إذن الأجهزة القريبة لإعلان دعوة Wi-Fi Direct.")
+                recordAdvertisementFailure("يلزم إذن الأجهزة القريبة لإعلان دعوة Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
                 UltraShareDiagnostics.failure("WIFI_DIRECT_ADVERTISE_INVITATION", failure)
-                reportError(failure.localizedMessage ?: "تعذر إعلان دعوة Wi-Fi Direct.")
+                recordAdvertisementFailure(failure.localizedMessage ?: "تعذر إعلان دعوة Wi-Fi Direct.")
             }
+        }
+
+        private fun recordAdvertisementFailure(message: String) {
+            // DNS-SD is a fallback path only. A v5 QR already carries direct Wi-Fi
+            // credentials, so advertisement failure must not tear down a ready group.
+            UltraShareDiagnostics.event(
+                "WIFI_DIRECT", "DNS_SD_ADVERTISEMENT_FAILED",
+                mapOf("message" to message.take(180))
+            )
         }
 
         /**
