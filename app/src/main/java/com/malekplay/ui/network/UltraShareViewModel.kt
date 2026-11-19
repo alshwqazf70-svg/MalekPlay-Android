@@ -1673,7 +1673,9 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun rememberInvitationPeer(invitationId: String?, secret: String) {
         if (!UltraShareCore.isValidPairingSecret(secret)) return
-        if (wifiDirectGroupSsid != null && _state.value.wifiDirectLocalAddress == null) {
+        val staleP2pCredentials = wifiDirectGroupSsid != null &&
+            _state.value.wifiDirectLocalAddress == null
+        if (staleP2pCredentials) {
             // Do not reuse a previous P2P group's credentials after its interface vanished.
             wifiDirectGroupSsid = null
             wifiDirectGroupPassword = null
@@ -1683,8 +1685,8 @@ private fun forgetApprovedSenderTarget(host: String) {
         _state.value = _state.value.copy(
             invitationId = invitationId?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }.orEmpty(),
             receiverQrPayload = null,
-            hotspotSsid = wifiDirectGroupSsid ?: _state.value.hotspotSsid,
-            hotspotPassword = wifiDirectGroupPassword ?: _state.value.hotspotPassword,
+            hotspotSsid = if (staleP2pCredentials) null else wifiDirectGroupSsid ?: _state.value.hotspotSsid,
+            hotspotPassword = if (staleP2pCredentials) null else wifiDirectGroupPassword ?: _state.value.hotspotPassword,
             hotspotSecurity = wifiDirectGroupSecurity
         )
     }
