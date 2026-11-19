@@ -2127,7 +2127,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         }.onFailure {
             UltraShareDiagnostics.failure("SEND_START", it)
             _state.value = _state.value.copy(
-                sending = false,
+                sending = UltraShareForegroundService.state.value.sending,
                 error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
             )
         }
@@ -2170,7 +2170,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         }.getOrElse {
             UltraShareDiagnostics.failure("BATCH_SEND_START", it)
             _state.value = _state.value.copy(
-                sending = false,
+                sending = UltraShareForegroundService.state.value.sending,
                 error = it.localizedMessage ?: context.getString(R.string.ultra_share_background_unavailable)
             )
             false
@@ -2202,7 +2202,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             true
         }.getOrElse { failure ->
             _state.value = _state.value.copy(
-                sending = false,
+                sending = UltraShareForegroundService.state.value.sending,
                 error = failure.localizedMessage ?: "تعذر بدء الإرسال الجماعي."
             )
             false
@@ -2210,8 +2210,16 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     fun resumePendingForAllPeers() {
-        val targets = UltraShareForegroundService.approvedSendTargets()
-        if (targets.isEmpty()) return
+        val allTargets = UltraShareForegroundService.approvedSendTargets()
+        val targets = UltraShareForegroundService.availableSendTargets()
+        if (targets.isEmpty()) {
+            if (allTargets.isNotEmpty()) {
+                _state.value = _state.value.copy(
+                    error = "لا توجد أجهزة متاحة للاستئناف حالياً؛ جميع الأجهزة لديها عمليات نقل نشطة."
+                )
+            }
+            return
+        }
         viewModelScope.launch {
             val peerIds = targets.mapTo(mutableSetOf()) { it.sessionId }
             val ledger = UltraSharePeerDeliveryStore.observe(context).first()
