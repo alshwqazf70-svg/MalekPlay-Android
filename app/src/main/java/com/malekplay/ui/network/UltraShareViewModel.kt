@@ -371,6 +371,7 @@ class UltraShareViewModel @Inject constructor(
                     localAddresses = lanHosts,
                     lanFallbackReady = hasExistingLan,
                     wifiDirectHost = null,
+                    wifiDirectLocalAddress = null,
                     wifiDirectScanning = false,
                     error = if (hasExistingLan) null
                         else "تعذر Wi-Fi Direct، وهذا الإصدار لا يدعم نقطة الاتصال المحلية داخل التطبيق. اتصل الهاتفان بشبكة Wi-Fi نفسها أو فعّل نقطة اتصال النظام يدوياً.",
@@ -388,6 +389,7 @@ class UltraShareViewModel @Inject constructor(
             _state.value = _state.value.copy(
                 invitationId = "",
                 wifiDirectHost = null,
+                wifiDirectLocalAddress = null,
                 wifiDirectScanning = false,
                 error = null,
                 status = "تعذر Wi-Fi Direct؛ جارٍ تشغيل نقطة الاتصال المحلية كمسار بديل..."
