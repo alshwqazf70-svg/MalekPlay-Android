@@ -252,7 +252,7 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 1
       matrix:
         # Cover the declared minimum Android version, the primary field-test baseline,
         # and the current target SDK runtime behavior.

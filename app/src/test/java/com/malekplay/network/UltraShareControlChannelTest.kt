@@ -340,7 +340,7 @@ class UltraShareControlChannelTest {
             UltraShareControlChannel.sendServerApplicationMessage("127.0.0.1", inbound)
             assertArrayEquals(
                 inbound,
-                withTimeout(10_000L) {
+                withTimeout(2_000L) {
                     UltraShareControlChannel.receiveClientApplicationMessage("127.0.0.1")
                 }
             )
