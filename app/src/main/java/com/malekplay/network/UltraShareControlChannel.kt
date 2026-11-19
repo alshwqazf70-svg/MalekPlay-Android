@@ -438,8 +438,38 @@ object UltraShareControlChannel {
                 val session = ClientSession(
                     socket, input, output, remoteName, remotePeerId, applicationFramesEnabled, frameSession
                 )
-                synchronized(clientSessionGuard) { clientSessions[host] = session }
+                synchronized(clientSessionGuard) {
+                    val previous = clientSessions.put(host, session)
+                    if (previous != null && previous !== session) {
+                        // A reconnect replaces the old authenticated channel atomically.
+                        // Retire its reader, heartbeat, socket and key material immediately;
+                        // stale cleanup must never leave an old socket alive beside the new one.
+                        disposeClientSessionResources(previous)
+                    }
+                }
+                retained = true
+                // The writer is installed before the reader so an immediate remote close
+                // cannot race ahead of heartbeat registration and leave an orphan writer.
+                session.heartbeat = CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        while (isActive && !socket.isClosed) {
+                            delay(HEARTBEAT_INTERVAL_MS)
+                            synchronized(session.lock) {
+                                if (!socket.isClosed) {
+                                    session.output.writeUTF("PING")
+                                    session.output.flush()
+                                }
+                            }
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        retireClientSession(host, session, onSessionClosed, failure)
+                    }
+                }
                 // A dedicated reader consumes server frames continuously. Previously the
+                // client read only after its 5-second heartbeat delay, which added avoidable
+                // latency to KEY_OFFER and ROSTER_UPDATE during Mesh joining. Previously the
                 // client read only after its 5-second heartbeat delay, which added avoidable
                 // latency to KEY_OFFER and ROSTER_UPDATE during Mesh joining.
                 session.reader = CoroutineScope(Dispatchers.IO).launch {
@@ -477,26 +507,7 @@ object UltraShareControlChannel {
                         retireClientSession(host, session, onSessionClosed, failure)
                     }
                 }
-                // The writer sends periodic heartbeats independently of the reader,
-                // so outbound APP frames never have to wait for a PONG read cycle.
-                session.heartbeat = CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        while (isActive && !socket.isClosed) {
-                            delay(HEARTBEAT_INTERVAL_MS)
-                            synchronized(session.lock) {
-                                if (!socket.isClosed) {
-                                    session.output.writeUTF("PING")
-                                    session.output.flush()
-                                }
-                            }
-                        }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        retireClientSession(host, session, onSessionClosed, failure)
-                    }
-                }
-                retained = true
+                // Outbound heartbeats are independent from the continuously running reader.
                 if (notifyClientSessionReady) runCatching { clientSessionReadyListener?.invoke(host) }
                     .onFailure { failure ->
                         UltraShareDiagnostics.failure(
@@ -549,17 +560,21 @@ object UltraShareControlChannel {
         }
     }
 
+    private fun disposeClientSessionResources(session: ClientSession) {
+        session.reader?.cancel()
+        session.heartbeat?.cancel()
+        // Close first to unblock a reader waiting in readUTF().
+        runCatching { session.socket.close() }
+        synchronized(session.lock) {
+            session.frames.close()
+            session.incoming.close()
+        }
+    }
+
     fun closeSession(host: String) {
         synchronized(clientSessionGuard) {
             val session = clientSessions.remove(host) ?: return
-            session.reader?.cancel()
-            session.heartbeat?.cancel()
-            // Close first to unblock the dedicated socket reader.
-            runCatching { session.socket.close() }
-            synchronized(session.lock) {
-                session.frames.close()
-                session.incoming.close()
-            }
+            disposeClientSessionResources(session)
         }
     }
 
@@ -573,13 +588,7 @@ object UltraShareControlChannel {
             if (!clientSessions.remove(host, session)) {
                 false
             } else {
-                runCatching { session.socket.close() }
-                session.reader?.cancel()
-                session.heartbeat?.cancel()
-                synchronized(session.lock) {
-                    session.frames.close()
-                    session.incoming.close()
-                }
+                disposeClientSessionResources(session)
                 true
             }
         }
