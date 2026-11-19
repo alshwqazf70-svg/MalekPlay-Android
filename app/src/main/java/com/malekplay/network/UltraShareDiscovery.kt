@@ -524,7 +524,7 @@ object UltraShareDiscovery {
                     .distinct()
                     .take(8)
                     .map { host ->
-                        kotlinx.coroutines.async {
+                        async {
                             host.takeIf {
                                 probeEndpoint(it, UltraShareControlChannel.DEFAULT_PORT, null, timeoutMs)
                             }
