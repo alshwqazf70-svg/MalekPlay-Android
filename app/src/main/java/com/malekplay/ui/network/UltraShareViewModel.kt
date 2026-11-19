@@ -152,6 +152,7 @@ class UltraShareViewModel @Inject constructor(
     @Volatile private var wifiDirectGroupSsid: String? = null
     @Volatile private var wifiDirectGroupPassword: String? = null
     @Volatile private var wifiDirectOwnerAddress: String? = null
+    private var dnsSdQrFallbackScheduledFor: String? = null
     private var wifiDirectCleanupInProgress = false
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
@@ -308,6 +309,7 @@ class UltraShareViewModel @Inject constructor(
         wifiDirectGroupSsid = null
         wifiDirectGroupPassword = null
         wifiDirectOwnerAddress = null
+        dnsSdQrFallbackScheduledFor = null
         _state.value = _state.value.copy(
             pairingSecret = secret,
             invitationId = "",
@@ -1562,33 +1564,39 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     private fun publishDnsSdReceiverQrIfReady(invitationId: String) {
+        if (dnsSdQrFallbackScheduledFor == invitationId) return
+        dnsSdQrFallbackScheduledFor = invitationId
         viewModelScope.launch {
             // Give requestGroupInfo a short opportunity to publish WPA2 credentials.
             // If this OEM withholds them, retain the compatible DNS-SD invitation QR.
-            delay(1_500L)
-            if (wifiDirectGroupSsid != null && wifiDirectGroupPassword != null) return@launch
-            val current = _state.value
-            val service = UltraShareForegroundService.state.value
-            if (!current.receiving || !service.controlChannelReady) return@launch
-            val secret = current.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
-                ?: service.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
-                ?: return@launch
-            val hosts = (current.localAddresses + service.localAddresses)
-                .map { it.trim() }
-                .filter { UltraShareCore.isValidPrivateLanHost(it) }
-                .distinct()
-                .take(8)
-            val payload = runCatching {
-                UltraShareQrCode.createReceiverPayload(
-                    hosts = hosts,
-                    pairingSecret = secret,
-                    invitationId = invitationId
-                )
-            }.getOrElse {
-                UltraShareDiagnostics.failure("DNS_SD_QR_CREATE", it)
-                return@launch
+            repeat(20) {
+                if (wifiDirectGroupSsid != null && wifiDirectGroupPassword != null) return@launch
+                val current = _state.value
+                val service = UltraShareForegroundService.state.value
+                if (current.receiving && service.controlChannelReady) {
+                    val secret = current.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
+                        ?: service.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
+                        ?: return@launch
+                    val hosts = (current.localAddresses + service.localAddresses)
+                        .map { it.trim() }
+                        .filter { UltraShareCore.isValidPrivateLanHost(it) }
+                        .distinct()
+                        .take(8)
+                    val payload = runCatching {
+                        UltraShareQrCode.createReceiverPayload(
+                            hosts = hosts,
+                            pairingSecret = secret,
+                            invitationId = invitationId
+                        )
+                    }.getOrElse {
+                        UltraShareDiagnostics.failure("DNS_SD_QR_CREATE", it)
+                        return@launch
+                    }
+                    latchReceiverQrPayload(payload)
+                    return@launch
+                }
+                delay(250L)
             }
-            latchReceiverQrPayload(payload)
         }
     }
 
