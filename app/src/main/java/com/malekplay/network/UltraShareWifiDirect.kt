@@ -816,7 +816,7 @@ object UltraShareWifiDirect {
                         // Android 16 can negotiate WPA3-only P2P groups. Force the
                         // legacy WPA2 profile so Android 6–15 devices can join the
                         // same group through WifiManager.addNetwork/WifiNetworkSpecifier.
-                        val compatibilityConfig = if (Build.VERSION.SDK_INT >= 36 && attempt == 0) {
+                        val compatibilityConfig = if (shouldForceLegacyWifiDirectSecurity(Build.VERSION.SDK_INT) && attempt == 0) {
                             runCatching {
                                 android.net.wifi.p2p.WifiP2pConfig.Builder()
                                     .setPccModeConnectionType(
@@ -2147,6 +2147,8 @@ internal fun isCurrentWifiDirectGroupAttempt(
 ): Boolean = !sessionClosed && currentToken == callbackToken
 
 /** Use a neutral Wi-Fi Direct owner preference so either Android device may own the group. */
+internal fun shouldForceLegacyWifiDirectSecurity(sdkInt: Int): Boolean = sdkInt >= 36
+
 internal fun wifiDirectQrSecurity(sdkInt: Int, isWpa3Sae: Boolean): String =
     if (sdkInt >= 36 && isWpa3Sae) "wpa3" else "wpa2"
 
