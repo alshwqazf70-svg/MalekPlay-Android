@@ -1174,7 +1174,9 @@ private fun forgetApprovedSenderTarget(host: String) {
             requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
             return
         }
-        if (UltraSharePlatformCompatibility.supportsLegacyWifiManagerJoin(Build.VERSION.SDK_INT)) {
+        // Keep the API-29+ guard explicit for WifiNetworkSpecifier; older
+        // Android versions use WifiManager.addNetwork in the legacy helper.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             connectLegacyWifiNetwork(pairing)
             return
         }
