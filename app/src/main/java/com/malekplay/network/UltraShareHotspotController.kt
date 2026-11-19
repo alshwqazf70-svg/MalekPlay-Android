@@ -27,11 +27,11 @@ internal class UltraShareHotspotController(
     @Suppress("MissingPermission")
     fun start(
         onStarted: (ssid: String, password: String, addresses: List<String>) -> Unit,
-        onStopped: () -> Unit,
-        onFailed: (String) -> Unit
+        onReservationStopped: () -> Unit,
+        onFailure: (String) -> Unit
     ) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            onFailed("إنشاء نقطة اتصال داخل MalekPlayer يتطلب Android 8 أو أحدث. استخدم نقطة اتصال النظام يدوياً.")
+            onFailure("إنشاء نقطة اتصال داخل MalekPlayer يتطلب Android 8 أو أحدث. استخدم نقطة اتصال النظام يدوياً.")
             return
         }
         if (reservation != null || isStarting) return
@@ -71,7 +71,7 @@ internal class UltraShareHotspotController(
                 callback = null
                 reservation = null
                 isStarting = false
-                onStopped()
+                onReservationStopped()
             }
 
             override fun onFailed(reason: Int) {
