@@ -925,6 +925,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         }
         hotspotNetworkCallback = null
         hotspotNetworkPaired = false
+        releaseLegacyWifiNetwork()
         if (controlPairingInProgress) {
             viewModelScope.launch {
                 var waitedMs = 0
