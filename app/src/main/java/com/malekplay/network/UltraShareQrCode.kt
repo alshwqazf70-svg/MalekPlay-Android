@@ -24,6 +24,7 @@ object UltraShareQrCode {
     private const val MULTI_HOST_VERSION = "2"
     private const val INVITATION_VERSION = "3"
     private const val HOTSPOT_VERSION = "4"
+    private const val UNIFIED_VERSION = "5"
     private const val MAX_QR_HOSTS = 8
     private const val MAX_DECODE_DIMENSION = 2048
 
@@ -112,6 +113,51 @@ object UltraShareQrCode {
             .build().toString()
     }
 
+    /**
+     * Version 5 combines every usable route in one invitation: current-LAN hosts,
+     * Wi-Fi Direct SoftAP/LocalOnlyHotspot credentials, and optional DNS-SD peer ID.
+     */
+    fun createUnifiedReceiverPayload(
+        hosts: List<String>,
+        pairingSecret: String,
+        ssid: String? = null,
+        wifiPassword: String? = null,
+        invitationId: String? = null
+    ): String {
+        val safeHosts = hosts.asSequence()
+            .map(String::trim)
+            .filter(UltraShareCore::isValidPrivateLanHost)
+            .distinct()
+            .take(MAX_QR_HOSTS)
+            .toList()
+        require(safeHosts.isNotEmpty()) { "لا يوجد عنوان شبكة محلي صالح لرمز QR." }
+        require(UltraShareCore.isValidPairingSecret(pairingSecret)) { "رمز الاقتران غير صالح." }
+        require((ssid == null) == (wifiPassword == null)) {
+            "يجب توفير اسم شبكة Wi-Fi وكلمة مرورها معاً."
+        }
+        if (ssid != null && wifiPassword != null) {
+            require(ssid.isNotBlank() && ssid.length <= 32) { "اسم شبكة Wi-Fi غير صالح." }
+            require(wifiPassword.length in 8..63) { "كلمة مرور Wi-Fi غير صالحة." }
+        }
+        invitationId?.let {
+            require(it.matches(Regex("[A-Za-z0-9_-]{1,64}"))) { "هوية دعوة الجهاز غير صالحة." }
+        }
+        return Uri.Builder()
+            .scheme(SCHEMA)
+            .authority(AUTHORITY)
+            .appendQueryParameter("v", UNIFIED_VERSION)
+            .apply {
+                safeHosts.forEach { appendQueryParameter("host", it) }
+                invitationId?.let { appendQueryParameter("peer", it) }
+                ssid?.let { appendQueryParameter("ssid", it) }
+                wifiPassword?.let { appendQueryParameter("wifi_password", it) }
+            }
+            .appendQueryParameter("port", UltraShareControlChannel.DEFAULT_PORT.toString())
+            .appendQueryParameter("secret", pairingSecret)
+            .build()
+            .toString()
+    }
+
     fun createPayload(host: String, port: Int, pairingSecret: String): String {
         require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ قناة الاقتران غير متوافق." }
         require(UltraShareCore.isValidPrivateLanHost(host)) {
@@ -147,10 +193,10 @@ object UltraShareQrCode {
             "رمز QR ليس رمز اقتران MalekPlayer Ultra Share."
         }
         val version = uri.getQueryParameter("v")
-        require(version == VERSION || version == MULTI_HOST_VERSION || version == INVITATION_VERSION || version == HOTSPOT_VERSION) {
+        require(version == VERSION || version == MULTI_HOST_VERSION || version == INVITATION_VERSION || version == HOTSPOT_VERSION || version == UNIFIED_VERSION) {
             "إصدار رمز الاقتران غير مدعوم."
         }
-        val hosts = (if (version == MULTI_HOST_VERSION || version == INVITATION_VERSION || version == HOTSPOT_VERSION) {
+        val hosts = (if (version == MULTI_HOST_VERSION || version == INVITATION_VERSION || version == HOTSPOT_VERSION || version == UNIFIED_VERSION) {
             uri.getQueryParameters("host")
         } else {
             listOfNotNull(uri.getQueryParameter("host"))
@@ -160,22 +206,22 @@ object UltraShareQrCode {
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
-        val host = hosts.firstOrNull() ?: if (version == INVITATION_VERSION) "" else
+        val host = hosts.firstOrNull() ?: if (version == INVITATION_VERSION || version == UNIFIED_VERSION) "" else
             throw IllegalArgumentException("لا يحتوي رمز QR على عنوان IPv4 محلي صالح.")
         val port = requireNotNull(uri.getQueryParameter("port")) { "منفذ الجهاز غير موجود في رمز QR." }
             .toIntOrNull() ?: throw IllegalArgumentException("منفذ الاقتران غير صالح.")
         val secret = requireNotNull(uri.getQueryParameter("secret")) { "رمز الاقتران غير موجود في رمز QR." }
         require(UltraShareCore.isValidPairingSecret(secret)) { "رمز الاقتران في QR غير صالح." }
         require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ MalekPlayer Ultra Share غير متوافق." }
-        val hotspotSsid = if (version == HOTSPOT_VERSION) {
+        val hotspotSsid = if (version == HOTSPOT_VERSION || version == UNIFIED_VERSION && uri.getQueryParameter("ssid") != null) {
             requireNotNull(uri.getQueryParameter("ssid")) { "اسم شبكة Wi-Fi غير موجود في QR." }
                 .also { require(it.isNotBlank() && it.length <= 32) { "اسم شبكة Wi-Fi غير صالح." } }
         } else null
-        val hotspotPassword = if (version == HOTSPOT_VERSION) {
+        val hotspotPassword = if (version == HOTSPOT_VERSION || version == UNIFIED_VERSION && uri.getQueryParameter("wifi_password") != null) {
             requireNotNull(uri.getQueryParameter("wifi_password")) { "كلمة مرور Wi-Fi غير موجودة في QR." }
                 .also { require(it.length in 8..63) { "كلمة مرور Wi-Fi غير صالحة." } }
         } else null
-        val invitationId = if (version == INVITATION_VERSION) {
+        val invitationId = if (version == INVITATION_VERSION || version == UNIFIED_VERSION && uri.getQueryParameter("peer") != null) {
             requireNotNull(uri.getQueryParameter("peer")) { "هوية الجهاز غير موجودة في رمز QR." }
                 .also {
                     require(it.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
