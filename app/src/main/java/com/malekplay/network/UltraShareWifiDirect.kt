@@ -1578,7 +1578,7 @@ object UltraShareWifiDirect {
             if (localAddress != null) {
                 runCatching { onLocalAddress(localAddress) }
                     .onFailure { UltraShareDiagnostics.failure("WIFI_DIRECT_LOCAL_ADDRESS_CALLBACK", it) }
-            } else if (attempt < 8) {
+            } else if (attempt < 20) {
                 mainHandler.postDelayed({
                     if (!closed) publishLocalP2pAddress(null, attempt + 1)
                 }, 250L)
