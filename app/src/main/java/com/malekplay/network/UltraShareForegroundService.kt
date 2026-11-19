@@ -862,32 +862,36 @@ class UltraShareForegroundService : Service() {
         updateState { it.copy(hotspotStarting = true, error = null, status = "جارٍ إنشاء شبكة MalekPlayer المحلية...") }
         val callback = object : WifiManager.LocalOnlyHotspotCallback() {
             override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
-                if (hotspotCallback !== this) {
-                    runCatching { reservation.close() }
-                    return
-                }
-                hotspotReservation = reservation
-                val credentials = runCatching {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        val config = reservation.softApConfiguration
-                        config.ssid.orEmpty() to (config.passphrase ?: "")
-                    } else {
-                        @Suppress("DEPRECATION")
-                        val config = reservation.wifiConfiguration
-                        config?.SSID?.trim('"').orEmpty() to config?.preSharedKey?.trim('"').orEmpty()
+                val callbackInstance = this
+                serviceScope.launch(Dispatchers.IO) {
+                    if (hotspotCallback !== callbackInstance) {
+                        runCatching { reservation.close() }
+                        return@launch
                     }
-                }.getOrDefault("" to "")
-                updateState { current ->
-                    current.copy(
-                        hotspotStarting = false,
-                        hotspotActive = true,
-                        hotspotSsid = credentials.first.takeIf { it.isNotBlank() },
-                        hotspotPassword = credentials.second,
-                        localAddresses = findLocalIpv4Addresses(),
-                        status = if (credentials.first.isNotBlank()) "تم إنشاء شبكة MalekPlayer المحلية. صِل الجهاز الآخر بها ثم ابحث عن الأجهزة القريبة."
-                        else "تم إنشاء نقطة الاتصال، لكن تعذر قراءة بياناتها. افتح إعدادات Wi-Fi لعرضها.",
-                        error = null
-                    )
+                    hotspotReservation = reservation
+                    val credentials = runCatching {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            val config = reservation.softApConfiguration
+                            config.ssid.orEmpty() to (config.passphrase ?: "")
+                        } else {
+                            @Suppress("DEPRECATION")
+                            val config = reservation.wifiConfiguration
+                            config?.SSID?.trim('"').orEmpty() to config?.preSharedKey?.trim('"').orEmpty()
+                        }
+                    }.getOrDefault("" to "")
+                    val addresses = findLocalIpv4Addresses()
+                    updateState { current ->
+                        current.copy(
+                            hotspotStarting = false,
+                            hotspotActive = true,
+                            hotspotSsid = credentials.first.takeIf { it.isNotBlank() },
+                            hotspotPassword = credentials.second,
+                            localAddresses = addresses,
+                            status = if (credentials.first.isNotBlank()) "تم إنشاء شبكة MalekPlayer المحلية. صِل الجهاز الآخر بها ثم ابحث عن الأجهزة القريبة."
+                            else "تم إنشاء نقطة الاتصال، لكن تعذر قراءة بياناتها. افتح إعدادات Wi-Fi لعرضها.",
+                            error = null
+                        )
+                    }
                 }
             }
 
@@ -942,7 +946,9 @@ class UltraShareForegroundService : Service() {
         val reservation = hotspotReservation
         hotspotReservation = null
         hotspotCallback = null
-        runCatching { reservation?.close() }
+        if (reservation != null) serviceScope.launch(Dispatchers.IO) {
+            runCatching { reservation.close() }
+        }
         updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null) }
         finishService()
     }
@@ -1985,6 +1991,17 @@ class UltraShareForegroundService : Service() {
             finishService()
             return
         }
+        val retiringSend = sendJob
+        if (retiringSend?.isCancelled == true) {
+            replacementPending = true
+            serviceScope.launch {
+                retiringSend.cancelAndJoin()
+                if (sendJob === retiringSend) sendJob = null
+                replacementPending = false
+                startSendingQueue(uris, host, secret, replaceQueue, candidates)
+            }
+            return
+        }
         if (sendJob != null) return
         startForegroundCompat()
         updateState { current -> current.copy(sending = true, queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال", error = null) }
@@ -2182,7 +2199,19 @@ class UltraShareForegroundService : Service() {
         targets: List<UltraShareApprovedSendTarget>,
         preserveCompleted: Boolean
     ) {
-        if (uris.isEmpty() || targets.isEmpty() || sendJob != null) return
+        if (uris.isEmpty() || targets.isEmpty()) return
+        val retiringSend = sendJob
+        if (retiringSend?.isCancelled == true) {
+            replacementPending = true
+            serviceScope.launch {
+                retiringSend.cancelAndJoin()
+                if (sendJob === retiringSend) sendJob = null
+                replacementPending = false
+                startSendingQueueToPeers(uris, targets, preserveCompleted)
+            }
+            return
+        }
+        if (sendJob != null) return
         if (targets.any {
                 !UltraShareCore.isValidPrivateLanHost(it.host) ||
                     !UltraShareCore.isValidPairingSecret(it.secret)
@@ -2834,21 +2863,31 @@ class UltraShareForegroundService : Service() {
     private fun readDocumentMetadata(uri: Uri): Triple<String, String, Long> {
         var name = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "shared-file"
         var size = -1L
-        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
-            ?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    val sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE)
-                    if (nameColumn >= 0) cursor.getString(nameColumn)?.takeIf { it.isNotBlank() }?.let { name = it }
-                    if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) size = cursor.getLong(sizeColumn)
+        if (uri.scheme == "file") {
+            size = uri.path?.let(::File)?.takeIf { it.isFile }?.length() ?: -1L
+        } else {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
+                ?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        val sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE)
+                        if (nameColumn >= 0) cursor.getString(nameColumn)?.takeIf { it.isNotBlank() }?.let { name = it }
+                        if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) size = cursor.getLong(sizeColumn)
+                    }
                 }
+            if (size <= 0L) {
+                size = runCatching {
+                    contentResolver.openAssetFileDescriptor(uri, "r")?.use { descriptor -> descriptor.length }
+                }.getOrDefault(-1L)
             }
+        }
+        name = UltraShareCore.sanitizeFileName(name)
         require(size > 0L) { "الملف فارغ ولا يحتوي على وسائط صالحة للمشاركة." }
         val mimeType = UltraShareCore.sanitizeMimeType(
             contentResolver.getType(uri) ?: "application/octet-stream"
         )
         require(UltraShareCore.isAllowedShareFile(name, mimeType)) {
-            "لا يمكن مشاركة ملفات APK أو PDF."
+            "لا يمكن مشاركة ملفات APK أو PDF أو SVG."
         }
         return Triple(name, mimeType, size)
     }
