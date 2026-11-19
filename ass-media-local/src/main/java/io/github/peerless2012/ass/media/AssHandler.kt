@@ -142,45 +142,23 @@ class AssHandler(
         videoTimeCallback = null
     }
 
-    /**
-     * ass-kt 0.4.0 wraps native libass handles. Resolve the library's public no-arg
-     * cleanup entry point without binding this module to one wrapper naming variant.
-     * A resource is cleaned at most once, and failures never prevent other handles closing.
-     */
-    private fun closeNativeResource(resource: Any?) {
-        if (resource == null) return
-        val cleanup = listOf("close", "release", "destroy", "free", "delete")
-            .firstNotNullOfOrNull { name ->
-                resource.javaClass.methods.firstOrNull {
-                    it.name == name && it.parameterCount == 0
-                } ?: resource.javaClass.declaredMethods.firstOrNull {
-                    it.name == name && it.parameterCount == 0
-                }
-            }
-        if (cleanup == null) {
-            Log.w("AssHandler", "No native cleanup method exposed by ${resource.javaClass.name}")
-            return
-        }
-        runCatching {
-            cleanup.isAccessible = true
-            cleanup.invoke(resource)
-        }.onFailure { error ->
-            Log.w("AssHandler", "Native subtitle resource cleanup failed", error)
-        }
-    }
-
     private fun releaseMediaResources(closeAssInstance: Boolean) {
-        // The overlay is detached before native handles are released.
-        availableTracks.values.toSet().forEach(::closeNativeResource)
-        closeNativeResource(track)
-        closeNativeResource(render)
+        // AssTrack, AssRender and Ass expose idempotent release() methods in ass-kt.
+        // They share the Ass native lock, so each native handle is closed safely.
+        (availableTracks.values + listOfNotNull(track)).toSet().forEach { nativeTrack ->
+            runCatching { nativeTrack.release() }
+                .onFailure { Log.w("AssHandler", "Could not release native ASS track", it) }
+        }
+        runCatching { render?.release() }
+            .onFailure { Log.w("AssHandler", "Could not release native ASS renderer", it) }
         availableTracks.clear()
         track = null
         render = null
         format = null
         pendingFonts.clear()
         if (closeAssInstance) {
-            closeNativeResource(assInstance)
+            runCatching { assInstance?.release() }
+                .onFailure { Log.w("AssHandler", "Could not release native ASS library", it) }
             assInstance = null
         }
     }
