@@ -774,7 +774,7 @@ object UltraShareWifiDirect {
                         return@requestGroupInfo
                     }
                     try {
-                        manager.createGroup(channel, object : WifiP2pManager.ActionListener {
+                        val listener = object : WifiP2pManager.ActionListener {
                             override fun onSuccess() {
                                 if (!closed && isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) {
                                     awaitReceiverGroup(onCreated, 0, token)
@@ -799,7 +799,34 @@ object UltraShareWifiDirect {
                                     reportError(groupFailureMessage(reason))
                                 }
                             }
-                        })
+                        }
+
+                        // Android 16 can negotiate WPA3-only P2P groups. Force the
+                        // legacy WPA2 profile so Android 6–15 devices can join the
+                        // same group through WifiManager.addNetwork/WifiNetworkSpecifier.
+                        val compatibilityConfig = if (Build.VERSION.SDK_INT >= 36) {
+                            runCatching {
+                                android.net.wifi.p2p.WifiP2pConfig.Builder()
+                                    .setPccModeConnectionType(
+                                        android.net.wifi.p2p.WifiP2pConfig.PCC_MODE_CONNECTION_TYPE_LEGACY_ONLY
+                                    )
+                                    .build()
+                            }.getOrNull()
+                        } else null
+                        if (compatibilityConfig != null) {
+                            val configuredCreation = runCatching {
+                                manager.createGroup(channel, compatibilityConfig, listener)
+                            }
+                            if (configuredCreation.isFailure) {
+                                UltraShareDiagnostics.failure(
+                                    "WIFI_DIRECT_LEGACY_COMPAT_GROUP_CONFIG",
+                                    configuredCreation.exceptionOrNull()!!
+                                )
+                                manager.createGroup(channel, listener)
+                            }
+                        } else {
+                            manager.createGroup(channel, listener)
+                        }
                     } catch (failure: SecurityException) {
                         finishGroupAttempt(token)
                         reportError("يلزم إذن الأجهزة القريبة لإنشاء مجموعة Wi-Fi Direct.")
