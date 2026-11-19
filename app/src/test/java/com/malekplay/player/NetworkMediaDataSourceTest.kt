@@ -144,6 +144,25 @@ class NetworkMediaDataSourceTest {
     }
 
     @Test
+    fun rejectsDotSegmentsAndBackslashInjectionInRemotePaths() {
+        listOf(
+            listOf("share", ".", "movie.mkv"),
+            listOf("share", "..", "private.mkv"),
+            listOf("share", "folder\\\\escape.mkv"),
+            listOf("share", "folder/escape.mkv")
+        ).forEach { segments ->
+            assertThrows(IOException::class.java) {
+                validateNetworkPathSegments(segments)
+            }
+        }
+    }
+
+    @Test
+    fun acceptsLiteralUriReservedCharactersInsideRemotePathSegments() {
+        validateNetworkPathSegments(listOf("share", "folder#1", "movie?cut=1%25.mkv"))
+    }
+
+    @Test
     fun mapsOnlySupportedPrivatePlaybackSchemes() {
         assertEquals(NetworkProtocol.SMB, networkProtocolForScheme("maleksmb"))
         assertEquals(NetworkProtocol.SFTP, networkProtocolForScheme("maleksftp"))
