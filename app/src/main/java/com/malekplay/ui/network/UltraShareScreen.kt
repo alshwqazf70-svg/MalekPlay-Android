@@ -1134,6 +1134,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                 }
             }
         }.onFailure { failure ->
+            if (failure is CancellationException) throw failure
             val fallback = verifiedLanFallback(pairing)
             if (!fallback.isNullOrBlank()) {
                 completeInvitationConnection(
@@ -1566,13 +1567,18 @@ fun UltraShareScreen(
         }
     }
 
-    // Hotspot/LAN QR formats do not invoke Wi-Fi P2P APIs and must not request
-    // nearby-device/location permissions. Only legacy DNS-SD invitations need them.
+    // Plain LAN QR uses the current network and needs no radio permission.
+    // P2P invitations and Android 10+ known-SSID hotspot joins use Wi-Fi APIs
+    // that require the matching location/nearby-device runtime permission.
     fun acceptPairingWithRequiredPermissions(pairing: UltraShareQrCode.PairingDetails) {
-        if (pairing.invitationId.isNullOrBlank()) {
-            acceptPairing(pairing)
-        } else {
+        val needsWifiPermission = !pairing.invitationId.isNullOrBlank() ||
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                !pairing.hotspotSsid.isNullOrBlank() &&
+                !pairing.hotspotPassword.isNullOrBlank())
+        if (needsWifiPermission) {
             requestWifiDirectAction { acceptPairing(pairing) }
+        } else {
+            acceptPairing(pairing)
         }
     }
 
