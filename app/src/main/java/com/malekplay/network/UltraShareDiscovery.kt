@@ -19,6 +19,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -124,31 +125,23 @@ object UltraShareDiscovery {
             routes.map { "${it.network?.networkHandle ?: 0L}:${it.address.hostAddress}" }.distinct().sorted()
 
         fun openSockets(routes: List<BroadcastRoute>): List<DatagramSocket> {
-            val activeNetworks = routes.map { it.network }.distinct()
-            return activeNetworks.mapNotNull { network ->
-                runCatching { createDiscoverySocket(network, DISCOVERY_PORT) }
-                    .onFailure { failure ->
-                        UltraShareDiagnostics.failure(
-                            "DISCOVERY_SOCKET_OPEN",
-                            failure,
-                            "networkHandle=${network?.networkHandle ?: 0L}"
-                        )
-                    }
-                    .getOrNull()
-            }.ifEmpty {
-                runCatching { createDiscoverySocket(null, DISCOVERY_PORT) }
-                    .onFailure { failure ->
-                        UltraShareDiagnostics.failure("DISCOVERY_FALLBACK_SOCKET_OPEN", failure)
-                    }
-                    .getOrNull()
-                    ?.let(::listOf)
-                    ?: emptyList()
-            }
+            // A wildcard UDP port is process-wide: multiple Network-bound sockets
+            // on 0.0.0.0:DISCOVERY_PORT race with EADDRINUSE and packet stealing.
+            // Keep exactly one listener and send advertisements on all known routes.
+            val network = routes.firstOrNull()?.network
+            return runCatching { listOf(createDiscoverySocket(network, DISCOVERY_PORT)) }
+                .onFailure { failure ->
+                    UltraShareDiagnostics.failure(
+                        "DISCOVERY_SOCKET_OPEN", failure,
+                        "networkHandle=${network?.networkHandle ?: 0L}"
+                    )
+                }.getOrDefault(emptyList())
         }
 
         val initialRoutes = findBroadcastRoutes(context)
         var activeFingerprint = routeFingerprint(initialRoutes)
         var sockets = openSockets(initialRoutes)
+        val receiveBuffer = ByteArray(MAX_PACKET_BYTES)
         try {
             while (true) {
                 currentCoroutineContext().ensureActive()
@@ -182,7 +175,7 @@ object UltraShareDiscovery {
                 var socketFailureDetected = false
                 sockets.forEach { socket ->
                     try {
-                        val packet = DatagramPacket(ByteArray(MAX_PACKET_BYTES), MAX_PACKET_BYTES)
+                        val packet = DatagramPacket(receiveBuffer, receiveBuffer.size)
                         socket.receive(packet)
                         val request = packet.data.copyOfRange(packet.offset, packet.offset + packet.length)
                             .toString(Charsets.UTF_8)
@@ -273,6 +266,7 @@ object UltraShareDiscovery {
             }
             val peers = LinkedHashMap<String, Peer>()
             val v2SourceHosts = HashSet<String>()
+            val v2Offers = ArrayList<Pair<String, UltraShareNegotiation.Offer>>()
             val deadline = System.nanoTime() + scanWindowMs * 1_000_000L
             val buffer = ByteArray(MAX_PACKET_BYTES)
             while (System.nanoTime() < deadline) {
@@ -305,16 +299,8 @@ object UltraShareDiscovery {
                             val safeCandidates = v2.candidates.filter {
                                 UltraShareCore.isValidPrivateLanHost(it.host) && it.port in 1..65535
                             }
-                            val testedCandidates = probeCandidates(
-                                safeCandidates.map { candidate ->
-                                    if (candidate.connected) candidate else candidate.copy(reachable = false)
-                                }, context
-                            )
-                            val incoming = peerFromOffer(host, v2, testedCandidates) ?: return@forEach
+                            v2Offers += host to v2
                             v2SourceHosts += host
-                            peers.remove("host:$host")
-                            val identity = "id:${v2.peerId.lowercase(java.util.Locale.ROOT)}"
-                            peers[identity] = peers[identity]?.let { mergePeerSightings(it, incoming) } ?: incoming
                             return@forEach
                         }
                         // Legacy V1 peers have no stable identity or route list. Keep
@@ -332,6 +318,24 @@ object UltraShareDiscovery {
                     } catch (_: java.net.SocketException) {
                         // Ignore a route removed during this bounded discovery pass.
                     }
+                }
+            }
+            // Finish collecting every UDP offer before opening TCP candidate probes;
+            // one slow/offline candidate must never consume the discovery receive window.
+            coroutineScope {
+                v2Offers.map { (host, offer) -> async {
+                    val safeCandidates = offer.candidates.filter {
+                        UltraShareCore.isValidPrivateLanHost(it.host) && it.port in 1..65535
+                    }.map { candidate ->
+                        if (candidate.connected) candidate else candidate.copy(reachable = false)
+                    }
+                    val tested = probeCandidates(safeCandidates, context)
+                    peerFromOffer(host, offer, tested)
+                } }.mapNotNull { it.await() }.forEach { incoming ->
+                    val identity = incoming.peerId?.let { "id:${it.lowercase(java.util.Locale.ROOT)}" }
+                        ?: "host:${incoming.host}"
+                    peers.remove("host:${incoming.host}")
+                    peers[identity] = peers[identity]?.let { mergePeerSightings(it, incoming) } ?: incoming
                 }
             }
             peers.values.toList()
@@ -554,21 +558,6 @@ object UltraShareDiscovery {
         UltraShareDiagnostics.failure("DISCOVERY_DATA_PROBE", failure, "host=" + host + ";port=" + port + ";networkHandle=" + (network?.networkHandle ?: 0L))
     }.getOrDefault(false)
 
-    private fun findBroadcastAddresses(): List<InetAddress> = runCatching {
-        NetworkInterface.getNetworkInterfaces().toList()
-            .filter { network ->
-                val name = network.name.lowercase()
-                network.isUp && !network.isLoopback &&
-                    (name.startsWith("wlan") || UltraShareNetworkRouting.isHotspotInterfaceName(name) ||
-                        name.startsWith("eth") || name.startsWith("p2p"))
-            }
-            .flatMap { it.interfaceAddresses }
-            .mapNotNull { it.broadcast }
-            .filterIsInstance<Inet4Address>()
-            .distinctBy { it.hostAddress }
-    }.getOrDefault(emptyList()).ifEmpty {
-        listOf(InetAddress.getByName("255.255.255.255"))
-    }
 
     private fun isPrivateLanAddress(address: InetAddress): Boolean =
         !address.isAnyLocalAddress &&
