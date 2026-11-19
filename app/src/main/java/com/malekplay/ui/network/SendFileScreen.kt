@@ -68,7 +68,7 @@ fun SendFileScreen(
     val sendHost = host.ifBlank { state.approvedPeerHost ?: state.approvedSenderPeerHosts.firstOrNull().orEmpty() }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.VIDEO) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
+            OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.VIDEO) }, modifier = Modifier.weight(1f), enabled = true) {
                 Icon(Icons.Filled.Movie, null); Text("فيديو")
             }
             OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.AUDIO) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
@@ -81,7 +81,7 @@ fun SendFileScreen(
         OutlinedButton(
             onClick = { onPickMedia(arrayOf("*/*")) },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !state.sending
+            enabled = true
         ) {
             Text("اختيار ملفات من الهاتف (كل الأنواع المسموحة)")
         }
@@ -96,7 +96,7 @@ fun SendFileScreen(
             Text("مكتبة الهاتف • ${libraryFiles.size} عنصر", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(libraryFiles, key = { it.id }) { file ->
-                    UltraShareMediaCard(file, file.uri in selectedUris, enabled = !state.sending) {
+                    UltraShareMediaCard(file, file.uri in selectedUris, enabled = true) {
                         onSelectedUrisChange(if (file.uri in selectedUris) selectedUris - file.uri else selectedUris + file.uri)
                     }
                 }
@@ -104,14 +104,19 @@ fun SendFileScreen(
         }
         InfoPanel("قائمة الإرسال", selectedUris.size.toString() + " عنصر محدد")
         if (selectedUris.isNotEmpty()) {
-            OutlinedButton(onClick = { onSelectedUrisChange(emptyList()) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) { Text("إفراغ القائمة") }
+            OutlinedButton(onClick = { onSelectedUrisChange(emptyList()) }, modifier = Modifier.fillMaxWidth(), enabled = true) { Text("إفراغ القائمة") }
         }
-        if (state.approvedSenderPeerCount == 0) {
-            Button(colors = ultraShareButtonColors(),onClick = onScanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
-                Icon(Icons.Filled.QrCode, null); Text("مسح QR لجهاز الاستقبال")
-            }
-            OutlinedButton(onClick = onShowNearby, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) { Text("عرض الأجهزة القريبة") }
-            OutlinedButton(onClick = onOpenDevicePicker, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) { Text("اختيار جهاز من نافذة الأجهزة القريبة") }
+        // Keep pairing/discovery available during another peer's transfer so
+        // the user can add a second receiver without interrupting the first.
+        Button(colors = ultraShareButtonColors(), onClick = onScanQr, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Filled.QrCode, null)
+            Text(if (state.approvedSenderPeerCount == 0) "مسح QR لجهاز الاستقبال" else "إضافة جهاز آخر عبر QR")
+        }
+        OutlinedButton(onClick = onShowNearby, modifier = Modifier.fillMaxWidth()) {
+            Text(if (state.approvedSenderPeerCount == 0) "عرض الأجهزة القريبة" else "البحث عن جهاز آخر")
+        }
+        OutlinedButton(onClick = onOpenDevicePicker, modifier = Modifier.fillMaxWidth()) {
+            Text("اختيار جهاز من نافذة الأجهزة القريبة")
         }
         if (sendHost.isNotBlank()) {
             InfoPanel("الجهاز المحدد", sendHost + " • " + when {
@@ -138,13 +143,13 @@ fun SendFileScreen(
             Button(colors = ultraShareButtonColors(),
                 onClick = { onSendBatch(sendHost) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !state.sending && state.approvedSenderPeerCount > 0 && sendHost.isNotBlank()
+                enabled = state.approvedSenderPeerCount > 0 && sendHost.isNotBlank()
             ) { Text("إرسال ${selectedUris.size} ملف الآن") }
             if (state.approvedSenderPeerCount > 1) {
                 OutlinedButton(
                     onClick = onSendToAllPeers,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending
+                    enabled = true
                 ) {
                     Text("إرسال إلى جميع الأجهزة المقترنة (${state.approvedSenderPeerCount})")
                 }
