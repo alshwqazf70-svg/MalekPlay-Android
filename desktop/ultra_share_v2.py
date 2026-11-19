@@ -18,7 +18,7 @@ MAX_MANIFEST_BYTES = 512 * 1024
 MAX_NAME_BYTES = 180
 MAX_MIME_BYTES = 192
 MAX_FILE_BYTES = 100 * 1024 * 1024 * 1024
-MAX_BATCH_BYTES = 20 * 1024 * 1024 * 1024
+MAX_BATCH_BYTES = MAX_FILE_BYTES
 DIGEST_BYTES = 32
 
 
@@ -75,31 +75,27 @@ MEDIA_EXTENSIONS = {
     "aiff", "aif", "mid", "midi",
     "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff",
 }
-BLOCKED_EXTENSIONS = {
-    "apk", "aab", "dex", "jar", "exe", "msi", "bat", "cmd", "sh",
-    "pdf", "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "svg",
+BLOCKED_EXTENSIONS = {"apk", "pdf"}
+BLOCKED_MIME_TYPES = {
+    "application/pdf",
+    "application/vnd.android.package-archive",
+    "application/x-android-package-archive",
 }
 
 
 def _valid_mime(value: str) -> bool:
     if not isinstance(value, str) or not 3 <= len(value) <= 160:
         return False
-    token = r"[A-Za-z0-9!#$&^_.+-]+"
     import re
-    if re.fullmatch(token + "/" + token, value) is None:
-        return False
-    category = value.lower().split("/", 1)[0]
-    return category in {"video", "audio", "image"} and value.lower() != "image/svg+xml"
+    token = r"[A-Za-z0-9!#$&^_.+-]+"
+    return re.fullmatch(token + "/" + token, value) is not None
 
 
 def _allowed_share_file(filename: str, mime: str) -> bool:
     safe = _safe_name(filename)
     extension = safe.rsplit(".", 1)[-1].lower() if "." in safe else ""
-    if extension in BLOCKED_EXTENSIONS:
-        return False
-    if _valid_mime(mime):
-        return True
-    return mime.strip().lower() in {"application/octet-stream", "application/unknown"} and extension in MEDIA_EXTENSIONS
+    mime_lower = mime.strip().lower()
+    return extension not in BLOCKED_EXTENSIONS and mime_lower not in BLOCKED_MIME_TYPES and _valid_mime(mime)
 
 
 def validate_manifest(manifest: Manifest) -> Manifest:
@@ -117,15 +113,15 @@ def validate_manifest(manifest: Manifest) -> Manifest:
         if not 1 <= len(entry.name.encode("utf-8")) <= MAX_NAME_BYTES:
             raise ValueError("Filename exceeds V2 limit.")
         if not _allowed_share_file(entry.name, entry.mime_type):
-            raise ValueError("Only video, audio and image media can be shared.")
+            raise ValueError("File type is blocked or its MIME type is invalid.")
         if len(entry.mime_type.encode("utf-8")) > MAX_MIME_BYTES:
             raise ValueError("MIME type exceeds V2 limit.")
-        if not isinstance(entry.size_bytes, int) or not 0 <= entry.size_bytes <= MAX_FILE_BYTES:
+        if not isinstance(entry.size_bytes, int) or not 1 <= entry.size_bytes <= MAX_FILE_BYTES:
             raise ValueError("File size outside V2 limit.")
         if not isinstance(entry.sha256, bytes) or len(entry.sha256) != DIGEST_BYTES:
             raise ValueError("Invalid SHA-256 digest.")
     if manifest.total_bytes > MAX_BATCH_BYTES:
-        raise ValueError("V2 batch exceeds the 20 GiB total size limit.")
+        raise ValueError("V2 batch exceeds the 100 GiB total size limit.")
     return manifest
 
 
@@ -501,8 +497,19 @@ def _media_signature_matches(path: Path, filename: str, mime_type: str) -> bool:
     image_exts = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff"}
     audio_exts = {"mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr", "aiff", "aif", "mid", "midi"}
     video_exts = {"mp4", "m4v", "mkv", "mov", "webm", "avi", "3gp", "3g2", "mpg", "mpeg", "ts", "mts", "m2ts", "wmv", "flv", "ogv"}
-    expected_family = "image" if ext in image_exts else "audio" if ext in audio_exts else "video" if ext in video_exts else None
+    media_exts = image_exts | audio_exts | video_exts
     declared_family = mime_type.lower().split("/", 1)[0]
+    if ext == "svg" or mime_type.lower() == "image/svg+xml":
+        return True
+    if ext not in media_exts and declared_family not in {"image", "audio", "video"}:
+        return True
+    if ext not in media_exts:
+        mime_ext = {"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif",
+                    "image/webp": "webp", "audio/mpeg": "mp3", "audio/flac": "flac",
+                    "audio/wav": "wav", "video/mp4": "mp4", "video/quicktime": "mov",
+                    "video/webm": "webm", "video/x-matroska": "mkv"}
+        ext = mime_ext.get(mime_type.lower(), "")
+    expected_family = "image" if ext in image_exts else "audio" if ext in audio_exts else "video" if ext in video_exts else None
     if expected_family is None or declared_family not in {expected_family, "application"}:
         return False
     if declared_family == "application" and mime_type.lower() not in {"application/octet-stream", "application/unknown"}:

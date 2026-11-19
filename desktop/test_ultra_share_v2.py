@@ -80,16 +80,25 @@ class UltraShareV2ManifestTests(unittest.TestCase):
         self.assertEqual(expected, encode_manifest(manifest))
         self.assertEqual(manifest, decode_manifest(expected))
 
+    def test_100_gib_batch_ceiling_matches_per_file_limit(self):
+        digest = hashlib.sha256(b"x").digest()
+        maximum = FileEntry(str(uuid.uuid4()), "maximum.bin", "application/octet-stream", 100 * 1024**3, digest)
+        self.assertEqual(100 * 1024**3, validate_manifest(Manifest(str(uuid.uuid4()), (maximum,))).total_bytes)
+        first = FileEntry(str(uuid.uuid4()), "first.bin", "application/octet-stream", 60 * 1024**3, digest)
+        second = FileEntry(str(uuid.uuid4()), "second.bin", "application/octet-stream", 41 * 1024**3, digest)
+        with self.assertRaises(ValueError):
+            validate_manifest(Manifest(str(uuid.uuid4()), (first, second)))
+
     def test_multi_file_manifest_round_trip_and_total_size(self):
         first = FileEntry(str(uuid.uuid4()), "movie.mp4", "video/mp4", 123, hashlib.sha256(b"a").digest())
         second = FileEntry(str(uuid.uuid4()), "track.mp3", "audio/mpeg", 456, hashlib.sha256(b"b").digest())
         manifest = Manifest(str(uuid.uuid4()), (first, second))
         self.assertEqual(579, decode_manifest(encode_manifest(manifest)).total_bytes)
 
-    def test_zero_byte_media_mime_types_are_allowed(self):
-        for mime in ("video/mp4", "audio/mpeg", "image/jpeg"):
-            entry = FileEntry(str(uuid.uuid4()), "payload.bin", mime, 0, hashlib.sha256(b"").digest())
-            self.assertEqual(entry, decode_manifest(encode_manifest(Manifest(str(uuid.uuid4()), (entry,)))).entries[0])
+    def test_zero_byte_files_are_rejected_to_match_android_sender_policy(self):
+        entry = FileEntry(str(uuid.uuid4()), "payload.bin", "video/mp4", 0, hashlib.sha256(b"").digest())
+        with self.assertRaises(ValueError):
+            validate_manifest(Manifest(str(uuid.uuid4()), (entry,)))
 
     def test_rejects_bad_header_truncation_and_trailing_data(self):
         manifest = Manifest(
@@ -297,19 +306,19 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             self.assertEqual(first.read_bytes(), restored["مقطع.mp4"])
             self.assertEqual(b"", restored["empty.mp3"])
 
-    def test_accepts_only_media_and_rejects_generic_files_archives_and_invalid_digest(self):
+    def test_accepts_ordinary_files_and_rejects_only_apk_pdf(self):
         for name, mime in (("x.mp4", "video/mp4"), ("x.mp3", "audio/mpeg"),
-                           ("x.jpg", "image/jpeg"), ("provider-media.mp4", "application/octet-stream")):
-            entry = FileEntry(str(uuid.uuid4()), name, mime, 1, bytes(32))
-            validate_manifest(Manifest(str(uuid.uuid4()), (entry,)))
-        for name, mime in (("archive.zip", "application/zip"),
-                           ("notes.txt", "text/plain"),
+                           ("x.jpg", "image/jpeg"), ("provider-media.mp4", "application/octet-stream"),
+                           ("archive.zip", "application/zip"), ("notes.txt", "text/plain"),
                            ("unknown.bin", "application/octet-stream"),
                            ("document.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
-                           ("x.apk", "application/octet-stream"),
+                           ("image.svg", "image/svg+xml")):
+            entry = FileEntry(str(uuid.uuid4()), name, mime, 1, bytes(32))
+            validate_manifest(Manifest(str(uuid.uuid4()), (entry,)))
+        for name, mime in (("x.apk", "application/octet-stream"),
+                           ("renamed.apk", "image/jpeg"),
                            ("x.pdf", "application/pdf"),
-                           ("image.svg", "image/svg+xml"),
-                           ("spoofed.svg", "image/png")):
+                           ("renamed.pdf", "text/plain")):
             entry = FileEntry(str(uuid.uuid4()), name, mime, 1, bytes(32))
             with self.assertRaises(ValueError):
                 validate_manifest(Manifest(str(uuid.uuid4()), (entry,)))
@@ -317,6 +326,3 @@ class UltraShareV2ManifestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_manifest(Manifest(str(uuid.uuid4()), (malformed,)))
 
-
-if __name__ == "__main__":
-    unittest.main()
