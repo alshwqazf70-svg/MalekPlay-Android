@@ -155,8 +155,9 @@ class UltraShareForegroundService : Service() {
     // Serialize approval prompts, not incoming sockets: concurrent peers wait in order
     // instead of having every request after the first one rejected.
     private val pendingConnectionMutex = kotlinx.coroutines.sync.Mutex()
-    private var hotspotReservation: AutoCloseable? = null
-    private var hotspotCallback: Any? = null
+    private val hotspotController by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        UltraShareHotspotController(this, serviceScope)
+    }
     private val notificationHelper by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         UltraShareNotificationHelper(this, CHANNEL_ID, NOTIFICATION_ID, ACTION_CANCEL)
     }
@@ -272,7 +273,7 @@ class UltraShareForegroundService : Service() {
             ACTION_STOP_IF_IDLE -> {
                 if (sendJob == null && receiveJob == null && batchReceiveJob == null &&
                     !currentState().receiving && currentState().activePeers.isEmpty() &&
-                    hotspotReservation == null && !currentState().hotspotStarting
+                    !hotspotController.isActive && !currentState().hotspotStarting
                 ) {
                     finishService()
                 }
@@ -773,9 +774,7 @@ class UltraShareForegroundService : Service() {
         closeMeshRoom()
         releaseTransferLocks()
         activeBatchTransferPort = 0
-        runCatching { hotspotReservation?.close() }
-        hotspotReservation = null
-        hotspotCallback = null
+        hotspotController.stop()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf(startId)
     }
@@ -801,11 +800,9 @@ class UltraShareForegroundService : Service() {
         pendingConnectionDecision?.cancel()
         UltraShareControlChannel.setClientSessionReadyListener(null)
         closeMeshRoom()
+        hotspotController.stop()
         serviceScope.cancel()
         releaseTransferLocks()
-        runCatching { hotspotReservation?.close() }
-        hotspotReservation = null
-        hotspotCallback = null
         updateState { current ->
             current.copy(
                 receiving = false,
@@ -833,58 +830,24 @@ class UltraShareForegroundService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun startLocalHotspot() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            updateState { it.copy(error = "إنشاء نقطة اتصال داخل MalekPlayer يتطلب Android 8 أو أحدث. استخدم نقطة اتصال النظام يدوياً.") }
-            finishService()
-            return
-        }
-        if (hotspotReservation != null || currentState().hotspotStarting) return
-        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        if (wifiManager == null) {
-            updateState { it.copy(error = "خدمة Wi-Fi غير متاحة على هذا الجهاز.") }
-            finishService()
-            return
-        }
+        if (hotspotController.isActive || hotspotController.isStarting || currentState().hotspotStarting) return
         updateState { it.copy(hotspotStarting = true, error = null, status = "جارٍ إنشاء شبكة MalekPlayer المحلية...") }
-        val callback = object : WifiManager.LocalOnlyHotspotCallback() {
-            override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
-                val callbackInstance = this
-                serviceScope.launch(Dispatchers.IO) {
-                    if (hotspotCallback !== callbackInstance) {
-                        runCatching { reservation.close() }
-                        return@launch
-                    }
-                    hotspotReservation = reservation
-                    val credentials = runCatching {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            val config = reservation.softApConfiguration
-                            config.ssid.orEmpty() to (config.passphrase ?: "")
-                        } else {
-                            @Suppress("DEPRECATION")
-                            val config = reservation.wifiConfiguration
-                            config?.SSID?.trim('"').orEmpty() to config?.preSharedKey?.trim('"').orEmpty()
-                        }
-                    }.getOrDefault("" to "")
-                    val addresses = findLocalIpv4Addresses()
-                    updateState { current ->
-                        current.copy(
-                            hotspotStarting = false,
-                            hotspotActive = true,
-                            hotspotSsid = credentials.first.takeIf { it.isNotBlank() },
-                            hotspotPassword = credentials.second,
-                            localAddresses = addresses,
-                            status = if (credentials.first.isNotBlank()) "تم إنشاء شبكة MalekPlayer المحلية. صِل الجهاز الآخر بها ثم ابحث عن الأجهزة القريبة."
-                            else "تم إنشاء نقطة الاتصال، لكن تعذر قراءة بياناتها. افتح إعدادات Wi-Fi لعرضها.",
-                            error = null
-                        )
-                    }
+        hotspotController.start(
+            onStarted = { ssid, password, addresses ->
+                updateState { current ->
+                    current.copy(
+                        hotspotStarting = false,
+                        hotspotActive = true,
+                        hotspotSsid = ssid.takeIf { it.isNotBlank() },
+                        hotspotPassword = password,
+                        localAddresses = addresses,
+                        status = if (ssid.isNotBlank()) "تم إنشاء شبكة MalekPlayer المحلية. صِل الجهاز الآخر بها ثم ابحث عن الأجهزة القريبة."
+                        else "تم إنشاء نقطة الاتصال، لكن تعذر قراءة بياناتها. افتح إعدادات Wi-Fi لعرضها.",
+                        error = null
+                    )
                 }
-            }
-
-            override fun onStopped() {
-                if (hotspotCallback !== this) return
-                hotspotReservation = null
-                hotspotCallback = null
+            },
+            onStopped = {
                 updateState { current ->
                     current.copy(
                         hotspotStarting = false,
@@ -895,46 +858,16 @@ class UltraShareForegroundService : Service() {
                     )
                 }
                 finishService()
-            }
-
-            override fun onFailed(reason: Int) {
-                if (hotspotCallback !== this) return
-                hotspotReservation = null
-                hotspotCallback = null
-                val message = when (reason) {
-                    WifiManager.LocalOnlyHotspotCallback.ERROR_INCOMPATIBLE_MODE ->
-                        "تعذر إنشاء الشبكة لأن نقطة اتصال النظام أو وضع Wi-Fi الحالي غير متوافق. أوقف نقطة الاتصال الأخرى أو استخدم شبكة Wi-Fi مشتركة."
-                    WifiManager.LocalOnlyHotspotCallback.ERROR_TETHERING_DISALLOWED ->
-                        "النظام أو سياسة الجهاز تمنع إنشاء نقطة اتصال محلية."
-                    WifiManager.LocalOnlyHotspotCallback.ERROR_NO_CHANNEL ->
-                        "لا تتوفر قناة Wi-Fi لإنشاء نقطة الاتصال حالياً."
-                    else -> "تعذر إنشاء نقطة اتصال MalekPlayer. جرّب إيقاف نقطة اتصال النظام ثم أعد المحاولة."
-                }
+            },
+            onFailed = { message ->
                 updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null, error = message) }
                 finishService()
             }
-        }
-        hotspotCallback = callback
-        try {
-            wifiManager.startLocalOnlyHotspot(callback, Handler(Looper.getMainLooper()))
-        } catch (failure: SecurityException) {
-            hotspotCallback = null
-            updateState { it.copy(hotspotStarting = false, error = "يلزم منح إذن الأجهزة القريبة لإنشاء شبكة Wi-Fi محلية.") }
-            finishService()
-        } catch (failure: Exception) {
-            hotspotCallback = null
-            updateState { it.copy(hotspotStarting = false, error = failure.localizedMessage ?: "تعذر بدء نقطة الاتصال.") }
-            finishService()
-        }
+        )
     }
 
     private fun stopLocalHotspot() {
-        val reservation = hotspotReservation
-        hotspotReservation = null
-        hotspotCallback = null
-        if (reservation != null) serviceScope.launch(Dispatchers.IO) {
-            runCatching { reservation.close() }
-        }
+        hotspotController.stop()
         updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null) }
         finishService()
     }
