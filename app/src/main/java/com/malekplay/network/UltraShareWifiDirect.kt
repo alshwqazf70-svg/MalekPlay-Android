@@ -1743,6 +1743,7 @@ object UltraShareWifiDirect {
                                 mapOf("groupOwnerHost" to host, "ownerIdentityVerified" to true)
                             )
                             onConnected(host, false)
+                            publishLocalP2pAddress()
                         }
                     } else if (wasConnected) {
                         wasConnected = false
