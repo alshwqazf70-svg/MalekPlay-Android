@@ -103,46 +103,66 @@ object UltraShareCore {
             val salt = challenge.copyOfRange(0, PIN_SALT_BYTES)
             val passwordChars = value.toCharArray()
             var spec: PBEKeySpec? = null
-            try {
-                val nativeKey = runCatching {
+            val nativeKey = try {
+                runCatching {
                     val keySpec = PBEKeySpec(passwordChars, salt, PIN_KDF_ITERATIONS, SECRET_BYTES * 8)
                     spec = keySpec
-                    SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(keySpec).encoded
+                    SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                        .generateSecret(keySpec).encoded
                 }.getOrNull()
-                if (nativeKey != null && nativeKey.size == SECRET_BYTES) return nativeKey
             } finally {
                 spec?.clearPassword()
                 passwordChars.fill('\u0000')
             }
-            val password = value.toByteArray(Charsets.US_ASCII)
-            val blockInput = ByteArray(salt.size + 4)
-            salt.copyInto(blockInput)
-            blockInput[blockInput.lastIndex] = 1
-            val u = ByteArray(32)
-            val next = ByteArray(32)
-            val derived = ByteArray(32)
-            try {
-                val mac = Mac.getInstance("HmacSHA256")
-                mac.init(SecretKeySpec(password, "HmacSHA256"))
-                mac.update(blockInput)
-                mac.doFinal(u, 0)
-                System.arraycopy(u, 0, derived, 0, u.size)
-                repeat(PIN_KDF_ITERATIONS - 1) {
-                    mac.update(u)
-                    mac.doFinal(next, 0)
-                    for (index in derived.indices) derived[index] =
-                        (derived[index].toInt() xor next[index].toInt()).toByte()
-                    System.arraycopy(next, 0, u, 0, u.size)
-                    next.fill(0)
-                }
-                return derived.copyOf(SECRET_BYTES)
-            } finally {
-                password.fill(0); salt.fill(0); blockInput.fill(0)
-                u.fill(0); next.fill(0); derived.fill(0)
+            if (nativeKey != null && nativeKey.size == SECRET_BYTES) {
+                salt.fill(0)
+                return nativeKey
             }
+            salt.fill(0)
+            return derivePairingKeyFallback(value, challenge)
         }
         return ByteArray(SECRET_BYTES) { index ->
             value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+        }
+    }
+
+    /** RFC 8018 fallback, exposed internally so its wire vector is tested on every JVM build. */
+    internal fun derivePairingKeyFallback(value: String, challenge: ByteArray): ByteArray {
+        require(value.length == PIN_LENGTH && value.all { it in '0'..'9' }) {
+            "رمز الاقتران غير صالح."
+        }
+        require(challenge.size == CHALLENGE_BYTES) { "تحدي الاقتران غير صالح." }
+        val salt = challenge.copyOfRange(0, PIN_SALT_BYTES)
+        val password = value.toByteArray(Charsets.US_ASCII)
+        val blockInput = ByteArray(salt.size + 4)
+        salt.copyInto(blockInput)
+        blockInput[blockInput.lastIndex] = 1
+        val u = ByteArray(32)
+        val next = ByteArray(32)
+        val derived = ByteArray(32)
+        try {
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(password, "HmacSHA256"))
+            mac.update(blockInput)
+            mac.doFinal(u, 0)
+            System.arraycopy(u, 0, derived, 0, u.size)
+            repeat(PIN_KDF_ITERATIONS - 1) {
+                mac.update(u)
+                mac.doFinal(next, 0)
+                for (index in derived.indices) {
+                    derived[index] = (derived[index].toInt() xor next[index].toInt()).toByte()
+                }
+                System.arraycopy(next, 0, u, 0, u.size)
+                next.fill(0)
+            }
+            return derived.copyOf(SECRET_BYTES)
+        } finally {
+            password.fill(0)
+            salt.fill(0)
+            blockInput.fill(0)
+            u.fill(0)
+            next.fill(0)
+            derived.fill(0)
         }
     }
 

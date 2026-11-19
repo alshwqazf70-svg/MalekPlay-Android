@@ -63,6 +63,8 @@ class UltraShareCoreTest {
             "313f3930d3a5684ebdd21a38ea0be31fb255fe5436476972f2a387b2ded57150",
             actual
         )
+        val fallback = UltraShareCore.derivePairingKeyFallback("004219837", challenge)
+        assertEquals(actual, fallback.joinToString("") { "%02x".format(it) })
     }
 
     @Test
