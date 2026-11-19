@@ -413,16 +413,22 @@ object UltraShareBatchTransport {
             val noncePrefix = ByteArray(NONCE_PREFIX_BYTES).also(input::readFully).also { noncePrefixToWipe = it }
             val sendKey = deriveKey(secret, challenge, "client-to-server").also { sendKeyToWipe = it }
             val receiveKey = deriveKey(secret, challenge, "server-to-client").also { receiveKeyToWipe = it }
+            val sendCipher = Cipher.getInstance("AES/GCM/NoPadding")
+            val receiveCipher = Cipher.getInstance("AES/GCM/NoPadding")
+            val sendKeySpec = SecretKeySpec(sendKey, "AES")
+            val receiveKeySpec = SecretKeySpec(receiveKey, "AES")
+            val encryptedFrameBuffer = ByteArray(FRAME_BYTES + 7 + TAG_BYTES)
+            val plainChunkFrame = ByteArray(FRAME_BYTES + 7)
             var sendSequence = 0L
             var receiveSequence = 0L
 
-            writeFrame(output, sendKey, noncePrefix, sendSequence++, UltraShareBatchProtocol.encode(manifest))
+            writeFrame(output, sendKey, noncePrefix, sendSequence++, UltraShareBatchProtocol.encode(manifest), cipher = sendCipher, keySpec = sendKeySpec, encryptedBuffer = encryptedFrameBuffer)
             UltraShareDiagnostics.event(
                 "DATA_SEND",
                 "MANIFEST_SENT",
                 mapOf("peerHost" to host, "batchId" to manifest.batchId, "fileCount" to manifest.entries.size)
             )
-            val offsetsPayload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 32 * 1024)
+            val offsetsPayload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 32 * 1024, cipher = receiveCipher, keySpec = receiveKeySpec)
             val offsets = decodeOffsets(offsetsPayload, manifest)
             readPhase = "SESSION"
             socket.soTimeout = SESSION_TIMEOUT_MS
@@ -464,15 +470,20 @@ object UltraShareBatchTransport {
                             val wanted = minOf(buffer.size.toLong(), entry.sizeBytes - transferred).toInt()
                             val read = readAtMost(stream, buffer, wanted)
                             check(read > 0) { "انتهى الملف قبل اكتمال الإرسال: ${entry.name}" }
-                            val frame = ByteArrayOutputStream(read + 8)
-                            DataOutputStream(frame).use { data ->
-                                data.writeByte(TYPE_CHUNK)
-                                data.writeShort(index)
-                                data.writeInt(read)
-                                data.write(buffer, 0, read)
-                            }
+                            plainChunkFrame[0] = TYPE_CHUNK.toByte()
+                            plainChunkFrame[1] = (index ushr 8).toByte()
+                            plainChunkFrame[2] = index.toByte()
+                            plainChunkFrame[3] = (read ushr 24).toByte()
+                            plainChunkFrame[4] = (read ushr 16).toByte()
+                            plainChunkFrame[5] = (read ushr 8).toByte()
+                            plainChunkFrame[6] = read.toByte()
+                            System.arraycopy(buffer, 0, plainChunkFrame, 7, read)
                             streamedDigest.update(buffer, 0, read)
-                            writeFrame(output, sendKey, noncePrefix, sendSequence++, frame.toByteArray(), flush = false)
+                            writeFrame(
+                                output, sendKey, noncePrefix, sendSequence++, plainChunkFrame,
+                                flush = false, cipher = sendCipher, keySpec = sendKeySpec,
+                                encryptedBuffer = encryptedFrameBuffer, inputLength = read + 7
+                            )
                             transferred += read
                             val progressNow = System.nanoTime()
                             if (transferred - lastProgressBytes >= PROGRESS_UPDATE_INTERVAL_BYTES ||
@@ -513,7 +524,7 @@ object UltraShareBatchTransport {
                 )
                 val end = ByteArrayOutputStream()
                 DataOutputStream(end).use { data -> data.writeByte(TYPE_FILE_END); data.writeShort(index) }
-                writeFrame(output, sendKey, noncePrefix, sendSequence++, end.toByteArray())
+                writeFrame(output, sendKey, noncePrefix, sendSequence++, end.toByteArray(), cipher = sendCipher, keySpec = sendKeySpec, encryptedBuffer = encryptedFrameBuffer)
                 UltraShareDiagnostics.event(
                     "DATA_SEND",
                     "FILE_STREAM_SENT",
@@ -526,13 +537,13 @@ object UltraShareBatchTransport {
                     )
                 )
             }
-            writeFrame(output, sendKey, noncePrefix, sendSequence++, byteArrayOf(TYPE_BATCH_END.toByte()))
+            writeFrame(output, sendKey, noncePrefix, sendSequence++, byteArrayOf(TYPE_BATCH_END.toByte()), cipher = sendCipher, keySpec = sendKeySpec, encryptedBuffer = encryptedFrameBuffer)
             // The receiver verifies SHA-256 and publishes files before sending its final
             // receipt. Allow slower storage to finish, but never wait indefinitely.
             readPhase = "FINAL_RECEIPT"
             socket.soTimeout = verificationTimeoutMillis(manifest.totalBytes)
             val results = decodeResults(
-                readFrame(input, receiveKey, noncePrefix, receiveSequence, UltraShareBatchProtocol.MAX_MANIFEST_BYTES), manifest
+                readFrame(input, receiveKey, noncePrefix, receiveSequence, UltraShareBatchProtocol.MAX_MANIFEST_BYTES, cipher = receiveCipher, keySpec = receiveKeySpec), manifest
             )
             val byId = results.associateBy { it.fileId }
             val batchOutcome = BatchOutcome(manifest.batchId, manifest.entries.map { entry ->
@@ -634,11 +645,17 @@ object UltraShareBatchTransport {
         socket.soTimeout = SESSION_TIMEOUT_MS
         val receiveKey = deriveKey(secret, challenge, "client-to-server").also { receiveKeyToWipe = it }
         val sendKey = deriveKey(secret, challenge, "server-to-client").also { sendKeyToWipe = it }
+        val receiveCipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val sendCipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val receiveKeySpec = SecretKeySpec(receiveKey, "AES")
+        val sendKeySpec = SecretKeySpec(sendKey, "AES")
+        val reusableEncryptedChunk = ByteArray(FRAME_BYTES + 7 + TAG_BYTES)
+        val reusablePlainChunk = ByteArray(FRAME_BYTES + 7)
         var receiveSequence = 0L
         var sendSequence = 0L
 
         val manifest = UltraShareBatchProtocol.decode(
-            readFrame(input, receiveKey, noncePrefix, receiveSequence++, UltraShareBatchProtocol.MAX_MANIFEST_BYTES)
+            readFrame(input, receiveKey, noncePrefix, receiveSequence++, UltraShareBatchProtocol.MAX_MANIFEST_BYTES, cipher = receiveCipher, keySpec = receiveKeySpec)
         )
         UltraShareDiagnostics.event(
             "DATA_RECEIVE",
@@ -718,7 +735,7 @@ object UltraShareBatchTransport {
                 data.writeLong(partials.getValue(entry.id).second)
             }
         }
-        writeFrame(output, sendKey, noncePrefix, sendSequence++, offsets.toByteArray())
+        writeFrame(output, sendKey, noncePrefix, sendSequence++, offsets.toByteArray(), cipher = sendCipher, keySpec = sendKeySpec)
 
         val outcomes = ArrayList<FileOutcome>(manifest.entries.size)
         for ((index, entry) in manifest.entries.withIndex()) {
@@ -755,16 +772,22 @@ object UltraShareBatchTransport {
                             if (transferred == offset && offset > 0L) {
                                 socket.soTimeout = maxOf(SESSION_TIMEOUT_MS, verificationTimeoutMillis(offset))
                             }
-                            val payload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, maximumPayload)
+                            val payloadLength = readFrameInto(
+                                input, receiveKey, noncePrefix, receiveSequence++, maximumPayload,
+                                receiveCipher, receiveKeySpec, reusableEncryptedChunk, reusablePlainChunk
+                            )
                             if (transferred == offset) socket.soTimeout = SESSION_TIMEOUT_MS
-                            val frame = DataInputStream(ByteArrayInputStream(payload))
-                            require(frame.readUnsignedByte() == TYPE_CHUNK) { "إطار بيانات غير متوقع." }
-                            require(frame.readUnsignedShort() == index) { "وصل جزء لملف غير متوقع." }
-                            val length = frame.readInt()
-                            require(length in 1..(FRAME_BYTES - 8) && length == frame.available())
+                            require(payloadLength >= 8 && reusablePlainChunk[0].toInt() and 0xff == TYPE_CHUNK)
+                            val frameIndex = ((reusablePlainChunk[1].toInt() and 0xff) shl 8) or
+                                (reusablePlainChunk[2].toInt() and 0xff)
+                            require(frameIndex == index) { "وصل جزء لملف غير متوقع." }
+                            val length = ((reusablePlainChunk[3].toInt() and 0xff) shl 24) or
+                                ((reusablePlainChunk[4].toInt() and 0xff) shl 16) or
+                                ((reusablePlainChunk[5].toInt() and 0xff) shl 8) or
+                                (reusablePlainChunk[6].toInt() and 0xff)
+                            require(length in 1..(FRAME_BYTES - 8) && length + 7 == payloadLength)
                             require(transferred + length <= entry.sizeBytes)
-                            val bytes = ByteArray(length).also(frame::readFully)
-                            file.write(bytes)
+                            file.write(reusablePlainChunk, 7, length)
                             transferred += length
                             if (transferred - lastCheckpointOffset >= RESUME_CHECKPOINT_INTERVAL_BYTES ||
                                 transferred == entry.sizeBytes
@@ -839,7 +862,7 @@ object UltraShareBatchTransport {
                 "FILE_END_WAITING",
                 mapOf("peerHost" to peerHost, "batchId" to manifest.batchId, "fileId" to entry.id)
             )
-            val endPayload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 64)
+            val endPayload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 64, cipher = receiveCipher, keySpec = receiveKeySpec)
             DataInputStream(ByteArrayInputStream(endPayload)).use { data ->
                 require(data.readUnsignedByte() == TYPE_FILE_END && data.readUnsignedShort() == index && data.available() == 0)
             }
@@ -969,10 +992,10 @@ object UltraShareBatchTransport {
                 UltraShareBatchProtocol.FileStatus.COMPLETED, entry.sizeBytes
             )
         }
-        val batchEnd = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 64)
+        val batchEnd = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 64, cipher = receiveCipher, keySpec = receiveKeySpec)
         require(batchEnd.contentEquals(byteArrayOf(TYPE_BATCH_END.toByte()))) { "نهاية الدفعة غير صالحة." }
         val resultPayload = encodeResults(manifest, outcomes)
-        writeFrame(output, sendKey, noncePrefix, sendSequence, resultPayload)
+        writeFrame(output, sendKey, noncePrefix, sendSequence, resultPayload, cipher = sendCipher, keySpec = sendKeySpec)
         UltraShareDiagnostics.event(
             "DATA_RECEIVE",
             "BATCH_COMPLETED",
@@ -1095,23 +1118,51 @@ object UltraShareBatchTransport {
         socket.keepAlive = true
     }
 
-    private fun writeFrame(output: DataOutputStream, key: ByteArray, prefix: ByteArray, sequence: Long, plain: ByteArray, flush: Boolean = true) {
-        require(plain.size <= UltraShareBatchProtocol.MAX_MANIFEST_BYTES + 64)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce(prefix, sequence)))
-        val encrypted = cipher.doFinal(plain)
-        output.writeInt(encrypted.size)
-        output.write(encrypted)
+    private fun writeFrame(
+        output: DataOutputStream, key: ByteArray, prefix: ByteArray, sequence: Long,
+        plain: ByteArray, flush: Boolean = true, cipher: Cipher? = null,
+        keySpec: SecretKeySpec? = null, encryptedBuffer: ByteArray? = null,
+        inputOffset: Int = 0, inputLength: Int = plain.size
+    ) {
+        require(inputOffset >= 0 && inputLength >= 0 && inputOffset <= plain.size - inputLength)
+        require(inputLength <= UltraShareBatchProtocol.MAX_MANIFEST_BYTES + 64)
+        val activeCipher = cipher ?: Cipher.getInstance("AES/GCM/NoPadding")
+        activeCipher.init(Cipher.ENCRYPT_MODE, keySpec ?: SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce(prefix, sequence)))
+        if (encryptedBuffer != null) {
+            val encryptedSize = activeCipher.doFinal(plain, inputOffset, inputLength, encryptedBuffer, 0)
+            output.writeInt(encryptedSize)
+            output.write(encryptedBuffer, 0, encryptedSize)
+        } else {
+            val encrypted = activeCipher.doFinal(plain, inputOffset, inputLength)
+            output.writeInt(encrypted.size)
+            output.write(encrypted)
+        }
         if (flush) output.flush()
     }
 
-    private fun readFrame(input: DataInputStream, key: ByteArray, prefix: ByteArray, sequence: Long, maximum: Int): ByteArray {
+    private fun readFrame(
+        input: DataInputStream, key: ByteArray, prefix: ByteArray, sequence: Long, maximum: Int,
+        cipher: Cipher? = null, keySpec: SecretKeySpec? = null
+    ): ByteArray {
         val size = input.readInt()
         require(size in TAG_BYTES..(maximum + TAG_BYTES))
         val encrypted = ByteArray(size).also(input::readFully)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce(prefix, sequence)))
-        return cipher.doFinal(encrypted).also { require(it.size <= maximum) }
+        val activeCipher = cipher ?: Cipher.getInstance("AES/GCM/NoPadding")
+        activeCipher.init(Cipher.DECRYPT_MODE, keySpec ?: SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce(prefix, sequence)))
+        return activeCipher.doFinal(encrypted).also { require(it.size <= maximum) }
+    }
+
+    private fun readFrameInto(
+        input: DataInputStream, key: ByteArray, prefix: ByteArray, sequence: Long, maximum: Int,
+        cipher: Cipher, keySpec: SecretKeySpec, encryptedBuffer: ByteArray, plainBuffer: ByteArray
+    ): Int {
+        val size = input.readInt()
+        require(size in TAG_BYTES..(maximum + TAG_BYTES) && size <= encryptedBuffer.size)
+        input.readFully(encryptedBuffer, 0, size)
+        cipher.init(Cipher.DECRYPT_MODE, keySpec, GCMParameterSpec(128, nonce(prefix, sequence)))
+        val plainSize = cipher.doFinal(encryptedBuffer, 0, size, plainBuffer, 0)
+        require(plainSize <= maximum && plainSize <= plainBuffer.size)
+        return plainSize
     }
 
     private fun nonce(prefix: ByteArray, sequence: Long): ByteArray =
