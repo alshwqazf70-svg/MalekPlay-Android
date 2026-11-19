@@ -35,6 +35,8 @@ internal class UltraShareNotificationHelper(
         }
     }
 
+    fun cancel() = manager.cancel(notificationId)
+
     fun notifyProgress(state: UltraShareServiceState, progress: UltraShareCore.Progress?) {
         val now = SystemClock.elapsedRealtime()
         if (now - lastProgressNotificationAt < 650L) return
