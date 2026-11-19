@@ -4,39 +4,50 @@ import io.github.peerless2012.ass.AssFrame
 import io.github.peerless2012.ass.AssRender
 import io.github.peerless2012.ass.AssTexType
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 
 /**
- * Executor to render.
+ * Serializes native libass rendering and keeps only the latest completed frame.
  */
 class AssExecutor(private val render: AssRender) {
 
     private val assFrameNotChange = AssFrame(null, 0)
-
     private val executor = Executors.newSingleThreadExecutor()
 
-    @Volatile private var lastFrame: AssFrame? = null
+    @Volatile
+    private var lastFrame: AssFrame? = null
 
-    @Volatile private var executorBusy = false
+    @Volatile
+    private var executorBusy = false
 
-    @Volatile private var released = false
+    @Volatile
+    private var released = false
 
     private val submitLock = Any()
 
-    public fun renderFrame(presentationTimeUs: Long, type: AssTexType): AssFrame? {
+    fun renderFrame(presentationTimeUs: Long, type: AssTexType): AssFrame? {
         if (released) return null
         val future = synchronized(submitLock) {
             if (released) return null
             if (executorBusy) return lastFrame ?: assFrameNotChange
             executorBusy = true
-            executor.submit<AssFrame?> {
-                try {
-                    render.renderFrame(presentationTimeUs / 1000, type).also { if (!released) lastFrame = it }
-                } finally {
-                    executorBusy = false
+            try {
+                executor.submit<AssFrame?> {
+                    try {
+                        render.renderFrame(presentationTimeUs / 1000, type).also {
+                            if (!released) lastFrame = it
+                        }
+                    } finally {
+                        executorBusy = false
+                    }
                 }
+            } catch (rejected: RejectedExecutionException) {
+                executorBusy = false
+                return lastFrame ?: assFrameNotChange
             }
         }
+
         return try {
             future.get(8, TimeUnit.MILLISECONDS)
         } catch (exception: Exception) {
@@ -45,36 +56,55 @@ class AssExecutor(private val render: AssRender) {
         }
     }
 
-    public fun asyncRenderFrame(presentationTimeUs: Long, type: AssTexType, callback: (AssFrame?) -> Unit) {
+    fun asyncRenderFrame(
+        presentationTimeUs: Long,
+        type: AssTexType,
+        callback: (AssFrame?) -> Unit
+    ) {
+        var callbackImmediately = false
+        var immediateResult: AssFrame? = null
+
         synchronized(submitLock) {
-            if (released) {
-                callback.invoke(null)
-                return
-            }
-            if (executorBusy) {
-                callback.invoke(lastFrame ?: assFrameNotChange)
-                return
-            }
-            executorBusy = true
-            try {
-                executor.execute {
-                    val result = try {
-                        render.renderFrame(presentationTimeUs / 1000, type).also { if (!released) lastFrame = it }
-                    } catch (exception: Exception) {
-                        lastFrame
-                    } finally {
-                        executorBusy = false
-                    }
-                    runCatching { callback.invoke(result) }
+            when {
+                released -> {
+                    callbackImmediately = true
+                    immediateResult = null
                 }
-            } catch (rejected: java.util.concurrent.RejectedExecutionException) {
-                executorBusy = false
-                callback.invoke(lastFrame ?: assFrameNotChange)
+                executorBusy -> {
+                    callbackImmediately = true
+                    immediateResult = lastFrame ?: assFrameNotChange
+                }
+                else -> {
+                    executorBusy = true
+                    try {
+                        executor.execute {
+                            val result = try {
+                                render.renderFrame(presentationTimeUs / 1000, type).also {
+                                    if (!released) lastFrame = it
+                                }
+                            } catch (_: Exception) {
+                                lastFrame
+                            } finally {
+                                executorBusy = false
+                            }
+                            runCatching { callback.invoke(if (released) null else result) }
+                        }
+                    } catch (_: RejectedExecutionException) {
+                        executorBusy = false
+                        callbackImmediately = true
+                        immediateResult = lastFrame ?: assFrameNotChange
+                    }
+                }
             }
+        }
+
+        // Never invoke client code while holding submitLock; callbacks may re-enter this executor.
+        if (callbackImmediately) {
+            runCatching { callback.invoke(immediateResult) }
         }
     }
 
-    public fun shutdown() {
+    fun shutdown() {
         synchronized(submitLock) {
             if (released) return
             released = true
@@ -82,5 +112,4 @@ class AssExecutor(private val render: AssRender) {
             executor.shutdownNow()
         }
     }
-
 }
