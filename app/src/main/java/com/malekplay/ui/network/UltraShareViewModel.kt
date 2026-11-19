@@ -154,6 +154,7 @@ class UltraShareViewModel @Inject constructor(
     @Volatile private var wifiDirectGroupPassword: String? = null
     @Volatile private var wifiDirectOwnerAddress: String? = null
     @Volatile private var wifiDirectGroupSecurity: String = "wpa2"
+    @Volatile private var wifiDirectCredentialsFromJoinedInvitation = false
     private var dnsSdQrFallbackScheduledFor: String? = null
     private var wifiDirectCleanupInProgress = false
     private companion object {
@@ -347,6 +348,7 @@ class UltraShareViewModel @Inject constructor(
         wifiDirectGroupPassword = null
         wifiDirectOwnerAddress = null
         wifiDirectGroupSecurity = "wpa2"
+        wifiDirectCredentialsFromJoinedInvitation = false
         dnsSdQrFallbackScheduledFor = null
         _state.value = _state.value.copy(
             pairingSecret = secret,
@@ -1574,7 +1576,20 @@ private fun forgetApprovedSenderTarget(host: String) {
             },
             onLocalAddress = { address ->
                 val safeAddress = address?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
-                _state.value = _state.value.copy(wifiDirectLocalAddress = safeAddress)
+                if (safeAddress == null && !wifiDirectCredentialsFromJoinedInvitation &&
+                    wifiDirectGroupSsid != null && UltraShareForegroundService.state.value.hotspotSsid == null
+                ) {
+                    wifiDirectGroupSsid = null
+                    wifiDirectGroupPassword = null
+                    wifiDirectOwnerAddress = null
+                    wifiDirectGroupSecurity = "wpa2"
+                }
+                _state.value = _state.value.copy(
+                    wifiDirectLocalAddress = safeAddress,
+                    hotspotSsid = if (wifiDirectGroupSsid == null) UltraShareForegroundService.state.value.hotspotSsid else wifiDirectGroupSsid,
+                    hotspotPassword = if (wifiDirectGroupPassword == null) UltraShareForegroundService.state.value.hotspotPassword else wifiDirectGroupPassword,
+                    hotspotSecurity = wifiDirectGroupSecurity
+                )
                 if (_state.value.receiving || UltraShareForegroundService.state.value.receiving) {
                     UltraShareForegroundService.updateWifiDirectLocalAddress(context, safeAddress)
                 }
@@ -1591,6 +1606,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                 wifiDirectGroupPassword = passphrase
                 wifiDirectOwnerAddress = ownerAddress
                 wifiDirectGroupSecurity = wifiSecurity
+                wifiDirectCredentialsFromJoinedInvitation = false
                 _state.value = _state.value.copy(
                     hotspotSsid = ssid,
                     hotspotPassword = passphrase,
@@ -1673,20 +1689,11 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun rememberInvitationPeer(invitationId: String?, secret: String) {
         if (!UltraShareCore.isValidPairingSecret(secret)) return
-        val staleP2pCredentials = wifiDirectGroupSsid != null &&
-            _state.value.wifiDirectLocalAddress == null
-        if (staleP2pCredentials) {
-            // Do not reuse a previous P2P group's credentials after its interface vanished.
-            wifiDirectGroupSsid = null
-            wifiDirectGroupPassword = null
-            wifiDirectOwnerAddress = null
-            wifiDirectGroupSecurity = "wpa2"
-        }
         _state.value = _state.value.copy(
             invitationId = invitationId?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }.orEmpty(),
             receiverQrPayload = null,
-            hotspotSsid = if (staleP2pCredentials) null else wifiDirectGroupSsid ?: _state.value.hotspotSsid,
-            hotspotPassword = if (staleP2pCredentials) null else wifiDirectGroupPassword ?: _state.value.hotspotPassword,
+            hotspotSsid = wifiDirectGroupSsid ?: _state.value.hotspotSsid,
+            hotspotPassword = wifiDirectGroupPassword ?: _state.value.hotspotPassword,
             hotspotSecurity = wifiDirectGroupSecurity
         )
     }
@@ -1697,6 +1704,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         wifiDirectGroupSsid = ssid
         wifiDirectGroupPassword = password
         wifiDirectGroupSecurity = pairing.hotspotSecurity
+        wifiDirectCredentialsFromJoinedInvitation = true
         wifiDirectOwnerAddress = pairing.hosts.firstOrNull()
         _state.value = _state.value.copy(
             hotspotSsid = ssid,
