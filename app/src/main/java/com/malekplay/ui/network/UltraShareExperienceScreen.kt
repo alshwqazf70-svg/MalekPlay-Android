@@ -785,11 +785,15 @@ fun UltraShareExperienceScreen(
                         onScanQr = ::scanQr,
                         onShowNearby = {
                             page = UltraSharePage.NEARBY
-                            if (!state.scanning) viewModel.scanNearbyDevices()
+                            if (!state.scanning && !state.wifiDirectScanning &&
+                                !state.bluetoothScanning && !state.bleScanning
+                            ) scanAllNearby()
                         },
                         onOpenDevicePicker = {
                             showDevicePicker = true
-                            if (!state.scanning) viewModel.scanNearbyDevices()
+                            if (!state.scanning && !state.wifiDirectScanning &&
+                                !state.bluetoothScanning && !state.bleScanning
+                            ) scanAllNearby()
                         },
                         host = host,
                         onHostChange = { value ->
@@ -1297,7 +1301,7 @@ fun UltraShareExperienceScreen(
             activePeers = state.activePeers,
             isScanning = state.scanning,
             onDismiss = { showDevicePicker = false },
-            onRefresh = viewModel::scanNearbyDevices,
+            onRefresh = ::scanAllNearby,
             onPeerSelected = { selectedHost ->
                 showDevicePicker = false
                 host = selectedHost
