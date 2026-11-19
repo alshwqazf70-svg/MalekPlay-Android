@@ -838,7 +838,7 @@ class UltraShareForegroundService : Service() {
                     )
                 }
             },
-            onStopped = {
+            onReservationStopped = {
                 updateState { current ->
                     current.copy(
                         hotspotStarting = false,
@@ -850,7 +850,7 @@ class UltraShareForegroundService : Service() {
                 }
                 finishService()
             },
-            onFailed = { message ->
+            onFailure = { message ->
                 updateState { it.copy(hotspotStarting = false, hotspotActive = false, hotspotSsid = null, hotspotPassword = null, error = message) }
                 finishService()
             }
