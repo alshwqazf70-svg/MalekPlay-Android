@@ -943,6 +943,8 @@ private fun forgetApprovedSenderTarget(host: String) {
                 runCatching { wifi.removeNetwork(oldId) }
             }
             retainedLegacyWifiNetworkId = networkId
+            context.getSharedPreferences("ultra_share_wifi", Context.MODE_PRIVATE)
+                .edit().putInt("legacy_network_id", networkId).apply()
             _state.value = _state.value.copy(
                 requestingConnection = true,
                 error = null,
@@ -981,7 +983,10 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     @Suppress("DEPRECATION")
     private fun releaseLegacyWifiNetwork() {
-        val networkId = retainedLegacyWifiNetworkId ?: return
+        val preferences = context.getSharedPreferences("ultra_share_wifi", Context.MODE_PRIVATE)
+        val networkId = retainedLegacyWifiNetworkId
+            ?: preferences.getInt("legacy_network_id", -1).takeIf { it >= 0 }
+            ?: return
         retainedLegacyWifiNetworkId = null
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE)
             as? android.net.wifi.WifiManager ?: return
@@ -989,6 +994,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             wifi.disableNetwork(networkId)
             wifi.removeNetwork(networkId)
             wifi.saveConfiguration()
+            preferences.edit().remove("legacy_network_id").apply()
         }.onFailure { UltraShareDiagnostics.failure("LEGACY_WIFI_REMOVE_NETWORK", it) }
     }
 
