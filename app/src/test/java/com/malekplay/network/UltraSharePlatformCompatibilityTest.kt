@@ -38,6 +38,18 @@ class UltraSharePlatformCompatibilityTest {
         }
     }
 
+
+    @Test fun legacyWifiManagerJoinIsLimitedToAndroidSixThroughNine() {
+        (23..28).forEach { sdk ->
+            assertTrue(UltraSharePlatformCompatibility.supportsLegacyWifiManagerJoin(sdk))
+            assertFalse(UltraSharePlatformCompatibility.usesWifiNetworkSpecifier(sdk))
+        }
+        (29..36).forEach { sdk ->
+            assertFalse(UltraSharePlatformCompatibility.supportsLegacyWifiManagerJoin(sdk))
+            assertTrue(UltraSharePlatformCompatibility.usesWifiNetworkSpecifier(sdk))
+        }
+    }
+
     @Test fun apiBelowAppMinimumIsNotSupported() {
         (1..22).forEach { sdk ->
             assertFalse(UltraSharePlatformCompatibility.supportsWifiDirectApiLevel(sdk))
