@@ -85,6 +85,12 @@ class UltraShareWifiDirectPolicyTest {
     }
 
     @Test
+    fun wifiDirectOwnerNegotiationIsSymmetricForBothPairingDirections() {
+        assertTrue(wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner = true) == 7)
+        assertTrue(wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner = false) == 7)
+    }
+
+    @Test
     fun retriesOnlyTransientSocketFailuresDuringPairingStartup() {
         assertTrue(isRetryableUltraSharePairingFailure(java.net.ConnectException("refused")))
         assertTrue(

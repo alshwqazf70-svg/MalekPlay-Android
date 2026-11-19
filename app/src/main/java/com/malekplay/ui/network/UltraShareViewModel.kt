@@ -648,87 +648,29 @@ class UltraShareViewModel @Inject constructor(
                             retainedPeerSessions.distinctBy { it.first },
                             java.util.UUID.randomUUID().toString()
                         )
-                    // MPC2 authenticates the peer, but file transfer has a separate
-                    // listener. Probe the actual V2 data endpoint on every QR/discovery
-                    // host and every Android Network that routes to that host.
-                    val dataRoutes = ArrayList<UltraShareNegotiation.Candidate>()
-                    val dataHosts = (
-                        listOf(connectedHost) + alternateHosts + orderedRoutes.map { it.host }
-                    ).filter { UltraShareCore.isValidPrivateLanHost(it) }
-                        .distinct()
-                        .take(8)
-                    for (dataHost in dataHosts) {
-                        val networks = (
-                            listOfNotNull(preferredNetwork) +
-                                UltraShareNetworkRouting.findNetworksForHost(context, dataHost)
-                        ).distinct()
-                        // The batch listener is started independently from the control
-                        // listener. It can become ready a moment later, especially when
-                        // the QR scanner had to become the temporary group owner.
-                        // Probe on IO (never the Compose main thread) and briefly retry
-                        // the authenticated peer's primary endpoint before declaring it down.
-                        var dataReady = false
-                        val maxProbeAttempts = if (dataHost == connectedHost) 3 else 1
-                        for (attempt in 0 until maxProbeAttempts) {
-                            dataReady = withContext(Dispatchers.IO) {
-                                UltraShareDiscovery.probeDataEndpoint(
-                                    dataHost,
-                                    com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT,
-                                    networks
-                                )
-                            }
-                            UltraShareDiagnostics.event(
-                                "DATA_CHANNEL",
-                                if (dataReady) "PROBE_SUCCEEDED" else "PROBE_FAILED",
-                                mapOf(
-                                    "host" to dataHost,
-                                    "port" to com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT,
-                                    "networkCount" to networks.size,
-                                    "attempt" to attempt
-                                )
-                            )
-                            if (dataReady) break
-                            if (attempt < maxProbeAttempts - 1) {
-                                UltraShareDiagnostics.event(
-                                    "DATA_CHANNEL",
-                                    "PROBE_RETRY_SCHEDULED",
-                                    mapOf("host" to dataHost, "nextAttempt" to attempt + 1)
-                                )
-                                delay(300L * (attempt + 1))
-                            }
-                        }
-                        if (dataReady) {
-                            val transport = when {
-                                UltraShareNetworkRouting.isWifiDirectGroupHost(dataHost) ->
-                                    UltraShareNegotiation.Transport.WIFI_DIRECT
-                                preferredNetwork != null ->
-                                    UltraShareNegotiation.Transport.HOTSPOT
-                                else ->
-                                    UltraShareNegotiation.Transport.WLAN
-                            }
-                            dataRoutes += UltraShareNegotiation.Candidate(
-                                transport = transport,
-                                host = dataHost,
-                                port = com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT,
-                                connected = true,
-                                reachable = true,
-                                priority = if (dataHost == connectedHost) 100 else 50
-                            )
-                        }
+                    // Pairing is the single user-facing connection step. The receiver
+                    // starts its transfer listener as part of this session; advertise the
+                    // paired host directly and let the transfer worker retry a brief
+                    // listener-start race instead of blocking the UI on a second probe.
+                    val directTransport = when {
+                        UltraShareNetworkRouting.isWifiDirectGroupHost(connectedHost) ->
+                            UltraShareNegotiation.Transport.WIFI_DIRECT
+                        preferredNetwork != null ->
+                            UltraShareNegotiation.Transport.HOTSPOT
+                        else ->
+                            UltraShareNegotiation.Transport.WLAN
                     }
-                    val verifiedRoutes = UltraShareNegotiation.orderedCandidates(dataRoutes)
-                    val dataReady = verifiedRoutes.isNotEmpty()
-                    // Preserve a discovered V1 endpoint only as a compatibility hint.
-                    // It is not counted as a ready V2 data channel and is never probed.
-                    val legacyCompatibilityRoute = discoveredCandidates.firstOrNull {
-                        it.port == UltraShareDiscovery.LEGACY_V1_DATA_PORT &&
-                            (it.host == connectedHost || it.host in routeHosts)
-                    }
-                    val sendRoutes = if (verifiedRoutes.isNotEmpty()) {
-                        verifiedRoutes
-                    } else {
-                        listOfNotNull(legacyCompatibilityRoute)
-                    }
+                    val sendRoutes = listOf(
+                        UltraShareNegotiation.Candidate(
+                            transport = directTransport,
+                            host = connectedHost,
+                            port = com.malekplay.network.UltraShareBatchTransport.DEFAULT_PORT,
+                            connected = true,
+                            reachable = true,
+                            priority = 100
+                        )
+                    )
+                    val dataReady = true
                     val approvedTarget = UltraShareApprovedSendTarget(
                         sessionId = sessionId,
                         host = connectedHost,
@@ -760,17 +702,9 @@ class UltraShareViewModel @Inject constructor(
                         peerDataChannelReady = dataReady,
                         approvedSenderPeerCount = UltraShareForegroundService.approvedSendTargets().size,
                         approvedSenderPeerHosts = UltraShareForegroundService.approvedSendTargets().map { it.host },
-                        status = if (dataReady)
-                            "تم الاقتران والتحقق من منفذ نقل الملفات فعلياً عبر ${verifiedRoutes.size} مسار."
-                        else if (legacyCompatibilityRoute != null)
-                            "تم الاقتران بنجاح. الجهاز الآخر يعلن منفذ نقل V1 القديم؛ جلسة الاقتران باقية، لكن نقل V1 غير مفعّل في هذا الإصدار."
-                        else
-                            "تم توثيق الاقتران، لكن منفذ نقل الملفات لم يستجب بعد. لن يبدأ إرسال أي ملف حتى يصبح مسار البيانات جاهزاً.",
+                        status = "تم الاقتران. يمكنك الآن إرسال الملفات واستقبالها مباشرة.",
                         requestingConnection = false,
-                        error = if (dataReady) null else if (legacyCompatibilityRoute != null)
-                            "توافق الاقتران ناجح، لكن محرك النقل الحالي V2 ولا يرسل إلى مستقبل V1. حدّث الطرف الآخر أو استخدم إصداراً متوافقاً للنقل."
-                        else
-                            "قناة التحكم متصلة، لكن منفذ نقل الملفات غير متاح على عناوين الجهاز المكتشفة. تأكد من بقاء شاشة الاستقبال مفتوحة ثم أعد الاتصال."
+                        error = null
                     )
                     onConnectionEstablished?.invoke(connectedHost)
                 } else {
@@ -1728,7 +1662,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             mapOf("host" to resolvedHost, "fileCount" to uris.size, "requestedHostPresent" to requestedHost.isNotBlank())
         )
         val target = UltraShareForegroundService.approvedSendTarget(resolvedHost)
-            ?: approvedTargets.singleOrNull()
+            ?: approvedTargets.firstOrNull()
         if (uris.isEmpty() || _state.value.sending) return false
         if (target == null) {
             _state.value = _state.value.copy(

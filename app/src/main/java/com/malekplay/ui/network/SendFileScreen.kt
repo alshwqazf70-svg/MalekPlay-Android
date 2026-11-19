@@ -65,7 +65,7 @@ fun SendFileScreen(
     // Selecting a discovered peer opens the secure pairing fields immediately.
     var showManualPairing by remember(host) { mutableStateOf(host.isNotBlank() && host !in state.approvedSenderPeerHosts) }
     // Incoming authenticated pairing may approve a peer before this screen has a local host.
-    val sendHost = host.ifBlank { state.approvedPeerHost ?: state.approvedSenderPeerHosts.singleOrNull().orEmpty() }
+    val sendHost = host.ifBlank { state.approvedPeerHost ?: state.approvedSenderPeerHosts.firstOrNull().orEmpty() }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.VIDEO) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
@@ -106,11 +106,13 @@ fun SendFileScreen(
         if (selectedUris.isNotEmpty()) {
             OutlinedButton(onClick = { onSelectedUrisChange(emptyList()) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) { Text("إفراغ القائمة") }
         }
-        Button(colors = ultraShareButtonColors(),onClick = onScanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
-            Icon(Icons.Filled.QrCode, null); Text("مسح QR لجهاز الاستقبال")
+        if (state.approvedSenderPeerCount == 0) {
+            Button(colors = ultraShareButtonColors(),onClick = onScanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+                Icon(Icons.Filled.QrCode, null); Text("مسح QR لجهاز الاستقبال")
+            }
+            OutlinedButton(onClick = onShowNearby, modifier = Modifier.fillMaxWidth()) { Text("عرض الأجهزة القريبة") }
+            OutlinedButton(onClick = onOpenDevicePicker, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) { Text("اختيار جهاز من نافذة الأجهزة القريبة") }
         }
-        OutlinedButton(onClick = onShowNearby, modifier = Modifier.fillMaxWidth()) { Text("عرض الأجهزة القريبة") }
-        OutlinedButton(onClick = onOpenDevicePicker, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) { Text("اختيار جهاز من نافذة الأجهزة القريبة") }
         if (sendHost.isNotBlank()) {
             InfoPanel("الجهاز المحدد", sendHost + " • " + when {
                 sendHost in state.approvedSenderPeerHosts -> "متصل وموثّق"
@@ -118,10 +120,10 @@ fun SendFileScreen(
                 else -> "بانتظار الاقتران"
             })
         }
-        OutlinedButton(onClick = { showManualPairing = !showManualPairing }, modifier = Modifier.fillMaxWidth()) {
+        if (state.approvedSenderPeerCount == 0) OutlinedButton(onClick = { showManualPairing = !showManualPairing }, modifier = Modifier.fillMaxWidth()) {
             Text(if (showManualPairing) "إخفاء بيانات الاقتران" else "إظهار بيانات الاقتران")
         }
-        if (showManualPairing) {
+        if (state.approvedSenderPeerCount == 0 && showManualPairing) {
             InfoPanel("إكمال الاتصال الآمن", "تم اختيار الجهاز. أدخل رمز الاقتران ذي 9 أرقام الظاهر على شاشة الاستقبال، أو امسح رمز QR الخاص به.")
             OutlinedTextField(value = host, onValueChange = onHostChange, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("عنوان الجهاز") })
             OutlinedTextField(value = secret, onValueChange = onSecretChange, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("رمز الاقتران (9 أرقام)") })
@@ -136,7 +138,7 @@ fun SendFileScreen(
             Button(colors = ultraShareButtonColors(),
                 onClick = { onSendBatch(sendHost) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !state.sending && sendHost.isNotBlank() && sendHost in state.approvedSenderPeerHosts
+                enabled = !state.sending && state.approvedSenderPeerCount > 0 && sendHost.isNotBlank()
             ) { Text("إرسال ${selectedUris.size} ملف الآن") }
             if (state.approvedSenderPeerCount > 1) {
                 OutlinedButton(

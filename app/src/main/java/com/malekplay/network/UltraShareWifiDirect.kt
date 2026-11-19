@@ -983,7 +983,7 @@ object UltraShareWifiDirect {
             val config = WifiP2pConfig().apply {
                 this.deviceAddress = deviceAddress
                 // Receiver owns the group; sender explicitly prefers the remote receiver.
-                groupOwnerIntent = if (preferThisDeviceAsGroupOwner) 15 else 0
+                groupOwnerIntent = wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner)
                 wps.setup = WpsInfo.PBC
             }
             try {
@@ -2014,3 +2014,6 @@ internal fun isCurrentWifiDirectGroupAttempt(
     currentToken: Int,
     callbackToken: Int
 ): Boolean = !sessionClosed && currentToken == callbackToken
+
+/** Use a neutral Wi-Fi Direct owner preference so either Android device may own the group. */
+internal fun wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner: Boolean): Int = 7
