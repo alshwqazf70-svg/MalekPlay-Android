@@ -126,7 +126,7 @@ object UltraShareQrCode {
     ): String {
         val safeHosts = hosts.asSequence()
             .map(String::trim)
-            .filter(UltraShareCore::isValidPrivateLanHost)
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
             .distinct()
             .take(MAX_QR_HOSTS)
             .toList()
@@ -213,6 +213,11 @@ object UltraShareQrCode {
         val secret = requireNotNull(uri.getQueryParameter("secret")) { "رمز الاقتران غير موجود في رمز QR." }
         require(UltraShareCore.isValidPairingSecret(secret)) { "رمز الاقتران في QR غير صالح." }
         require(port == UltraShareControlChannel.DEFAULT_PORT) { "منفذ MalekPlayer Ultra Share غير متوافق." }
+        if (version == UNIFIED_VERSION) {
+            require((uri.getQueryParameter("ssid") == null) == (uri.getQueryParameter("wifi_password") == null)) {
+                "يجب توفير اسم شبكة Wi-Fi وكلمة مرورها معاً."
+            }
+        }
         val hotspotSsid = if (version == HOTSPOT_VERSION || version == UNIFIED_VERSION && uri.getQueryParameter("ssid") != null) {
             requireNotNull(uri.getQueryParameter("ssid")) { "اسم شبكة Wi-Fi غير موجود في QR." }
                 .also { require(it.isNotBlank() && it.length <= 32) { "اسم شبكة Wi-Fi غير صالح." } }
