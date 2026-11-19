@@ -293,12 +293,6 @@ object UltraShareDiscovery {
                         }
                         val v2 = UltraShareNegotiation.decode(message)
                         if (v2 != null) {
-                            // Test every advertised private path independently. A bad,
-                            // stale or unavailable secondary route must not hide the peer
-                            // or prevent the user from pairing through the UDP source IP.
-                            val safeCandidates = v2.candidates.filter {
-                                UltraShareCore.isValidPrivateLanHost(it.host) && it.port in 1..65535
-                            }
                             v2Offers += host to v2
                             v2SourceHosts += host
                             return@forEach
