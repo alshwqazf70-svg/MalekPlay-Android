@@ -46,6 +46,7 @@ import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.components.EmptyState
 import com.malekplay.ui.components.MediaGridCard
+import com.malekplay.ui.components.MediaBulkDeleteBar
 import com.malekplay.ui.components.PlaylistPickerDialog
 import com.malekplay.ui.library.LibraryViewModel
 
@@ -225,6 +226,13 @@ fun VideoCategoryScreen(
                             TextButton(onClick = { onSendMedia(filtered.filter { it.media.uri in selectedMedia }.map { it.media }) }) { Text("إرسال المحدد") }
                         }
                     }
+                }
+                if (selectionMode) {
+                    MediaBulkDeleteBar(
+                        mediaItems = filtered.filter { it.media.uri in selectedMedia }.map { it.media },
+                        onDeleted = viewModel::refresh,
+                        onClearSelection = { selectedMedia.clear() }
+                    )
                 }
                 if (!series && unclassifiedCount > 0) {
                     Text(
