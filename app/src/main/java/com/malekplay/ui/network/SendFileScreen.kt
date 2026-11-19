@@ -174,7 +174,7 @@ fun SendFileScreen(
                 OutlinedButton(
                     onClick = onResumeAllPeers,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.sending && state.approvedSenderPeerCount > 0
+                    enabled = availablePeerCount > 0
                 ) {
                     Text("استئناف التسليمات غير المكتملة دون تكرار الملفات الناجحة")
                 }
