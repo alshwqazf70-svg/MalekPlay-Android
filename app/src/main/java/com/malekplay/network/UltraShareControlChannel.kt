@@ -75,6 +75,7 @@ object UltraShareControlChannel {
         val frames: UltraShareControlFrames.Session,
         val incoming: Channel<ByteArray> = Channel(32),
         val lock: Any = Any(),
+        var reader: Job? = null,
         var heartbeat: Job? = null
     )
 
@@ -438,54 +439,61 @@ object UltraShareControlChannel {
                     socket, input, output, remoteName, remotePeerId, applicationFramesEnabled, frameSession
                 )
                 synchronized(clientSessionGuard) { clientSessions[host] = session }
-                session.heartbeat = CoroutineScope(Dispatchers.IO).launch {
-                    while (isActive && !socket.isClosed) {
-                        delay(HEARTBEAT_INTERVAL_MS)
-                        try {
-                            synchronized(session.lock) {
-                                session.output.writeUTF("PING")
-                                session.output.flush()
-                                var receivedPong = false
-                                while (!receivedPong) {
-                                    when (session.input.readUTF()) {
-                                        "PONG" -> receivedPong = true
-                                        "APP" -> {
-                                            check(session.applicationFramesEnabled) { "الطرف الآخر لا يدعم إطارات التطبيق المشفرة." }
-                                            val length = session.input.readInt()
-                                            require(length in (APPLICATION_FRAME_HEADER_BYTES + APPLICATION_FRAME_TAG_BYTES)..UltraShareControlFrames.MAX_WIRE_BYTES)
-                                            val wire = ByteArray(length)
-                                            session.input.readFully(wire)
-                                            val plaintext = session.frames.open(wire)
-                                            check(session.incoming.trySend(plaintext).isSuccess) {
-                                                "قائمة رسائل الجهاز ممتلئة؛ أُغلقت قناة التحكم لحماية الذاكرة."
-                                            }
-                                            UltraShareDiagnostics.event(
-                                                "CONTROL_CHANNEL", "CLIENT_APP_FRAME_QUEUED",
-                                                mapOf("peerHost" to host, "payloadBytes" to plaintext.size)
-                                            )
-                                        }
-                                        "CLOSE" -> error("أغلق الجهاز الآخر قناة التحكم.")
-                                        else -> error("استجابة قناة التحكم غير معروفة.")
+                // A dedicated reader consumes server frames continuously. Previously the
+                // client read only after its 5-second heartbeat delay, which added avoidable
+                // latency to KEY_OFFER and ROSTER_UPDATE during Mesh joining.
+                session.reader = CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        while (isActive && !socket.isClosed) {
+                            when (session.input.readUTF()) {
+                                "PONG" -> Unit
+                                "APP" -> {
+                                    check(session.applicationFramesEnabled) {
+                                        "الطرف الآخر لا يدعم إطارات التطبيق المشفرة."
                                     }
-                                }
-                            }
-                        } catch (_: Exception) {
-                            // A stale heartbeat may finish after a replacement session has
-                            // already been installed for this host. Remove only the exact
-                            // session that owns this coroutine; never close its replacement.
-                            synchronized(clientSessionGuard) {
-                                val wasCurrentSession = clientSessions.remove(host, session)
-                                if (wasCurrentSession) {
-                                    runCatching { session.socket.close() }
-                                    synchronized(session.lock) {
-                                        session.frames.close()
-                                        session.incoming.close()
+                                    val length = session.input.readInt()
+                                    require(
+                                        length in (APPLICATION_FRAME_HEADER_BYTES + APPLICATION_FRAME_TAG_BYTES)..
+                                            UltraShareControlFrames.MAX_WIRE_BYTES
+                                    )
+                                    val wire = ByteArray(length)
+                                    session.input.readFully(wire)
+                                    val plaintext = session.frames.open(wire)
+                                    check(session.incoming.trySend(plaintext).isSuccess) {
+                                        "قائمة رسائل الجهاز ممتلئة؛ أُغلقت قناة التحكم لحماية الذاكرة."
                                     }
-                                    onSessionClosed(host)
+                                    UltraShareDiagnostics.event(
+                                        "CONTROL_CHANNEL", "CLIENT_APP_FRAME_QUEUED",
+                                        mapOf("peerHost" to host, "payloadBytes" to plaintext.size)
+                                    )
                                 }
+                                "CLOSE" -> error("أغلق الجهاز الآخر قناة التحكم.")
+                                else -> error("استجابة قناة التحكم غير معروفة.")
                             }
-                            break
                         }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        retireClientSession(host, session, onSessionClosed, failure)
+                    }
+                }
+                // The writer sends periodic heartbeats independently of the reader,
+                // so outbound APP frames never have to wait for a PONG read cycle.
+                session.heartbeat = CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        while (isActive && !socket.isClosed) {
+                            delay(HEARTBEAT_INTERVAL_MS)
+                            synchronized(session.lock) {
+                                if (!socket.isClosed) {
+                                    session.output.writeUTF("PING")
+                                    session.output.flush()
+                                }
+                            }
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        retireClientSession(host, session, onSessionClosed, failure)
                     }
                 }
                 retained = true
@@ -544,12 +552,49 @@ object UltraShareControlChannel {
     fun closeSession(host: String) {
         synchronized(clientSessionGuard) {
             val session = clientSessions.remove(host) ?: return
+            session.reader?.cancel()
             session.heartbeat?.cancel()
-            // Close first to unblock a heartbeat reader that currently owns the lock.
+            // Close first to unblock the dedicated socket reader.
             runCatching { session.socket.close() }
             synchronized(session.lock) {
                 session.frames.close()
                 session.incoming.close()
+            }
+        }
+    }
+
+    private fun retireClientSession(
+        host: String,
+        session: ClientSession,
+        onSessionClosed: (String) -> Unit,
+        failure: Exception
+    ) {
+        val removed = synchronized(clientSessionGuard) {
+            if (!clientSessions.remove(host, session)) {
+                false
+            } else {
+                runCatching { session.socket.close() }
+                session.reader?.cancel()
+                session.heartbeat?.cancel()
+                synchronized(session.lock) {
+                    session.frames.close()
+                    session.incoming.close()
+                }
+                true
+            }
+        }
+        if (removed) {
+            UltraShareDiagnostics.failure(
+                "CONTROL_CHANNEL_CLIENT_SESSION",
+                failure,
+                "peerHost=" + host
+            )
+            runCatching { onSessionClosed(host) }.onFailure { callbackFailure ->
+                UltraShareDiagnostics.failure(
+                    "CONTROL_CHANNEL_CLIENT_SESSION_CLEANUP",
+                    callbackFailure,
+                    "peerHost=" + host
+                )
             }
         }
     }
