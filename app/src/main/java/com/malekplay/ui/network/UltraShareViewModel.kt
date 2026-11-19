@@ -472,16 +472,11 @@ class UltraShareViewModel @Inject constructor(
             )
             return
         }
-        val existingReceiver = UltraShareForegroundService.state.value
-        if (existingReceiver.receiving && existingReceiver.pairingSecret.isNotBlank() &&
-            existingReceiver.pairingSecret != secret.trim()
-        ) {
-            _state.value = _state.value.copy(
-                requestingConnection = false,
-                error = "لديك جلسة استقبال نشطة برمز مختلف. أوقف الجلسة الحالية أولاً حتى لا تتعارض مفاتيح الاستقبال بين الجهازين."
-            )
-            return
-        }
+        // Inbound and outbound pairings are independent authenticated sessions.
+        // The receiver's local secret authenticates peers connecting TO this device;
+        // the supplied secret authenticates this device TO the selected remote receiver.
+        // Requiring them to match incorrectly blocked full-duplex use and multi-device
+        // transfers even though the control channel keeps per-peer session keys isolated.
         controlPairingInProgress = true
         val discoveredCandidates = candidates.ifEmpty {
             _state.value.discoveredPeers.firstOrNull { peer ->
