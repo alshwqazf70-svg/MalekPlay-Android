@@ -870,8 +870,6 @@ fun UltraShareExperienceScreen(
                         onStartHotspot = ::startHotspot,
                         onStopHotspot = viewModel::stopHotspot,
                         onToggleReceiving = { if (state.receiving) stopReceivingGroup() else startReceivingGroup() },
-                        onAcceptConnection = viewModel::acceptConnection,
-                        onRejectConnection = viewModel::rejectConnection,
                         onOpenReceived = { uri, mimeType ->
                             val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, mimeType)
                                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
