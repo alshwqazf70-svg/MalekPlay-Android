@@ -37,4 +37,38 @@ if [ "$booted" != true ]; then
   exit 1
 fi
 
-./gradlew --build-cache --parallel --stacktrace --max-workers=2 :app:connectedDebugAndroidTest
+# Build both APKs, then install/run through adb directly. Some hosted emulator/ddmlib
+# combinations incorrectly route a single universal APK through SplitApkInstaller
+# and reject it even on API 29+. Direct adb install avoids that false CI failure.
+./gradlew --build-cache --stacktrace --max-workers=2 \
+  :app:assembleDebug \
+  :app:assembleDebugAndroidTest
+
+app_apk="app/build/outputs/apk/debug/app-debug.apk"
+test_apk="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+test -s "$app_apk"
+test -s "$test_apk"
+
+adb install -r "$app_apk"
+adb install -r "$test_apk"
+
+instrumentation="$(adb shell pm list instrumentation | tr -d '\\r' | \
+  sed -n 's/^instrumentation:\\([^ ]*\\).*/\\1/p' | \
+  grep 'androidx.test.runner.AndroidJUnitRunner' | head -n 1)"
+if [ -z "$instrumentation" ]; then
+  echo "AndroidX test instrumentation was not registered after APK installation."
+  adb shell pm list instrumentation || true
+  exit 1
+fi
+
+set +e
+adb shell am instrument -w -r "$instrumentation" 2>&1 | \
+  tee "ultrashare-diagnostics/instrumentation-api-$expected_api.txt"
+instrumentation_status=${PIPESTATUS[0]}
+set -e
+
+if [ "$instrumentation_status" -ne 0 ] || \
+   ! grep -Eq 'OK \\([0-9]+ tests?\\)' "ultrashare-diagnostics/instrumentation-api-$expected_api.txt"; then
+  echo "Android instrumented tests failed on API $expected_api."
+  exit 1
+fi
