@@ -783,12 +783,24 @@ class UltraShareForegroundService : Service() {
         val networkId = preferences.getInt("legacy_network_id", -1)
         if (networkId < 0) return
         val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+        if (wifi == null) return
         runCatching {
-            wifi?.disableNetwork(networkId)
-            wifi?.removeNetwork(networkId)
-            wifi?.saveConfiguration()
+            runCatching { wifi.disableNetwork(networkId) }
+            val removed = wifi.removeNetwork(networkId)
+            val profileStillExists = runCatching {
+                wifi.configuredNetworks?.any { it.networkId == networkId } == true
+            }.getOrDefault(!removed)
+            if (removed || !profileStillExists) {
+                runCatching { wifi.saveConfiguration() }
+                preferences.edit().remove("legacy_network_id").apply()
+            } else {
+                UltraShareDiagnostics.event(
+                    "WIFI_NETWORK",
+                    "LEGACY_NETWORK_PROFILE_RETAINED_FOR_RETRY",
+                    mapOf("networkId" to networkId)
+                )
+            }
         }.onFailure { UltraShareDiagnostics.failure("SERVICE_LEGACY_WIFI_CLEANUP", it) }
-        preferences.edit().remove("legacy_network_id").apply()
     }
 
     override fun onDestroy() {
