@@ -333,7 +333,7 @@ def _java_read_utf(payload: bytes, offset: int) -> tuple[str, int]:
 
 def _sanitize_shared_name(value: str, error: str) -> str:
     import unicodedata
-    leaf = str(value).replace("\\\\", "/").rsplit("/", 1)[-1]
+    leaf = str(value).replace("\\", "/").rsplit("/", 1)[-1]
     cleaned = "".join(
         ch for ch in leaf
         if ord(ch) >= 32 and not 127 <= ord(ch) <= 159
@@ -344,7 +344,7 @@ def _sanitize_shared_name(value: str, error: str) -> str:
     previous = None
     while cleaned != previous:
         previous = cleaned
-        cleaned = cleaned.rstrip(" .\\t\\r\\n")
+        cleaned = cleaned.rstrip(" .\t\r\n")
     while cleaned and len(cleaned.encode("utf-8")) > MAX_NAME_BYTES:
         cleaned = cleaned[:-1]
     stem = cleaned.split(".", 1)[0].upper()
@@ -353,7 +353,6 @@ def _sanitize_shared_name(value: str, error: str) -> str:
     if not cleaned or cleaned in {".", ".."}:
         raise ValueError(error)
     return cleaned
-
 
 def _safe_v2_name(value: str) -> str:
     return _sanitize_shared_name(value, "Invalid V2 filename.")
@@ -880,7 +879,7 @@ CONTROL_PORT = 38744
 CONTROL_MAGIC = 0x4D504332  # MPC2
 CONTROL_VERSION = 1
 CONTROL_AAD = b"MPULTRA_CONTROL_DECISION|1"
-DISCOVERY_PROBE_PROOF = b"\\x5A" * 32
+DISCOVERY_PROBE_PROOF = bytes([0x5A]) * 32
 _CONTROL_PEER_SESSIONS: dict[str, tuple[str, socket.socket]] = {}
 _CONTROL_PEER_LOCK = threading.Lock()
 
