@@ -53,8 +53,8 @@ class UltraShareBatchTransportTest {
             assertEquals(listOf(localPrivateAddress), reachable)
             greeting.join()
         } finally {
-            greeting.cancelAndJoin()
             server.close()
+            greeting.cancelAndJoin()
         }
     }
 
