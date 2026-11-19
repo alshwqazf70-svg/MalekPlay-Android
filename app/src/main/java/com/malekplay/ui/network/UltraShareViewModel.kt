@@ -474,7 +474,8 @@ class UltraShareViewModel @Inject constructor(
         candidates: List<com.malekplay.network.UltraShareNegotiation.Candidate> = emptyList(),
         alternateHosts: List<String> = emptyList(),
         preferredNetwork: android.net.Network? = null,
-        onConnectionEstablished: ((String) -> Unit)? = null
+        onConnectionEstablished: ((String) -> Unit)? = null,
+        onConnectionFailed: ((rejected: Boolean, reason: String?) -> Unit)? = null
     ) {
         if (controlPairingInProgress) {
             UltraShareDiagnostics.event("PAIRING", "DUPLICATE_PAIRING_ATTEMPT_IGNORED", mapOf("host" to host.trim()))
@@ -741,6 +742,10 @@ class UltraShareViewModel @Inject constructor(
                         error = if (rejected) null else lastFailure?.localizedMessage
                             ?: "تعذر إتمام طلب الاتصال."
                     )
+                    onConnectionFailed?.invoke(
+                        rejected,
+                        lastFailure?.localizedMessage ?: if (rejected) "رفض الجهاز طلب الاقتران." else "تعذر الوصول إلى الجهاز."
+                    )
                 }
             } catch (cancelled: CancellationException) {
                 _state.value = _state.value.copy(requestingConnection = false)
@@ -755,6 +760,7 @@ class UltraShareViewModel @Inject constructor(
                     requestingConnection = false,
                     error = failure.localizedMessage ?: "تعذر إتمام طلب الاتصال."
                 )
+                onConnectionFailed?.invoke(false, failure.localizedMessage)
             } finally {
                 controlPairingInProgress = false
             }
@@ -970,7 +976,13 @@ private fun forgetApprovedSenderTarget(host: String) {
                 requestConnection(
                     host = targetHost,
                     secret = pairing.pairingSecret,
-                    alternateHosts = hosts.dropWhile { it != targetHost }.drop(1)
+                    alternateHosts = hosts.dropWhile { it != targetHost }.drop(1),
+                    onConnectionFailed = { rejected, reason ->
+                        if (!rejected) fallbackToWifiDirectInvitation(
+                            pairing,
+                            reason ?: "تعذر الوصول إلى مجموعة Wi-Fi بعد الانضمام إليها."
+                        )
+                    }
                 )
             }
         }.onFailure { failure ->
@@ -1151,6 +1163,14 @@ private fun forgetApprovedSenderTarget(host: String) {
                                 "تم الاقتران عبر شبكة MalekPlay، لكن منفذ نقل الملفات لدى الجهاز الآخر لم يستجب بعد. يمكنك الاستقبال، وسيُمنع الإرسال حتى تتأكد جاهزيته.",
                             error = if (remoteDataReady) null else viewModel._state.value.error
                         )
+                    },
+                    onConnectionFailed = { rejected, reason ->
+                        if (!rejected && !networkLost.get()) {
+                            viewModel.fallbackToWifiDirectInvitation(
+                                pairing,
+                                reason ?: "تعذر إتمام اقتران MPC2 عبر شبكة Wi-Fi المباشرة."
+                            )
+                        }
                     }
                 )
             }
