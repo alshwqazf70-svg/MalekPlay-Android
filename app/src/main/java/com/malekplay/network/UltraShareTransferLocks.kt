@@ -17,7 +17,8 @@ internal class UltraShareTransferLocks(context: Context) {
     private var sending = false
     private var receivingCount = 0
 
-    fun beginTransfer(isReceiving: Boolean) = synchronized(guard) {
+    fun beginTransfer(isReceiving: Boolean) {
+        synchronized(guard) {
         if (isReceiving) receivingCount++ else sending = true
         runCatching {
             if (wifiLock?.isHeld != true) {
@@ -40,6 +41,7 @@ internal class UltraShareTransferLocks(context: Context) {
                     acquire(TRANSFER_LOCK_TIMEOUT_MS)
                 }
             }
+        }
         }
     }
 
