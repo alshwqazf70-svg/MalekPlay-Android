@@ -2066,7 +2066,18 @@ class UltraShareForegroundService : Service() {
                 finishService()
             }
         }
-        if (sendJobsByPeer.putIfAbsent(sendKey, sendJobForPeer) != null) return
+        // Reserve under the same monitor used by multi-peer batches. Without
+        // this shared critical section, a single-peer putIfAbsent could race the
+        // multi-peer containsKey/put sequence and both jobs could claim one peer.
+        val reserved = synchronized(sendJobsByPeer) {
+            if (sendJobsByPeer.containsKey(sendKey)) {
+                false
+            } else {
+                sendJobsByPeer[sendKey] = sendJobForPeer
+                true
+            }
+        }
+        if (!reserved) return
         updateState { current -> current.copy(queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال", error = null) }
         sendJobForPeer.start()
     }
