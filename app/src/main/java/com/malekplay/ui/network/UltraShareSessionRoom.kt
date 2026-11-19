@@ -387,6 +387,22 @@ fun UltraShareSessionRoom(
             if (selectedMediaCount > 0 && isSendingRoom && !state.sending) {
                 Text("${selectedMediaCount} ملف جاهز للإرسال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
             }
+            if (state.sending && state.sendProgress == null) {
+                Text(
+                    "جارٍ تهيئة الإرسال وبدء نقل الملفات…",
+                    color = MalekPlayColors.PurpleBright,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+            if (state.receiving && state.receiveProgress == null) {
+                Text(
+                    "قناة الاستقبال جاهزة — بانتظار وصول الملفات",
+                    color = Color(0xFF65D6A2),
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
             state.sendProgress?.let { current ->
                 UltraShareDirectionProgress(
                     title = "الإرسال إلى الأجهزة",
