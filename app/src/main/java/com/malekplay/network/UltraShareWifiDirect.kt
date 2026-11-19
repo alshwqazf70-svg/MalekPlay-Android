@@ -36,7 +36,8 @@ object UltraShareWifiDirect {
         private val onPeers: (List<Peer>) -> Unit,
         private val onConnected: (host: String?, isGroupOwner: Boolean) -> Unit,
         private val onError: (String) -> Unit,
-        private val onLocalAddress: (String?) -> Unit
+        private val onLocalAddress: (String?) -> Unit,
+        private val onGroupInfo: (ssid: String, passphrase: String, ownerAddress: String?) -> Unit
     ) : Closeable {
         private val appContext = context.applicationContext
         @Volatile private var channel: WifiP2pManager.Channel = initialChannel
@@ -711,6 +712,7 @@ object UltraShareWifiDirect {
                             "OWNER_GROUP_READY_WAITING_FOR_PEER",
                             mapOf("clientCount" to existingGroup.clientList.size)
                         )
+                        publishGroupCredentials(existingGroup)
                         onCreated()
                         requestConnectionInfo()
                         return@requestGroupInfo
@@ -794,6 +796,38 @@ object UltraShareWifiDirect {
             }
         }
 
+        @SuppressLint("MissingPermission")
+        private fun requestGroupCredentials() {
+            if (closed) return
+            try {
+                manager.requestGroupInfo(channel) { group ->
+                    if (closed || group?.isGroupOwner != true) return@requestGroupInfo
+                    publishGroupCredentials(group)
+                }
+            } catch (failure: Exception) {
+                UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_CREDENTIALS", failure)
+            }
+        }
+
+        private fun publishGroupCredentials(group: android.net.wifi.p2p.WifiP2pGroup?) {
+            if (closed || group?.isGroupOwner != true) return
+            val ssid = group.networkName?.trim().orEmpty()
+            val passphrase = group.passphrase?.trim().orEmpty()
+            val ownerAddress = "192.168.49.1"
+            if (ssid.isNotBlank() && passphrase.length in 8..63) {
+                UltraShareDiagnostics.event(
+                    "WIFI_DIRECT", "GROUP_SOFTAP_CREDENTIALS_READY",
+                    mapOf("ssidPresent" to true, "passphraseLength" to passphrase.length)
+                )
+                onGroupInfo(ssid, passphrase, ownerAddress)
+            } else {
+                UltraShareDiagnostics.event(
+                    "WIFI_DIRECT", "GROUP_SOFTAP_CREDENTIALS_UNAVAILABLE",
+                    mapOf("ssidPresent" to ssid.isNotBlank(), "passphrasePresent" to passphrase.isNotBlank())
+                )
+            }
+        }
+
         private fun finishGroupAttempt(token: Int) {
             if (groupAttemptToken != token) return
             groupAttemptTimeout?.let(mainHandler::removeCallbacks)
@@ -812,6 +846,7 @@ object UltraShareWifiDirect {
                         // Group creation is only receiver readiness. requestConnectionInfo()
                         // separately confirms a client through GroupInfo.clientList.
                         UltraShareDiagnostics.event("WIFI_DIRECT", "OWNER_GROUP_READY_WAITING_FOR_PEER")
+                        requestGroupCredentials()
                         onCreated()
                         requestConnectionInfo()
                     } else if (attempt < 20) {
@@ -1496,6 +1531,7 @@ object UltraShareWifiDirect {
                     }
                     if (info.isGroupOwner) {
                         cancelClientPeerConfirmation()
+                        requestGroupCredentials()
                         val localGroupOwnerAddress = info.groupOwnerAddress?.hostAddress
                         if (localGroupOwnerAddress != null &&
                             UltraShareCore.isValidPrivateLanHost(localGroupOwnerAddress)
@@ -1506,8 +1542,12 @@ object UltraShareWifiDirect {
                         // GroupInfo briefly because GROUP_FORMED can precede clientList updates.
                         if (!ownerPeerCheckInFlight && ownerPeerCheckRunnable == null) {
                             ownerPeerCheckToken++
-                            ownerPeerCheckDeadlineElapsedMs =
+                            // Do not arm the disconnect deadline while a newly-created
+                            // owner group is empty. A receiver may wait indefinitely for
+                            // the first QR scan; only a peer that has connected can time out.
+                            ownerPeerCheckDeadlineElapsedMs = if (wasConnected) {
                                 android.os.SystemClock.elapsedRealtime() + 35_000L
+                            } else 0L
                             requestOwnerPeerConfirmation(info, ownerPeerCheckToken, 0)
                         }
                         return@requestConnectionInfo
@@ -1691,13 +1731,9 @@ object UltraShareWifiDirect {
             attempt: Int
         ) {
             if (closed || token != ownerPeerCheckToken || ownerPeerCheckInFlight) return
-            val remainingMs = ownerPeerCheckDeadlineElapsedMs -
-                android.os.SystemClock.elapsedRealtime()
-            if (remainingMs <= 0L) {
-                scheduleOwnerPeerConfirmation(info, token, attempt)
-                return
-            }
             ownerPeerCheckInFlight = true
+            val remainingMs = if (ownerPeerCheckDeadlineElapsedMs == 0L) 1_500L else
+                (ownerPeerCheckDeadlineElapsedMs - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(1L)
             // Each request owns its timeout/callback pair. OEM P2P callbacks can
             // arrive after the timeout; without this gate an old callback can clear
             // a newer request's state or complete a later pairing attempt.
@@ -1722,6 +1758,18 @@ object UltraShareWifiDirect {
                         ?.mapNotNull { address -> address.deviceAddress?.takeIf { it.isNotBlank() } }
                         .orEmpty()
                     val clientCount = clientAddresses.size
+                    if (clientCount == 0 && !wasConnected) {
+                        // Empty owner group is a valid waiting-room state. Do not
+                        // schedule retries, expire it, or report a pairing failure.
+                        ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
+                        ownerPeerCheckRunnable = null
+                        ownerPeerCheckDeadlineElapsedMs = 0L
+                        return@requestGroupInfo
+                    }
+                    if (ownerPeerCheckDeadlineElapsedMs == 0L) {
+                        ownerPeerCheckDeadlineElapsedMs =
+                            android.os.SystemClock.elapsedRealtime() + 35_000L
+                    }
                     val expectedPeer = pairingTargetDeviceAddress
                     // P2P MACs can rotate between DNS-SD discovery and group
                     // formation. A live group with a client is sufficient here;
@@ -1799,6 +1847,8 @@ object UltraShareWifiDirect {
             attempt: Int
         ) {
             if (closed || token != ownerPeerCheckToken || wasConnected) return
+            // No timeout exists until GroupInfo confirms at least one client.
+            if (ownerPeerCheckDeadlineElapsedMs == 0L) return
             val remainingMs = ownerPeerCheckDeadlineElapsedMs -
                 android.os.SystemClock.elapsedRealtime()
             if (!shouldRetryWifiDirectPeerConfirmation(attempt) || remainingMs <= 0L) {
@@ -1919,7 +1969,8 @@ object UltraShareWifiDirect {
         onPeers: (List<Peer>) -> Unit,
         onConnected: (host: String?, isGroupOwner: Boolean) -> Unit,
         onError: (String) -> Unit,
-        onLocalAddress: (String?) -> Unit = {}
+        onLocalAddress: (String?) -> Unit = {},
+        onGroupInfo: (ssid: String, passphrase: String, ownerAddress: String?) -> Unit = { _, _, _ -> }
     ): Session {
         val manager = context.applicationContext.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
             ?: error("هذا الجهاز لا يدعم Wi-Fi Direct.")
@@ -1929,7 +1980,7 @@ object UltraShareWifiDirect {
             Looper.getMainLooper(),
             WifiP2pManager.ChannelListener { session?.onChannelDisconnected() }
         ) ?: error("تعذر تهيئة Wi-Fi Direct على هذا الجهاز.")
-        val created = Session(context, manager, channel, onPeers, onConnected, onError, onLocalAddress)
+        val created = Session(context, manager, channel, onPeers, onConnected, onError, onLocalAddress, onGroupInfo)
         session = created
         return created
     }
@@ -2027,4 +2078,5 @@ internal fun isCurrentWifiDirectGroupAttempt(
 ): Boolean = !sessionClosed && currentToken == callbackToken
 
 /** Use a neutral Wi-Fi Direct owner preference so either Android device may own the group. */
-internal fun wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner: Boolean): Int = 7
+internal fun wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner: Boolean): Int =
+    if (preferThisDeviceAsGroupOwner) 15 else 0
