@@ -157,7 +157,9 @@ class UltraShareForegroundService : Service() {
     private val pendingConnectionMutex = kotlinx.coroutines.sync.Mutex()
     private var hotspotReservation: AutoCloseable? = null
     private var hotspotCallback: Any? = null
-    private lateinit var notificationManager: NotificationManager
+    private val notificationHelper by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        UltraShareNotificationHelper(this, CHANNEL_ID, NOTIFICATION_ID, ACTION_CANCEL)
+    }
     private val transferLocks by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { UltraShareTransferLocks(this) }
     @Volatile private var idleDisconnectJob: Job? = null
     // Mesh room state is process-local and is destroyed with the foreground service.
@@ -192,18 +194,7 @@ class UltraShareForegroundService : Service() {
             startMeshClientSession(host)
         }
         UltraShareDiagnostics.event("SERVICE", "CREATED")
-        notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                getString(R.string.ultra_share_notification_channel),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = getString(R.string.ultra_share_notification_description)
-                setShowBadge(false)
-            }
-            notificationManager.createNotificationChannel(channel)
-        }
+        notificationHelper.ensureChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -957,44 +948,19 @@ class UltraShareForegroundService : Service() {
         }
     }
 
-    private var lastProgressNotificationAt = 0L
-
     private fun updateNotification(progress: UltraShareCore.Progress) {
-        val now = android.os.SystemClock.elapsedRealtime()
-        if (now - lastProgressNotificationAt < 650L) return
-        lastProgressNotificationAt = now
         val current = currentState()
-        // A single notification progress bar cannot truthfully represent two simultaneous
-        // transfers. Show a neutral concurrent status instead of oscillating percentages.
         val visibleProgress = when {
             current.sending && current.receiving -> null
             current.sending -> current.sendProgress ?: progress.takeUnless { it.receiving }
             current.receiving -> current.receiveProgress ?: progress.takeIf { it.receiving }
             else -> progress
         }
-        notificationManager.notify(NOTIFICATION_ID, buildNotification(visibleProgress))
+        notificationHelper.notifyProgress(current, visibleProgress)
     }
 
-    private fun buildNotification(progress: UltraShareCore.Progress?): Notification {
-        val current = currentState()
-        val text = when {
-            current.sending && current.receiving -> "الإرسال والاستقبال يعملان معاً"
-            progress != null -> "${progress.fileName} • ${(progress.fraction * 100).toInt()}%"
-            else -> getString(R.string.ultra_share_notification_active)
-        }
-        val cancelIntent = PendingIntent.getService(this, 38742, Intent(this, UltraShareForegroundService::class.java).setAction(ACTION_CANCEL), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_ultra_share_notification)
-            .addAction(0, getString(R.string.ultra_share_cancel_transfer), cancelIntent)
-            .setContentTitle(getString(R.string.ultra_share_title))
-            .setContentText(text)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setProgress(100, progress?.let { (it.fraction * 100).toInt() } ?: 0, progress == null)
-            .build()
-    }
+    private fun buildNotification(progress: UltraShareCore.Progress?): Notification =
+        notificationHelper.build(currentState(), progress)
 
     private fun finishService() {
         if (replacementPending) return
