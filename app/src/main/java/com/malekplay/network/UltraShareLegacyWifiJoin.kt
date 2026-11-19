@@ -12,11 +12,11 @@ internal fun buildUltraShareLegacyWifiConfiguration(
     require(
         ssid.isNotBlank() &&
             ssidBytes.size <= 32 &&
-            ssid.none { it.isISOControl() || it == '"' || it == '\\\\' }
+            ssid.none { it.isISOControl() || it == '"' || it == '\\' }
     ) { "Invalid Wi-Fi SSID." }
     require(
         passphrase.length in 8..63 &&
-            passphrase.all { it.code in 0x20..0x7e && it != '"' && it != '\\\\' }
+            passphrase.all { it.code in 0x20..0x7e && it != '"' && it != '\\' }
     ) { "Invalid WPA2 passphrase." }
     return WifiConfiguration().apply {
         SSID = "\"$ssid\""
