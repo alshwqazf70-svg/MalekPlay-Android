@@ -74,6 +74,8 @@ data class UltraShareUiState(
     val bluetoothScanning: Boolean = false,
     val wifiDirectScanning: Boolean = false,
     val wifiDirectHost: String? = null,
+    /** Actual group-owner address reported by Android's Wi-Fi Direct stack. */
+    val wifiDirectLocalAddress: String? = null,
     val hotspotSsid: String? = null,
     val hotspotPassword: String? = null,
     val hotspotStarting: Boolean = false,
@@ -310,6 +312,7 @@ class UltraShareViewModel @Inject constructor(
             hotspotActive = false,
             hotspotStarting = false,
             lanFallbackReady = false,
+            wifiDirectLocalAddress = null,
             progress = null,
             error = null,
             status = "جارٍ تجهيز Wi-Fi Direct كمسار استقبال أساسي..."
@@ -834,6 +837,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             pairingSecret = "",
             invitationId = "",
             wifiDirectHost = null,
+            wifiDirectLocalAddress = null,
             hotspotSsid = null,
             hotspotPassword = null,
             hotspotStarting = false,
@@ -1160,6 +1164,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                                 pairingSecret = pending.secret,
                                 requestingConnection = false,
                                 wifiDirectHost = null,
+                                wifiDirectLocalAddress = remoteHost?.takeIf { UltraShareCore.isValidPrivateLanHost(it) },
                                 error = null,
                                 status = "انعكس دور Wi-Fi Direct؛ أصبح هذا الهاتف مستقبلاً مؤقتاً وننتظر مصادقة منشئ رمز QR..."
                             )
@@ -1173,10 +1178,12 @@ private fun forgetApprovedSenderTarget(host: String) {
                     } else if (serviceState.receiving) {
                         UltraShareForegroundService.refreshLocalAddresses(context)
                         _state.value = _state.value.copy(
+                            wifiDirectLocalAddress = remoteHost?.takeIf { UltraShareCore.isValidPrivateLanHost(it) },
                             status = "اتصل Wi-Fi Direct بنجاح؛ هذا الهاتف جاهز للاستقبال."
                         )
                     } else {
                         _state.value = _state.value.copy(
+                            wifiDirectLocalAddress = remoteHost?.takeIf { UltraShareCore.isValidPrivateLanHost(it) },
                             status = "تم إنشاء اتصال Wi-Fi Direct؛ جارٍ تجهيز قناة الاقتران."
                         )
                     }
