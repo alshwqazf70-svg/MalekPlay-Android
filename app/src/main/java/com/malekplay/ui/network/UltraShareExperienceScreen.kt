@@ -1073,6 +1073,11 @@ fun UltraShareExperienceScreen(
                         activeMode = when {
                             state.sending || state.sendProgress != null -> "send"
                             state.receiveProgress != null -> "receive"
+                            state.receivedFile != null && (
+                                state.status?.contains("استلام") == true ||
+                                    state.status?.contains("استُلم") == true ||
+                                    state.status?.contains("اكتملت دفعة") == true
+                                ) -> "receive"
                             host.isNotBlank() || selectedUris.isNotEmpty() -> "send"
                             else -> "receive"
                         },
