@@ -62,12 +62,14 @@ fun MediaBulkDeleteBar(
         if (result.resultCode == Activity.RESULT_OK) {
             if (platformDeleteApproved) {
                 platformDeleteApproved = false
+                Toast.makeText(context, "تم حذف الملفات المحددة من الجهاز", Toast.LENGTH_LONG).show()
                 onClearSelection()
                 onDeleted()
             } else {
                 deleteLegacyBatch()
             }
         } else {
+            platformDeleteApproved = false
             Toast.makeText(context, "لم تتم الموافقة على حذف جميع الملفات", Toast.LENGTH_LONG).show()
         }
     }
@@ -93,7 +95,7 @@ fun MediaBulkDeleteBar(
                     count
                 }
                 if (deletedCount > 0) {
-                    Toast.makeText(context, "تم حذف $deletedCount ملف نهائياً", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "تم حذف الملفات المحددة من الجهاز ($deletedCount ملف)", Toast.LENGTH_LONG).show()
                     onClearSelection()
                     onDeleted()
                 } else {
@@ -161,6 +163,7 @@ fun MediaBulkDeleteBar(
                             platformDeleteApproved = true
                             approvalLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
                         } catch (error: Exception) {
+                            platformDeleteApproved = false
                             Toast.makeText(context, error.localizedMessage ?: "تعذر طلب إذن الحذف", Toast.LENGTH_LONG).show()
                         }
                     } else if (
