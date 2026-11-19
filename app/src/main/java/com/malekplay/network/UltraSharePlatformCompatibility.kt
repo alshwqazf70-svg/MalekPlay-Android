@@ -18,6 +18,10 @@ object UltraSharePlatformCompatibility {
     fun requiresLocationServicesForWifiDirect(sdkInt: Int): Boolean =
         sdkInt in 23..32
 
+    /** Group creation itself is not gated by the Location Services discovery prerequisite. */
+    fun canCreateWifiDirectGroup(sdkInt: Int): Boolean =
+        supportsWifiDirectApiLevel(sdkInt)
+
     fun supportsWifiDirectApiLevel(sdkInt: Int): Boolean =
         sdkInt >= 23
 }
