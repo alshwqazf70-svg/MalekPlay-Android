@@ -129,7 +129,7 @@ class UltraSharePairingReadinessTest {
 
     @Test fun unifiedV5QrAddsLateLanHostsWithoutChangingItsSessionCredentials() {
         assertTrue(
-            UltraSharePairingReadiness.shouldEnrichUnifiedV5QrHosts(
+            UltraSharePairingReadiness.shouldEnrichUnifiedV5Qr(
                 existingVersion = "5",
                 candidateVersion = "5",
                 existingInvitationId = "invite-1",
@@ -148,9 +148,30 @@ class UltraSharePairingReadinessTest {
         )
     }
 
+    @Test fun lanOnlyUnifiedV5QrCanGainSoftApCredentialsWhenGroupInfoArrivesLate() {
+        assertTrue(
+            UltraSharePairingReadiness.shouldEnrichUnifiedV5Qr(
+                existingVersion = "5",
+                candidateVersion = "5",
+                existingInvitationId = "invite-lan",
+                candidateInvitationId = "invite-lan",
+                existingPairingSecret = "123456789",
+                candidatePairingSecret = "123456789",
+                existingSsid = null,
+                candidateSsid = "DIRECT-MalekPlay",
+                existingWifiPassword = null,
+                candidateWifiPassword = "share1234",
+                existingWifiSecurity = "wpa2",
+                candidateWifiSecurity = "wpa2",
+                existingHosts = listOf("192.168.49.1", "192.168.1.20"),
+                candidateHosts = listOf("192.168.49.1", "192.168.1.20")
+            )
+        )
+    }
+
     @Test fun lanOnlyUnifiedV5QrCanGainLateLanHostsWithoutInventingWifiCredentials() {
         assertTrue(
-            UltraSharePairingReadiness.shouldEnrichUnifiedV5QrHosts(
+            UltraSharePairingReadiness.shouldEnrichUnifiedV5Qr(
                 existingVersion = "5",
                 candidateVersion = "5",
                 existingInvitationId = "invite-lan",
@@ -170,7 +191,7 @@ class UltraSharePairingReadinessTest {
     }
 
     @Test fun unifiedV5QrDoesNotDropRoutesOrChangeSessionWhileEnrichingHosts() {
-        val unchanged = UltraSharePairingReadiness.shouldEnrichUnifiedV5QrHosts(
+        val unchanged = UltraSharePairingReadiness.shouldEnrichUnifiedV5Qr(
             existingVersion = "5",
             candidateVersion = "5",
             existingInvitationId = "invite-1",
@@ -186,7 +207,7 @@ class UltraSharePairingReadinessTest {
             existingHosts = listOf("192.168.49.1", "192.168.1.20"),
             candidateHosts = listOf("192.168.49.1", "192.168.1.20")
         )
-        val dropsOldRoute = UltraSharePairingReadiness.shouldEnrichUnifiedV5QrHosts(
+        val dropsOldRoute = UltraSharePairingReadiness.shouldEnrichUnifiedV5Qr(
             existingVersion = "5",
             candidateVersion = "5",
             existingInvitationId = "invite-1",
@@ -202,7 +223,7 @@ class UltraSharePairingReadinessTest {
             existingHosts = listOf("192.168.49.1", "192.168.1.20"),
             candidateHosts = listOf("192.168.49.1", "192.168.1.21", "10.0.0.2")
         )
-        val wrongWifiPassword = UltraSharePairingReadiness.shouldEnrichUnifiedV5QrHosts(
+        val wrongWifiPassword = UltraSharePairingReadiness.shouldEnrichUnifiedV5Qr(
             existingVersion = "5",
             candidateVersion = "5",
             existingInvitationId = "invite-1",
