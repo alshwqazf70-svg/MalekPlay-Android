@@ -829,15 +829,16 @@ object UltraShareWifiDirect {
 
         private fun publishGroupCredentials(group: android.net.wifi.p2p.WifiP2pGroup?) {
             if (closed || group?.isGroupOwner != true) return
-            val ssid = group.networkName?.trim().orEmpty()
-            val passphrase = group.passphrase?.trim().orEmpty()
+            val ssid = runCatching { group.networkName?.trim().orEmpty() }.getOrDefault("")
+            val passphrase = runCatching { group.passphrase?.trim().orEmpty() }.getOrDefault("")
             val ownerAddress = "192.168.49.1"
             if (ssid.isNotBlank() && passphrase.length in 8..63) {
                 UltraShareDiagnostics.event(
                     "WIFI_DIRECT", "GROUP_SOFTAP_CREDENTIALS_READY",
                     mapOf("ssidPresent" to true, "passphraseLength" to passphrase.length)
                 )
-                onGroupInfo(ssid, passphrase, ownerAddress)
+                runCatching { onGroupInfo(ssid, passphrase, ownerAddress) }
+                    .onFailure { UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_INFO_CALLBACK", it) }
             } else {
                 UltraShareDiagnostics.event(
                     "WIFI_DIRECT", "GROUP_SOFTAP_CREDENTIALS_UNAVAILABLE",
