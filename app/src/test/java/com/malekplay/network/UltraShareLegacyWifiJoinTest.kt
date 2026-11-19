@@ -28,4 +28,24 @@ class UltraShareLegacyWifiJoinTest {
     fun rejectsPassphrasesShorterThanWpa2Minimum() {
         buildUltraShareLegacyWifiConfiguration("DIRECT-MalekPlay", "short")
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsNonAsciiOrControlCharactersInWpa2Passphrase() {
+        buildUltraShareLegacyWifiConfiguration("DIRECT-MalekPlay", "share😀123")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsQuotedPassphrasesThatCannotBeSafelyRepresentedInWifiConfiguration() {
+        buildUltraShareLegacyWifiConfiguration("DIRECT-MalekPlay", "share\"12345")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsSsidsLongerThanThirtyTwoUtf8Bytes() {
+        buildUltraShareLegacyWifiConfiguration("شبكةشبكةشبكةشبكة", "share12345")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsQuotedSsidsThatCannotBeSafelyRepresentedInWifiConfiguration() {
+        buildUltraShareLegacyWifiConfiguration("DIRECT-\"bad", "share12345")
+    }
 }
