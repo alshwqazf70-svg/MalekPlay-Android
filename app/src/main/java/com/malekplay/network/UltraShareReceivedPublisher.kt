@@ -11,6 +11,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -190,6 +191,10 @@ object UltraShareReceivedPublisher {
                 )
             }
             scannedUri
+        } catch (cancelled: CancellationException) {
+            // Cancellation must reach the foreground-service owner; treating it as a
+            // publication failure would continue copying after the user/system stopped the job.
+            throw cancelled
         } catch (failure: Exception) {
             UltraShareDiagnostics.failure("RECEIVED_PUBLISH_LEGACY_DOWNLOADS", failure, "file=$name;path=$relativePath")
             null
