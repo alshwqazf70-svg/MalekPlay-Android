@@ -35,20 +35,11 @@ class AssCanvasOverlay(private val handler: AssHandler, private val render: AssR
     }
 
     override fun onDraw(canvas: Canvas, presentationTimeUs: Long) {
-        val timeUs = if (handler.videoTime >= 0) {
-            handler.videoTime
-        } else {
-            presentationTimeUs
-        }
+        val timeUs = if (handler.videoTime >= 0) handler.videoTime else presentationTimeUs
         val assFrame: AssFrame? = executor.renderFrame(timeUs, AssTexType.BITMAP_ALPHA)
 
-        if (assFrame != null && assFrame.changed == 0) {
-            return
-        }
-
-        if (assFrame == null && !texDirty) {
-            return
-        }
+        if (assFrame != null && assFrame.changed == 0) return
+        if (assFrame == null && !texDirty) return
 
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         texDirty = false
@@ -62,7 +53,6 @@ class AssCanvasOverlay(private val handler: AssHandler, private val render: AssR
                     val b = frame.color shr 8 and 0xFF
                     val a = 0xFF - frame.color and 0xFF
                     val color = (a shl 24) or (r shl 16) or (g shl 8) or b
-
                     paint.color = color
                     canvas.drawBitmap(bitmap, frame.x.toFloat(), frame.y.toFloat(), paint)
                 }
@@ -71,8 +61,7 @@ class AssCanvasOverlay(private val handler: AssHandler, private val render: AssR
     }
 
     override fun release() {
-        if (::executor.isInitialized) executor.shutdownNow()
+        if (::executor.isInitialized) executor.shutdown()
         super.release()
     }
-
 }
