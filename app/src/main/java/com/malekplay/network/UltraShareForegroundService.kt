@@ -311,7 +311,7 @@ class UltraShareForegroundService : Service() {
                         if (receiveJob === retiringReceive) receiveJob = null
                         if (batchReceiveJob === retiringBatch) batchReceiveJob = null
                         withContext(Dispatchers.Main.immediate) {
-                            pendingReplacementCount.updateAndGet { (it - 1).coerceAtLeast(0) }
+                            pendingReplacementCount.decrementAndGet()
                             onStartCommand(intent, flags, startId)
                         }
                     }
@@ -1842,7 +1842,7 @@ class UltraShareForegroundService : Service() {
                 retiringSend.cancelAndJoin()
                 if (sendJob === retiringSend) sendJob = null
                 withContext(Dispatchers.Main.immediate) {
-                    pendingReplacementCount.updateAndGet { (it - 1).coerceAtLeast(0) }
+                    pendingReplacementCount.decrementAndGet()
                     startSendingQueue(uris, host, secret, replaceQueue, candidates)
                 }
             }
@@ -2063,7 +2063,7 @@ class UltraShareForegroundService : Service() {
                 retiringSend.cancelAndJoin()
                 if (sendJob === retiringSend) sendJob = null
                 withContext(Dispatchers.Main.immediate) {
-                    pendingReplacementCount.updateAndGet { (it - 1).coerceAtLeast(0) }
+                    pendingReplacementCount.decrementAndGet()
                     startSendingQueueToPeers(uris, targets, preserveCompleted)
                 }
             }
