@@ -691,7 +691,16 @@ object UltraShareWifiDirect {
             pairingTargetDeviceAddress = null
             wasConnected = false
             if (peerDiscoveryActive) {
-                reportError("لا يمكن إنشاء مجموعة Wi-Fi Direct أثناء استمرار عملية الاكتشاف؛ انتظر تأكيد إيقافها أولاً.")
+                // Stop an earlier nearby-device scan serially before creating the
+                // receiver group. Starting both operations concurrently is rejected
+                // by several Android 6–10/OEM P2P stacks.
+                stopDiscoveryChecked { stopped ->
+                    if (!stopped) {
+                        reportError("تعذر تأكيد إيقاف بحث Wi-Fi Direct قبل إنشاء المجموعة.")
+                    } else if (!closed) {
+                        createGroupAttempt(onCreated, 0)
+                    }
+                }
                 return
             }
             createGroupAttempt(onCreated, 0)
