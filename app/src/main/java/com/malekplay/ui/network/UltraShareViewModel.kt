@@ -1736,12 +1736,6 @@ private fun forgetApprovedSenderTarget(host: String) {
             )
             return false
         }
-        if (target.candidates.isEmpty()) {
-            _state.value = _state.value.copy(
-                error = "الجهاز موثّق، لكن مسار نقل الملفات لم يُعتمد بعد. أبقِ شاشة الاستقبال مفتوحة ثم أعد الاتصال."
-            )
-            return false
-        }
         return runCatching {
             UltraShareForegroundService.startSendingBatchToPeers(context, uris, listOf(target))
             _state.value = _state.value.copy(
