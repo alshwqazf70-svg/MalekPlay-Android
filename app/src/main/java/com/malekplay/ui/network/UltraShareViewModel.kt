@@ -885,6 +885,87 @@ private fun forgetApprovedSenderTarget(host: String) {
      * Joins the temporary LocalOnlyHotspot advertised by QR v4, then performs
      * the same authenticated MPC2 handshake as every other route.
      */
+    @Suppress("DEPRECATION")
+    private fun connectLegacyWifiNetwork(
+        pairing: com.malekplay.network.UltraShareQrCode.PairingDetails
+    ) {
+        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE)
+            as? android.net.wifi.WifiManager
+        if (wifi == null) {
+            _state.value = _state.value.copy(
+                requestingConnection = false,
+                error = "خدمة Wi-Fi غير متاحة؛ افتح إعدادات Wi-Fi واتصل بالشبكة المعروضة في رمز QR."
+            )
+            return
+        }
+        val ssid = pairing.hotspotSsid ?: return
+        val password = pairing.hotspotPassword ?: return
+        runCatching {
+            val configuration = android.net.wifi.WifiConfiguration().apply {
+                SSID = "\"${ssid}\""
+                preSharedKey = "\"${password}\""
+                allowedKeyManagement.set(android.net.wifi.WifiConfiguration.KeyMgmt.WPA_PSK)
+                status = android.net.wifi.WifiConfiguration.Status.ENABLED
+            }
+            val networkId = wifi.addNetwork(configuration)
+            check(networkId >= 0) { "رفض نظام Android إضافة شبكة Wi-Fi؛ قد تمنع الشركة المصنّعة هذا الأسلوب." }
+            if (!wifi.enableNetwork(networkId, true) || !wifi.reconnect()) {
+                wifi.removeNetwork(networkId)
+                error("تعذر تفعيل شبكة Wi-Fi الجديدة.")
+            }
+            legacyWifiNetworkId?.takeIf { it != networkId }?.let { oldId ->
+                runCatching { wifi.removeNetwork(oldId) }
+            }
+            legacyWifiNetworkId = networkId
+            _state.value = _state.value.copy(
+                requestingConnection = true,
+                error = null,
+                status = "تم إعداد الاتصال بشبكة المجموعة؛ جارٍ انتظار اتصال Wi-Fi ثم توثيق MPC2..."
+            )
+            viewModelScope.launch {
+                // Association is asynchronous on Android 6–9 and differs across OEMs.
+                delay(1_200L)
+                val hosts = (pairing.hosts + pairing.host).distinct()
+                val targetHost = hosts.firstOrNull { UltraShareCore.isValidPrivateLanHost(it) }
+                if (targetHost == null) {
+                    releaseLegacyWifiNetwork()
+                    _state.value = _state.value.copy(
+                        requestingConnection = false,
+                        error = "لا يحتوي رمز QR على عنوان صالح للوصول إلى الجهاز."
+                    )
+                    return@launch
+                }
+                requestConnection(
+                    host = targetHost,
+                    secret = pairing.pairingSecret,
+                    alternateHosts = hosts.dropWhile { it != targetHost }.drop(1)
+                )
+            }
+        }.onFailure { failure ->
+            releaseLegacyWifiNetwork()
+            UltraShareDiagnostics.failure("LEGACY_WIFI_JOIN", failure)
+            _state.value = _state.value.copy(
+                requestingConnection = false,
+                error = (failure.localizedMessage
+                    ?: "تعذر الانضمام التلقائي إلى شبكة Wi-Fi على هذا الجهاز.") +
+                    " يمكنك الاتصال بها يدوياً من إعدادات Wi-Fi ثم إعادة مسح الرمز."
+            )
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun releaseLegacyWifiNetwork() {
+        val networkId = legacyWifiNetworkId ?: return
+        legacyWifiNetworkId = null
+        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE)
+            as? android.net.wifi.WifiManager ?: return
+        runCatching {
+            wifi.disableNetwork(networkId)
+            wifi.removeNetwork(networkId)
+            wifi.saveConfiguration()
+        }.onFailure { UltraShareDiagnostics.failure("LEGACY_WIFI_REMOVE_NETWORK", it) }
+    }
+
     fun connectHotspotInvitation(pairing: com.malekplay.network.UltraShareQrCode.PairingDetails) {
         if (hotspotNetworkCallback != null || controlPairingInProgress || pendingQrPairing != null) {
             _state.value = _state.value.copy(
@@ -897,21 +978,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             return
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            // Android 8–9 cannot use WifiNetworkSpecifier, but after the user
-            // joins the advertised LocalOnlyHotspot manually the QR's LAN host
-            // is reachable through the system Wi-Fi route and MPC2 can proceed.
-            if (pairing.host.isNotBlank()) {
-                requestConnection(
-                    host = pairing.host,
-                    secret = pairing.pairingSecret,
-                    alternateHosts = pairing.hosts.drop(1)
-                )
-            } else {
-                _state.value = _state.value.copy(
-                    requestingConnection = false,
-                    error = "اتصل أولاً بشبكة MalekPlay من إعدادات Wi-Fi، ثم امسح رمز QR مرة أخرى."
-                )
-            }
+            connectLegacyWifiNetwork(pairing)
             return
         }
 
@@ -2025,4 +2092,9 @@ private fun forgetApprovedSenderTarget(host: String) {
         // Transfer jobs belong to the foreground service and deliberately outlive this ViewModel.
         super.onCleared()
     }
+    override fun onCleared() {
+        releaseLegacyWifiNetwork()
+        super.onCleared()
+    }
+
 }
