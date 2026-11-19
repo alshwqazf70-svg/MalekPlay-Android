@@ -211,8 +211,8 @@ class UltraShareViewModel @Inject constructor(
                     queueCurrentName = serviceState.queueCurrentName,
                     queueTotalBytes = serviceState.queueTotalBytes,
                     queueTransferredBytes = serviceState.queueTransferredBytes,
-                    hotspotSsid = serviceState.hotspotSsid,
-                    hotspotPassword = serviceState.hotspotPassword,
+                    hotspotSsid = wifiDirectGroupSsid ?: serviceState.hotspotSsid,
+                    hotspotPassword = wifiDirectGroupPassword ?: serviceState.hotspotPassword,
                     hotspotStarting = serviceState.hotspotStarting,
                     hotspotActive = serviceState.hotspotActive,
                     lanFallbackReady = current.lanFallbackReady || (
