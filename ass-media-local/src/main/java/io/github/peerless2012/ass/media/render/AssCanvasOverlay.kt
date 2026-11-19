@@ -27,6 +27,7 @@ class AssCanvasOverlay(private val handler: AssHandler, private val render: AssR
     private var texDirty = true
 
     override fun configure(videoSize: Size) {
+        if (::executor.isInitialized) executor.shutdownNow()
         super.configure(videoSize)
         executor = AssExecutor(render)
         render.setFrameSize(videoSize.width, videoSize.height)
