@@ -975,9 +975,9 @@ private fun BrowsePanel(
             }
         }
 
-        if (state.path.trim('/').isNotEmpty()) {
+        if (isStrictlyDeeperThanRoot(state.path, profile.rootPath)) {
             TextButton(
-                onClick = { onNavigate(parentPath(state.path)) },
+                onClick = { onNavigate(parentPath(state.path, profile.rootPath)) },
                 modifier = Modifier.padding(horizontal = 12.dp)
             ) {
                 Icon(
@@ -1051,7 +1051,7 @@ private fun BrowsePanel(
                             entry = entry,
                             onClick = {
                                 if (entry.isDirectory) {
-                                    onNavigate(relativePath(entry.path))
+                                    onNavigate(relativePath(profile.protocol, entry.path))
                                 } else {
                                     onOpenMedia(networkMediaUri(profile, entry.path).toString())
                                 }
@@ -1299,15 +1299,45 @@ private fun defaultPort(protocol: NetworkProtocol): Int = when (protocol) {
     NetworkProtocol.SFTP -> 22
 }
 
-private fun parentPath(path: String): String {
-    val trimmed = path.trim().trimEnd('/')
-    val parent = trimmed.substringBeforeLast('/')
-    return if (parent.isBlank()) "/" else parent
+/** Normalize a remote directory path without allowing traversal above its root. */
+private fun normalizeBrowsePath(path: String): String {
+    val segments = ArrayDeque<String>()
+    path.split('/').forEach { segment ->
+        when {
+            segment.isBlank() || segment == "." -> Unit
+            segment == ".." -> if (segments.isNotEmpty()) segments.removeLast()
+            '\\' in segment -> throw IllegalArgumentException("مسار المجلد يحتوي على فاصل غير صالح")
+            else -> segments.addLast(segment)
+        }
+    }
+    return if (segments.isEmpty()) "/" else "/" + segments.joinToString("/")
 }
 
-private fun relativePath(url: String): String =
-    runCatching { Uri.parse(url).path }.getOrNull()
-        ?.takeIf { it.isNotBlank() } ?: "/"
+private fun isStrictlyDeeperThanRoot(path: String, rootPath: String): Boolean {
+    val root = normalizeBrowsePath(rootPath)
+    val current = normalizeBrowsePath(path)
+    return current != root && (root == "/" || current.startsWith("$root/"))
+}
+
+private fun parentPath(path: String, rootPath: String): String {
+    val root = normalizeBrowsePath(rootPath)
+    val current = normalizeBrowsePath(path)
+    if (current == root || (root != "/" && !current.startsWith("$root/"))) return root
+    val parent = current.substringBeforeLast('/').ifBlank { "/" }
+    return if (parent == root || parent.startsWith("$root/") || root == "/") parent else root
+}
+
+/**
+ * WebDAV entries are absolute HTTPS URLs and must be decoded as URI paths.
+ * SMB/SFTP paths are remote names: parsing them as a Uri corrupts #, ? and %.
+ */
+private fun relativePath(protocol: NetworkProtocol, entryPath: String): String {
+    if (protocol == NetworkProtocol.WEBDAV || entryPath.startsWith("https://", ignoreCase = true)) {
+        return runCatching { Uri.parse(entryPath).path }
+            .getOrNull()?.takeIf { it.isNotBlank() } ?: "/"
+    }
+    return entryPath
+}
 
 private val MEDIA_EXTENSIONS = setOf(
     "mp4", "m4v", "mkv", "webm", "avi", "mov", "3gp", "ts", "flv",
