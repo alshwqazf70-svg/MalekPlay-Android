@@ -298,10 +298,10 @@ object UltraShareWifiDirect {
                         try {
                             manager.addServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
                                 override fun onSuccess() {
-                                    if (closed) return
-                                    if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
-                                        // addServiceRequest completed after cancellation. Remove
-                                        // this late request; it must never start DNS-SD discovery.
+                                    if (closed || !isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
+                                        // addServiceRequest completed after cancellation or
+                                        // session closure. Remove this late request; it must
+                                        // never start DNS-SD discovery or remain registered.
                                         runCatching {
                                             manager.removeServiceRequest(channel, request, null)
                                         }
