@@ -515,12 +515,37 @@ object UltraShareDiscovery {
         routes.distinct().any { network -> probeV2DataEndpoint(host, port, network) }
     }
 
-    private fun probeEndpoint(host: String, port: Int, network: android.net.Network?): Boolean = runCatching {
+    internal suspend fun probeControlHostsFast(hosts: List<String>, timeoutMs: Int = 400): List<String> =
+        withContext(Dispatchers.IO) {
+            kotlinx.coroutines.coroutineScope {
+                hosts.asSequence()
+                    .map(String::trim)
+                    .filter(UltraShareCore::isValidPrivateLanHost)
+                    .distinct()
+                    .take(8)
+                    .map { host ->
+                        kotlinx.coroutines.async {
+                            host.takeIf {
+                                probeEndpoint(it, UltraShareControlChannel.DEFAULT_PORT, null, timeoutMs)
+                            }
+                        }
+                    }
+                    .toList()
+                    .mapNotNull { it.await() }
+            }
+        }
+
+    private fun probeEndpoint(
+        host: String,
+        port: Int,
+        network: android.net.Network?,
+        timeoutMs: Int = 700
+    ): Boolean = runCatching {
         Socket().use { socket ->
             socket.tcpNoDelay = true
-            socket.soTimeout = 700
+            socket.soTimeout = timeoutMs
             network?.bindSocket(socket)
-            socket.connect(InetSocketAddress(host, port), 700)
+            socket.connect(InetSocketAddress(host, port), timeoutMs)
             // Complete the server's greeting instead of connecting and immediately
             // closing. The old probe caused the server to write into a closed socket,
             // producing hundreds of misleading Broken pipe handshake errors.
