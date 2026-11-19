@@ -511,6 +511,12 @@ fun UltraShareExperienceScreen(
     LaunchedEffect(state.approvedPeerHost) {
         state.approvedPeerHost?.let { host = it }
     }
+    // Move directly to the live transfer room as soon as either direction starts.
+    LaunchedEffect(state.sending, state.sendProgress, state.receiveProgress) {
+        if (state.sending || state.sendProgress != null || state.receiveProgress != null) {
+            page = UltraSharePage.TRANSFERS
+        }
+    }
     LaunchedEffect(state.wifiDirectHost) {
         state.wifiDirectHost?.let { connectedHost ->
             host = connectedHost
@@ -744,6 +750,12 @@ fun UltraShareExperienceScreen(
                 subtitle = "${(state.activePeers.map { it.host } + state.approvedSenderPeerHosts).distinct().size} متصل • ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
                 active = state.sending || state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty()
             )
+            OutlinedButton(
+                onClick = { page = UltraSharePage.TRANSFERS },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("فتح غرفة النقل — السرعة والتقدم والوقت المتبقي")
+            }
             UltraShareHelpCard()
             state.pendingConnection?.let {
                 IncomingRequestPanel(it, viewModel::acceptConnection, viewModel::rejectConnection)
@@ -1061,7 +1073,21 @@ fun UltraShareExperienceScreen(
                         activeMode = if (state.sending || host.isNotBlank() || selectedUris.isNotEmpty()) "send" else "receive",
                         localDeviceName = Build.MODEL?.take(40)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlayer Android",
                         remoteHost = host.ifBlank { state.activePeers.firstOrNull()?.host.orEmpty() },
-                        selectedMediaCount = selectedUris.size
+                        selectedMediaCount = selectedUris.size,
+                        onPauseSending = viewModel::pauseSending,
+                        onResumeSending = {
+                            val approvedHosts = state.approvedSenderPeerHosts
+                            if (approvedHosts.size > 1) {
+                                viewModel.resumePendingForAllPeers()
+                            } else {
+                                viewModel.resumePendingBatch(
+                                    approvedHosts.firstOrNull()
+                                        ?: state.approvedPeerHost
+                                        ?: host
+                                )
+                            }
+                        },
+                        onCancelSending = viewModel::cancelSending
                     )
                     val connectedHosts = (
                         state.activePeers.map { it.host } + state.approvedSenderPeerHosts
