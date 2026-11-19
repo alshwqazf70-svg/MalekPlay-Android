@@ -42,7 +42,9 @@ fi
 if [ ! -s app/build/outputs/apk/debug/app-debug.apk ] || [ ! -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk ]; then
   ./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 :app:assembleDebug :app:assembleDebugAndroidTest
 fi
-./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 :app:compileDebugAndroidTestKotlin
+if [ ! -d app/build/tmp/kotlin-classes/debugAndroidTest ]; then
+  ./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 :app:compileDebugAndroidTestKotlin
+fi
 
 # Build both APKs, then install/run through adb directly. Some hosted emulator/ddmlib
 # combinations incorrectly route a single universal APK through SplitApkInstaller
