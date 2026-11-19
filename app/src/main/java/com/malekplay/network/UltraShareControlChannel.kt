@@ -824,7 +824,8 @@ object UltraShareControlChannel {
             value.length == MAX_ID_BYTES && value.takeLast(32).all { it.digitToIntOrNull(16) != null }
         }?.takeLast(32)
         val selectedPairingSecret = if (pairingSecretResolver != null) {
-            pairingSecretResolver(announcedPeerId) ?: run {
+            val resolvedSecret = runCatching { pairingSecretResolver(announcedPeerId) }.getOrNull()
+            resolvedSecret ?: run {
                 pairingAttemptLimiter.recordFailure(peerAddress)
                 error("هذا الجهاز ليس عضواً موثقاً في غرفة Mesh.")
             }
