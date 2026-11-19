@@ -25,7 +25,9 @@ class UltraShareCoreTest {
         assertTrue(UltraShareCore.isAllowedShareFile("document.txt", "text/plain"))
         assertTrue(UltraShareCore.isAllowedShareFile("unknown.bin", "application/octet-stream"))
         assertTrue(UltraShareCore.isAllowedShareFile("report.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-        assertFalse(UltraShareCore.isAllowedShareFile("image.svg", "image/svg+xml"))\n        assertFalse(UltraShareCore.isAllowedShareFile("drawing.svg", "image/png"))\n        assertFalse(UltraShareCore.isAllowedShareFile("drawing.png", "image/svg+xml"))
+        assertFalse(UltraShareCore.isAllowedShareFile("image.svg", "image/svg+xml"))
+        assertFalse(UltraShareCore.isAllowedShareFile("drawing.svg", "image/png"))
+        assertFalse(UltraShareCore.isAllowedShareFile("drawing.png", "image/svg+xml"))
         assertFalse(UltraShareCore.isAllowedShareFile("renamed.apk", "video/mp4"))
         assertFalse(UltraShareCore.isAllowedShareFile("document.pdf", "application/octet-stream"))
         assertFalse(UltraShareCore.isAllowedShareFile("document.pdf ", "application/octet-stream"))
@@ -119,7 +121,8 @@ class UltraShareCoreTest {
         assertEquals("video/mp4", UltraShareCore.sanitizeMimeType(" video/mp4 "))
         assertEquals(
             "application/octet-stream",
-            UltraShareCore.sanitizeMimeType("video/mp4\r\nX-Evil: yes")
+            UltraShareCore.sanitizeMimeType("video/mp4\r
+X-Evil: yes")
         )
         assertEquals("application/octet-stream", UltraShareCore.sanitizeMimeType("not a mime type"))
     }
