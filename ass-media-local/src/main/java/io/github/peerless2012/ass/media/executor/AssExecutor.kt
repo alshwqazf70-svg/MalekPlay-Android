@@ -34,7 +34,7 @@ class AssExecutor(private val render: AssRender) {
             }
         }
         return try {
-            future.get(8, TimeUnit.MILLISECONDS) ?: lastFrame
+            future.get(8, TimeUnit.MILLISECONDS)
         } catch (exception: Exception) {
             if (exception is InterruptedException) Thread.currentThread().interrupt()
             lastFrame ?: assFrameNotChange
