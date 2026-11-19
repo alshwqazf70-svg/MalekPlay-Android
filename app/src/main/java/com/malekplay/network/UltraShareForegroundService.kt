@@ -2098,24 +2098,32 @@ class UltraShareForegroundService : Service() {
         preserveCompleted: Boolean
     ) {
         if (uris.isEmpty() || requestedTargets.isEmpty()) return
-        val targets = synchronized(sendJobsByPeer) {
-            requestedTargets.filterNot { sendJobsByPeer.containsKey(it.sessionId) }
+        val retiringJobs = synchronized(sendJobsByPeer) {
+            requestedTargets.mapNotNull { target ->
+                sendJobsByPeer[target.sessionId]?.takeIf { it.isCancelled || it.isCompleted }
+            }.distinct()
         }
-        if (targets.isEmpty()) return
-        val retiringSend = targets.firstNotNullOfOrNull { sendJobsByPeer[it.sessionId] }
-        if (retiringSend?.isCancelled == true) {
+        if (retiringJobs.isNotEmpty()) {
             pendingReplacementCount.incrementAndGet()
             serviceScope.launch {
-                retiringSend.cancelAndJoin()
-                targets.forEach { target -> sendJobsByPeer.remove(target.sessionId, retiringSend) }
+                retiringJobs.forEach { it.cancelAndJoin() }
+                requestedTargets.forEach { target ->
+                    val currentJob = sendJobsByPeer[target.sessionId]
+                    if (currentJob in retiringJobs) {
+                        sendJobsByPeer.remove(target.sessionId, currentJob)
+                    }
+                }
                 withContext(Dispatchers.Main.immediate) {
                     pendingReplacementCount.decrementAndGet()
-                    startSendingQueueToPeers(uris, targets, preserveCompleted)
+                    startSendingQueueToPeers(uris, requestedTargets, preserveCompleted)
                 }
             }
             return
         }
-        if (targets.all { sendJobsByPeer.containsKey(it.sessionId) }) return
+        val targets = synchronized(sendJobsByPeer) {
+            requestedTargets.filterNot { sendJobsByPeer.containsKey(it.sessionId) }
+        }
+        if (targets.isEmpty()) return
         if (targets.any {
                 !UltraShareCore.isValidPrivateLanHost(it.host) ||
                     !UltraShareCore.isValidPairingSecret(it.secret)
