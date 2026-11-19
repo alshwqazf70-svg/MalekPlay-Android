@@ -400,6 +400,11 @@ def send_files(host: str, port: int, secret: str, sources: list[Path]) -> None:
         send_file(host, port, secret, source)
 
 
+_AUTH_FAILURES: dict[str, tuple[int, float]] = {}
+_AUTH_MAX_FAILURES = 5
+_AUTH_COOLDOWN_SECONDS = 60.0
+
+
 def receive_one(port: int, secret: str, directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
@@ -416,7 +421,11 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
                 continue
 
     with connection:
-        if not is_lan_ipv4(address[0]):
+        peer_host = address[0]
+        failures, cooldown_until = _AUTH_FAILURES.get(peer_host, (0, 0.0))
+        if time.monotonic() < cooldown_until:
+            raise PermissionError("This device is temporarily rate-limited after failed pairing attempts.")
+        if not is_lan_ipv4(peer_host):
             raise PermissionError("Rejected a connection outside the private LAN.")
         connection.settimeout(20)
         connection.sendall(struct.pack(">I", MAGIC))
@@ -429,7 +438,11 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
         )
         connection.sendall(b"\x01" if authenticated else b"\x00")
         if not authenticated:
+            failures += 1
+            cooldown = time.monotonic() + _AUTH_COOLDOWN_SECONDS if failures >= _AUTH_MAX_FAILURES else 0.0
+            _AUTH_FAILURES[peer_host] = (failures, cooldown)
             raise PermissionError("Pairing authentication failed.")
+        _AUTH_FAILURES.pop(peer_host, None)
         nonce_prefix = secrets.token_bytes(4)
         connection.sendall(nonce_prefix)
         receive_key = derive_key(pairing_key, challenge, "client-to-server")

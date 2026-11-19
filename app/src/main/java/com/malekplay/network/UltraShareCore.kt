@@ -105,8 +105,9 @@ object UltraShareCore {
             var spec: PBEKeySpec? = null
             try {
                 val nativeKey = runCatching {
-                    spec = PBEKeySpec(passwordChars, salt, PIN_KDF_ITERATIONS, SECRET_BYTES * 8)
-                    SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+                    val keySpec = PBEKeySpec(passwordChars, salt, PIN_KDF_ITERATIONS, SECRET_BYTES * 8)
+                    spec = keySpec
+                    SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(keySpec).encoded
                 }.getOrNull()
                 if (nativeKey != null && nativeKey.size == SECRET_BYTES) return nativeKey
             } finally {

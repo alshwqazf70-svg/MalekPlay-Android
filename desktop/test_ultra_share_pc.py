@@ -88,7 +88,7 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
             parse_metadata(encoded),
         )
 
-    def test_v1_metadata_allows_media_and_rejects_generic_files_archives_and_apps(self):
+    def test_v1_metadata_accepts_general_non_blocked_files_and_rejects_apps(self):
         digest = hashlib.sha256(b"payload").digest()
         encoded = (struct.pack(">H", VERSION) + encode_text("clip.mp4", 768)
                    + struct.pack(">q", 7) + encode_text("video/mp4", 192) + digest)
@@ -96,11 +96,8 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         encoded = (struct.pack(">H", VERSION) + encode_text("provider-media.mp4", 768)
                    + struct.pack(">q", 7) + encode_text("application/octet-stream", 192) + digest)
         self.assertEqual("application/octet-stream", parse_metadata(encoded)[2])
-        for name, mime in (("archive.zip", "application/zip"),
-                           ("notes.txt", "text/plain"),
-                           ("unknown.bin", "application/octet-stream"),
-                           ("payload.apk", "application/octet-stream"),
-                           ("document.pdf", "application/octet-stream")):
+        for name, mime in (("payload.apk", "application/octet-stream"),
+                           ("document.pdf", "application/pdf")):
             encoded = (struct.pack(">H", VERSION) + encode_text(name, 768)
                        + struct.pack(">q", 7) + encode_text(mime, 192) + digest)
             with self.assertRaises(ValueError):
