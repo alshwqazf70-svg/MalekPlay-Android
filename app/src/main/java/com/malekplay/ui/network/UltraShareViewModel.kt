@@ -1910,7 +1910,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         )
         val target = UltraShareForegroundService.approvedSendTarget(resolvedHost)
             ?: approvedTargets.firstOrNull()
-        if (uris.isEmpty() || _state.value.sending) return false
+        if (uris.isEmpty()) return false
         if (target == null) {
             _state.value = _state.value.copy(
                 error = "لا يوجد جهاز مقترن ومعتمد للإرسال. أعد الاقتران أو اختر الجهاز من قائمة الأجهزة المتصلة."
@@ -1937,7 +1937,7 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun sendBatchToApprovedPeers(uris: List<Uri>): Boolean {
         val targets = UltraShareForegroundService.approvedSendTargets()
-        if (uris.isEmpty() || _state.value.sending || targets.isEmpty()) return false
+        if (uris.isEmpty() || targets.isEmpty()) return false
         return runCatching {
             UltraShareForegroundService.startSendingBatchToPeers(context, uris, targets)
             _state.value = _state.value.copy(
@@ -1961,7 +1961,7 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun resumePendingForAllPeers() {
         val targets = UltraShareForegroundService.approvedSendTargets()
-        if (targets.isEmpty() || _state.value.sending) return
+        if (targets.isEmpty()) return
         viewModelScope.launch {
             val peerIds = targets.mapTo(mutableSetOf()) { it.sessionId }
             val ledger = UltraSharePeerDeliveryStore.observe(context).first()
