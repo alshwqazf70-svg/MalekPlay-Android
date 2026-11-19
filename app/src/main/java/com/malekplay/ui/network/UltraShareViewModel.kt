@@ -149,6 +149,10 @@ class UltraShareViewModel @Inject constructor(
     private var controlPairingInProgress = false
     private var wifiDirectPrimaryAttempt = false
     private var hotspotFallbackStarted = false
+    @Volatile private var wifiDirectGroupSsid: String? = null
+    @Volatile private var wifiDirectGroupPassword: String? = null
+    @Volatile private var wifiDirectOwnerAddress: String? = null
+    private var legacyWifiNetworkId: Int? = null
     private var wifiDirectCleanupInProgress = false
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
@@ -232,6 +236,7 @@ class UltraShareViewModel @Inject constructor(
                 )
                 val pairedSessionActive = serviceState.activePeers.isNotEmpty() ||
                     serviceState.approvedSenderPeerHosts.isNotEmpty()
+                if (serviceState.controlChannelReady) publishUnifiedReceiverQrIfReady()
                 if (pairedSessionActive) {
                     stopNearbyDiscoveryAfterPairing()
                 } else {
@@ -300,6 +305,9 @@ class UltraShareViewModel @Inject constructor(
         val secret = UltraShareCore.createPairingSecret()
         wifiDirectPrimaryAttempt = true
         hotspotFallbackStarted = false
+        wifiDirectGroupSsid = null
+        wifiDirectGroupPassword = null
+        wifiDirectOwnerAddress = null
         _state.value = _state.value.copy(
             pairingSecret = secret,
             invitationId = "",
@@ -1269,6 +1277,20 @@ private fun forgetApprovedSenderTarget(host: String) {
                         mapOf("addressPresent" to true, "sdkInt" to Build.VERSION.SDK_INT)
                     )
                 }
+            },
+            onGroupInfo = { ssid, passphrase, ownerAddress ->
+                wifiDirectGroupSsid = ssid
+                wifiDirectGroupPassword = passphrase
+                wifiDirectOwnerAddress = ownerAddress
+                _state.value = _state.value.copy(
+                    hotspotSsid = ssid,
+                    hotspotPassword = passphrase,
+                    wifiDirectLocalAddress = ownerAddress?.takeIf { UltraShareCore.isValidPrivateLanHost(it) },
+                    invitationId = _state.value.invitationId.ifBlank {
+                        invitationPreferences.getString("active_invitation_id", "").orEmpty()
+                    }
+                )
+                publishUnifiedReceiverQrIfReady()
             }
         ).also { wifiDirectSession = it }
     }
@@ -1296,6 +1318,46 @@ private fun forgetApprovedSenderTarget(host: String) {
         }
     }
 
+    private fun publishUnifiedReceiverQrIfReady() {
+        val current = _state.value
+        val service = UltraShareForegroundService.state.value
+        val secret = current.pairingSecret.takeIf(UltraShareCore::isValidPairingSecret)
+            ?: service.pairingSecret.takeIf(UltraShareCore::isValidPairingSecret)
+            ?: return
+        if (!current.receiving && !service.receiving) return
+        if (!service.controlChannelReady) return
+
+        val ssid = wifiDirectGroupSsid ?: service.hotspotSsid
+        val password = wifiDirectGroupPassword ?: service.hotspotPassword
+        val ownerAddress = wifiDirectOwnerAddress ?: "192.168.49.1"
+        val hosts = (
+            current.localAddresses +
+                service.localAddresses +
+                listOfNotNull(current.wifiDirectLocalAddress, ownerAddress)
+            ).asSequence()
+            .map(String::trim)
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
+            .distinct()
+            .take(8)
+            .toList()
+        if (hosts.isEmpty()) return
+
+        val invitationId = current.invitationId.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }
+        val payload = runCatching {
+            UltraShareQrCode.createUnifiedReceiverPayload(
+                hosts = hosts,
+                pairingSecret = secret,
+                ssid = ssid,
+                wifiPassword = password,
+                invitationId = invitationId
+            )
+        }.getOrElse { failure ->
+            UltraShareDiagnostics.failure("UNIFIED_QR_CREATE", failure)
+            return
+        }
+        latchReceiverQrPayload(payload)
+    }
+
     fun advertiseCurrentWifiDirectInvitation() {
         if (_state.value.hotspotActive || _state.value.hotspotStarting) {
             disableWifiDirectInvitation()
@@ -1315,6 +1377,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                 ?: java.util.UUID.randomUUID().toString().replace("-", "")
         }
         invitationPreferences.edit().putString("active_invitation_id", invitationId).apply()
+        _state.value = _state.value.copy(invitationId = invitationId)
         val session = runCatching { ensureWifiDirectSession() }.getOrElse { failure ->
             UltraShareDiagnostics.failure("WIFI_DIRECT_SESSION_INITIALIZATION", failure)
             if (wifiDirectPrimaryAttempt && _state.value.receiving) {
@@ -1343,12 +1406,15 @@ private fun forgetApprovedSenderTarget(host: String) {
             if (wifiDirectSession !== session || !_state.value.receiving) return@stopInvitationDiscoveryChecked
             session.createGroup {
                 if (wifiDirectSession !== session || !_state.value.receiving) return@createGroup
+                // Group creation is sufficient to publish the credentials-based QR.
+                // DNS-SD is an optional fallback and must never gate the QR display.
+                publishUnifiedReceiverQrIfReady()
                 session.advertiseInvitation(invitationId) {
                     UltraShareForegroundService.refreshLocalAddresses(context)
                     _state.value = _state.value.copy(
                         invitationId = invitationId,
                         error = null,
-                        status = "مجموعة Wi-Fi Direct جاهزة ودعوة QR منشورة؛ يمكن للهاتف الآخر الانضمام مباشرة."
+                        status = "مجموعة Wi-Fi Direct جاهزة؛ رمز QR الموحد متاح للانضمام المباشر."
                     )
                 }
             }
