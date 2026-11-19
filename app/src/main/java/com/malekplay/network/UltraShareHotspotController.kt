@@ -43,8 +43,9 @@ internal class UltraShareHotspotController(
         isStarting = true
         val nextCallback = object : WifiManager.LocalOnlyHotspotCallback() {
             override fun onStarted(nextReservation: WifiManager.LocalOnlyHotspotReservation) {
+                val callbackInstance = this
                 scope.launch(Dispatchers.IO) {
-                    if (callback !== this@object) {
+                    if (callback !== callbackInstance) {
                         runCatching { nextReservation.close() }
                         return@launch
                     }
