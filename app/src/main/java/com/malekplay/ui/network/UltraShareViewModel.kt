@@ -913,7 +913,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             return true
         }
         UltraShareDiagnostics.event("PAIRING", "DIRECT_WIFI_JOIN_FAILED_FALLING_BACK_TO_DNSSD")
-        val activeNetworkCallback = hotspotNetworkCallback
+        val activeNetworkCallback = hotspotNetworkCallback ?: retainedHotspotNetworkCallback
         activeNetworkCallback?.let { callback ->
             val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE)
                 as? android.net.ConnectivityManager
