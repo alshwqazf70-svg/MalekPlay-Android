@@ -2,9 +2,7 @@ package io.github.peerless2012.ass.media.render
 
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.common.Format
 import androidx.media3.exoplayer.NoSampleRenderer
-import androidx.media3.exoplayer.source.MediaSource
 import io.github.peerless2012.ass.media.AssHandler
 
 /**
