@@ -53,6 +53,7 @@ import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.components.EmptyState
 import com.malekplay.ui.components.MediaThumbnail
 import com.malekplay.ui.components.MediaDeleteButton
+import com.malekplay.ui.components.MediaBulkDeleteBar
 
 @Composable
 fun LocalFolderScreen(
@@ -129,6 +130,13 @@ fun LocalFolderScreen(
                     androidx.compose.material3.TextButton(onClick = { onSendMedia(items.filter { it.media.uri in selectedUris }.map { it.media }) }) { Text("إرسال المحدد") }
                 }
             }
+        }
+        if (selectionMode) {
+            MediaBulkDeleteBar(
+                mediaItems = items.filter { it.media.uri in selectedUris }.map { it.media },
+                onDeleted = viewModel::refresh,
+                onClearSelection = { selectedUris.clear() }
+            )
         }
         if (items.isEmpty()) {
             EmptyState(
