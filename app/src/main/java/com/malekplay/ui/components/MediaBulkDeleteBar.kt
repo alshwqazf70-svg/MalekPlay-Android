@@ -53,13 +53,20 @@ fun MediaBulkDeleteBar(
     val resolver = context.contentResolver
     val scope = rememberCoroutineScope()
     var showConfirmation by remember { mutableStateOf(false) }
+    var platformDeleteApproved by remember { mutableStateOf(false) }
     var deleteLegacyBatch: () -> Unit = {}
 
     val approvalLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            deleteLegacyBatch()
+            if (platformDeleteApproved) {
+                platformDeleteApproved = false
+                onClearSelection()
+                onDeleted()
+            } else {
+                deleteLegacyBatch()
+            }
         } else {
             Toast.makeText(context, "لم تتم الموافقة على حذف جميع الملفات", Toast.LENGTH_LONG).show()
         }
@@ -151,6 +158,7 @@ fun MediaBulkDeleteBar(
                     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         try {
                             val request = MediaStore.createDeleteRequest(resolver, uris)
+                            platformDeleteApproved = true
                             approvalLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
                         } catch (error: Exception) {
                             Toast.makeText(context, error.localizedMessage ?: "تعذر طلب إذن الحذف", Toast.LENGTH_LONG).show()
