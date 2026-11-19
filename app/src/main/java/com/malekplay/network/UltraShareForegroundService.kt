@@ -802,6 +802,7 @@ class UltraShareForegroundService : Service() {
         }
         sendJobsByPeer.values.toSet().forEach { it.cancel() }
         sendJobsByPeer.clear()
+        removePersistedLegacyWifiNetwork()
         receiveJob?.cancel()
         batchReceiveJob?.cancel()
         advertisementJob?.cancel()
