@@ -139,9 +139,6 @@ class UltraShareForegroundService : Service() {
     private var advertisementJob: Job? = null
     @Volatile private var controlJob: Job? = null
     @Volatile private var pendingConnectionDecision: CompletableDeferred<UltraShareControlChannel.Decision>? = null
-    // Serialize approval prompts, not incoming sockets: concurrent peers wait in order
-    // instead of having every request after the first one rejected.
-    private val pendingConnectionMutex = kotlinx.coroutines.sync.Mutex()
     private val hotspotController by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         UltraShareHotspotController(this, serviceScope)
     }
@@ -222,10 +219,11 @@ class UltraShareForegroundService : Service() {
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
-                closeMeshRoom()
-                (currentState().activePeers.map { it.host } +
-                    approvedSendTargets().map { it.host }).distinct().forEach { host ->
-                    disconnectApprovedPeer(host)
+                val hostsToDisconnect = (currentState().activePeers.map { it.host } +
+                    approvedSendTargets().map { it.host }).distinct()
+                serviceScope.launch(Dispatchers.IO) {
+                    closeMeshRoom()
+                    hostsToDisconnect.forEach(::disconnectApprovedPeer)
                 }
                 stopLocalHotspot()
                 updateState { current -> current.copy(
@@ -276,8 +274,11 @@ class UltraShareForegroundService : Service() {
                 advertisementJob?.cancel()
                 controlJob?.cancel()
                 pendingConnectionDecision?.cancel()
-                (currentState().activePeers.map { it.host } +
-                    approvedSendTargets().map { it.host }).distinct().forEach(::disconnectApprovedPeer)
+                val hostsToDisconnect = (currentState().activePeers.map { it.host } +
+                    approvedSendTargets().map { it.host }).distinct()
+                serviceScope.launch(Dispatchers.IO) {
+                    hostsToDisconnect.forEach(::disconnectApprovedPeer)
+                }
                 stopLocalHotspot()
                 if (sendJob == null && receiveJob == null && batchReceiveJob == null) finishService()
                 return START_NOT_STICKY
