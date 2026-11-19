@@ -479,8 +479,9 @@ fun UltraShareExperienceScreen(
 
         val hasWifiCredentials = !pairing.hotspotSsid.isNullOrBlank() &&
             !pairing.hotspotPassword.isNullOrBlank()
-        val needsRuntimePermission = pairing.invitationId?.isNotBlank() == true ||
-            (hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+        val needsRuntimePermission =
+            (!hasWifiCredentials && pairing.invitationId?.isNotBlank() == true) ||
+                (hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
         if (needsRuntimePermission) {
             val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
             val missing = required.filter {
