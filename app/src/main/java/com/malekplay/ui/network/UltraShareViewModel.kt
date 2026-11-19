@@ -2116,6 +2116,12 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun send(uri: Uri, host: String, secret: String) {
         UltraShareDiagnostics.event("TRANSFER", "SEND_REQUESTED", mapOf("host" to host.trim()))
+        if (UltraShareForegroundService.isSendingToPeer(host.trim())) {
+            _state.value = _state.value.copy(
+                error = "هناك إرسال جارٍ إلى هذا الجهاز بالفعل. اختر جهازاً آخر لمتابعة الإرسال بالتوازي."
+            )
+            return
+        }
         runCatching {
             UltraShareForegroundService.startSending(context, uri, host, secret)
             _state.value = _state.value.copy(
@@ -2144,8 +2150,11 @@ private fun forgetApprovedSenderTarget(host: String) {
             "BATCH_SEND_REQUESTED",
             mapOf("host" to resolvedHost, "fileCount" to uris.size, "requestedHostPresent" to requestedHost.isNotBlank())
         )
-        val target = UltraShareForegroundService.approvedSendTarget(resolvedHost)
-            ?: approvedTargets.firstOrNull()
+        val target = if (resolvedHost.isNotBlank()) {
+            UltraShareForegroundService.approvedSendTarget(resolvedHost)
+        } else {
+            approvedTargets.singleOrNull()
+        }
         if (uris.isEmpty()) return false
         if (target == null) {
             _state.value = _state.value.copy(
