@@ -1300,28 +1300,27 @@ private fun defaultPort(protocol: NetworkProtocol): Int = when (protocol) {
 }
 
 /** Normalize a remote directory path without allowing traversal above its root. */
-private fun normalizeBrowsePath(path: String): String {
-    val segments = ArrayDeque<String>()
+private fun normalizeBrowsePath(path: String): String? {
+    val segments = mutableListOf<String>()
     path.split('/').forEach { segment ->
         when {
             segment.isBlank() || segment == "." -> Unit
-            segment == ".." -> if (segments.isNotEmpty()) segments.removeLast()
-            '\\' in segment -> throw IllegalArgumentException("مسار المجلد يحتوي على فاصل غير صالح")
-            else -> segments.addLast(segment)
+            segment == ".." || '\\' in segment -> return null
+            else -> segments += segment
         }
     }
     return if (segments.isEmpty()) "/" else "/" + segments.joinToString("/")
 }
 
 private fun isStrictlyDeeperThanRoot(path: String, rootPath: String): Boolean {
-    val root = normalizeBrowsePath(rootPath)
-    val current = normalizeBrowsePath(path)
+    val root = normalizeBrowsePath(rootPath) ?: return false
+    val current = normalizeBrowsePath(path) ?: return false
     return current != root && (root == "/" || current.startsWith("$root/"))
 }
 
 private fun parentPath(path: String, rootPath: String): String {
-    val root = normalizeBrowsePath(rootPath)
-    val current = normalizeBrowsePath(path)
+    val root = normalizeBrowsePath(rootPath) ?: return "/"
+    val current = normalizeBrowsePath(path) ?: return root
     if (current == root || (root != "/" && !current.startsWith("$root/"))) return root
     val parent = current.substringBeforeLast('/').ifBlank { "/" }
     return if (parent == root || parent.startsWith("$root/") || root == "/") parent else root
