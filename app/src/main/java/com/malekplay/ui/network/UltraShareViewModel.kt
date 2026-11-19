@@ -913,7 +913,34 @@ private fun forgetApprovedSenderTarget(host: String) {
             return true
         }
         UltraShareDiagnostics.event("PAIRING", "DIRECT_WIFI_JOIN_FAILED_FALLING_BACK_TO_DNSSD")
-        joinWifiDirectInvitation(invitationId, pairing.pairingSecret, pairing.hosts)
+        hotspotNetworkCallback?.let { callback ->
+            val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as? android.net.ConnectivityManager
+            runCatching { connectivity?.unregisterNetworkCallback(callback) }
+        }
+        hotspotNetworkCallback = null
+        hotspotNetworkPaired = false
+        retainedHotspotNetworkCallback?.let { retained ->
+            if (retained === hotspotNetworkCallback) retainedHotspotNetworkCallback = null
+        }
+        if (controlPairingInProgress) {
+            viewModelScope.launch {
+                repeat(40) {
+                    if (!controlPairingInProgress) return@repeat
+                    delay(50L)
+                }
+                if (!controlPairingInProgress) {
+                    joinWifiDirectInvitation(invitationId, pairing.pairingSecret, pairing.hosts)
+                } else {
+                    _state.value = _state.value.copy(
+                        requestingConnection = false,
+                        error = "$reason تعذر إغلاق محاولة الاقتران السابقة؛ أعد المحاولة."
+                    )
+                }
+            }
+        } else {
+            joinWifiDirectInvitation(invitationId, pairing.pairingSecret, pairing.hosts)
+        }
         return true
     }
 
