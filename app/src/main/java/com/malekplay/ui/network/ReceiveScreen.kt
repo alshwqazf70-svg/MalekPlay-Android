@@ -48,6 +48,8 @@ fun ReceiveScreen(
     onStartHotspot: () -> Unit,
     onStopHotspot: () -> Unit,
     onToggleReceiving: () -> Unit,
+    onOpenTransfers: () -> Unit,
+    onSendToGroup: () -> Unit,
     onOpenReceived: (Uri, String) -> Unit,
     onExportReceived: (String) -> Unit
 ) {
@@ -64,14 +66,21 @@ fun ReceiveScreen(
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center
         )
-        if (state.receiving) {
-            if (state.activePeers.isNotEmpty()) {
-                val connectedNames = state.activePeers.joinToString("، ") { it.name }
-                ShareInfoCard(
-                    title = "تم الاتصال بنجاح",
-                    body = "متصل الآن مع: $connectedNames\nيمكن للأجهزة الأخرى مسح رمز المجموعة للانضمام أيضاً."
-                )
+        if (state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty()) {
+            val connectedNames = state.activePeers.map { it.name } +
+                state.approvedSenderPeerHosts.filterNot { peerHost -> state.activePeers.any { it.host == peerHost } }
+            ShareInfoCard(
+                title = "تم الاتصال بنجاح",
+                body = "متصل الآن مع: ${connectedNames.joinToString("، ")}\nيمكنك الإرسال والاستقبال مع الأجهزة المتصلة."
+            )
+            Button(onClick = onOpenTransfers, modifier = Modifier.fillMaxWidth()) {
+                Text("فتح غرفة النقل")
             }
+            OutlinedButton(onClick = onSendToGroup, modifier = Modifier.fillMaxWidth()) {
+                Text("إرسال ملفات لهذه المجموعة")
+            }
+        }
+        if (state.receiving) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
