@@ -786,6 +786,7 @@ class UltraShareForegroundService : Service() {
             cleanupScope.cancel()
         }
         sendJobsByPeer.values.toSet().forEach { it.cancel() }
+        sendJobsByPeer.clear()
         receiveJob?.cancel()
         batchReceiveJob?.cancel()
         advertisementJob?.cancel()
