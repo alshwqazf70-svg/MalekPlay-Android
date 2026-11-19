@@ -19,13 +19,8 @@ class AssRenderer(private val assHandler: AssHandler): NoSampleRenderer() {
 
     private var streamOffsetUs = 0L
 
-    override fun onStreamChanged(
-        formats: Array<out Format>,
-        startPositionUs: Long,
-        offsetUs: Long,
-        mediaPeriodId: MediaSource.MediaPeriodId
-    ) {
-        super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId)
+    override fun onRendererOffsetChanged(offsetUs: Long) {
+        super.onRendererOffsetChanged(offsetUs)
         streamOffsetUs = offsetUs
     }
 
