@@ -19,29 +19,29 @@ internal class UltraShareTransferLocks(context: Context) {
 
     fun beginTransfer(isReceiving: Boolean) {
         synchronized(guard) {
-        if (isReceiving) receivingCount++ else sending = true
-        runCatching {
-            if (wifiLock?.isHeld != true) {
-                val manager = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                wifiLock = manager.createWifiLock(
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) WifiManager.WIFI_MODE_FULL_LOW_LATENCY
-                    else WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-                    "MalekPlayer:UltraShare"
-                ).apply {
-                    setReferenceCounted(false)
-                    acquire()
+            if (isReceiving) receivingCount++ else sending = true
+            runCatching {
+                if (wifiLock?.isHeld != true) {
+                    val manager = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                    wifiLock = manager.createWifiLock(
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                        else WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                        "MalekPlayer:UltraShare"
+                    ).apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
                 }
             }
-        }
-        runCatching {
-            if (wakeLock?.isHeld != true) {
-                val manager = appContext.getSystemService(Context.POWER_SERVICE) as PowerManager
-                wakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MalekPlayer:UltraShare").apply {
-                    setReferenceCounted(false)
-                    acquire(TRANSFER_LOCK_TIMEOUT_MS)
+            runCatching {
+                if (wakeLock?.isHeld != true) {
+                    val manager = appContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+                    wakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MalekPlayer:UltraShare").apply {
+                        setReferenceCounted(false)
+                        acquire(TRANSFER_LOCK_TIMEOUT_MS)
+                    }
                 }
             }
-        }
         }
     }
 
