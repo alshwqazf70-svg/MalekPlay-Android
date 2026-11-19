@@ -35,7 +35,9 @@ class AssHandler(
 
     /** The ASS instance used for creating tracks and renderers. This is lazy to avoid loading
      * libass if the played media does not have ASS tracks. */
-    val ass by lazy { Ass() }
+    private var assInstance: Ass? = null
+    private val ass: Ass
+        get() = assInstance ?: Ass().also { assInstance = it }
 
     /** The current ASS renderer. It's created as soon as a ASS track is detected. */
     var render: AssRender? = null
@@ -94,12 +96,14 @@ class AssHandler(
 
     /** The playback control thread handler. */
     private lateinit var handler: Handler
+    private var attachedPlayer: ExoPlayer? = null
 
     /**
      * Initializes the handler with the provided ExoPlayer instance.
      * @param player The ExoPlayer instance to attach to.
      */
     fun init(player: ExoPlayer) {
+        attachedPlayer = player
         player.addListener(this)
         handler = Handler(player.applicationLooper)
         if (renderType == AssRenderType.EFFECTS_CANVAS || renderType == AssRenderType.EFFECTS_OPEN_GL) {
@@ -114,15 +118,71 @@ class AssHandler(
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         super.onMediaItemTransition(mediaItem, reason)
         Log.i("AssHandler", "onMediaItemTransition: item = ${mediaItem}, reason = $reason")
-        render = null
-        track = null
-        availableTracks.clear()
-        pendingFonts.clear()
+        overlayManager?.disable()
+        renderCallback?.invoke(null)
+        releaseMediaResources(closeAssInstance = true)
         videoSize = Size.ZERO
         videoTime = -1
         videoFrameIndex = 0
+    }
+
+    /**
+     * Releases native libass objects owned by this handler. Called by PlaybackService
+     * before the player is destroyed, and between playlist items to discard embedded fonts.
+     */
+    fun release() {
+        attachedPlayer?.removeListener(this)
+        attachedPlayer = null
+        if (::handler.isInitialized) handler.removeCallbacksAndMessages(null)
         overlayManager?.disable()
+        overlayManager = null
+        releaseMediaResources(closeAssInstance = true)
         renderCallback?.invoke(null)
+        renderCallback = null
+        videoTimeCallback = null
+    }
+
+    /**
+     * ass-kt 0.4.0 wraps native libass handles. Resolve the library's public no-arg
+     * cleanup entry point without binding this module to one wrapper naming variant.
+     * A resource is cleaned at most once, and failures never prevent other handles closing.
+     */
+    private fun closeNativeResource(resource: Any?) {
+        if (resource == null) return
+        val cleanup = listOf("close", "release", "destroy", "free", "delete")
+            .firstNotNullOfOrNull { name ->
+                resource.javaClass.methods.firstOrNull {
+                    it.name == name && it.parameterCount == 0
+                } ?: resource.javaClass.declaredMethods.firstOrNull {
+                    it.name == name && it.parameterCount == 0
+                }
+            }
+        if (cleanup == null) {
+            Log.w("AssHandler", "No native cleanup method exposed by ${resource.javaClass.name}")
+            return
+        }
+        runCatching {
+            cleanup.isAccessible = true
+            cleanup.invoke(resource)
+        }.onFailure { error ->
+            Log.w("AssHandler", "Native subtitle resource cleanup failed", error)
+        }
+    }
+
+    private fun releaseMediaResources(closeAssInstance: Boolean) {
+        // The overlay is detached before native handles are released.
+        availableTracks.values.toSet().forEach(::closeNativeResource)
+        closeNativeResource(track)
+        closeNativeResource(render)
+        availableTracks.clear()
+        track = null
+        render = null
+        format = null
+        pendingFonts.clear()
+        if (closeAssInstance) {
+            closeNativeResource(assInstance)
+            assInstance = null
+        }
     }
 
     /**
@@ -258,7 +318,8 @@ class AssHandler(
             val header = AssHeaderParser.parse(format, renderType != AssRenderType.CUES)
             track.readBuffer(header)
         }
-        availableTracks[format.id!!] = track
+        val trackId = format.id?.takeIf { it.isNotBlank() } ?: "ass-track-${availableTracks.size}"
+        availableTracks[trackId] = track
 
         updateTrack()
 
