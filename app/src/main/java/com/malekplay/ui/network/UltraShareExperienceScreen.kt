@@ -1311,12 +1311,6 @@ fun UltraShareExperienceScreen(
                 if (!sessionReady) {
                     secret = ""
                 }
-            },
-            onWifiDirectPeerSelected = { peer ->
-                showDevicePicker = false
-                page = UltraSharePage.SEND
-                secret = ""
-                viewModel.connectWifiDirectPeer(peer)
             }
         )
     }
