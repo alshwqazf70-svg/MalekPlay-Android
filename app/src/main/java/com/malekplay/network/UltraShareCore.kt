@@ -146,14 +146,18 @@ object UltraShareCore {
             mac.update(blockInput)
             mac.doFinal(u, 0)
             System.arraycopy(u, 0, derived, 0, u.size)
-            repeat(PIN_KDF_ITERATIONS - 1) {
+            var iteration = 1
+            while (iteration < PIN_KDF_ITERATIONS) {
                 mac.update(u)
                 mac.doFinal(next, 0)
-                for (index in derived.indices) {
+                var index = 0
+                while (index < derived.size) {
                     derived[index] = (derived[index].toInt() xor next[index].toInt()).toByte()
+                    index++
                 }
                 System.arraycopy(next, 0, u, 0, u.size)
                 next.fill(0)
+                iteration++
             }
             return derived.copyOf(SECRET_BYTES)
         } finally {

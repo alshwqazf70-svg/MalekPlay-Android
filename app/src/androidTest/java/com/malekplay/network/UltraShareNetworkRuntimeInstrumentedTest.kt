@@ -68,20 +68,26 @@ class UltraShareNetworkRuntimeInstrumentedTest {
                     val peerWriterFailure = AtomicReference<Throwable?>()
                     val writer = Thread {
                         try { client.getOutputStream().write(outbound); client.getOutputStream().flush() }
-                        catch (failure: Throwable) { writerFailure.set(failure) }
+                        catch (failure: Throwable) { writerFailure.set(failure); runCatching { client.shutdownOutput() } }
                     }
                     val peerWriter = Thread {
                         try { accepted.getOutputStream().write(inbound); accepted.getOutputStream().flush() }
-                        catch (failure: Throwable) { peerWriterFailure.set(failure) }
+                        catch (failure: Throwable) { peerWriterFailure.set(failure); runCatching { accepted.shutdownOutput() } }
                     }
                     writer.start(); peerWriter.start()
-                    val receivedByPeer = ByteArray(outbound.size).also { DataInputStream(accepted.getInputStream()).readFully(it) }
-                    val receivedByClient = ByteArray(inbound.size).also { DataInputStream(client.getInputStream()).readFully(it) }
+                    val peerRead = runCatching {
+                        ByteArray(outbound.size).also { DataInputStream(accepted.getInputStream()).readFully(it) }
+                    }
+                    val clientRead = runCatching {
+                        ByteArray(inbound.size).also { DataInputStream(client.getInputStream()).readFully(it) }
+                    }
                     writer.join(8_000); peerWriter.join(8_000)
                     assertTrue("Local sender thread did not finish", !writer.isAlive)
                     assertTrue("Local receiver thread did not finish", !peerWriter.isAlive)
                     writerFailure.get()?.let { throw AssertionError("Local sender failed", it) }
                     peerWriterFailure.get()?.let { throw AssertionError("Local peer writer failed", it) }
+                    val receivedByPeer = peerRead.getOrElse { throw AssertionError("Peer payload read failed", it) }
+                    val receivedByClient = clientRead.getOrElse { throw AssertionError("Client payload read failed", it) }
                     assertArrayEquals(outbound, receivedByPeer)
                     assertArrayEquals(inbound, receivedByClient)
                 }
