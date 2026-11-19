@@ -152,13 +152,13 @@ class UltraShareViewModel @Inject constructor(
     @Volatile private var wifiDirectGroupSsid: String? = null
     @Volatile private var wifiDirectGroupPassword: String? = null
     @Volatile private var wifiDirectOwnerAddress: String? = null
-    private var legacyWifiNetworkId: Int? = null
     private var wifiDirectCleanupInProgress = false
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
         @Volatile private var retainedHotspotNetworkCallback:
             android.net.ConnectivityManager.NetworkCallback? = null
         @Volatile private var retainedHotspotNetworkPaired: Boolean = false
+        @Volatile private var retainedLegacyWifiNetworkId: Int? = null
     }
 
     init {
@@ -777,6 +777,7 @@ private fun forgetApprovedSenderTarget(host: String) {
     fun disconnectPeer(host: String) {
         UltraShareForegroundService.disconnectApprovedPeer(host)
         forgetApprovedSenderTarget(host)
+        if (UltraShareForegroundService.approvedSendTargets().isEmpty()) releaseLegacyWifiNetwork()
         // This is an explicit user disconnect. Stop only an otherwise-idle sender
         // service; an active receiver remains available for other incoming peers.
         UltraShareForegroundService.stopIfUnpaired(context)
@@ -794,6 +795,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         // Forget is equivalent to closing the current temporary connection.
         UltraShareForegroundService.disconnectApprovedPeer(host)
         forgetApprovedSenderTarget(host)
+        if (UltraShareForegroundService.approvedSendTargets().isEmpty()) releaseLegacyWifiNetwork()
         UltraShareForegroundService.stopIfUnpaired(context)
     }
 
@@ -802,6 +804,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         val currentHost = _state.value.approvedPeerHost ?: return
         UltraShareForegroundService.disconnectApprovedPeer(currentHost)
         forgetApprovedSenderTarget(currentHost)
+        if (UltraShareForegroundService.approvedSendTargets().isEmpty()) releaseLegacyWifiNetwork()
         UltraShareForegroundService.stopIfUnpaired(context)
     }
 
@@ -837,6 +840,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         // arrive; otherwise an old discovery error can accidentally start hotspot
         // fallback while the user is explicitly stopping reception.
         UltraShareForegroundService.stopReceiving(context)
+        if (UltraShareForegroundService.approvedSendTargets().isEmpty()) releaseLegacyWifiNetwork()
         clearStoredInvitation()
         _state.value = _state.value.copy(
             receiving = false,
@@ -935,10 +939,10 @@ private fun forgetApprovedSenderTarget(host: String) {
                 wifi.removeNetwork(networkId)
                 error("تعذر تفعيل شبكة Wi-Fi الجديدة.")
             }
-            legacyWifiNetworkId?.takeIf { it != networkId }?.let { oldId ->
+            retainedLegacyWifiNetworkId?.takeIf { it != networkId }?.let { oldId ->
                 runCatching { wifi.removeNetwork(oldId) }
             }
-            legacyWifiNetworkId = networkId
+            retainedLegacyWifiNetworkId = networkId
             _state.value = _state.value.copy(
                 requestingConnection = true,
                 error = null,
@@ -977,8 +981,8 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     @Suppress("DEPRECATION")
     private fun releaseLegacyWifiNetwork() {
-        val networkId = legacyWifiNetworkId ?: return
-        legacyWifiNetworkId = null
+        val networkId = retainedLegacyWifiNetworkId ?: return
+        retainedLegacyWifiNetworkId = null
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE)
             as? android.net.wifi.WifiManager ?: return
         runCatching {
@@ -2180,7 +2184,9 @@ private fun forgetApprovedSenderTarget(host: String) {
         super.onCleared()
     }
     override fun onCleared() {
-        releaseLegacyWifiNetwork()
+        // A navigation-scoped ViewModel may be recreated while the foreground
+        // service still owns active peer sessions. Keep the legacy Wi-Fi profile
+        // until an explicit disconnect/stop operation releases it.
         super.onCleared()
     }
 
