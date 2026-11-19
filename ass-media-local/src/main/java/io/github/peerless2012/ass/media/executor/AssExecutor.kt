@@ -19,40 +19,28 @@ class AssExecutor(private val render: AssRender) {
 
     @Volatile private var executorBusy = false
 
+    private val submitLock = Any()
+
     private val task = AssTask(render)
 
     public fun renderFrame(presentationTimeUs: Long, type: AssTexType): AssFrame? {
-        var assFrame: AssFrame? = null
-        if (executorBusy) {
-            // render thread is busy, keep last content
-            assFrame = assFrameNotChange
-        } else {
-            // submit render task
-            val future = executor.submit<AssFrame?> {
-                executorBusy = true
+        val future = synchronized(submitLock) {
+            if (executorBusy) return lastFrame ?: assFrameNotChange
+            executorBusy = true
+            executor.submit<AssFrame?> {
                 try {
                     render.renderFrame(presentationTimeUs / 1000, type).also { lastFrame = it }
                 } finally {
                     executorBusy = false
                 }
             }
-            try {
-                assFrame = if (lastFrame != null) {
-                    lastFrame
-                } else {
-                    future.get(8, TimeUnit.MILLISECONDS)
-                }
-            } catch (exception: Exception) {
-                // task timeout
-                assFrame = lastFrame
-                if (assFrame == null) {
-                    // keep last content
-                    assFrame = assFrameNotChange
-                }
-            }
         }
-        lastFrame = null
-        return assFrame
+        return try {
+            future.get(8, TimeUnit.MILLISECONDS) ?: lastFrame
+        } catch (exception: Exception) {
+            if (exception is InterruptedException) Thread.currentThread().interrupt()
+            lastFrame ?: assFrameNotChange
+        }
     }
 
     public fun asyncRenderFrame(presentationTimeUs: Long, type: AssTexType, callback: (AssFrame?) -> Unit) {
@@ -69,7 +57,7 @@ class AssExecutor(private val render: AssRender) {
     }
 
     public fun shutdown() {
-        executor.shutdown()
+        executor.shutdownNow()
     }
 
 }
