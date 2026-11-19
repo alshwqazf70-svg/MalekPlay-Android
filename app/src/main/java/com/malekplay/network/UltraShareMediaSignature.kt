@@ -75,7 +75,7 @@ internal object UltraShareMediaSignature {
         }
         if (declaredFamily !in setOf(family, "application")) return false
         if (declaredFamily == "application" &&
-            mimeType.lowercase() !in setOf("application/octet-stream", "application/unknown")) return false
+            mimeType.lowercase(Locale.ROOT) !in setOf("application/octet-stream", "application/unknown")) return false
         // A zero-byte transfer is not a valid media container, even when its
         // extension and declared MIME type look plausible.
         if (!file.isFile || file.length() == 0L) return false

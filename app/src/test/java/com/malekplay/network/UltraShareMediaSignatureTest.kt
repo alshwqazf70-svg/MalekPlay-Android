@@ -36,6 +36,21 @@ class UltraShareMediaSignatureTest {
         } finally { file.delete() }
     }
 
+
+    @Test fun mediaMimeValidationIsIndependentOfDeviceLocale() {
+        val previousLocale = java.util.Locale.getDefault()
+        val mp4 = File.createTempFile("ultrashare-locale", ".tmp")
+        try {
+            mp4.writeBytes(byteArrayOf(0, 0, 0, 24) + "ftypisom".toByteArray() + ByteArray(8))
+            java.util.Locale.setDefault(java.util.Locale("tr", "TR"))
+            assertTrue(UltraShareMediaSignature.isValid(mp4, "clip.mp4", "video/mp4"))
+            assertTrue(UltraShareMediaSignature.isValid(mp4, "clip.mp4", "application/octet-stream"))
+        } finally {
+            java.util.Locale.setDefault(previousLocale)
+            mp4.delete()
+        }
+    }
+
     @Test fun rejectsUnknownAndEmptySignatures() {
         val file = File.createTempFile("ultrashare", ".mp4")
         try {
