@@ -1713,6 +1713,10 @@ private fun forgetApprovedSenderTarget(host: String) {
 
         val ssid = wifiDirectGroupSsid ?: service.hotspotSsid
         val password = wifiDirectGroupPassword ?: service.hotspotPassword
+        val hasLanRoute = (current.localAddresses + service.localAddresses)
+            .any { UltraShareCore.isValidPrivateLanHost(it) }
+        val dnsSdReady = dnsSdQrFallbackScheduledFor == current.invitationId
+        if ((ssid.isNullOrBlank() || password.isNullOrBlank()) && !hasLanRoute && !dnsSdReady) return
         val ownerAddress = wifiDirectOwnerAddress
             ?: "192.168.49.1".takeIf { wifiDirectGroupSsid != null }
         // Keep the P2P owner address first; otherwise a busy multi-interface
