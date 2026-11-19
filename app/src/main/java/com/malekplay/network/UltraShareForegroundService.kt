@@ -960,7 +960,15 @@ class UltraShareForegroundService : Service() {
     private fun finishService() {
         // A completed file/queue keeps the temporary room available briefly. An idle timer
         // closes all peer sessions and the room after five minutes without active transfer.
-        if (sendJob != null || receiveJob != null || batchReceiveJob != null || hotspotReservation != null || currentState().hotspotStarting) return
+        // A failed/closed data listener must never stop the independent MPC2 control
+        // listener while the receiver is still waiting for a peer to pair.
+        val receiverStillWaiting = currentState().receiving || controlJob?.isActive == true
+        if (sendJob != null || receiveJob != null || batchReceiveJob != null ||
+            hotspotReservation != null || currentState().hotspotStarting || receiverStillWaiting
+        ) {
+            if (receiverStillWaiting) startForegroundCompat()
+            return
+        }
 
         releaseTransferLocks()
         if (currentState().activePeers.isNotEmpty()) {
