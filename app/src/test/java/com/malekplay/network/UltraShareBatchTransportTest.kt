@@ -12,6 +12,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertTrue
@@ -30,7 +31,7 @@ class UltraShareBatchTransportTest {
         val bothStarted = CompletableDeferred<Unit>()
         val releaseTransfers = CompletableDeferred<Unit>()
 
-        val sending = kotlinx.coroutines.async {
+        val sending = async {
             UltraShareMultiRecipientCoordinator.execute(
                 targets = targets,
                 maxParallelPeers = 2
