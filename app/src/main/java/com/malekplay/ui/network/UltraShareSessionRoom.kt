@@ -57,7 +57,10 @@ fun UltraShareSessionRoom(
     selectedMediaCount: Int,
     onPauseSending: () -> Unit,
     onResumeSending: () -> Unit,
-    onCancelSending: () -> Unit
+    onCancelSending: () -> Unit,
+    onPickAndSendFiles: () -> Unit,
+    onShowGroupQr: () -> Unit,
+    onBackHome: () -> Unit
 ) {
     val isSendingRoom = activeMode == "send"
     // Receiver-side approvals live in activePeers; sender-side approvals are
@@ -90,7 +93,7 @@ fun UltraShareSessionRoom(
     val sendCompleted = !state.sending && state.queueTotal > 0 &&
         state.queueCompleted >= state.queueTotal && currentBatchEntries.size == state.queueTotal &&
         currentBatchEntries.all { it.status == UltraShareQueueStore.STATUS_COMPLETED }
-    val receiveCompleted = !isSendingRoom && state.receivedFile != null && state.receiveProgress == null &&
+    val receiveCompleted = state.receivedFile != null && state.receiveProgress == null &&
         (state.status?.contains("استلام") == true || state.status?.contains("استُلم") == true || state.status?.contains("اكتملت دفعة") == true)
     val status = when {
         state.sending -> if (activePeerCount > 1) "يتم إرسال الملفات إلى $activePeerCount أجهزة" else "يتم إرسال الملفات إلى الجهاز الآخر"
@@ -115,7 +118,6 @@ fun UltraShareSessionRoom(
     val senderName = if (isSendingRoom) localDeviceName else remoteName
     val remoteAddress = if (activePeerCount > 1) "جلسة متعددة الأجهزة" else activePeer?.host ?: senderPeerHost ?: state.approvedPeerHost ?: remoteHost
     val receiverName = if (isSendingRoom) remoteName else localDeviceName
-    val progress = if (isSendingRoom) state.sendProgress else state.receiveProgress
     val overallFraction = if (state.queueTotalBytes > 0L) {
         (state.queueTransferredBytes.toDouble() / state.queueTotalBytes.toDouble()).toFloat().coerceIn(0f, 1f)
     } else null
@@ -187,6 +189,14 @@ fun UltraShareSessionRoom(
                 )
             }
             Text(status, color = statusColor, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Button(onClick = onPickAndSendFiles, modifier = Modifier.weight(1f)) { Text("إرسال ملفات") }
+                OutlinedButton(onClick = onShowGroupQr, modifier = Modifier.weight(1f)) { Text("رمز المجموعة") }
+                OutlinedButton(onClick = onBackHome, modifier = Modifier.weight(1f)) { Text("الرئيسية") }
+            }
             if (isSendingRoom && (state.sending || sendingPaused)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -377,27 +387,27 @@ fun UltraShareSessionRoom(
             if (selectedMediaCount > 0 && isSendingRoom && !state.sending) {
                 Text("${selectedMediaCount} ملف جاهز للإرسال", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
             }
-            progress?.let { current ->
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(current.fileName, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)
-                        Text("${(current.fraction * 100).toInt()}%", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.ExtraBold)
-                    }
-                    LinearProgressIndicator(progress = { current.fraction.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                    Text(
-                        "${formatTransferBytes(current.transferredBytes)} / ${formatTransferBytes(current.totalBytes)} • ${formatTransferBytes(current.bytesPerSecond)}/s",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                    val remainingBytes = (current.totalBytes - current.transferredBytes).coerceAtLeast(0L)
-                    if (current.bytesPerSecond > 0L && remainingBytes > 0L) {
-                        Text(
-                            "الوقت المتبقي التقريبي: ${formatSessionDuration(remainingBytes / current.bytesPerSecond)}",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                }
+            state.sendProgress?.let { current ->
+                UltraShareDirectionProgress(
+                    title = "الإرسال إلى الأجهزة",
+                    fileName = current.fileName,
+                    fraction = current.fraction,
+                    transferredBytes = current.transferredBytes,
+                    totalBytes = current.totalBytes,
+                    bytesPerSecond = current.bytesPerSecond,
+                    tint = MalekPlayColors.PurpleBright
+                )
+            }
+            state.receiveProgress?.let { current ->
+                UltraShareDirectionProgress(
+                    title = "الاستقبال من الأجهزة",
+                    fileName = current.fileName,
+                    fraction = current.fraction,
+                    transferredBytes = current.transferredBytes,
+                    totalBytes = current.totalBytes,
+                    bytesPerSecond = current.bytesPerSecond,
+                    tint = Color(0xFF65D6A2)
+                )
             }
             if (overallFraction != null && isSendingRoom) {
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -501,7 +511,7 @@ fun UltraShareSessionRoom(
                     UltraShareQueueCount("فشل $failed", MaterialTheme.colorScheme.error, Modifier.weight(1f))
                 }
             }
-            if (sendCompleted && isSendingRoom) {
+            if (sendCompleted) {
                 UltraShareCompletionPanel(
                     title = "اكتمل إرسال الملفات",
                     subtitle = "اكتمل نقل ${state.queueCompleted} من ${state.queueTotal} عنصر بنجاح.",
@@ -517,6 +527,49 @@ fun UltraShareSessionRoom(
                         if (received.publishedUri != null) "حُفظ في التنزيلات / MalekPlay / Received" else "حُفظ داخل مساحة التطبيق"
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun UltraShareDirectionProgress(
+    title: String,
+    fileName: String,
+    fraction: Float,
+    transferredBytes: Long,
+    totalBytes: Long,
+    bytesPerSecond: Long,
+    tint: Color
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(title, color = tint, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(fileName, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)
+            Text("${(fraction * 100).toInt()}%", color = tint, fontWeight = FontWeight.ExtraBold)
+        }
+        LinearProgressIndicator(
+            progress = { fraction.coerceIn(0f, 1f) },
+            modifier = Modifier.fillMaxWidth(),
+            color = tint
+        )
+        Text(
+            "${formatTransferBytes(transferredBytes)} / ${formatTransferBytes(totalBytes)} • ${formatTransferBytes(bytesPerSecond)}/s",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall
+        )
+        val remainingBytes = (totalBytes - transferredBytes).coerceAtLeast(0L)
+        if (bytesPerSecond > 0L && remainingBytes > 0L) {
+            Text(
+                "الوقت المتبقي التقريبي: ${formatSessionDuration(remainingBytes / bytesPerSecond)}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall
+            )
         }
     }
 }
