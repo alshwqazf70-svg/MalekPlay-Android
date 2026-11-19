@@ -2,7 +2,9 @@ package io.github.peerless2012.ass.media.render
 
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.Format
 import androidx.media3.exoplayer.NoSampleRenderer
+import androidx.media3.exoplayer.source.MediaSource
 import io.github.peerless2012.ass.media.AssHandler
 
 /**
@@ -15,12 +17,24 @@ import io.github.peerless2012.ass.media.AssHandler
 @OptIn(UnstableApi::class)
 class AssRenderer(private val assHandler: AssHandler): NoSampleRenderer() {
 
+    private var streamOffsetUs = 0L
+
+    override fun onStreamChanged(
+        formats: Array<out Format>,
+        startPositionUs: Long,
+        offsetUs: Long,
+        mediaPeriodId: MediaSource.MediaPeriodId
+    ) {
+        super.onStreamChanged(formats, startPositionUs, offsetUs, mediaPeriodId)
+        streamOffsetUs = offsetUs
+    }
+
     override fun getName(): String {
         return "AssRenderer"
     }
 
     override fun render(positionUs: Long, elapsedRealtimeUs: Long) {
-        assHandler.videoTime = positionUs - 1000000000000L
+        assHandler.videoTime = positionUs - streamOffsetUs
     }
 
 }
