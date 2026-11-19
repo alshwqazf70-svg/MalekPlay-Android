@@ -19,6 +19,37 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class UltraShareBatchTransportTest {
+
+    @Test
+    fun multipleApprovedPeersCanSendAtTheSameTime() = runBlocking {
+        val targets = listOf(
+            UltraShareMultiRecipientCoordinator.Target("session-b", "192.168.1.20"),
+            UltraShareMultiRecipientCoordinator.Target("session-c", "192.168.1.30")
+        )
+        val entered = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        val bothStarted = CompletableDeferred<Unit>()
+        val releaseTransfers = CompletableDeferred<Unit>()
+
+        val sending = kotlinx.coroutines.async {
+            UltraShareMultiRecipientCoordinator.execute(
+                targets = targets,
+                maxParallelPeers = 2
+            ) { target ->
+                entered.add(target.sessionId)
+                if (entered.size == 2 && !bothStarted.isCompleted) bothStarted.complete(Unit)
+                withTimeout(2_000L) { releaseTransfers.await() }
+                target.sessionId
+            }
+        }
+
+        withTimeout(2_000L) { bothStarted.await() }
+        assertEquals(setOf("session-b", "session-c"), entered)
+        releaseTransfers.complete(Unit)
+        val results = withTimeout(2_000L) { sending.await() }
+        assertEquals(2, results.size)
+        assertTrue(results.all { it.status == UltraShareMultiRecipientCoordinator.Status.COMPLETED })
+    }
+
     @Test
     fun receiverScalesBoundedConcurrencyToTheAvailableAndroidHeap() {
         assertEquals(8, UltraShareBatchTransport.DEFAULT_MAX_PEERS)
