@@ -93,8 +93,7 @@ fun UltraShareSessionRoom(
     val sendCompleted = !state.sending && state.queueTotal > 0 &&
         state.queueCompleted >= state.queueTotal && currentBatchEntries.size == state.queueTotal &&
         currentBatchEntries.all { it.status == UltraShareQueueStore.STATUS_COMPLETED }
-    val receiveCompleted = state.receivedFile != null && state.receiveProgress == null &&
-        (state.status?.contains("استلام") == true || state.status?.contains("استُلم") == true || state.status?.contains("اكتملت دفعة") == true)
+    val receiveCompleted = state.receivedFile != null && state.receiveProgress == null
     val status = when {
         state.sending -> if (activePeerCount > 1) "يتم إرسال الملفات إلى $activePeerCount أجهزة" else "يتم إرسال الملفات إلى الجهاز الآخر"
         state.receiveProgress != null -> if (activePeerCount > 1) "يتم استقبال الملفات من $activePeerCount أجهزة" else "يتم استقبال الملفات من الجهاز الآخر"
