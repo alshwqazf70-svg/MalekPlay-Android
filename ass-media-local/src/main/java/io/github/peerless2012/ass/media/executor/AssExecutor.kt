@@ -19,15 +19,19 @@ class AssExecutor(private val render: AssRender) {
 
     @Volatile private var executorBusy = false
 
+    @Volatile private var released = false
+
     private val submitLock = Any()
 
     public fun renderFrame(presentationTimeUs: Long, type: AssTexType): AssFrame? {
+        if (released) return null
         val future = synchronized(submitLock) {
+            if (released) return null
             if (executorBusy) return lastFrame ?: assFrameNotChange
             executorBusy = true
             executor.submit<AssFrame?> {
                 try {
-                    render.renderFrame(presentationTimeUs / 1000, type).also { lastFrame = it }
+                    render.renderFrame(presentationTimeUs / 1000, type).also { if (!released) lastFrame = it }
                 } finally {
                     executorBusy = false
                 }
@@ -43,6 +47,10 @@ class AssExecutor(private val render: AssRender) {
 
     public fun asyncRenderFrame(presentationTimeUs: Long, type: AssTexType, callback: (AssFrame?) -> Unit) {
         synchronized(submitLock) {
+            if (released) {
+                callback.invoke(null)
+                return
+            }
             if (executorBusy) {
                 callback.invoke(lastFrame ?: assFrameNotChange)
                 return
@@ -51,7 +59,7 @@ class AssExecutor(private val render: AssRender) {
             try {
                 executor.execute {
                     val result = try {
-                        render.renderFrame(presentationTimeUs / 1000, type).also { lastFrame = it }
+                        render.renderFrame(presentationTimeUs / 1000, type).also { if (!released) lastFrame = it }
                     } catch (exception: Exception) {
                         lastFrame
                     } finally {
@@ -67,7 +75,12 @@ class AssExecutor(private val render: AssRender) {
     }
 
     public fun shutdown() {
-        executor.shutdownNow()
+        synchronized(submitLock) {
+            if (released) return
+            released = true
+            lastFrame = null
+            executor.shutdownNow()
+        }
     }
 
 }
