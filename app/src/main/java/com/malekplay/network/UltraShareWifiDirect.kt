@@ -1754,7 +1754,10 @@ object UltraShareWifiDirect {
                         connectionTimeout = null
                         if (shouldEmitWifiDirectConnected(wasConnected)) {
                             wasConnected = true
-                            onConnected(null, true)
+                            // On the group owner, Android also reports the P2P interface address.
+                            // Forward it so the receiver UI can show a real Wi-Fi Direct address
+                            // instead of waiting forever for a non-P2P WLAN address.
+                            onConnected(info.groupOwnerAddress?.hostAddress, true)
                         }
                     } else if (wasConnected) {
                         wasConnected = false
