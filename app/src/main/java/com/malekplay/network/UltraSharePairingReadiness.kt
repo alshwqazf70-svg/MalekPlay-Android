@@ -57,6 +57,8 @@ internal object UltraSharePairingReadiness {
         candidateSsid: String?,
         existingWifiPassword: String?,
         candidateWifiPassword: String?,
+        existingWifiSecurity: String?,
+        candidateWifiSecurity: String?,
         existingHosts: List<String>,
         candidateHosts: List<String>
     ): Boolean =
@@ -66,10 +68,10 @@ internal object UltraSharePairingReadiness {
             existingInvitationId == candidateInvitationId &&
             !existingPairingSecret.isNullOrBlank() &&
             existingPairingSecret == candidatePairingSecret &&
-            !existingSsid.isNullOrBlank() &&
             existingSsid == candidateSsid &&
-            !existingWifiPassword.isNullOrBlank() &&
             existingWifiPassword == candidateWifiPassword &&
+            existingWifiSecurity == candidateWifiSecurity &&
+            (existingSsid.isNullOrBlank() == existingWifiPassword.isNullOrBlank()) &&
             candidateHosts.size > existingHosts.size &&
             candidateHosts.containsAll(existingHosts)
 
