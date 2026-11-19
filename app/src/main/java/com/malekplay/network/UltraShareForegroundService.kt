@@ -1027,7 +1027,9 @@ class UltraShareForegroundService : Service() {
         val candidates = addresses.distinct().mapNotNull { host ->
             if (!UltraShareCore.isValidPrivateLanHost(host)) return@mapNotNull null
             UltraShareNegotiation.Candidate(
-                transport = UltraShareNegotiation.Transport.WLAN,
+                transport = if (UltraShareNetworkRouting.isWifiDirectGroupHost(host)) {
+                    UltraShareNegotiation.Transport.WIFI_DIRECT
+                } else UltraShareNegotiation.Transport.WLAN,
                 host = host,
                 port = port,
                 connected = true,
