@@ -101,13 +101,30 @@ fun MediaBulkDeleteBar(
                 } else {
                     Toast.makeText(context, "لم يُحذف أي ملف؛ ربما حُذفت الملفات مسبقاً", Toast.LENGTH_LONG).show()
                 }
-            } catch (security: RecoverableSecurityException) {
+            } catch (security: SecurityException) {
+                // RecoverableSecurityException was introduced in API 29.
+                // Keep the type reference behind an SDK guard for minSdk 23 devices.
                 if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-                    approvalLauncher.launch(
-                        IntentSenderRequest.Builder(security.userAction.actionIntent.intentSender).build()
-                    )
+                    val recoverable = security as? RecoverableSecurityException
+                    if (recoverable != null) {
+                        approvalLauncher.launch(
+                            IntentSenderRequest.Builder(
+                                recoverable.userAction.actionIntent.intentSender
+                            ).build()
+                        )
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "لا يملك التطبيق إذن حذف بعض الملفات",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 } else {
-                    Toast.makeText(context, "لا يملك التطبيق إذن حذف بعض الملفات", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        "لا يملك التطبيق إذن حذف بعض الملفات",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             } catch (error: Exception) {
                 Toast.makeText(
