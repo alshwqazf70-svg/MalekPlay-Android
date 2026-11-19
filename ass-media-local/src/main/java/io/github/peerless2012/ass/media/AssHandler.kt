@@ -54,7 +54,6 @@ class AssHandler(
 
     /** The available ASS tracks in the current media. */
     private val availableTracks = mutableMapOf<String, AssTrack>()
-    private var fallbackTrackId: String? = null
 
     /** Fonts encountered before any ASS track was created. Flushed in [createTrack]. */
     private val pendingFonts = mutableListOf<Pair<String, ByteArray>>()
@@ -158,7 +157,6 @@ class AssHandler(
         runCatching { render?.release() }
             .onFailure { Log.w("AssHandler", "Could not release native ASS renderer", it) }
         availableTracks.clear()
-        fallbackTrackId = null
         track = null
         render = null
         format = null
@@ -202,8 +200,8 @@ class AssHandler(
         val track = if (selectedId != null) {
             availableTracks[selectedId]
         } else {
-            fallbackTrackId?.let(availableTracks::get)
-                ?: availableTracks.values.singleOrNull()
+            // With no ID, select only when the association is unambiguous.
+            availableTracks.values.singleOrNull()
         }
         if (track == null || this.track == track) return
 
@@ -304,7 +302,6 @@ class AssHandler(
         }
         val declaredTrackId = format.id?.takeIf { it.isNotBlank() }
         val trackId = declaredTrackId ?: "ass-track-${availableTracks.size}"
-        if (declaredTrackId == null) fallbackTrackId = trackId
         availableTracks[trackId] = track
 
         updateTrack()
