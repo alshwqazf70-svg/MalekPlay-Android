@@ -54,19 +54,7 @@ def _uuid_bytes(value: str) -> bytes:
 
 
 def _safe_name(value: str) -> str:
-    leaf = value.replace("\\", "/").rsplit("/", 1)[-1]
-    cleaned = "".join(
-        ch for ch in leaf
-        if ord(ch) >= 32 and not 127 <= ord(ch) <= 159
-        and ch not in ':*?"<>|'
-        and __import__("unicodedata").category(ch) != "Cf"
-    ).strip().strip(".")
-    while cleaned and len(cleaned.encode("utf-8")) > MAX_NAME_BYTES:
-        cleaned = cleaned[:-1]
-    if not cleaned or cleaned in {".", ".."}:
-        raise ValueError("Invalid shared filename.")
-    return cleaned
-
+    return _sanitize_shared_name(value, "Invalid shared filename.")
 
 MEDIA_EXTENSIONS = {
     "mp4", "m4v", "mkv", "mov", "webm", "avi", "3gp", "3g2", "mpg", "mpeg",
@@ -633,10 +621,12 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
         send_key = derive_v2_key(pairing_key, challenge, "server-to-client")
         receive_sequence = 0
         send_sequence = 0
+        receive_cipher = AESGCM(receive_key)
+        send_cipher = AESGCM(send_key)
 
         manifest = decode_manifest(v2_read_frame(
             connection, receive_key, nonce_prefix, receive_sequence,
-            MAX_MANIFEST_BYTES,
+            MAX_MANIFEST_BYTES, receive_cipher,
         ))
         receive_sequence += 1
 
@@ -681,13 +671,15 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
         required_remaining = sum(
             entry.size_bytes - offsets[entry.file_id] for entry in manifest.entries
         )
+        # Long resumed batches need room for slow disks and multi-GB verification.
+        connection.settimeout(max(SESSION_TIMEOUT_SECONDS, min(900.0, required_remaining / (256 * 1024))))
         free_bytes = __import__("shutil").disk_usage(directory).free
         reserve_bytes = 64 * 1024 * 1024
         if free_bytes < required_remaining + reserve_bytes:
             raise OSError("Insufficient free storage for this V2 batch (64 MiB reserve required).")
 
         v2_write_frame(connection, send_key, nonce_prefix, send_sequence,
-                       _encode_v2_offsets(manifest, offsets))
+                       _encode_v2_offsets(manifest, offsets), send_cipher)
         send_sequence += 1
 
         outcomes: list[dict] = []
@@ -835,14 +827,19 @@ def send_batch_v2(host: str, port: int, secret: str, paths: list[Path]) -> list[
         receive_key = derive_v2_key(pairing_key, challenge, "server-to-client")
         send_sequence = 0
         receive_sequence = 0
+        send_cipher = AESGCM(send_key)
+        receive_cipher = AESGCM(receive_key)
         v2_write_frame(connection, send_key, nonce_prefix, send_sequence,
-                       encode_manifest(manifest))
+                       encode_manifest(manifest), send_cipher)
         send_sequence += 1
         offsets = _read_v2_offsets(
-            v2_read_frame(connection, receive_key, nonce_prefix, receive_sequence, 32 * 1024),
+            v2_read_frame(connection, receive_key, nonce_prefix, receive_sequence, 32 * 1024, receive_cipher),
             manifest,
         )
         receive_sequence += 1
+
+        total_remaining = sum(entry.size_bytes - offsets[entry.file_id] for entry in manifest.entries)
+        connection.settimeout(max(SESSION_TIMEOUT_SECONDS, min(900.0, total_remaining / (256 * 1024))))
 
         for index, (entry, source) in enumerate(zip(manifest.entries, sources)):
             offset = offsets[entry.file_id]
@@ -854,7 +851,7 @@ def send_batch_v2(host: str, port: int, secret: str, paths: list[Path]) -> list[
                     if not chunk:
                         raise OSError(f"Source file changed while sending: {source.name}")
                     frame = bytes((TYPE_CHUNK,)) + struct.pack(">HI", index, len(chunk)) + chunk
-                    v2_write_frame(connection, send_key, nonce_prefix, send_sequence, frame)
+                    v2_write_frame(connection, send_key, nonce_prefix, send_sequence, frame, send_cipher)
                     send_sequence += 1
                     transferred += len(chunk)
                 if stream.read(1):
@@ -872,7 +869,7 @@ def send_batch_v2(host: str, port: int, secret: str, paths: list[Path]) -> list[
         send_sequence += 1
         results = _read_v2_results(
             v2_read_frame(connection, receive_key, nonce_prefix, receive_sequence,
-                          MAX_MANIFEST_BYTES),
+                          MAX_MANIFEST_BYTES, receive_cipher),
             manifest,
         )
         return results
