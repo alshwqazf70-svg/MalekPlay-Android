@@ -1160,6 +1160,8 @@ private fun forgetApprovedSenderTarget(host: String) {
             )
             return
         }
+        rememberInvitationPeer(pairing.invitationId, pairing.pairingSecret)
+        rememberInvitationNetwork(pairing)
         if (pairing.hotspotSsid.isNullOrBlank() || pairing.hotspotPassword.isNullOrBlank()) {
             requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
             return
