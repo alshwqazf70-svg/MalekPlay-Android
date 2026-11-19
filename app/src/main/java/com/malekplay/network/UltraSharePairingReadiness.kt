@@ -46,7 +46,7 @@ internal object UltraSharePairingReadiness {
      * Enrich that same invitation only when every existing route is retained
      * and the candidate adds at least one new host with identical credentials.
      */
-    fun shouldEnrichUnifiedV5QrHosts(
+    fun shouldEnrichUnifiedV5Qr(
         existingVersion: String?,
         candidateVersion: String?,
         existingInvitationId: String?,
@@ -61,19 +61,36 @@ internal object UltraSharePairingReadiness {
         candidateWifiSecurity: String?,
         existingHosts: List<String>,
         candidateHosts: List<String>
-    ): Boolean =
-        existingVersion == "5" &&
+    ): Boolean {
+        val existingHasWifi = !existingSsid.isNullOrBlank() && !existingWifiPassword.isNullOrBlank()
+        val candidateHasWifi = !candidateSsid.isNullOrBlank() && !candidateWifiPassword.isNullOrBlank()
+        val existingHasPartialWifi =
+            !existingSsid.isNullOrBlank() || !existingWifiPassword.isNullOrBlank()
+        val candidateHasPartialWifi =
+            !candidateSsid.isNullOrBlank() || !candidateWifiPassword.isNullOrBlank()
+        val credentialsCompatible = when {
+            existingHasWifi -> candidateHasWifi &&
+                existingSsid == candidateSsid &&
+                existingWifiPassword == candidateWifiPassword &&
+                existingWifiSecurity == candidateWifiSecurity
+            existingHasPartialWifi -> false
+            candidateHasWifi -> true
+            candidateHasPartialWifi -> false
+            else -> existingWifiSecurity == candidateWifiSecurity
+        }
+        val addsWifiCredentials = !existingHasWifi && candidateHasWifi
+        val addsHosts = candidateHosts.size > existingHosts.size &&
+            candidateHosts.containsAll(existingHosts)
+        return existingVersion == "5" &&
             candidateVersion == "5" &&
             !existingInvitationId.isNullOrBlank() &&
             existingInvitationId == candidateInvitationId &&
             !existingPairingSecret.isNullOrBlank() &&
             existingPairingSecret == candidatePairingSecret &&
-            existingSsid == candidateSsid &&
-            existingWifiPassword == candidateWifiPassword &&
-            existingWifiSecurity == candidateWifiSecurity &&
-            (existingSsid.isNullOrBlank() == existingWifiPassword.isNullOrBlank()) &&
-            candidateHosts.size > existingHosts.size &&
-            candidateHosts.containsAll(existingHosts)
+            credentialsCompatible &&
+            candidateHosts.containsAll(existingHosts) &&
+            (addsWifiCredentials || addsHosts)
+    }
 
     fun isDataListenerReady(actualPort: Int, expectedPort: Int): Boolean =
         expectedPort in 1..65535 && actualPort == expectedPort
