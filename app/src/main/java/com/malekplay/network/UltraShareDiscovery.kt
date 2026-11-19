@@ -519,7 +519,7 @@ object UltraShareDiscovery {
         withContext(Dispatchers.IO) {
             kotlinx.coroutines.coroutineScope {
                 hosts.asSequence()
-                    .map(String::trim)
+                    .map { it.trim() }
                     .filter(UltraShareCore::isValidPrivateLanHost)
                     .distinct()
                     .take(8)
