@@ -169,8 +169,16 @@ fun ReceiveScreen(
                     textAlign = TextAlign.Center
                 )
             }
+            val displayedAddresses = (state.localAddresses + listOfNotNull(state.wifiDirectLocalAddress))
+                .distinct()
             Text(
-                "عناوين الشبكة: ${state.localAddresses.joinToString(" • ").ifBlank { "جارٍ تجهيز عنوان الشبكة..." }}",
+                "عناوين الشبكة: " + displayedAddresses.joinToString(" • ").ifBlank {
+                    if (state.invitationId.isNotBlank()) {
+                        "Wi-Fi Direct جاهز؛ الاتصال المباشر لا يحتاج إدخال عنوان IP يدوياً"
+                    } else {
+                        "جارٍ تجهيز عنوان الشبكة..."
+                    }
+                },
                 color = Color(0xFFD9E2F4),
                 style = MaterialTheme.typography.bodySmall
             )
