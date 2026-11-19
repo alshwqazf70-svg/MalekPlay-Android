@@ -540,10 +540,14 @@ object UltraShareWifiDirect {
             try {
                 manager.discoverServices(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
+                        if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) return
                         UltraShareDiagnostics.event("WIFI_DIRECT", "SERVICE_DISCOVERY_STARTED", mapOf("attempt" to attempt))
                     }
 
                     override fun onFailure(reason: Int) {
+                        // An old callback must not clear the active flag belonging to
+                        // a newer peer/service discovery operation.
+                        if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) return
                         peerDiscoveryActive = false
                         UltraShareDiagnostics.event("WIFI_DIRECT", "SERVICE_DISCOVERY_FAILED", mapOf("reason" to reason, "attempt" to attempt))
                         if (closed || invitationRequest !== request) return
