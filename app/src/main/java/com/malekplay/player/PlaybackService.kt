@@ -8,6 +8,7 @@ import android.os.Looper
 import android.os.Build
 import android.os.PowerManager
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.Context
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -106,6 +107,12 @@ class PlaybackService : MediaSessionService() {
     private var audioDeviceCallback: AudioDeviceCallback? = null
     private lateinit var profileStore: NetworkProfileStore
     private lateinit var credentialVault: NetworkCredentialVault
+    private lateinit var networkProfilesPreferences: SharedPreferences
+    @Volatile private var cachedWebDavProfiles: List<com.malekplay.network.NetworkProfile>? = null
+    private var playbackDataSourceFactory: DataSource.Factory? = null
+    private val profilePreferencesListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "profiles") cachedWebDavProfiles = null
+    }
 
     @Inject
     lateinit var mediaRepository: MediaRepository
@@ -134,6 +141,10 @@ class PlaybackService : MediaSessionService() {
         )
         profileStore = NetworkProfileStore(this)
         credentialVault = NetworkCredentialVault(this)
+        networkProfilesPreferences = getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
+        networkProfilesPreferences.registerOnSharedPreferenceChangeListener(profilePreferencesListener)
+        val sharedPlaybackDataSourceFactory = buildDataSourceFactory()
+        playbackDataSourceFactory = sharedPlaybackDataSourceFactory
 
         // Install the software ten-band PCM equalizer in the real Media3 audio path.
         // Float output is disabled intentionally because the processor currently
@@ -167,7 +178,7 @@ class PlaybackService : MediaSessionService() {
             .buildWithAssSupport(
                 context = this,
                 renderType = AssRenderType.EFFECTS_OPEN_GL,
-                dataSourceFactory = buildDataSourceFactory(),
+                dataSourceFactory = sharedPlaybackDataSourceFactory,
                 renderersFactory = renderersFactory
             )
 
@@ -205,7 +216,7 @@ class PlaybackService : MediaSessionService() {
                 )
             }
         }
-        val mediaBridge = CastMediaHttpServer(this, buildDataSourceFactory())
+        val mediaBridge = CastMediaHttpServer(this, sharedPlaybackDataSourceFactory)
         castMediaHttpServer = mediaBridge
         LocalMediaBridgeRegistry.attach(mediaBridge)
         val remotePlayer = RemoteCastPlayer.Builder(this)
@@ -304,6 +315,11 @@ class PlaybackService : MediaSessionService() {
             bridge.close()
         }
         castMediaHttpServer = null
+        playbackDataSourceFactory = null
+        if (::networkProfilesPreferences.isInitialized) {
+            networkProfilesPreferences.unregisterOnSharedPreferenceChangeListener(profilePreferencesListener)
+        }
+        cachedWebDavProfiles = null
         unregisterAudioOutputObserver()
         // Audio effects share the application's active audio session. Their lifetime
         // follows the playback service, not the transient player screen ViewModel.
@@ -865,11 +881,22 @@ class PlaybackService : MediaSessionService() {
         // Only WebDAV over HTTPS receives credentials, and only to the stored host.
         if (!uri.scheme.equals("https", ignoreCase = true) || uri.userInfo != null) return dataSpec
 
-        val profile = profileStore.load().firstOrNull {
-            it.protocol == NetworkProtocol.WEBDAV &&
+        val requestPath = uri.path.orEmpty().ifBlank { "/" }
+        val profiles = cachedWebDavProfiles ?: synchronized(this) {
+            cachedWebDavProfiles ?: profileStore.load()
+                .filter { it.protocol == NetworkProtocol.WEBDAV }
+                .also { cachedWebDavProfiles = it }
+        }
+        // Several WebDAV accounts may share one authority. Restrict each profile
+        // to its own root and choose the most specific matching root.
+        val profile = profiles.asSequence()
+            .filter {
                 it.host.equals(uri.host, ignoreCase = true) &&
-                it.port == (if (uri.port == -1) 443 else uri.port)
-        } ?: return dataSpec
+                    it.port == (if (uri.port == -1) 443 else uri.port) &&
+                    isWithinWebDavRoot(requestPath, it.rootPath)
+            }
+            .maxByOrNull { normalizeWebDavRoot(it.rootPath).length }
+            ?: return dataSpec
 
         // Never downgrade a configured WebDAV profile to an unauthenticated request.
         val credentials = credentialVault.load(profile.id)
@@ -886,6 +913,18 @@ class PlaybackService : MediaSessionService() {
         return dataSpec.buildUpon()
             .setHttpRequestHeaders(headers)
             .build()
+    }
+
+    private fun normalizeWebDavRoot(rootPath: String): String {
+        val segments = rootPath.split('/').filter { it.isNotBlank() && it != "." }
+        require(segments.none { it == ".." || '\\' in it }) { "مسار WebDAV الجذر غير صالح" }
+        return if (segments.isEmpty()) "/" else "/" + segments.joinToString("/")
+    }
+
+    private fun isWithinWebDavRoot(requestPath: String, rootPath: String): Boolean {
+        val root = normalizeWebDavRoot(rootPath)
+        val path = requestPath.ifBlank { "/" }
+        return root == "/" || path == root || path.startsWith("$root/")
     }
 
     private data class PlaybackMetadata(val durationMs: Long, val speed: Float)
