@@ -82,8 +82,10 @@ fun UltraShareSessionRoom(
     val connected = activePeerCount > 0 || state.approvedPeerHost != null
     val pairingPending = state.requestingConnection || state.pendingConnection != null
     val transferring = state.sending || state.sendProgress != null || state.receiveProgress != null
-    val sendingPaused = !state.sending && state.queueTotal > 0 &&
-        state.status?.contains("أُوقف الطابور مؤقتاً") == true
+    val sendingPaused = !state.sending && state.queueTotal > 0 && (
+        state.status?.contains("أُوقف الطابور مؤقتاً") == true ||
+            state.status?.contains("أُوقف الإرسال الجماعي") == true
+        )
     val currentBatchEntries = if (state.queueTotal > 0) state.queueEntries.takeLast(state.queueTotal) else emptyList()
     val sendCompleted = !state.sending && state.queueTotal > 0 &&
         state.queueCompleted >= state.queueTotal && currentBatchEntries.size == state.queueTotal &&
