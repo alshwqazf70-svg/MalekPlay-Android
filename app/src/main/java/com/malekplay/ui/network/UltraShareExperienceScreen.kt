@@ -459,10 +459,30 @@ fun UltraShareExperienceScreen(
 
     LaunchedEffect(pendingQrPairing) {
         val pairing = pendingQrPairing ?: return@LaunchedEffect
-        val needsP2pFallback = pairing.hotspotSsid.isNullOrBlank() ||
-            pairing.hotspotPassword.isNullOrBlank()
-        if (needsP2pFallback && !pairing.invitationId.isNullOrBlank()) {
-            val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT).toTypedArray()
+        // Probe the QR's current-LAN and P2P host hints before asking Android
+        // to switch Wi-Fi or requesting any Wi-Fi Direct permission.
+        val reachableHosts = kotlinx.coroutines.withTimeoutOrNull(500L) {
+            com.malekplay.network.UltraShareDiscovery.probeControlHostsFast(
+                pairing.hosts,
+                timeoutMs = 400
+            )
+        }.orEmpty()
+        if (reachableHosts.isNotEmpty()) {
+            pendingQrPairing = null
+            viewModel.requestConnection(
+                host = reachableHosts.first(),
+                secret = pairing.pairingSecret,
+                alternateHosts = reachableHosts.drop(1) + pairing.hosts.filterNot { it in reachableHosts }
+            )
+            return@LaunchedEffect
+        }
+
+        val hasWifiCredentials = !pairing.hotspotSsid.isNullOrBlank() &&
+            !pairing.hotspotPassword.isNullOrBlank()
+        val needsRuntimePermission = pairing.invitationId?.isNotBlank() == true ||
+            (hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+        if (needsRuntimePermission) {
+            val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
             val missing = required.filter {
                 ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
             }
@@ -471,8 +491,21 @@ fun UltraShareExperienceScreen(
                 return@LaunchedEffect
             }
         }
+
         pendingQrPairing = null
-        viewModel.joinUnifiedInvitation(pairing)
+        when {
+            hasWifiCredentials -> viewModel.connectHotspotInvitation(pairing)
+            !pairing.invitationId.isNullOrBlank() -> viewModel.joinWifiDirectInvitation(
+                pairing.invitationId,
+                pairing.pairingSecret,
+                pairing.hosts
+            )
+            pairing.host.isNotBlank() -> viewModel.requestConnection(
+                pairing.host,
+                pairing.pairingSecret,
+                alternateHosts = pairing.hosts.drop(1)
+            )
+        }
     }
 
     // Discovery is deliberately user-initiated. Opening UltraShare must not
