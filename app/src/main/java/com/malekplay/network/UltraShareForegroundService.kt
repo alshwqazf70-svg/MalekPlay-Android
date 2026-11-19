@@ -34,6 +34,7 @@ import java.io.IOException
 data class UltraShareServiceState(
     val pairingSecret: String = "",
     val localAddresses: List<String> = emptyList(),
+    val wifiDirectLocalAddress: String? = null,
     val receiving: Boolean = false,
     val controlChannelReady: Boolean = false,
     val dataChannelReady: Boolean = false,
@@ -196,6 +197,11 @@ class UltraShareForegroundService : Service() {
                 }
                 return START_NOT_STICKY
             }
+            ACTION_UPDATE_WIFI_DIRECT_ADDRESS -> {
+                val address = intent.getStringExtra(EXTRA_WIFI_DIRECT_LOCAL_ADDRESS)
+                    ?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
+                updateState { current -> current.copy(wifiDirectLocalAddress = address) }
+            }
             ACTION_REFRESH_ADDRESSES -> {
                 if (currentState().receiving) {
                     serviceScope.launch(Dispatchers.IO) {
@@ -228,6 +234,7 @@ class UltraShareForegroundService : Service() {
                     receiving = false,
                     pairingSecret = "",
                     localAddresses = emptyList(),
+                    wifiDirectLocalAddress = null,
                     controlChannelReady = false,
                     dataChannelReady = false,
                     controlChannelError = null,
@@ -2789,6 +2796,8 @@ class UltraShareForegroundService : Service() {
         const val ACTION_STOP_HOTSPOT = "com.malekplay.ultrashare.STOP_HOTSPOT"
         const val ACTION_PAUSE = "com.malekplay.ultrashare.PAUSE"
         const val ACTION_REFRESH_ADDRESSES = "com.malekplay.ultrashare.REFRESH_ADDRESSES"
+        const val ACTION_UPDATE_WIFI_DIRECT_ADDRESS = "com.malekplay.ultrashare.UPDATE_WIFI_DIRECT_ADDRESS"
+        private const val EXTRA_WIFI_DIRECT_LOCAL_ADDRESS = "wifi_direct_local_address"
         const val ACTION_RECEIVE = "com.malekplay.ultrashare.RECEIVE"
         const val ACTION_PEER_CONNECTED = "com.malekplay.ultrashare.PEER_CONNECTED"
         const val ACTION_MESH_SESSION_READY = "com.malekplay.ultrashare.MESH_SESSION_READY"
@@ -3062,6 +3071,14 @@ class UltraShareForegroundService : Service() {
 
         fun stopReceiving(context: Context) {
             context.startService(Intent(context, UltraShareForegroundService::class.java).setAction(ACTION_STOP_RECEIVING))
+        }
+
+        fun updateWifiDirectLocalAddress(context: Context, address: String?) {
+            context.startService(
+                Intent(context, UltraShareForegroundService::class.java)
+                    .setAction(ACTION_UPDATE_WIFI_DIRECT_ADDRESS)
+                    .putExtra(EXTRA_WIFI_DIRECT_LOCAL_ADDRESS, address)
+            )
         }
 
         fun startHotspot(context: Context) {
