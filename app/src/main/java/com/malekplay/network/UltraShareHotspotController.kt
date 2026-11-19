@@ -63,6 +63,11 @@ internal class UltraShareHotspotController(
                         }
                     }.getOrDefault("" to "")
                     val addresses = UltraShareDeviceNetworkInfo.findLocalIpv4Addresses(appContext)
+                    if (callback !== callbackInstance) {
+                        reservation = null
+                        runCatching { nextReservation.close() }
+                        return@launch
+                    }
                     onStarted(credentials.first, credentials.second, addresses)
                 }
             }
@@ -111,7 +116,7 @@ internal class UltraShareHotspotController(
         isStarting = false
         val current = reservation
         reservation = null
-        if (current != null) scope.launch(Dispatchers.IO) {
+        if (current != null) scope.launch(Dispatchers.IO + NonCancellable) {
             runCatching { current.close() }
         }
     }
