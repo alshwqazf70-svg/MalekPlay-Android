@@ -1010,7 +1010,7 @@ fun UltraShareExperienceScreen(
                                         Text(peer.name, color = MalekPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
                                         Text(peer.host + " • محفوظ لهذه الجلسة فقط", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
                                     }
-                                    TextButton(onClick = { viewModel.reconnectPeer(peer.host) }, enabled = !state.requestingConnection && !state.sending) {
+                                    TextButton(onClick = { viewModel.reconnectPeer(peer.host) }, enabled = !state.requestingConnection) {
                                         Text("إعادة الاتصال")
                                     }
                                     TextButton(onClick = { viewModel.forgetPeer(peer.host) }, enabled = !state.sending) {
@@ -1152,7 +1152,7 @@ fun UltraShareExperienceScreen(
                                         )
                                         OutlinedButton(
                                             onClick = { viewModel.reconnectPeer(disconnectedHost) },
-                                            enabled = !state.requestingConnection && !state.sending
+                                            enabled = !state.requestingConnection
                                         ) { Text("إعادة الاتصال") }
                                     }
                                 }
