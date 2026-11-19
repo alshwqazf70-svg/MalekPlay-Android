@@ -467,11 +467,8 @@ object UltraShareControlChannel {
                         retireClientSession(host, session, onSessionClosed, failure)
                     }
                 }
-                // A dedicated reader consumes server frames continuously. Previously the
-                // client read only after its 5-second heartbeat delay, which added avoidable
-                // latency to KEY_OFFER and ROSTER_UPDATE during Mesh joining. Previously the
-                // client read only after its 5-second heartbeat delay, which added avoidable
-                // latency to KEY_OFFER and ROSTER_UPDATE during Mesh joining.
+                // A dedicated reader consumes server frames continuously, avoiding the
+                // old five-second heartbeat wait before KEY_OFFER and ROSTER_UPDATE.
                 session.reader = CoroutineScope(Dispatchers.IO).launch {
                     try {
                         while (isActive && !socket.isClosed) {
