@@ -39,6 +39,16 @@ class UltraShareV2HardeningTests(unittest.TestCase):
             self.assertFalse(_media_signature_matches(empty, "empty.mp3", "audio/mpeg"))
             self.assertFalse(_media_signature_matches(empty, "empty.pdf", "application/pdf"))
 
+    def test_non_media_documents_archives_and_unknown_binary_are_opaque(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "opaque.data"
+            path.write_bytes(b"opaque bytes whose SHA-256 is checked by the transport")
+            for name, mime in (("archive.zip", "application/zip"), ("notes.txt", "text/plain"),
+                               ("unknown.bin", "application/octet-stream"),
+                               ("report.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")):
+                self.assertTrue(_media_signature_matches(path, name, mime), name)
+            self.assertFalse(_media_signature_matches(path, "blocked.pdf", "application/pdf"))
+
     def test_signature_validation_fails_closed_for_unknown_extensions(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "sample.xyz"

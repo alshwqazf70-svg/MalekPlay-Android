@@ -489,6 +489,8 @@ def _hash_path(path: Path) -> bytes:
 def _media_signature_matches(path: Path, filename: str, mime_type: str) -> bool:
     """Validate actual media container bytes; unknown formats fail closed."""
     try:
+        if not Path(path).is_file() or Path(path).stat().st_size <= 0:
+            return False
         with Path(path).open("rb") as stream:
             head = stream.read(16)
     except OSError:
@@ -513,13 +515,6 @@ def _media_signature_matches(path: Path, filename: str, mime_type: str) -> bool:
     if expected_family is None or declared_family not in {expected_family, "application"}:
         return False
     if declared_family == "application" and mime_type.lower() not in {"application/octet-stream", "application/unknown"}:
-        return False
-    # A zero-byte media item is still a valid empty transfer. There are no
-    # container bytes to inspect, so accept it only after extension/MIME policy.
-    try:
-        if Path(path).is_file() and Path(path).stat().st_size == 0:
-            return True
-    except OSError:
         return False
     def starts(value: bytes) -> bool:
         return head.startswith(value)

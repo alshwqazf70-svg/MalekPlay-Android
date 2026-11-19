@@ -304,7 +304,7 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             self.assertEqual(2, len(received))
             restored = {Path(item["path"]).name: Path(item["path"]).read_bytes() for item in received}
             self.assertEqual(first.read_bytes(), restored["مقطع.mp4"])
-            self.assertEqual(b"", restored["empty.mp3"])
+            self.assertEqual(second.read_bytes(), restored["second.mp3"])
 
     def test_accepts_ordinary_files_and_rejects_only_apk_pdf(self):
         for name, mime in (("x.mp4", "video/mp4"), ("x.mp3", "audio/mpeg"),
