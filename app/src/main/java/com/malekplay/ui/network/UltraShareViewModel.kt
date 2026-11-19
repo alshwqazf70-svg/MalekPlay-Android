@@ -1055,7 +1055,34 @@ private fun forgetApprovedSenderTarget(host: String) {
             )
             viewModelScope.launch {
                 // Association is asynchronous on Android 6–9 and differs across OEMs.
-                delay(1_200L)
+                // Wait for the actual supplicant/network ID instead of assuming a
+                // fixed delay means the phone has joined the DIRECT SoftAP.
+                val associated = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
+                    while (true) {
+                        val info = runCatching { wifi.connectionInfo }.getOrNull()
+                        val connected = com.malekplay.network.UltraSharePlatformCompatibility
+                            .isLegacyWifiNetworkConnected(
+                                expectedNetworkId = networkId,
+                                actualNetworkId = info?.networkId ?: -1,
+                                expectedSsid = ssid,
+                                actualSsid = info?.ssid,
+                                supplicantCompleted = info?.supplicantState ==
+                                    android.net.wifi.SupplicantState.COMPLETED
+                            )
+                        if (connected) return@withTimeoutOrNull true
+                        delay(250L)
+                    }
+                    @Suppress("UNREACHABLE_CODE")
+                    false
+                } == true
+                if (!associated) {
+                    val message = "انتهت مهلة الانضمام إلى شبكة المجموعة قبل اكتمال اتصال Wi-Fi."
+                    releaseLegacyWifiNetwork()
+                    if (!fallbackToWifiDirectInvitation(pairing, message)) {
+                        _state.value = _state.value.copy(requestingConnection = false, error = message)
+                    }
+                    return@launch
+                }
                 val hosts = (pairing.hosts + pairing.host).distinct()
                 val targetHost = hosts.firstOrNull { UltraShareCore.isValidPrivateLanHost(it) }
                 if (targetHost == null) {
