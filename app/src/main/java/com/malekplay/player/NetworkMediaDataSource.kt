@@ -118,6 +118,7 @@ class NetworkMediaDataSource(
         password: String,
         segments: List<String>
     ) {
+        validateNetworkPathSegments(segments)
         require(segments.size >= 2) { "مسار SMB يجب أن يتضمن المشاركة واسم الملف" }
         val client = NetworkClientTimeouts.createSmbClient()
         smbClient = client
@@ -152,6 +153,7 @@ class NetworkMediaDataSource(
         password: String,
         segments: List<String>
     ) {
+        validateNetworkPathSegments(segments)
         val knownHosts = File(context.filesDir, "network/known_hosts/${profile.id}")
         require(knownHosts.isFile && knownHosts.length() > 0L) {
             "ملف known_hosts الموثوق غير موجود لمصدر SFTP"
@@ -273,6 +275,13 @@ class NetworkMediaDataSource(
 
     private companion object {
         const val MAX_READ_BYTES = 256 * 1024
+    }
+}
+
+/** Reject path traversal and SMB separator injection before opening remote files. */
+internal fun validateNetworkPathSegments(segments: List<String>) {
+    if (segments.any { it == "." || it == ".." || '\\' in it || '/' in it }) {
+        throw IOException("مسار الملف البعيد يحتوي على مقطع غير آمن")
     }
 }
 
@@ -418,13 +427,10 @@ class NetworkRoutingDataSource(
                 capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
         } ?: throw IOException("اتصل بشبكة Wi-Fi أو Ethernet نفسها التي يوجد عليها خادم DLNA")
 
-        val client = OkHttpClient.Builder()
+        // newBuilder() deliberately inherits the shared Dispatcher and ConnectionPool.
+        // The Network-specific socket factory is the only per-network override.
+        val client = sharedLanClient.newBuilder()
             .socketFactory(lanNetwork.socketFactory)
-            .proxy(Proxy.NO_PROXY)
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
             .build()
         val source = OkHttpDataSource.Factory(client).createDataSource()
         return source to dataSpec.buildUpon().setUri(uri).build()
@@ -438,6 +444,18 @@ class NetworkRoutingDataSource(
     }
 
     override fun getUri(): Uri? = delegate?.uri ?: currentUri
+
+    private companion object {
+        // A single pool/dispatcher is shared by all network-bound DLNA clients.
+        // Per-Network clients created from newBuilder() do not own new thread pools.
+        val sharedLanClient: OkHttpClient = OkHttpClient.Builder()
+            .proxy(Proxy.NO_PROXY)
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
 
     override fun close() {
         val source = delegate
