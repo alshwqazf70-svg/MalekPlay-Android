@@ -83,6 +83,8 @@ def _allowed_share_file(filename: str, mime: str) -> bool:
     safe = _safe_name(filename)
     extension = safe.rsplit(".", 1)[-1].lower() if "." in safe else ""
     mime_lower = mime.strip().lower()
+    if extension == "svg" or mime_lower == "image/svg+xml":
+        return False
     return extension not in BLOCKED_EXTENSIONS and mime_lower not in BLOCKED_MIME_TYPES and _valid_mime(mime)
 
 
