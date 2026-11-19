@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import kotlin.coroutines.resume
 
@@ -170,15 +171,25 @@ object UltraShareReceivedPublisher {
                     copyVerified(received.file, target, received.sizeBytes)
                 }
             }
-            suspendCancellableCoroutine { continuation ->
-                MediaScannerConnection.scanFile(
-                    context,
-                    arrayOf(destination.absolutePath),
-                    arrayOf(mime)
-                ) { _, uri ->
-                    if (continuation.isActive) continuation.resume(uri)
+            val scannedUri = withTimeoutOrNull(8_000L) {
+                suspendCancellableCoroutine<Uri?> { continuation ->
+                    MediaScannerConnection.scanFile(
+                        context,
+                        arrayOf(destination.absolutePath),
+                        arrayOf(mime)
+                    ) { _, uri ->
+                        if (continuation.isActive) continuation.resume(uri)
+                    }
                 }
             }
+            if (scannedUri == null) {
+                UltraShareDiagnostics.event(
+                    "RECEIVED_PUBLISH",
+                    "LEGACY_MEDIA_SCAN_NO_RESULT",
+                    mapOf("file" to name, "timeoutMs" to 8_000)
+                )
+            }
+            scannedUri
         } catch (failure: Exception) {
             UltraShareDiagnostics.failure("RECEIVED_PUBLISH_LEGACY_DOWNLOADS", failure, "file=$name;path=$relativePath")
             null
