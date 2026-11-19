@@ -25,11 +25,12 @@ class UltraShareControlChannelTest {
     }
 
     @Test
-    fun authenticatedRequestWaitsForAndReceivesApproval() = runBlocking {
+    fun authenticatedPeerIsAcceptedImmediatelyWithoutASecondApprovalStep() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
         val secret = "123456789"
         val stablePeerId = "0123456789abcdef0123456789abcdef"
         val sessionClosed = CompletableDeferred<Unit>()
+        val authenticatedRequestCount = java.util.concurrent.atomic.AtomicInteger()
         val server = async {
             UltraShareControlChannel.serveOnce(
                 pairingSecret = secret,
@@ -38,6 +39,7 @@ class UltraShareControlChannelTest {
                 localPeerId = "fedcba9876543210fedcba9876543210",
                 onSessionClosed = { sessionClosed.complete(Unit) },
             ) { request ->
+                authenticatedRequestCount.incrementAndGet()
                 assertEquals("Sender Phone", request.peerName)
                 assertTrue(request.peerAddress == "127.0.0.1")
                 assertEquals(stablePeerId, request.peerId)
@@ -53,6 +55,7 @@ class UltraShareControlChannelTest {
             peerId = stablePeerId
         )
         assertEquals(UltraShareControlChannel.Decision.ACCEPTED, decision)
+        assertEquals(1, authenticatedRequestCount.get())
         assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
         assertTrue(UltraShareControlChannel.isServerSessionActive("127.0.0.1"))
         assertEquals("Receiver Phone", UltraShareControlChannel.sessionPeerName("127.0.0.1"))
