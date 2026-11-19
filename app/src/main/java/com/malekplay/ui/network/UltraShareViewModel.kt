@@ -966,6 +966,61 @@ private fun forgetApprovedSenderTarget(host: String) {
         }.onFailure { UltraShareDiagnostics.failure("LEGACY_WIFI_REMOVE_NETWORK", it) }
     }
 
+    /**
+     * QR join order: probe existing LAN/P2P routes first, then join the advertised
+     * WPA2 group directly, and use DNS-SD only when the QR has no Wi-Fi credentials.
+     */
+    fun joinUnifiedInvitation(pairing: com.malekplay.network.UltraShareQrCode.PairingDetails) {
+        if (controlPairingInProgress || pendingQrPairing != null) return
+        viewModelScope.launch {
+            val reachableHosts = withTimeoutOrNull(500L) {
+                UltraShareDiscovery.probeControlHostsFast(pairing.hosts, timeoutMs = 400)
+            }.orEmpty()
+            val directHost = reachableHosts.firstOrNull()
+            if (directHost != null) {
+                UltraShareDiagnostics.event(
+                    "PAIRING", "QR_FAST_LAN_ROUTE_SELECTED",
+                    mapOf("reachableHostCount" to reachableHosts.size)
+                )
+                requestConnection(
+                    host = directHost,
+                    secret = pairing.pairingSecret,
+                    alternateHosts = reachableHosts.drop(1) + pairing.hosts.filterNot { it in reachableHosts }
+                )
+                return@launch
+            }
+
+            if (!pairing.hotspotSsid.isNullOrBlank() && !pairing.hotspotPassword.isNullOrBlank()) {
+                UltraShareDiagnostics.event(
+                    "PAIRING", "QR_DIRECT_WIFI_JOIN_SELECTED",
+                    mapOf("sdkInt" to Build.VERSION.SDK_INT)
+                )
+                connectHotspotInvitation(pairing)
+            } else if (!pairing.invitationId.isNullOrBlank()) {
+                UltraShareDiagnostics.event("PAIRING", "QR_DNSSD_FALLBACK_SELECTED")
+                joinWifiDirectInvitation(
+                    pairing.invitationId,
+                    pairing.pairingSecret,
+                    pairing.hosts
+                )
+            } else {
+                val firstHost = pairing.hosts.firstOrNull() ?: pairing.host
+                if (firstHost.isNotBlank()) {
+                    requestConnection(
+                        host = firstHost,
+                        secret = pairing.pairingSecret,
+                        alternateHosts = pairing.hosts.drop(1)
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        requestingConnection = false,
+                        error = "لا يحتوي رمز QR على مسار اتصال متاح."
+                    )
+                }
+            }
+        }
+    }
+
     fun connectHotspotInvitation(pairing: com.malekplay.network.UltraShareQrCode.PairingDetails) {
         if (hotspotNetworkCallback != null || controlPairingInProgress || pendingQrPairing != null) {
             _state.value = _state.value.copy(
