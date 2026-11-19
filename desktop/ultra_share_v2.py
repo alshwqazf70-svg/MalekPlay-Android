@@ -628,6 +628,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
             MAX_MANIFEST_BYTES, receive_cipher,
         ))
         receive_sequence += 1
+        connection.settimeout(max(SESSION_TIMEOUT_SECONDS, min(900.0, manifest.total_bytes / (256 * 1024))))
 
         identity = peer_identity or active_peer[0] or address[0]
         peer_folder = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
@@ -693,7 +694,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
                             maximum = min(FRAME_BYTES, remaining + 7)
                             payload = v2_read_frame(
                                 connection, receive_key, nonce_prefix,
-                                receive_sequence, maximum,
+                                receive_sequence, maximum, receive_cipher,
                             )
                             receive_sequence += 1
                             if len(payload) < 7 or payload[0] != TYPE_CHUNK:
@@ -714,7 +715,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
                         os.fsync(output.fileno())
 
             end_frame = v2_read_frame(
-                connection, receive_key, nonce_prefix, receive_sequence, 64
+                connection, receive_key, nonce_prefix, receive_sequence, 64, receive_cipher
             )
             receive_sequence += 1
             if end_frame != bytes((TYPE_FILE_END,)) + struct.pack(">H", index):
@@ -757,14 +758,14 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
             })
 
         batch_end = v2_read_frame(
-            connection, receive_key, nonce_prefix, receive_sequence, 64
+            connection, receive_key, nonce_prefix, receive_sequence, 64, receive_cipher
         )
         receive_sequence += 1
         if batch_end != bytes((TYPE_BATCH_END,)):
             raise ValueError("Invalid V2 batch-end frame.")
         v2_write_frame(
             connection, send_key, nonce_prefix, send_sequence,
-            _encode_v2_results(manifest, outcomes),
+            _encode_v2_results(manifest, outcomes), send_cipher,
         )
         return outcomes
 
@@ -857,13 +858,13 @@ def send_batch_v2(host: str, port: int, secret: str, paths: list[Path]) -> list[
                     raise OSError(f"Source file grew while sending: {source.name}")
             v2_write_frame(
                 connection, send_key, nonce_prefix, send_sequence,
-                bytes((TYPE_FILE_END,)) + struct.pack(">H", index),
+                bytes((TYPE_FILE_END,)) + struct.pack(">H", index), send_cipher,
             )
             send_sequence += 1
 
         v2_write_frame(
             connection, send_key, nonce_prefix, send_sequence,
-            bytes((TYPE_BATCH_END,)),
+            bytes((TYPE_BATCH_END,)), send_cipher,
         )
         send_sequence += 1
         results = _read_v2_results(
