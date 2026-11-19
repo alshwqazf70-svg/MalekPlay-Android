@@ -1092,15 +1092,23 @@ private fun forgetApprovedSenderTarget(host: String) {
             status = "جارٍ طلب الانضمام إلى شبكة MalekPlay من Android..."
         )
 
-        val specifier = android.net.wifi.WifiNetworkSpecifier.Builder()
-            .setSsid(pairing.hotspotSsid)
-            .setWpa2Passphrase(pairing.hotspotPassword)
-            .build()
-        val request = android.net.NetworkRequest.Builder()
-            .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
-            .removeCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .setNetworkSpecifier(specifier)
-            .build()
+        val request = runCatching {
+            val specifier = android.net.wifi.WifiNetworkSpecifier.Builder()
+                .setSsid(pairing.hotspotSsid)
+                .setWpa2Passphrase(pairing.hotspotPassword)
+                .build()
+            android.net.NetworkRequest.Builder()
+                .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                .removeCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .setNetworkSpecifier(specifier)
+                .build()
+        }.getOrElse { failure ->
+            val message = failure.localizedMessage ?: "تعذر إعداد طلب اتصال Wi-Fi المباشر."
+            if (!fallbackToWifiDirectInvitation(pairing, message)) {
+                _state.value = _state.value.copy(requestingConnection = false, error = message)
+            }
+            return
+        }
         val connectionStarted = java.util.concurrent.atomic.AtomicBoolean(false)
         val paired = java.util.concurrent.atomic.AtomicBoolean(false)
         val networkLost = java.util.concurrent.atomic.AtomicBoolean(false)
