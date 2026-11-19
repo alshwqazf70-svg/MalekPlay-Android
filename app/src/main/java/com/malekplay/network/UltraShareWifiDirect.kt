@@ -837,13 +837,10 @@ object UltraShareWifiDirect {
             val ssid = runCatching { ownerGroup.networkName?.trim().orEmpty() }.getOrDefault("")
             val passphrase = runCatching { ownerGroup.passphrase?.trim().orEmpty() }.getOrDefault("")
             val ownerAddress = "192.168.49.1"
-            val wifiSecurity = if (Build.VERSION.SDK_INT >= 36) {
-                runCatching {
-                    if (ownerGroup.securityType == android.net.wifi.p2p.WifiP2pGroup.SECURITY_TYPE_WPA3_SAE) {
-                        "wpa3"
-                    } else "wpa2"
-                }.getOrDefault("wpa2")
-            } else "wpa2"
+            val isWpa3Sae = Build.VERSION.SDK_INT >= 36 && runCatching {
+                ownerGroup.securityType == android.net.wifi.p2p.WifiP2pGroup.SECURITY_TYPE_WPA3_SAE
+            }.getOrDefault(false)
+            val wifiSecurity = wifiDirectQrSecurity(Build.VERSION.SDK_INT, isWpa3Sae)
             if (ssid.isNotBlank() && passphrase.length in 8..63) {
                 UltraShareDiagnostics.event(
                     "WIFI_DIRECT", "GROUP_SOFTAP_CREDENTIALS_READY",
@@ -2111,6 +2108,9 @@ internal fun isCurrentWifiDirectGroupAttempt(
 ): Boolean = !sessionClosed && currentToken == callbackToken
 
 /** Use a neutral Wi-Fi Direct owner preference so either Android device may own the group. */
+internal fun wifiDirectQrSecurity(sdkInt: Int, isWpa3Sae: Boolean): String =
+    if (sdkInt >= 36 && isWpa3Sae) "wpa3" else "wpa2"
+
 internal fun shouldStartWifiDirectOwnerPeerDeadline(clientCount: Int, wasConnected: Boolean): Boolean =
     clientCount > 0 || wasConnected
 
