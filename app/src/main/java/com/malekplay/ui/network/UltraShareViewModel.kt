@@ -1443,15 +1443,17 @@ private fun forgetApprovedSenderTarget(host: String) {
     private fun publishUnifiedReceiverQrIfReady() {
         val current = _state.value
         val service = UltraShareForegroundService.state.value
-        val secret = current.pairingSecret.takeIf(UltraShareCore::isValidPairingSecret)
-            ?: service.pairingSecret.takeIf(UltraShareCore::isValidPairingSecret)
+        val secret = current.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
+            ?: service.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
             ?: return
         if (!current.receiving && !service.receiving) return
         if (!service.controlChannelReady) return
 
         val ssid = wifiDirectGroupSsid ?: service.hotspotSsid
         val password = wifiDirectGroupPassword ?: service.hotspotPassword
-        val ownerAddress = wifiDirectOwnerAddress ?: "192.168.49.1"
+        if (ssid.isNullOrBlank() || password.isNullOrBlank()) return
+        val ownerAddress = wifiDirectOwnerAddress
+            ?: "192.168.49.1".takeIf { wifiDirectGroupSsid != null }
         val hosts = (
             current.localAddresses +
                 service.localAddresses +
