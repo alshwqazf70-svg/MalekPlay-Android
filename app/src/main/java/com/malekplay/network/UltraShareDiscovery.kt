@@ -506,18 +506,20 @@ object UltraShareDiscovery {
      * A successful MPC2 control handshake alone is not evidence that file transfer
      * can start; this probe verifies the actual batch listener and is ignored by it.
      */
-    internal fun probeDataEndpoint(
+    internal suspend fun probeDataEndpoint(
         host: String,
         port: Int,
         networks: List<android.net.Network>
-    ): Boolean {
-        if (!UltraShareCore.isValidPrivateLanHost(host) || port !in 1..65535) return false
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (!UltraShareCore.isValidPrivateLanHost(host) || port !in 1..65535) {
+            return@withContext false
+        }
         // Exhaust every peer-specific Android Network first, then retain the
         // system default route as a final compatibility fallback (some OEMs do
         // not expose the P2P/SoftAP Network object to ConnectivityManager).
         val routes: List<android.net.Network?> =
             networks.distinct().map { it } + listOf(null)
-        return routes.distinct().any { network -> probeV2DataEndpoint(host, port, network) }
+        routes.distinct().any { network -> probeV2DataEndpoint(host, port, network) }
     }
 
     private fun probeEndpoint(host: String, port: Int, network: android.net.Network?): Boolean = runCatching {
