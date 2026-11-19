@@ -56,7 +56,7 @@ fun ReceiveScreen(
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
             when {
-                state.activePeers.isNotEmpty() -> "الجهاز متصل وجاهز للنقل"
+                state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty() -> "الجهاز متصل وجاهز للنقل"
                 state.receiving -> "جاري انتظار انضمام الأصدقاء…"
                 else -> "إنشاء مجموعة"
             },
@@ -69,15 +69,28 @@ fun ReceiveScreen(
         if (state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty()) {
             val connectedNames = state.activePeers.map { it.name } +
                 state.approvedSenderPeerHosts.filterNot { peerHost -> state.activePeers.any { it.host == peerHost } }
-            ShareInfoCard(
-                title = "تم الاتصال بنجاح",
-                body = "متصل الآن مع: ${connectedNames.joinToString("، ")}\nيمكنك الإرسال والاستقبال مع الأجهزة المتصلة."
-            )
-            Button(onClick = onOpenTransfers, modifier = Modifier.fillMaxWidth()) {
-                Text("فتح غرفة النقل")
-            }
-            OutlinedButton(onClick = onSendToGroup, modifier = Modifier.fillMaxWidth()) {
-                Text("إرسال ملفات لهذه المجموعة")
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF465477))
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(13.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    Text("تم الاتصال بنجاح", color = ShareCyan, fontWeight = FontWeight.Bold)
+                    Text(
+                        "متصل الآن مع: ${connectedNames.joinToString("، ")}\nيمكنك الإرسال والاستقبال مع الأجهزة المتصلة.",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Button(onClick = onOpenTransfers, modifier = Modifier.fillMaxWidth()) {
+                        Text("فتح غرفة النقل")
+                    }
+                    OutlinedButton(onClick = onSendToGroup, modifier = Modifier.fillMaxWidth()) {
+                        Text("إرسال ملفات لهذه المجموعة")
+                    }
+                }
             }
         }
         if (state.receiving) {
