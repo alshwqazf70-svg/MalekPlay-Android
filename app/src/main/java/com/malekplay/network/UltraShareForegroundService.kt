@@ -223,6 +223,7 @@ class UltraShareForegroundService : Service() {
                 serviceScope.launch(Dispatchers.IO) {
                     closeMeshRoom()
                     hostsToDisconnect.forEach(::disconnectApprovedPeer)
+                    finishService()
                 }
                 stopLocalHotspot()
                 updateState { current -> current.copy(
@@ -277,6 +278,7 @@ class UltraShareForegroundService : Service() {
                     approvedSendTargets().map { it.host }).distinct()
                 serviceScope.launch(Dispatchers.IO) {
                     hostsToDisconnect.forEach(::disconnectApprovedPeer)
+                    finishService()
                 }
                 stopLocalHotspot()
                 if (sendJob == null && receiveJob == null && batchReceiveJob == null) finishService()
@@ -503,7 +505,7 @@ class UltraShareForegroundService : Service() {
                                         current.copy(
                                             peerTransfers = updatedTransfers,
                                             receiveProgress = activeProgress,
-                                            progress = if (current.sending) null else activeProgress,
+                                            progress = if (current.sending) current.sendProgress else activeProgress,
                                             status = "اكتملت دفعة V2 من $peer: $completed ملف"
                                         )
                                     }
@@ -519,7 +521,7 @@ class UltraShareForegroundService : Service() {
                                         current.copy(
                                             peerTransfers = updatedTransfers,
                                             receiveProgress = activeProgress,
-                                            progress = if (current.sending) null else activeProgress,
+                                            progress = if (current.sending) current.sendProgress else activeProgress,
                                             error = "جلسة V2 من $peer: ${failure.localizedMessage ?: "فشل النقل"}"
                                         )
                                     }
