@@ -967,12 +967,10 @@ private fun forgetApprovedSenderTarget(host: String) {
         val password = pairing.hotspotPassword ?: return
         runCatching {
             if (!wifi.isWifiEnabled) wifi.isWifiEnabled = true
-            val configuration = android.net.wifi.WifiConfiguration().apply {
-                SSID = "\"${ssid}\""
-                preSharedKey = "\"${password}\""
-                allowedKeyManagement.set(android.net.wifi.WifiConfiguration.KeyMgmt.WPA_PSK)
-                status = android.net.wifi.WifiConfiguration.Status.ENABLED
-            }
+            val configuration = com.malekplay.network.buildUltraShareLegacyWifiConfiguration(
+                ssid,
+                password
+            )
             val networkId = wifi.addNetwork(configuration)
             check(networkId >= 0) { "رفض نظام Android إضافة شبكة Wi-Fi؛ قد تمنع الشركة المصنّعة هذا الأسلوب." }
             if (!wifi.enableNetwork(networkId, true)) {
