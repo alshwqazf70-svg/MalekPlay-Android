@@ -30,5 +30,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.9.4")
     implementation("androidx.media3:media3-ui:1.9.4")
     implementation("androidx.media3:media3-effect:1.9.4")
-    implementation("io.github.peerless2012:ass-kt:0.4.0")
+    // 0.5.1 adds idempotent release() APIs for Ass, AssTrack and AssRender.
+    // The companion ass artifact supplies the matching libass Prefab/native dependency.
+    implementation("io.github.peerless2012:ass-kt:0.5.1")
+    implementation("io.github.peerless2012:ass:0.5.1")
 }
