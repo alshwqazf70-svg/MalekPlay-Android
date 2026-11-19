@@ -684,6 +684,10 @@ object UltraShareWifiDirect {
         @SuppressLint("MissingPermission")
         fun createGroup(onCreated: () -> Unit = {}) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
+            if (!UltraSharePlatformCompatibility.canCreateWifiDirectGroup(Build.VERSION.SDK_INT)) {
+                reportError("هذا الإصدار من Android لا يدعم إنشاء مجموعة Wi-Fi Direct.")
+                return
+            }
             // Explicit receiver group creation is a new owner-side pairing flow,
             // not a continuation of a previous client connection attempt.
             connectionInfoRequestToken++
