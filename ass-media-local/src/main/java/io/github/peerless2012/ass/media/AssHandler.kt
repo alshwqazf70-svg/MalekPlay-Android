@@ -115,6 +115,7 @@ class AssHandler(
      * Handles transitions between media items in the player and resets everything to the initial
      * state.
      */
+    @Synchronized
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         super.onMediaItemTransition(mediaItem, reason)
         Log.i("AssHandler", "onMediaItemTransition: item = ${mediaItem}, reason = $reason")
@@ -130,6 +131,7 @@ class AssHandler(
      * Releases native libass objects owned by this handler. Called by PlaybackService
      * before the player is destroyed, and between playlist items to discard embedded fonts.
      */
+    @Synchronized
     fun release() {
         attachedPlayer?.removeListener(this)
         attachedPlayer = null
@@ -337,6 +339,7 @@ class AssHandler(
      * Reads a dialogue into the track of the given [trackId].
      * TODO This should move to executor.
      */
+    @Synchronized
     fun readTrackDialogue(
         trackId: String?,
         start: Long,
