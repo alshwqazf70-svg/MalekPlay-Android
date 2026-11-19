@@ -3,7 +3,6 @@ package io.github.peerless2012.ass.media.executor
 import io.github.peerless2012.ass.AssFrame
 import io.github.peerless2012.ass.AssRender
 import io.github.peerless2012.ass.AssTexType
-import java.util.concurrent.ExecutorCompletionService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -16,11 +15,9 @@ class AssExecutor(private val render: AssRender) {
 
     private val executor = Executors.newSingleThreadExecutor()
 
-    private val executorService = ExecutorCompletionService<AssFrame?>(executor)
+    @Volatile private var lastFrame: AssFrame? = null
 
-    private var lastFrame: AssFrame? = null
-
-    private var executorBusy = false
+    @Volatile private var executorBusy = false
 
     private val task = AssTask(render)
 
@@ -31,11 +28,13 @@ class AssExecutor(private val render: AssRender) {
             assFrame = assFrameNotChange
         } else {
             // submit render task
-            val future = executorService.submit{
+            val future = executor.submit<AssFrame?> {
                 executorBusy = true
-                lastFrame = render.renderFrame(presentationTimeUs / 1000, type)
-                executorBusy = false
-                lastFrame
+                try {
+                    render.renderFrame(presentationTimeUs / 1000, type).also { lastFrame = it }
+                } finally {
+                    executorBusy = false
+                }
             }
             try {
                 assFrame = if (lastFrame != null) {
