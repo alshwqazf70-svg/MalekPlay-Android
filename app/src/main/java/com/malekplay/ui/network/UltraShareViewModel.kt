@@ -983,12 +983,14 @@ private fun forgetApprovedSenderTarget(host: String) {
             // reconnect() may return false on OEM builds while association is
             // already in progress; enableNetwork() is the authoritative result.
             runCatching { wifi.reconnect() }
-            retainedLegacyWifiNetworkId?.takeIf { it != networkId }?.let { oldId ->
+            val wifiPreferences = context.getSharedPreferences("ultra_share_wifi", Context.MODE_PRIVATE)
+            val previousNetworkId = retainedLegacyWifiNetworkId
+                ?: wifiPreferences.getInt("legacy_network_id", -1).takeIf { it >= 0 }
+            previousNetworkId?.takeIf { it != networkId }?.let { oldId ->
                 runCatching { wifi.removeNetwork(oldId) }
             }
             retainedLegacyWifiNetworkId = networkId
-            context.getSharedPreferences("ultra_share_wifi", Context.MODE_PRIVATE)
-                .edit().putInt("legacy_network_id", networkId).apply()
+            wifiPreferences.edit().putInt("legacy_network_id", networkId).apply()
             _state.value = _state.value.copy(
                 requestingConnection = true,
                 error = null,
