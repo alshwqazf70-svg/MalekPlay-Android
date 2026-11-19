@@ -806,7 +806,10 @@ object UltraShareControlChannel {
             error("معرّف طلب الاتصال غير صالح.")
         }
         val nameLength = input.readUnsignedShort()
-        require(nameLength in 1..MAX_NAME_BYTES)
+        if (nameLength !in 1..MAX_NAME_BYTES) {
+            pairingAttemptLimiter.recordFailure(peerAddress)
+            error("طول اسم الجهاز غير صالح.")
+        }
         val nameBytes = ByteArray(nameLength)
         input.readFully(nameBytes)
         val suppliedMac = ByteArray(MAC_BYTES)
