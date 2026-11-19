@@ -99,6 +99,7 @@ class UltraShareViewModel @Inject constructor(
     private val _state = MutableStateFlow(UltraShareUiState())
     val state = _state.asStateFlow()
     private var scanJob: Job? = null
+    private var discoveryStoppedForPairedSession = false
     private var wifiDirectScanTimeout: Job? = null
     private var bluetoothScanTimeout: Job? = null
     private var wifiDirectSession: UltraShareWifiDirect.Session? = null
@@ -227,6 +228,13 @@ class UltraShareViewModel @Inject constructor(
                         serviceState.activePeers.any { it.host == approved }
                     }
                 )
+                val pairedSessionActive = serviceState.activePeers.isNotEmpty() ||
+                    serviceState.approvedSenderPeerHosts.isNotEmpty()
+                if (pairedSessionActive) {
+                    stopNearbyDiscoveryAfterPairing()
+                } else {
+                    discoveryStoppedForPairedSession = false
+                }
                 // A navigation-scoped ViewModel can be recreated while the foreground
                 // receiver service and P2P group remain alive. Re-publish the ephemeral
                 // invitation on the retained group instead of leaving a dead QR session.
@@ -701,6 +709,7 @@ class UltraShareViewModel @Inject constructor(
                         requestingConnection = false,
                         error = null
                     )
+                    stopNearbyDiscoveryAfterPairing()
                     onConnectionEstablished?.invoke(connectedHost)
                 } else {
                     UltraShareDiagnostics.event(
@@ -1028,6 +1037,41 @@ private fun forgetApprovedSenderTarget(host: String) {
                 error = failure.localizedMessage ?: "تعذر طلب الانضمام إلى شبكة MalekPlay."
             )
         }
+    }
+
+    /**
+     * Discovery is useful only until the peer is paired. Stop LAN, Wi-Fi Direct,
+     * Bluetooth and BLE scans/advertisements without releasing the paired P2P group
+     * or closing the foreground transfer/control service.
+     */
+    private fun stopNearbyDiscoveryAfterPairing() {
+        if (discoveryStoppedForPairedSession) return
+        discoveryStoppedForPairedSession = true
+
+        scanJob?.cancel()
+        scanJob = null
+        wifiDirectScanTimeout?.cancel()
+        wifiDirectScanTimeout = null
+        bluetoothScanTimeout?.cancel()
+        bluetoothScanTimeout = null
+
+        runCatching { bluetoothSession?.stop() }
+        runCatching { bleSession?.stop() }
+
+        wifiDirectSession?.let { session ->
+            session.stopDiscoveryChecked { }
+            session.stopInvitationDiscoveryChecked { }
+            session.stopInvitationAdvertisementChecked { }
+        }
+
+        _state.value = _state.value.copy(
+            scanning = false,
+            wifiDirectScanning = false,
+            bluetoothScanning = false,
+            bleScanning = false,
+            status = "تم الاقتران؛ أوقفنا البحث عن الأجهزة لتوفير البطارية."
+        )
+        UltraShareDiagnostics.event("DISCOVERY", "STOPPED_AFTER_PAIRING")
     }
 
     fun scanNearbyDevices() {
