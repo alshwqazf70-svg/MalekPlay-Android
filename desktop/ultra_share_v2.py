@@ -344,7 +344,7 @@ def _sanitize_shared_name(value: str, error: str) -> str:
     previous = None
     while cleaned != previous:
         previous = cleaned
-        cleaned = cleaned.rstrip(" .\t\r\n")
+        cleaned = cleaned.strip(" .\t\r\n")
     while cleaned and len(cleaned.encode("utf-8")) > MAX_NAME_BYTES:
         cleaned = cleaned[:-1]
     stem = cleaned.split(".", 1)[0].upper()
