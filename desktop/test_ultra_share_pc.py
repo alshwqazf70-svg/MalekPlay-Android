@@ -64,7 +64,7 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         try:
             handler.start()
             client.sendall(struct.pack(">H", 4) + b"PING")
-            self.assertEqual(b"\\x00\\x04", client.recv(2))
+            self.assertEqual(bytes([0, 4]), client.recv(2))
             self.assertEqual(b"PONG", client.recv(4))
             client.sendall(struct.pack(">H", 5) + b"CLOSE")
             handler.join(timeout=2)
