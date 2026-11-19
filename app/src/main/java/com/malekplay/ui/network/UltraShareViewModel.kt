@@ -2153,6 +2153,12 @@ private fun forgetApprovedSenderTarget(host: String) {
             )
             return false
         }
+        if (UltraShareForegroundService.isSendingToPeer(target.host)) {
+            _state.value = _state.value.copy(
+                error = "هناك إرسال جارٍ إلى هذا الجهاز بالفعل. اختر جهازاً آخر لمتابعة الإرسال بالتوازي."
+            )
+            return false
+        }
         return runCatching {
             UltraShareForegroundService.startSendingBatchToPeers(context, uris, listOf(target))
             _state.value = _state.value.copy(
@@ -2172,8 +2178,16 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     fun sendBatchToApprovedPeers(uris: List<Uri>): Boolean {
-        val targets = UltraShareForegroundService.approvedSendTargets()
-        if (uris.isEmpty() || targets.isEmpty()) return false
+        val allTargets = UltraShareForegroundService.approvedSendTargets()
+        val targets = UltraShareForegroundService.availableSendTargets()
+        if (uris.isEmpty() || targets.isEmpty()) {
+            if (uris.isNotEmpty() && allTargets.isNotEmpty()) {
+                _state.value = _state.value.copy(
+                    error = "جميع الأجهزة المقترنة لديها عمليات إرسال نشطة بالفعل. يمكنك اختيار جهاز آخر أو الانتظار حتى ينتهي الإرسال."
+                )
+            }
+            return false
+        }
         return runCatching {
             UltraShareForegroundService.startSendingBatchToPeers(context, uris, targets)
             _state.value = _state.value.copy(
