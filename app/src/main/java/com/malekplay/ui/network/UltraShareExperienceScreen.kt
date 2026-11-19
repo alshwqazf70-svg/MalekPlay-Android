@@ -1268,13 +1268,14 @@ fun UltraShareExperienceScreen(
                             }
                         }
                     }
-                    if (!state.sending && state.queueEntries.any {
+                    if (state.queueEntries.any {
                             it.status == UltraShareQueueStore.STATUS_PENDING || it.status == UltraShareQueueStore.STATUS_FAILED
                         }) {
                         OutlinedButton(onClick = { viewModel.resumePendingBatch(host) },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = host.isNotBlank() && host in state.approvedSenderPeerHosts
-                        ) { Text("استئناف الملفات المتبقية") }
+                            enabled = host.isNotBlank() && host in state.approvedSenderPeerHosts &&
+                                !UltraShareForegroundService.isSendingToPeer(host)
+                        ) { Text("استئناف الملفات المتبقية لهذا الجهاز") }
                     }
                 }
 
