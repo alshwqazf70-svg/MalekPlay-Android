@@ -1184,15 +1184,21 @@ private fun forgetApprovedSenderTarget(host: String) {
                         "انقطع الاتصال بالشبكة قبل اكتمال الاقتران."
                     ) == true
                     if (!fallbackStarted) {
-                        viewModel?._state?.value = viewModel._state.value.copy(
-                            requestingConnection = false,
-                            error = "انقطع الاتصال بالشبكة قبل اكتمال الاقتران."
-                        )
+                        viewModel?.let { ownerViewModel ->
+                            ownerViewModel._state.value = ownerViewModel._state.value.copy(
+                                requestingConnection = false,
+                                error = "انقطع الاتصال بالشبكة قبل اكتمال الاقتران."
+                            )
+                        }
                     }
                 }
                 if (isCurrent) {
                     retainedHotspotNetworkCallback = null
                     retainedHotspotNetworkPaired = false
+                    if (viewModel != null && viewModel.hotspotNetworkCallback === this) {
+                        viewModel.hotspotNetworkCallback = null
+                        viewModel.hotspotNetworkPaired = false
+                    }
                 }
                 if (viewModel != null && isCurrent && paired.get()) {
                     val lostHost = connectedHost.get()
