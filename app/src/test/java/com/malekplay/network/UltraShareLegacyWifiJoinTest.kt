@@ -41,7 +41,7 @@ class UltraShareLegacyWifiJoinTest {
 
     @Test(expected = IllegalArgumentException::class)
     fun rejectsSsidsLongerThanThirtyTwoUtf8Bytes() {
-        buildUltraShareLegacyWifiConfiguration("شبكةشبكةشبكةشبكة", "share12345")
+        buildUltraShareLegacyWifiConfiguration("شبكةشبكةشبكةشبكةشبكة", "share12345")
     }
 
     @Test(expected = IllegalArgumentException::class)
