@@ -2,14 +2,67 @@ package com.malekplay.network
 
 import java.io.File
 import java.io.FileInputStream
+import java.util.Locale
 
 /**
  * Checks container signatures, not user-supplied names or MIME declarations.
  * Unknown formats fail closed until a verified signature is registered here.
  */
 internal object UltraShareMediaSignature {
+    private val SUPPORTED_EXTENSIONS = setOf(
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff",
+        "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr", "aiff", "aif", "mid", "midi",
+        "mp4", "m4v", "mkv", "mov", "webm", "avi", "3gp", "3g2", "mpg", "mpeg", "ts", "mts", "m2ts",
+        "wmv", "flv", "ogv"
+    )
+
+    private fun extensionForMime(rawMime: String): String? = when (
+        rawMime.substringBefore(';').trim().lowercase(Locale.ROOT)
+    ) {
+        "image/jpeg" -> "jpg"
+        "image/png" -> "png"
+        "image/gif" -> "gif"
+        "image/webp" -> "webp"
+        "image/bmp" -> "bmp"
+        "image/heic" -> "heic"
+        "image/heif" -> "heif"
+        "image/avif" -> "avif"
+        "image/tiff" -> "tiff"
+        "audio/mpeg" -> "mp3"
+        "audio/mp4", "audio/x-m4a" -> "m4a"
+        "audio/aac" -> "aac"
+        "audio/flac" -> "flac"
+        "audio/wav", "audio/x-wav" -> "wav"
+        "audio/ogg" -> "ogg"
+        "audio/opus" -> "opus"
+        "audio/x-ms-wma" -> "wma"
+        "audio/amr" -> "amr"
+        "audio/aiff", "audio/x-aiff" -> "aiff"
+        "audio/midi", "audio/x-midi" -> "mid"
+        "video/mp4" -> "mp4"
+        "video/quicktime" -> "mov"
+        "video/x-matroska" -> "mkv"
+        "video/webm" -> "webm"
+        "video/3gpp" -> "3gp"
+        "video/3gpp2" -> "3g2"
+        "video/mpeg" -> "mpg"
+        "video/mp2t" -> "ts"
+        "video/x-msvideo" -> "avi"
+        "video/x-ms-wmv" -> "wmv"
+        "video/x-flv" -> "flv"
+        "video/ogg" -> "ogv"
+        else -> null
+    }
+
     fun isValid(file: File, fileName: String, mimeType: String): Boolean {
-        val ext = fileName.substringAfterLast('.', "").lowercase()
+        if (!UltraShareCore.isAllowedShareFile(fileName, mimeType)) return false
+        val suppliedExtension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        // Some Android document providers return a media MIME type but omit the
+        // filename extension. Infer only well-known container types, then still
+        // require the matching file signature before accepting the transfer.
+        val ext = suppliedExtension.takeIf { it in SUPPORTED_EXTENSIONS }
+            ?: extensionForMime(mimeType)
+            ?: return false
         val family = when (ext) {
             "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff" -> "image"
             "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr",

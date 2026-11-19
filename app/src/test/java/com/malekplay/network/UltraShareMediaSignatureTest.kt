@@ -32,6 +32,20 @@ class UltraShareMediaSignatureTest {
         }
     }
 
+    @Test fun infersKnownMediaContainerWhenDocumentProviderOmitsExtension() {
+        val mp4 = File.createTempFile("ultrashare-no-extension", ".tmp")
+        val mp3 = File.createTempFile("ultrashare-no-extension", ".tmp")
+        try {
+            mp4.writeBytes(byteArrayOf(0, 0, 0, 24) + "ftypisom".toByteArray() + ByteArray(8))
+            mp3.writeBytes("ID3".toByteArray() + ByteArray(16))
+            assertTrue(UltraShareMediaSignature.isValid(mp4, "clip", "video/mp4"))
+            assertTrue(UltraShareMediaSignature.isValid(mp3, "track", "audio/mpeg"))
+        } finally {
+            mp4.delete()
+            mp3.delete()
+        }
+    }
+
     @Test fun rejectsManifestAboveTotalBatchLimit() {
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
         val first = UltraShareBatchProtocol.newEntry("a.mp4", "video/mp4",
