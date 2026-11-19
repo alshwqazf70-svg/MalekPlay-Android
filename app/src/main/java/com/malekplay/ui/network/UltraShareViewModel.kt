@@ -331,6 +331,9 @@ class UltraShareViewModel @Inject constructor(
             // Start the authenticated control/data listeners only. Wi-Fi Direct
             // group ownership is established first; LocalOnlyHotspot is fallback-only.
             UltraShareForegroundService.startReceiving(context, secret, createHotspot = false)
+            // Publish current WLAN/LAN candidates immediately while P2P group setup
+            // proceeds independently; this asynchronous refresh never gates pairing.
+            UltraShareForegroundService.refreshLocalAddresses(context)
             advertiseCurrentWifiDirectInvitation()
         }.onFailure {
             UltraShareDiagnostics.failure("RECEIVER_P2P_START", it)
@@ -1691,9 +1694,11 @@ private fun forgetApprovedSenderTarget(host: String) {
                 // Group creation is sufficient to publish the credentials-based QR.
                 // DNS-SD is an optional fallback and must never gate the QR display.
                 publishUnifiedReceiverQrIfReady()
+                // Schedule the LAN/P2P QR fallback independently of DNS-SD. An OEM
+                // addLocalService failure must not hide an otherwise usable invitation.
+                publishDnsSdReceiverQrIfReady(invitationId)
                 session.advertiseInvitation(invitationId) {
                     UltraShareForegroundService.refreshLocalAddresses(context)
-                    publishDnsSdReceiverQrIfReady(invitationId)
                     _state.value = _state.value.copy(
                         invitationId = invitationId,
                         error = null,
