@@ -337,7 +337,7 @@ def send_once(host: str, port: int, secret: str, source: Path,
                 elapsed = max(time.monotonic() - started, 0.001)
                 rate = (transferred - offset) / elapsed
                 print(
-                    f"\\r{filename}: {transferred * 100 / max(size, 1):5.1f}%  "
+                    f"\r{filename}: {transferred * 100 / max(size, 1):5.1f}%  "
                     f"{transferred:,}/{size:,} bytes  {rate / 1024 / 1024:.2f} MB/s",
                     end="",
                     flush=True,
@@ -495,7 +495,7 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
                         raise ValueError("Received a data block with an invalid size.")
                     output.write(block)
                     transferred += len(block)
-                    print(f"\\rReceiving {filename}: {transferred * 100 / max(size, 1):5.1f}%", end="", flush=True)
+                    print(f"\rReceiving {filename}: {transferred * 100 / max(size, 1):5.1f}%", end="", flush=True)
                 end = read_frame(connection, receive_key, nonce_prefix, sequence, 64)
                 if end:
                     raise ValueError("Invalid end-of-transfer frame.")
