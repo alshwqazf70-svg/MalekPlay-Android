@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -592,6 +593,7 @@ private fun FolderTile(folder: MediaFolder, onOpen: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PremiumVideoRow(
     item: LibraryItem,
@@ -608,7 +610,7 @@ private fun PremiumVideoRow(
     val glassStroke = Brush.linearGradient(listOf(colors.primary.copy(alpha = .45f), colors.outlineVariant, colors.secondary.copy(alpha = .25f)))
     Row(
         Modifier.fillMaxWidth().animateContentSize().clip(RoundedCornerShape(19.dp)).background(glass)
-            .border(1.dp, if (isSelected) colors.primary else glassStroke, RoundedCornerShape(19.dp))
+            .border(1.dp, if (isSelected) Brush.linearGradient(listOf(colors.primary, colors.secondary)) else glassStroke, RoundedCornerShape(19.dp))
             .combinedClickable(onClick = { if (selectionMode) onSelect() else onClick() }, onLongClick = onSelect)
             .background(if (isSelected) colors.primaryContainer.copy(alpha = 0.35f) else Color.Transparent)
             .padding(10.dp),
