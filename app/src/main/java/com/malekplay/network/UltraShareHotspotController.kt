@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 
 /**
@@ -37,14 +38,14 @@ internal class UltraShareHotspotController(
         if (reservation != null || isStarting) return
         val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
         if (wifiManager == null) {
-            onFailed("خدمة Wi-Fi غير متاحة على هذا الجهاز.")
+            onFailure("خدمة Wi-Fi غير متاحة على هذا الجهاز.")
             return
         }
         isStarting = true
         val nextCallback = object : WifiManager.LocalOnlyHotspotCallback() {
             override fun onStarted(nextReservation: WifiManager.LocalOnlyHotspotReservation) {
                 val callbackInstance = this
-                scope.launch(Dispatchers.IO) {
+                scope.launch(Dispatchers.IO + NonCancellable) {
                     if (callback !== callbackInstance) {
                         runCatching { nextReservation.close() }
                         return@launch
@@ -88,7 +89,7 @@ internal class UltraShareHotspotController(
                         "لا تتوفر قناة Wi-Fi لإنشاء نقطة الاتصال حالياً."
                     else -> "تعذر إنشاء نقطة اتصال MalekPlayer. جرّب إيقاف نقطة اتصال النظام ثم أعد المحاولة."
                 }
-                onFailed(message)
+                onFailure(message)
             }
         }
         callback = nextCallback
@@ -97,11 +98,11 @@ internal class UltraShareHotspotController(
         } catch (failure: SecurityException) {
             callback = null
             isStarting = false
-            onFailed("يلزم منح إذن الأجهزة القريبة لإنشاء شبكة Wi-Fi محلية.")
+            onFailure("يلزم منح إذن الأجهزة القريبة لإنشاء شبكة Wi-Fi محلية.")
         } catch (failure: Exception) {
             callback = null
             isStarting = false
-            onFailed(failure.localizedMessage ?: "تعذر بدء نقطة الاتصال.")
+            onFailure(failure.localizedMessage ?: "تعذر بدء نقطة الاتصال.")
         }
     }
 
