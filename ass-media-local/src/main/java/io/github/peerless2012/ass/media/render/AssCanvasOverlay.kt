@@ -69,7 +69,7 @@ class AssCanvasOverlay(private val handler: AssHandler, private val render: AssR
     }
 
     override fun release() {
-        if (::executor.isInitialized) executor.shutdown()
+        if (::executor.isInitialized) executor.shutdownNow()
         super.release()
     }
 
