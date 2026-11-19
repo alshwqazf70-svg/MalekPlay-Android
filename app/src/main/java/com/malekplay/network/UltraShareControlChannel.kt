@@ -605,7 +605,7 @@ object UltraShareControlChannel {
             }
         }
         if (removed) {
-            UltraShareDiagnostics.failure(
+            if (logFailure) UltraShareDiagnostics.failure(
                 "CONTROL_CHANNEL_CLIENT_SESSION",
                 failure,
                 "peerHost=" + host
