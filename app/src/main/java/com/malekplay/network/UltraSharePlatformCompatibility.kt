@@ -18,6 +18,12 @@ object UltraSharePlatformCompatibility {
     fun requiresLocationServicesForWifiDirect(sdkInt: Int): Boolean =
         sdkInt in 23..32
 
+    /** Android 6–9 still permits the legacy WifiManager.addNetwork join flow. */
+    fun supportsLegacyWifiManagerJoin(sdkInt: Int): Boolean = sdkInt in 23..28
+
+    /** Android 10+ uses WifiNetworkSpecifier for app-scoped network requests. */
+    fun usesWifiNetworkSpecifier(sdkInt: Int): Boolean = sdkInt >= 29
+
     /** Group creation itself is not gated by the Location Services discovery prerequisite. */
     fun canCreateWifiDirectGroup(sdkInt: Int): Boolean =
         supportsWifiDirectApiLevel(sdkInt)
