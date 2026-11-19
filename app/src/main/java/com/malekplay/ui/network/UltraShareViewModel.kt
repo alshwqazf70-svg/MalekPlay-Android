@@ -1091,9 +1091,7 @@ private fun forgetApprovedSenderTarget(host: String) {
     @Suppress("DEPRECATION")
     private fun releaseLegacyWifiNetwork() {
         val preferences = context.getSharedPreferences("ultra_share_wifi", Context.MODE_PRIVATE)
-        val networkId = retainedLegacyWifiNetworkId
-            ?: preferences.getInt("legacy_network_id", -1).takeIf { it >= 0 }
-            ?: return
+        val networkId = preferences.getInt("legacy_network_id", -1).takeIf { it >= 0 } ?: return
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE)
             as? android.net.wifi.WifiManager ?: return
         runCatching {
@@ -1102,7 +1100,6 @@ private fun forgetApprovedSenderTarget(host: String) {
                 "Android refused to remove the temporary Wi-Fi Direct network profile."
             }
             runCatching { wifi.saveConfiguration() }
-            if (retainedLegacyWifiNetworkId == networkId) retainedLegacyWifiNetworkId = null
             preferences.edit().remove("legacy_network_id").apply()
         }.onFailure { UltraShareDiagnostics.failure("LEGACY_WIFI_REMOVE_NETWORK", it) }
     }
