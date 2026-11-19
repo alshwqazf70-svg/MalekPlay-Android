@@ -149,36 +149,46 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                     Button(enabled = host.isNotBlank() && (port.toIntOrNull()?.let { it in 1..65535 } == true) && password.isNotEmpty(),
                         onClick = {
                             val id = "net_" + java.util.UUID.randomUUID().toString().replace("-", "")
-                            runCatching {
-                                val profile = NetworkProfile(id, protocol, normalizeNetworkHost(host), port.toInt(), username.trim(), rootPath.trim().ifBlank { "/" }, name.trim().ifBlank { host.trim() })
-                                if (protocol == NetworkProtocol.SFTP) {
-                                    val importedHosts = knownHosts ?: error("استورد ملف known_hosts الموثوق أولاً")
-                                    require(importedHosts.isFile && importedHosts.length() > 0L) { "ملف known_hosts فارغ" }
-                                    val profileHosts = File(context.filesDir, "network/known_hosts/$id")
-                                    profileHosts.parentFile?.mkdirs()
-                                    importedHosts.copyTo(profileHosts, overwrite = true)
-                                }
-                                vault.save(id, username, password)
-                                try {
-                                    profileStore.save(profile)
-                                } catch (failure: Throwable) {
-                                    runCatching { vault.remove(id) }.onFailure(failure::addSuppressed)
-                                    throw failure
-                                }
-                                profiles = profileStore.load()
-                                // The imported trust file is only a staging copy. Keep the
-                                // profile-scoped known_hosts file and remove both staging files.
-                                knownHosts?.let { imported ->
-                                    if (imported.exists()) require(imported.delete()) {
-                                        "تعذر حذف ملف known_hosts المؤقت بعد الاستيراد"
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        val profile = NetworkProfile(id, protocol, normalizeNetworkHost(host), port.toInt(), username.trim(), rootPath.trim().ifBlank { "/" }, name.trim().ifBlank { host.trim() })
+                                        if (protocol == NetworkProtocol.SFTP) {
+                                            val importedHosts = knownHosts ?: error("استورد ملف known_hosts الموثوق أولاً")
+                                            require(importedHosts.isFile && importedHosts.length() > 0L) { "ملف known_hosts فارغ" }
+                                            val profileHosts = File(context.filesDir, "network/known_hosts/$id")
+                                            check(profileHosts.parentFile?.exists() == true || profileHosts.parentFile?.mkdirs() == true) {
+                                                "تعذر إنشاء مجلد مفاتيح SFTP"
+                                            }
+                                            importedHosts.copyTo(profileHosts, overwrite = true)
+                                        }
+                                        vault.save(id, username, password)
+                                        try {
+                                            profileStore.save(profile)
+                                        } catch (failure: Throwable) {
+                                            runCatching { vault.remove(id) }.onFailure(failure::addSuppressed)
+                                            throw failure
+                                        }
+                                        // Keep only the profile-scoped trust file after import.
+                                        knownHosts?.let { imported ->
+                                            if (imported.exists()) require(imported.delete()) {
+                                                "تعذر حذف ملف known_hosts المؤقت بعد الاستيراد"
+                                            }
+                                        }
+                                        File(context.filesDir, "network_known_hosts_import.tmp").delete()
+                                        profileStore.load()
                                     }
                                 }
-                                File(context.filesDir, "network_known_hosts_import.tmp").delete()
-                                name = ""; host = ""; username = ""; password = ""; rootPath = "/"
-                                knownHosts = null
-                                showAdd = false
-                                message = "تم حفظ المصدر وبيانات الدخول مشفرة"
-                            }.onFailure { message = it.localizedMessage ?: "تعذر حفظ المصدر" }
+                                result.onSuccess { savedProfiles ->
+                                    profiles = savedProfiles
+                                    name = ""; host = ""; username = ""; password = ""; rootPath = "/"
+                                    knownHosts = null
+                                    showAdd = false
+                                    message = "تم حفظ المصدر وبيانات الدخول مشفرة"
+                                }.onFailure {
+                                    message = it.localizedMessage ?: "تعذر حفظ المصدر"
+                                }
+                            }
                         }) { Text("حفظ المصدر") }
                 }
                 if (profiles.isNotEmpty()) {
@@ -191,10 +201,24 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                             }
                             TextButton(enabled = !busy, onClick = { connect(profile, profile.rootPath) }) { Text("اتصال") }
                             TextButton(onClick = {
-                                profileStore.remove(profile.id)
-                                profiles = profileStore.load()
-                                File(context.filesDir, "network/known_hosts/${profile.id}").delete()
-                                if (active?.id == profile.id) { active = null; entries = emptyList() }
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            profileStore.remove(profile.id)
+                                            val trustedHosts = File(context.filesDir, "network/known_hosts/${profile.id}")
+                                            check(!trustedHosts.exists() || trustedHosts.delete()) {
+                                                "تم حذف المصدر لكن تعذر حذف ملف مفاتيح SFTP"
+                                            }
+                                            profileStore.load()
+                                        }
+                                    }
+                                    result.onSuccess { updatedProfiles ->
+                                        profiles = updatedProfiles
+                                        if (active?.id == profile.id) { active = null; entries = emptyList() }
+                                    }.onFailure {
+                                        message = it.localizedMessage ?: "تعذر حذف المصدر"
+                                    }
+                                }
                             }) { Text("حذف") }
                         }
                     }
