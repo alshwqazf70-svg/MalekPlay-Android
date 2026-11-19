@@ -109,7 +109,6 @@ class PlaybackService : MediaSessionService() {
     private lateinit var credentialVault: NetworkCredentialVault
     private lateinit var networkProfilesPreferences: SharedPreferences
     @Volatile private var cachedWebDavProfiles: List<com.malekplay.network.NetworkProfile>? = null
-    private var playbackDataSourceFactory: DataSource.Factory? = null
     private val profilePreferencesListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "profiles") cachedWebDavProfiles = null
     }
@@ -144,7 +143,6 @@ class PlaybackService : MediaSessionService() {
         networkProfilesPreferences = getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE)
         networkProfilesPreferences.registerOnSharedPreferenceChangeListener(profilePreferencesListener)
         val sharedPlaybackDataSourceFactory = buildDataSourceFactory()
-        playbackDataSourceFactory = sharedPlaybackDataSourceFactory
 
         // Install the software ten-band PCM equalizer in the real Media3 audio path.
         // Float output is disabled intentionally because the processor currently
@@ -315,7 +313,6 @@ class PlaybackService : MediaSessionService() {
             bridge.close()
         }
         castMediaHttpServer = null
-        playbackDataSourceFactory = null
         if (::networkProfilesPreferences.isInitialized) {
             networkProfilesPreferences.unregisterOnSharedPreferenceChangeListener(profilePreferencesListener)
         }
