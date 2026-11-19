@@ -599,37 +599,66 @@ class UltraShareForegroundService : Service() {
                             ) { request ->
                                 UltraShareDiagnostics.event(
                                     "CONTROL_CHANNEL",
-                                    "PEER_AUTHENTICATED",
+                                    "PEER_AUTHENTICATED_WAITING_FOR_USER_APPROVAL",
                                     mapOf("peerHost" to request.peerAddress, "peerName" to request.peerName, "peerIdPresent" to (request.peerId != null))
                                 )
-                                // A valid QR/PIN is the user's pairing authorization.
-                                // Accept the authenticated session immediately; do not ask
-                                // the receiver for a second approval or persist device trust.
-                                val authenticatedPeerId = request.peerId ?: request.requestId
-                                registerApprovedPeer(
-                                    name = request.peerName,
-                                    host = request.peerAddress,
-                                    role = "اتصال تلقائي مؤقت عبر QR/الرمز",
-                                    sessionId = authenticatedPeerId
-                                )
-                                // The authenticated receiver must also be able to send
-                                // back to the requester. Store only this in-memory,
-                                // session-scoped target after MPC2 has accepted it.
-                                registerApprovedSendTarget(
-                                    UltraShareApprovedSendTarget(
-                                        sessionId = authenticatedPeerId,
+                                // MPC2 proves possession of the current session secret, but
+                                // it is not consent to receive files. Serialize prompts and
+                                // require one explicit approval on the receiving device.
+                                kotlinx.coroutines.sync.withLock(pendingConnectionMutex) {
+                                    val prompt = CompletableDeferred<UltraShareControlChannel.Decision>()
+                                    pendingConnectionDecision = prompt
+                                    updateState { current -> current.copy(
+                                        pendingConnection = request,
+                                        status = "طلب اقتران موثّق بانتظار موافقتك من " + request.peerName,
+                                        error = null
+                                    ) }
+                                    val decision = try {
+                                        withTimeoutOrNull(120_000L) { prompt.await() }
+                                            ?: UltraShareControlChannel.Decision.REJECTED
+                                    } finally {
+                                        if (pendingConnectionDecision === prompt) {
+                                            pendingConnectionDecision = null
+                                        }
+                                        updateState { current ->
+                                            if (current.pendingConnection?.requestId == request.requestId) {
+                                                current.copy(pendingConnection = null)
+                                            } else current
+                                        }
+                                    }
+                                    if (decision != UltraShareControlChannel.Decision.ACCEPTED) {
+                                        UltraShareDiagnostics.event(
+                                            "CONTROL_CHANNEL",
+                                            "PEER_APPROVAL_DENIED_OR_EXPIRED",
+                                            mapOf("peerHost" to request.peerAddress, "peerName" to request.peerName)
+                                        )
+                                        return@withLock UltraShareControlChannel.Decision.REJECTED
+                                    }
+
+                                    val authenticatedPeerId = request.peerId ?: request.requestId
+                                    registerApprovedPeer(
+                                        name = request.peerName,
                                         host = request.peerAddress,
-                                        secret = secret,
-                                        peerId = request.peerId
+                                        role = "جلسة مؤقتة وافق عليها المستقبل",
+                                        sessionId = authenticatedPeerId
                                     )
-                                )
-                                updateState { current -> current.copy(
-                                    pendingConnection = null,
-                                    status = "تم الاتصال تلقائياً مع " + request.peerName + "؛ الإرسال والاستقبال متاحان.",
-                                    error = null
-                                ) }
-                                scheduleIdleDisconnect()
-                                UltraShareControlChannel.Decision.ACCEPTED
+                                    // The reverse-send target is created only after the
+                                    // receiver explicitly approves this authenticated peer.
+                                    registerApprovedSendTarget(
+                                        UltraShareApprovedSendTarget(
+                                            sessionId = authenticatedPeerId,
+                                            host = request.peerAddress,
+                                            secret = secret,
+                                            peerId = request.peerId
+                                        )
+                                    )
+                                    updateState { current -> current.copy(
+                                        status = "تم قبول " + request.peerName + "؛ الإرسال والاستقبال متاحان.",
+                                        error = null
+                                    ) }
+                                    scheduleIdleDisconnect()
+                                    UltraShareControlChannel.Decision.ACCEPTED
+                                }
                             }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
