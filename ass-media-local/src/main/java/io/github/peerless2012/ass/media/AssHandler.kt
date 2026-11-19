@@ -120,8 +120,9 @@ class AssHandler(
         super.onMediaItemTransition(mediaItem, reason)
         Log.i("AssHandler", "onMediaItemTransition: item = ${mediaItem}, reason = $reason")
         overlayManager?.disable()
-        renderCallback?.invoke(null)
         releaseMediaResources(closeAssInstance = true)
+        runCatching { renderCallback?.invoke(null) }
+            .onFailure { Log.w("AssHandler", "ASS renderer detach callback failed", it) }
         videoSize = Size.ZERO
         videoTime = -1
         videoFrameIndex = 0
@@ -139,7 +140,8 @@ class AssHandler(
         overlayManager?.disable()
         overlayManager = null
         releaseMediaResources(closeAssInstance = true)
-        renderCallback?.invoke(null)
+        runCatching { renderCallback?.invoke(null) }
+            .onFailure { Log.w("AssHandler", "ASS renderer detach callback failed", it) }
         renderCallback = null
         videoTimeCallback = null
     }
