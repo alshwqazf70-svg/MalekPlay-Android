@@ -1,1 +1,2 @@
-# No additional consumer rules are required; JNI keeps are declared in this module's release rules.
+# AssMatroskaExtractor accesses these Media3 fields by reflection; preserve their names in consuming apps.
+-keepclassmembers class androidx.media3.extractor.mkv.MatroskaExtractor { *** extractorOutput; *** subtitleSample; }
