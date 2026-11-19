@@ -1113,7 +1113,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
             return
         }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        if (UltraSharePlatformCompatibility.supportsLegacyWifiManagerJoin(Build.VERSION.SDK_INT)) {
             connectLegacyWifiNetwork(pairing)
             return
         }
