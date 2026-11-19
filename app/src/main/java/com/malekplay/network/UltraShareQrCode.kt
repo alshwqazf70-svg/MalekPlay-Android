@@ -122,7 +122,8 @@ object UltraShareQrCode {
         pairingSecret: String,
         ssid: String? = null,
         wifiPassword: String? = null,
-        invitationId: String? = null
+        invitationId: String? = null,
+        wifiSecurity: String? = "wpa2"
     ): String {
         val safeHosts = hosts.asSequence()
             .map { it.trim() }
@@ -138,6 +139,7 @@ object UltraShareQrCode {
         if (ssid != null && wifiPassword != null) {
             require(ssid.isNotBlank() && ssid.length <= 32) { "اسم شبكة Wi-Fi غير صالح." }
             require(wifiPassword.length in 8..63) { "كلمة مرور Wi-Fi غير صالحة." }
+            require(wifiSecurity == "wpa2" || wifiSecurity == "wpa3") { "نوع حماية Wi-Fi غير مدعوم." }
         }
         invitationId?.let {
             require(it.matches(Regex("[A-Za-z0-9_-]{1,64}"))) { "هوية دعوة الجهاز غير صالحة." }
@@ -151,6 +153,7 @@ object UltraShareQrCode {
                 invitationId?.let { appendQueryParameter("peer", it) }
                 ssid?.let { appendQueryParameter("ssid", it) }
                 wifiPassword?.let { appendQueryParameter("wifi_password", it) }
+                if (ssid != null) appendQueryParameter("wifi_security", wifiSecurity ?: "wpa2")
             }
             .appendQueryParameter("port", UltraShareControlChannel.DEFAULT_PORT.toString())
             .appendQueryParameter("secret", pairingSecret)
@@ -184,7 +187,8 @@ object UltraShareQrCode {
         val hosts: List<String> = listOf(host),
         val invitationId: String? = null,
         val hotspotSsid: String? = null,
-        val hotspotPassword: String? = null
+        val hotspotPassword: String? = null,
+        val hotspotSecurity: String = "wpa2"
     )
 
     fun parsePayload(payload: String): PairingDetails {
@@ -234,10 +238,14 @@ object UltraShareQrCode {
                     }
                 }
         } else null
+        val hotspotSecurity = if (hotspotSsid != null) {
+            (uri.getQueryParameter("wifi_security") ?: "wpa2").lowercase()
+                .also { require(it == "wpa2" || it == "wpa3") { "نوع حماية Wi-Fi غير مدعوم." } }
+        } else "wpa2"
         require(hosts.isNotEmpty() || invitationId != null) {
             "لا يحتوي رمز QR على أي مسار اتصال صالح."
         }
-        return PairingDetails(host, port, secret, hosts, invitationId, hotspotSsid, hotspotPassword)
+        return PairingDetails(host, port, secret, hosts, invitationId, hotspotSsid, hotspotPassword, hotspotSecurity)
     }
 
     fun createBitmap(payload: String, dimension: Int = 640): Bitmap {
