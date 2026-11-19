@@ -169,6 +169,15 @@ class UltraShareQrCodeTest {
         assertEquals(null, lanOnly.invitationId)
     }
 
+
+    @Test(expected = IllegalArgumentException::class)
+    fun unifiedV5QrRejectsAnInvitationWithoutAnyUsableRoute() {
+        val secret = UltraShareCore.createPairingSecret()
+        UltraShareQrCode.parsePayload(
+            "malekplay://ultra-share?v=5&port=${UltraShareControlChannel.DEFAULT_PORT}&secret=$secret"
+        )
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun pairingParserRejectsForeignSchemes() {
         UltraShareQrCode.parsePayload("https://example.com/?secret=anything")
