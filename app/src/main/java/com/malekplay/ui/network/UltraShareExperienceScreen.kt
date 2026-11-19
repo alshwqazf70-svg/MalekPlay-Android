@@ -819,8 +819,8 @@ fun UltraShareExperienceScreen(
                             }
                         },
                         onRequestConnection = { viewModel.requestConnection(host, secret) },
-                        onSendBatch = {
-                            if (viewModel.sendBatch(selectedUris, host)) selectedUris = emptyList()
+                        onSendBatch = { targetHost ->
+                            if (viewModel.sendBatch(selectedUris, targetHost)) selectedUris = emptyList()
                         },
                         onSendToAllPeers = {
                             if (viewModel.sendBatchToApprovedPeers(selectedUris)) selectedUris = emptyList()
