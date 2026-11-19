@@ -2304,11 +2304,4 @@ private fun forgetApprovedSenderTarget(host: String) {
         // Transfer jobs belong to the foreground service and deliberately outlive this ViewModel.
         super.onCleared()
     }
-    override fun onCleared() {
-        // A navigation-scoped ViewModel may be recreated while the foreground
-        // service still owns active peer sessions. Keep the legacy Wi-Fi profile
-        // until an explicit disconnect/stop operation releases it.
-        super.onCleared()
-    }
-
 }
