@@ -1056,13 +1056,18 @@ private fun forgetApprovedSenderTarget(host: String) {
     @Suppress("DEPRECATION")
     private fun releaseLegacyWifiNetwork() {
         val preferences = context.getSharedPreferences("ultra_share_wifi", Context.MODE_PRIVATE)
-        val networkId = preferences.getInt("legacy_network_id", -1).takeIf { it >= 0 } ?: return
+        val networkId = retainedLegacyWifiNetworkId
+            ?: preferences.getInt("legacy_network_id", -1).takeIf { it >= 0 }
+            ?: return
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE)
             as? android.net.wifi.WifiManager ?: return
         runCatching {
-            wifi.disableNetwork(networkId)
-            wifi.removeNetwork(networkId)
-            wifi.saveConfiguration()
+            runCatching { wifi.disableNetwork(networkId) }
+            check(wifi.removeNetwork(networkId)) {
+                "Android refused to remove the temporary Wi-Fi Direct network profile."
+            }
+            runCatching { wifi.saveConfiguration() }
+            if (retainedLegacyWifiNetworkId == networkId) retainedLegacyWifiNetworkId = null
             preferences.edit().remove("legacy_network_id").apply()
         }.onFailure { UltraShareDiagnostics.failure("LEGACY_WIFI_REMOVE_NETWORK", it) }
     }
@@ -2322,6 +2327,12 @@ private fun forgetApprovedSenderTarget(host: String) {
             }
         }
         if (!hotspotNetworkPaired) hotspotNetworkCallback = null
+        // API 23–28 uses a WifiManager network profile instead of a retained
+        // ConnectivityManager callback. Remove it when the pairing never became
+        // an approved peer; a live paired session deliberately keeps its route.
+        if (UltraShareForegroundService.approvedSendTargets().isEmpty()) {
+            releaseLegacyWifiNetwork()
+        }
         scanJob?.cancel()
         wifiDirectScanTimeout?.cancel()
         bluetoothScanTimeout?.cancel()
