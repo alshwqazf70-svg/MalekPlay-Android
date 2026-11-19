@@ -1124,11 +1124,16 @@ private fun forgetApprovedSenderTarget(host: String) {
             as? android.net.wifi.WifiManager ?: return
         runCatching {
             runCatching { wifi.disableNetwork(networkId) }
-            check(wifi.removeNetwork(networkId)) {
-                "Android refused to remove the temporary Wi-Fi Direct network profile."
+            val removed = wifi.removeNetwork(networkId)
+            val profileStillExists = runCatching {
+                wifi.configuredNetworks?.any { it.networkId == networkId }
+            }.getOrNull()
+            if (removed || profileStillExists == false) {
+                runCatching { wifi.saveConfiguration() }
+                preferences.edit().remove("legacy_network_id").apply()
+            } else {
+                error("Android refused to remove the temporary Wi-Fi Direct network profile.")
             }
-            runCatching { wifi.saveConfiguration() }
-            preferences.edit().remove("legacy_network_id").apply()
         }.onFailure { UltraShareDiagnostics.failure("LEGACY_WIFI_REMOVE_NETWORK", it) }
     }
 
