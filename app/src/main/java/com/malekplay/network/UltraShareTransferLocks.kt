@@ -14,12 +14,12 @@ internal class UltraShareTransferLocks(context: Context) {
     private val guard = Any()
     private var wifiLock: WifiManager.WifiLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    private var sending = false
+    private var sendingCount = 0
     private var receivingCount = 0
 
     fun beginTransfer(isReceiving: Boolean) {
         synchronized(guard) {
-            if (isReceiving) receivingCount++ else sending = true
+            if (isReceiving) receivingCount++ else sendingCount++
             runCatching {
                 if (wifiLock?.isHeld != true) {
                     val manager = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
@@ -48,16 +48,20 @@ internal class UltraShareTransferLocks(context: Context) {
     /** Returns true when all send and receive owners have released their locks. */
     fun endTransfer(isReceiving: Boolean): Boolean = synchronized(guard) {
         if (isReceiving) receivingCount = (receivingCount - 1).coerceAtLeast(0)
-        else sending = false
-        val idle = !sending && receivingCount == 0
+        else sendingCount = (sendingCount - 1).coerceAtLeast(0)
+        val idle = sendingCount == 0 && receivingCount == 0
         if (idle) releaseLocked()
         idle
+    }
+
+    fun hasActiveTransfers(): Boolean = synchronized(guard) {
+        sendingCount > 0 || receivingCount > 0
     }
 
     fun release() = synchronized(guard) { releaseLocked() }
 
     private fun releaseLocked() {
-        sending = false
+        sendingCount = 0
         receivingCount = 0
         runCatching { wifiLock?.takeIf { it.isHeld }?.release() }
         runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
