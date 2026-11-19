@@ -28,6 +28,14 @@ class UltraSharePlatformCompatibilityTest {
         }
     }
 
+
+    @Test fun everySupportedAndroidApiHasWifiDirectGroupCreationSupport() {
+        (23..36).forEach { sdk ->
+            assertTrue("Wi-Fi Direct must remain available from API 23 through 36 (sdk=$sdk).",
+                UltraSharePlatformCompatibility.supportsWifiDirectApiLevel(sdk))
+        }
+    }
+
     @Test fun apiBelowAppMinimumIsNotSupported() {
         (1..22).forEach { sdk ->
             assertFalse(UltraSharePlatformCompatibility.supportsWifiDirectApiLevel(sdk))
