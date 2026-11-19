@@ -599,27 +599,57 @@ class LegacyUltraShareViewModel @Inject constructor(
             },
             onConnected = { remoteHost, isGroupOwner ->
                 if (isGroupOwner) {
-                    if (_state.value.receiving) {
+                    val pairing = pendingInvitation
+                    if (pairing != null && pendingInvitationReady != null &&
+                        !pairing.invitationId.isNullOrBlank()
+                    ) {
+                        // If Android makes the scanner group owner, reverse the
+                        // authenticated connection instead of dialing a stale QR IP.
+                        pendingInvitationReady = null
+                        pendingInvitation = null
+                        invitationTimeout?.cancel()
+                        invitationTimeout = null
+                        wifiDirectSession?.stopInvitationDiscovery()
+                        if (UltraShareCore.isValidPairingSecret(pairing.pairingSecret)) {
+                            UltraShareForegroundService.startReceiving(
+                                context, pairing.pairingSecret, createHotspot = false
+                            )
+                            _state.value = _state.value.copy(
+                                wifiDirectHost = null,
+                                scanning = false,
+                                error = null,
+                                status = "انعكس دور Wi-Fi Direct؛ أصبح هذا الجهاز مستقبلاً مؤقتاً وننتظر مصادقة الجهاز الآخر..."
+                            )
+                        } else {
+                            _state.value = _state.value.copy(
+                                wifiDirectHost = null,
+                                scanning = false,
+                                error = "تعذر استعادة سر جلسة QR للاقتران العكسي. أنشئ رمزاً جديداً."
+                            )
+                        }
+                    } else if (_state.value.receiving) {
                         UltraShareForegroundService.refreshLocalAddresses(context)
                         _state.value = _state.value.copy(
                             status = "مجموعة Wi-Fi Direct جاهزة للاستقبال."
                         )
                     } else {
-                        val fallback = pendingInvitation?.hosts?.firstOrNull()
+                        val fallback = pairing?.let(::verifiedLanFallback)
                         if (!fallback.isNullOrBlank()) {
-                            completeInvitationConnection(fallback, "تعذر تحديد مسار Wi-Fi Direct؛ سيتم استخدام شبكة Wi-Fi العادية.")
+                            completeInvitationConnection(
+                                fallback,
+                                "تعذر تحديد مسار Wi-Fi Direct؛ تم التحقق من مسار Wi-Fi العادي."
+                            )
                         } else if (pendingInvitationReady != null) {
-                            // Android selected the QR scanner as group owner. Turn it
-                            // into a temporary receiver with the same one-session secret;
-                            // the QR creator will authenticate back to this GO address.
-                            val pairing = pendingInvitation
+                            val pending = pendingInvitation
                             pendingInvitationReady = null
                             pendingInvitation = null
                             invitationTimeout?.cancel()
                             invitationTimeout = null
                             wifiDirectSession?.stopInvitationDiscovery()
-                            if (pairing != null && UltraShareCore.isValidPairingSecret(pairing.pairingSecret)) {
-                                UltraShareForegroundService.startReceiving(context, pairing.pairingSecret, createHotspot = false)
+                            if (pending != null && UltraShareCore.isValidPairingSecret(pending.pairingSecret)) {
+                                UltraShareForegroundService.startReceiving(
+                                    context, pending.pairingSecret, createHotspot = false
+                                )
                                 _state.value = _state.value.copy(
                                     wifiDirectHost = null,
                                     scanning = false,
@@ -630,7 +660,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                                 _state.value = _state.value.copy(
                                     wifiDirectHost = null,
                                     scanning = false,
-                                    error = "تعذر استعادة سر جلسة QR للاقتران العكسي. أنشئ رمزاً جديداً."
+                                    error = "تعذر استعادة سر جلسة QR للاقتران العكسي."
                                 )
                             }
                         }
@@ -653,14 +683,16 @@ class LegacyUltraShareViewModel @Inject constructor(
                 }
             },
             onError = { message ->
-                val fallback = pendingInvitation?.hosts?.firstOrNull()
-                val requiresP2pBeforeLanFallback = pendingInvitation?.invitationId != null
-                if (pendingInvitationReady != null && !requiresP2pBeforeLanFallback && !fallback.isNullOrBlank()) {
-                    completeInvitationConnection(fallback, "تعذر Wi-Fi Direct؛ تم اختيار مسار Wi-Fi العادي تلقائياً.")
+                val pairing = pendingInvitation
+                val fallback = pairing?.let(::verifiedLanFallback)
+                if (pendingInvitationReady != null && !fallback.isNullOrBlank()) {
+                    completeInvitationConnection(
+                        fallback,
+                        "تعذر Wi-Fi Direct؛ تم التحقق من مسار LAN بديل وتجربته تلقائياً."
+                    )
                 } else if (pendingInvitationReady != null) {
-                    // The QR invitation has no LAN fallback. Stop the DNS-SD request,
-                    // then retire its callback and timeout so later P2P broadcasts
-                    // cannot complete this failed attempt.
+                    // No safe LAN route is currently visible. Retire this attempt;
+                    // the user can retry after joining the same Wi-Fi network.
                     wifiDirectSession?.stopInvitationDiscovery()
                     pendingInvitationReady = null
                     pendingInvitation = null
@@ -1002,6 +1034,16 @@ class LegacyUltraShareViewModel @Inject constructor(
         }
     }
 
+    // A P2P QR may also advertise a LAN address. Use it only when Android
+    // currently exposes a matching non-P2P Wi-Fi/Ethernet route; never reuse a
+    // stale address from the previous Wi-Fi Direct group.
+    private fun verifiedLanFallback(pairing: UltraShareQrCode.PairingDetails): String? =
+        if (pairing.invitationId.isNullOrBlank()) {
+            pairing.hosts.firstOrNull()
+        } else {
+            UltraShareNetworkRouting.findNonP2pLanFallbackHost(context, pairing.hosts)
+        }
+
     fun connectInvitation(pairing: UltraShareQrCode.PairingDetails, onReady: (String) -> Unit) {
         if (!pairing.hotspotSsid.isNullOrBlank() && !pairing.hotspotPassword.isNullOrBlank()) {
             pendingInvitation = pairing
@@ -1039,10 +1081,13 @@ class LegacyUltraShareViewModel @Inject constructor(
                 session.stopInvitationDiscovery {
                     runCatching {
                         session.connect(peer.deviceAddress, preferThisDeviceAsGroupOwner = false)
-                    }.onFailure {
-                        val fallback = pairing.hosts.firstOrNull()
-                        if (pairing.invitationId.isNullOrBlank() && !fallback.isNullOrBlank()) {
-                            completeInvitationConnection(fallback, "تعذر إنشاء اتصال Wi-Fi Direct؛ تم التحويل إلى شبكة Wi-Fi العادية.")
+                    }.onFailure { connectFailure ->
+                        val fallback = verifiedLanFallback(pairing)
+                        if (!fallback.isNullOrBlank()) {
+                            completeInvitationConnection(
+                                fallback,
+                                "تعذر إنشاء اتصال Wi-Fi Direct؛ تم التحقق من مسار Wi-Fi العادي وتجربته."
+                            )
                         } else {
                             session.stopInvitationDiscovery()
                             pendingInvitationReady = null
@@ -1053,9 +1098,9 @@ class LegacyUltraShareViewModel @Inject constructor(
                                 scanning = false,
                                 wifiDirectHost = null,
                                 error = if (pairing.invitationId != null) {
-                                    "تعذر إنشاء اتصال Wi-Fi Direct. لم نحاول الاتصال بعنوان IP قبل انضمام الهاتف إلى الشبكة."
+                                    "تعذر إنشاء اتصال Wi-Fi Direct، ولا يوجد حالياً مسار LAN بديل موثوق. اتصل بالشبكة المشتركة ثم أعد المحاولة."
                                 } else {
-                                    it.localizedMessage ?: "تعذر إنشاء اتصال Wi-Fi Direct."
+                                    connectFailure.localizedMessage ?: "تعذر إنشاء اتصال Wi-Fi Direct."
                                 }
                             )
                         }
@@ -1067,9 +1112,12 @@ class LegacyUltraShareViewModel @Inject constructor(
                 delay(15_000)
                 if (pendingInvitationReady != null) {
                     session.stopInvitationDiscovery()
-                    val fallback = pairing.hosts.firstOrNull()
-                    if (pairing.invitationId.isNullOrBlank() && !fallback.isNullOrBlank()) {
-                        completeInvitationConnection(fallback, "لم يظهر الجهاز عبر Wi-Fi Direct؛ جارٍ استخدام شبكة Wi-Fi العادية.")
+                    val fallback = verifiedLanFallback(pairing)
+                    if (!fallback.isNullOrBlank()) {
+                        completeInvitationConnection(
+                            fallback,
+                            "لم يظهر الجهاز عبر Wi-Fi Direct؛ تم العثور على مسار LAN بديل والتحقق منه."
+                        )
                     } else {
                         pendingInvitationReady = null
                         pendingInvitation = null
@@ -1077,7 +1125,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                             scanning = false,
                             wifiDirectHost = null,
                             error = if (pairing.invitationId != null) {
-                                "لم يكتمل اكتشاف دعوة Wi-Fi Direct خلال 15 ثانية. لم نبدأ اتصال TCP قبل اتصال الهاتف بالشبكة؛ أعد المحاولة مع إبقاء شاشة QR مفتوحة."
+                                "لم يظهر الجهاز عبر Wi-Fi Direct ولا يوجد مسار LAN بديل متاح حالياً. اتصل بالشبكة نفسها على الهاتفين ثم أعد المحاولة."
                             } else {
                                 "لم يتم العثور على الجهاز. تأكد من تشغيل الاستقبال وابقاء رمز QR مفتوحاً."
                             }
@@ -1086,13 +1134,20 @@ class LegacyUltraShareViewModel @Inject constructor(
                 }
             }
         }.onFailure { failure ->
-            val fallback = pairing.hosts.firstOrNull()
+            val fallback = verifiedLanFallback(pairing)
             if (!fallback.isNullOrBlank()) {
-                completeInvitationConnection(fallback, "تعذر بدء Wi-Fi Direct؛ تم اختيار شبكة Wi-Fi العادية.")
+                completeInvitationConnection(
+                    fallback,
+                    "تعذر بدء Wi-Fi Direct؛ تم التحقق من مسار LAN واستخدامه."
+                )
             } else {
                 pendingInvitationReady = null
                 pendingInvitation = null
-                _state.value = _state.value.copy(scanning = false, error = failure.localizedMessage)
+                _state.value = _state.value.copy(
+                    scanning = false,
+                    error = failure.localizedMessage
+                        ?: "تعذر بدء Wi-Fi Direct ولا يوجد مسار LAN بديل متاح."
+                )
             }
         }
     }
