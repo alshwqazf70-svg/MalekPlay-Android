@@ -130,7 +130,7 @@ class UltraShareForegroundService : Service() {
     @Volatile private var receiveJob: Job? = null
     @Volatile private var batchReceiveJob: Job? = null
     @Volatile private var activeBatchTransferPort: Int = 0
-    @Volatile private var sendJob: Job? = null
+    private val sendJobsByPeer = java.util.concurrent.ConcurrentHashMap<String, Job>()
     @Volatile private var pauseRequested = false
     private val pendingReplacementCount = java.util.concurrent.atomic.AtomicInteger(0)
     private var advertisementJob: Job? = null
@@ -189,10 +189,10 @@ class UltraShareForegroundService : Service() {
         ) startForegroundCompat()
         when (intent?.action) {
             ACTION_PAUSE -> {
-                if (currentState().sending && currentState().queueTotal > 0 && sendJob != null) {
+                if (currentState().sending && currentState().queueTotal > 0 && sendJobsByPeer.isNotEmpty()) {
                     pauseRequested = true
                     updateState { current -> current.copy(status = "جارٍ إيقاف طابور الإرسال مؤقتاً...") }
-                    sendJob?.cancel()
+                    sendJobsByPeer.values.toSet().forEach { it.cancel() }
                 }
                 return START_NOT_STICKY
             }
@@ -205,7 +205,7 @@ class UltraShareForegroundService : Service() {
                 }
             }
             ACTION_CANCEL_SEND -> {
-                sendJob?.cancel()
+                sendJobsByPeer.values.toSet().forEach { it.cancel() }
                 return START_NOT_STICKY
             }
             ACTION_STOP_RECEIVING -> {
@@ -254,7 +254,7 @@ class UltraShareForegroundService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_STOP_IF_IDLE -> {
-                if (sendJob == null && receiveJob == null && batchReceiveJob == null &&
+                if (sendJobsByPeer.isEmpty() && receiveJob == null && batchReceiveJob == null &&
                     !currentState().receiving && currentState().activePeers.isEmpty() &&
                     !hotspotController.isActive && !currentState().hotspotStarting
                 ) {
@@ -265,8 +265,8 @@ class UltraShareForegroundService : Service() {
             ACTION_STOP, ACTION_CANCEL -> {
                 idleDisconnectJob?.cancel()
                 idleDisconnectJob = null
-                if (sendJob == null && receiveJob == null && batchReceiveJob == null) startForegroundCompat()
-                sendJob?.cancel()
+                if (sendJobsByPeer.isEmpty() && receiveJob == null && batchReceiveJob == null) startForegroundCompat()
+                sendJobsByPeer.values.toSet().forEach { it.cancel() }
                 receiveJob?.cancel()
                 batchReceiveJob?.cancel()
                 advertisementJob?.cancel()
@@ -279,7 +279,7 @@ class UltraShareForegroundService : Service() {
                     withContext(Dispatchers.Main.immediate) { finishService() }
                 }
                 stopLocalHotspot()
-                if (sendJob == null && receiveJob == null && batchReceiveJob == null) finishService()
+                if (sendJobsByPeer.isEmpty() && receiveJob == null && batchReceiveJob == null) finishService()
                 return START_NOT_STICKY
             }
             ACTION_MESH_SESSION_READY -> {
@@ -753,7 +753,7 @@ class UltraShareForegroundService : Service() {
             ) }
         idleDisconnectJob?.cancel()
         idleDisconnectJob = null
-        sendJob?.cancel()
+        sendJobsByPeer.values.toSet().forEach { it.cancel() }
         receiveJob?.cancel()
         batchReceiveJob?.cancel()
         advertisementJob?.cancel()
@@ -784,7 +784,7 @@ class UltraShareForegroundService : Service() {
             closeMeshRoom()
             cleanupScope.cancel()
         }
-        sendJob?.cancel()
+        sendJobsByPeer.values.toSet().forEach { it.cancel() }
         receiveJob?.cancel()
         batchReceiveJob?.cancel()
         advertisementJob?.cancel()
@@ -898,7 +898,7 @@ class UltraShareForegroundService : Service() {
         // resume the remaining queue without pairing again.
         val senderStillPaired = approvedSendTargets().isNotEmpty() ||
             currentState().approvedSenderPeerHosts.isNotEmpty()
-        if (sendJob != null || receiveJob != null || batchReceiveJob != null ||
+        if (sendJobsByPeer.isNotEmpty() || receiveJob != null || batchReceiveJob != null ||
             hotspotController.isActive || currentState().hotspotStarting ||
             receiverStillWaiting || senderStillPaired
         ) {
@@ -933,7 +933,7 @@ class UltraShareForegroundService : Service() {
     private fun scheduleIdleDisconnect() {
         idleDisconnectJob?.cancel()
         val busy = synchronized(transferLockGuard) { sendTransferActive || receiveTransferCount > 0 } ||
-            sendJob != null || currentState().sending
+            sendJobsByPeer.isNotEmpty() || currentState().sending
         if (busy || (!currentState().receiving && currentState().activePeers.isEmpty() && approvedSendTargets().isEmpty())) {
             idleDisconnectJob = null
             return
@@ -942,7 +942,7 @@ class UltraShareForegroundService : Service() {
             kotlinx.coroutines.delay(SESSION_IDLE_TIMEOUT_MS)
             val transferStillActive = synchronized(transferLockGuard) {
                 sendTransferActive || receiveTransferCount > 0
-            } || sendJob != null || currentState().sending
+            } || sendJobsByPeer.isNotEmpty() || currentState().sending
             if (transferStillActive) {
                 // The transfer's finally/endTransfer path will schedule a fresh idle window.
                 idleDisconnectJob = null
@@ -1806,7 +1806,7 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun endTransfer(isReceiving: Boolean) {
-        if (transferLocks.endTransfer(isReceiving) && sendJob == null) scheduleIdleDisconnect()
+        if (transferLocks.endTransfer(isReceiving) && sendJobsByPeer.isEmpty()) scheduleIdleDisconnect()
     }
 
     private fun releaseTransferLocks() {
@@ -1835,12 +1835,13 @@ class UltraShareForegroundService : Service() {
             finishService()
             return
         }
-        val retiringSend = sendJob
+        val sendKey = approvedSendTarget(host)?.sessionId ?: host
+        val retiringSend = sendJobsByPeer[sendKey]
         if (retiringSend?.isCancelled == true) {
             pendingReplacementCount.incrementAndGet()
             serviceScope.launch {
                 retiringSend.cancelAndJoin()
-                if (sendJob === retiringSend) sendJob = null
+                sendJobsByPeer.remove(sendKey, retiringSend)
                 withContext(Dispatchers.Main.immediate) {
                     pendingReplacementCount.decrementAndGet()
                     startSendingQueue(uris, host, secret, replaceQueue, candidates)
@@ -1848,10 +1849,11 @@ class UltraShareForegroundService : Service() {
             }
             return
         }
-        if (sendJob != null) return
+        if (sendJobsByPeer.containsKey(sendKey)) return
         startForegroundCompat()
         updateState { current -> current.copy(sending = true, queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال", error = null) }
-        val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+        lateinit var sendJobForPeer: Job
+        sendJobForPeer = serviceScope.launch(start = CoroutineStart.LAZY) {
             var sent = 0
             var failed = 0
             var completedBytes = 0L
@@ -2040,28 +2042,32 @@ class UltraShareForegroundService : Service() {
                 ) }
                 throw cancelled
             } finally {
-                sendJob = null
+                sendJobsByPeer.remove(sendKey, sendJobForPeer)
                 pauseRequested = false
-                updateState { current -> current.copy(sending = false, progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, queueCurrentName = null) }
+                updateState { current -> current.copy(sending = sendJobsByPeer.isNotEmpty(), progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, queueCurrentName = null) }
                 scheduleIdleDisconnect()
                 finishService()
             }
         }
-        sendJob = job
-        job.start()
+        sendJobsByPeer[sendKey] = sendJobForPeer
+        sendJobForPeer.start()
     }
     private fun startSendingQueueToPeers(
         uris: List<Uri>,
-        targets: List<UltraShareApprovedSendTarget>,
+        requestedTargets: List<UltraShareApprovedSendTarget>,
         preserveCompleted: Boolean
     ) {
-        if (uris.isEmpty() || targets.isEmpty()) return
-        val retiringSend = sendJob
+        if (uris.isEmpty() || requestedTargets.isEmpty()) return
+        val targets = synchronized(sendJobsByPeer) {
+            requestedTargets.filterNot { sendJobsByPeer.containsKey(it.sessionId) }
+        }
+        if (targets.isEmpty()) return
+        val retiringSend = targets.firstNotNullOfOrNull { sendJobsByPeer[it.sessionId] }
         if (retiringSend?.isCancelled == true) {
             pendingReplacementCount.incrementAndGet()
             serviceScope.launch {
                 retiringSend.cancelAndJoin()
-                if (sendJob === retiringSend) sendJob = null
+                targets.forEach { target -> sendJobsByPeer.remove(target.sessionId, retiringSend) }
                 withContext(Dispatchers.Main.immediate) {
                     pendingReplacementCount.decrementAndGet()
                     startSendingQueueToPeers(uris, targets, preserveCompleted)
@@ -2069,7 +2075,7 @@ class UltraShareForegroundService : Service() {
             }
             return
         }
-        if (sendJob != null) return
+        if (targets.all { sendJobsByPeer.containsKey(it.sessionId) }) return
         if (targets.any {
                 !UltraShareCore.isValidPrivateLanHost(it.host) ||
                     !UltraShareCore.isValidPairingSecret(it.secret)
@@ -2091,7 +2097,8 @@ class UltraShareForegroundService : Service() {
                 error = null
             )
         }
-        val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+        lateinit var multiPeerSendJob: Job
+        multiPeerSendJob = serviceScope.launch(start = CoroutineStart.LAZY) {
             val queue = uris.distinctBy { it.toString() }
             val metadata = LinkedHashMap<Uri, Triple<String, String, Long>>()
             var totalBytes = 0L
@@ -2362,10 +2369,10 @@ class UltraShareForegroundService : Service() {
                 }
             } finally {
                 if (transferLockStarted) endTransfer(isReceiving = false)
-                sendJob = null
+                targets.forEach { target -> sendJobsByPeer.remove(target.sessionId, multiPeerSendJob) }
                 updateState { current ->
                     current.copy(
-                        sending = false,
+                        sending = sendJobsByPeer.isNotEmpty(),
                         progress = if (current.receiving) current.receiveProgress else null,
                         sendProgress = null,
                         queueCurrentName = null
@@ -2375,8 +2382,10 @@ class UltraShareForegroundService : Service() {
                 finishService()
             }
         }
-        sendJob = job
-        job.start()
+        synchronized(sendJobsByPeer) {
+            targets.forEach { target -> sendJobsByPeer.putIfAbsent(target.sessionId, multiPeerSendJob) }
+        }
+        multiPeerSendJob.start()
     }
 
 
