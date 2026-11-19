@@ -291,7 +291,7 @@ class UltraShareViewModel @Inject constructor(
                 candidatePairingSecret = candidateDetails.pairingSecret
             )
         val mayEnrichV5Routes = existingPayload != null && existingDetails != null &&
-            readiness.shouldEnrichUnifiedV5QrHosts(
+            readiness.shouldEnrichUnifiedV5Qr(
                 existingVersion = existingVersion,
                 candidateVersion = candidateVersion,
                 existingInvitationId = existingDetails.invitationId,
