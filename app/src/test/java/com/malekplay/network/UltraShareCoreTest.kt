@@ -25,7 +25,7 @@ class UltraShareCoreTest {
         assertTrue(UltraShareCore.isAllowedShareFile("document.txt", "text/plain"))
         assertTrue(UltraShareCore.isAllowedShareFile("unknown.bin", "application/octet-stream"))
         assertTrue(UltraShareCore.isAllowedShareFile("report.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-        assertTrue(UltraShareCore.isAllowedShareFile("image.svg", "image/svg+xml"))
+        assertFalse(UltraShareCore.isAllowedShareFile("image.svg", "image/svg+xml"))\n        assertFalse(UltraShareCore.isAllowedShareFile("drawing.svg", "image/png"))\n        assertFalse(UltraShareCore.isAllowedShareFile("drawing.png", "image/svg+xml"))
         assertFalse(UltraShareCore.isAllowedShareFile("renamed.apk", "video/mp4"))
         assertFalse(UltraShareCore.isAllowedShareFile("document.pdf", "application/octet-stream"))
         assertFalse(UltraShareCore.isAllowedShareFile("document.pdf ", "application/octet-stream"))
