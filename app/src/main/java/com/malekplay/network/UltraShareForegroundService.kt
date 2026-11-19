@@ -780,8 +780,11 @@ class UltraShareForegroundService : Service() {
             currentState().activePeers.map { it.host } +
                 approvedSendTargets().map { it.host }
             ).distinct()
-        destroyPeers.forEach { host ->
-            disconnectApprovedPeer(host)
+        val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        cleanupScope.launch {
+            destroyPeers.forEach(::disconnectApprovedPeer)
+            closeMeshRoom()
+            cleanupScope.cancel()
         }
         sendJob?.cancel()
         receiveJob?.cancel()
@@ -790,7 +793,6 @@ class UltraShareForegroundService : Service() {
         controlJob?.cancel()
         pendingConnectionDecision?.cancel()
         UltraShareControlChannel.setClientSessionReadyListener(null)
-        closeMeshRoom()
         hotspotController.stop()
         serviceScope.cancel()
         releaseTransferLocks()
