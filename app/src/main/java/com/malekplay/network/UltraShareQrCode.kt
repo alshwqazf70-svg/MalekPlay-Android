@@ -125,7 +125,7 @@ object UltraShareQrCode {
         invitationId: String? = null
     ): String {
         val safeHosts = hosts.asSequence()
-            .map(String::trim)
+            .map { it.trim() }
             .filter { UltraShareCore.isValidPrivateLanHost(it) }
             .distinct()
             .take(MAX_QR_HOSTS)
