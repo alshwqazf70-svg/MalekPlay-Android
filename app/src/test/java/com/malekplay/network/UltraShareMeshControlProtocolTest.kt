@@ -11,6 +11,15 @@ class UltraShareMeshControlProtocolTest {
     private val peer = "11111111111111111111111111111111"
     private val key = ByteArray(32) { (it + 3).toByte() }
 
+    @Test fun rejectsHexIdsThatDoNotRepresentExactlySixteenBytes() {
+        assertThrows(IllegalArgumentException::class.java) {
+            UltraShareMeshControlProtocol.keyOffer("aaaaaaaaaaaaaaaa", peer, 1, key)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            UltraShareMeshControlProtocol.keyOffer(room, "1111111111111111", 1, key)
+        }
+    }
+
     @Test fun keyOfferRoundTripsOnlyAsFixedLengthSecretPayload() {
         val message = UltraShareMeshControlProtocol.keyOffer(room, peer, 1, key)
         val decoded = UltraShareMeshControlProtocol.decode(UltraShareMeshControlProtocol.encode(message))
