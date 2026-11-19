@@ -258,7 +258,7 @@ class AssTexOverlay(private val handler: AssHandler, private val render: AssRend
         if (vertexBufferId != 0) GlUtil.deleteBuffer(vertexBufferId)
         if (texCoordBufferId != 0) GlUtil.deleteBuffer(texCoordBufferId)
         if (::glProgram.isInitialized) glProgram.delete()
-        if (::executor.isInitialized) executor.shutdown()
+        if (::executor.isInitialized) executor.shutdownNow()
         fboId = 0
         texId = 0
         scratchTextureId = 0
