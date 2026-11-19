@@ -2066,18 +2066,7 @@ class UltraShareForegroundService : Service() {
                 finishService()
             }
         }
-        // Reserve under the same monitor used by multi-peer batches. Without
-        // this shared critical section, a single-peer putIfAbsent could race the
-        // multi-peer containsKey/put sequence and both jobs could claim one peer.
-        val reserved = synchronized(sendJobsByPeer) {
-            if (sendJobsByPeer.containsKey(sendKey)) {
-                false
-            } else {
-                sendJobsByPeer[sendKey] = sendJobForPeer
-                true
-            }
-        }
-        if (!reserved) return
+        if (!UltraShareSendJobRegistry.reserve(sendJobsByPeer, listOf(sendKey), sendJobForPeer)) return
         updateState { current -> current.copy(queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال", error = null) }
         sendJobForPeer.start()
     }
@@ -2400,15 +2389,13 @@ class UltraShareForegroundService : Service() {
                 finishService()
             }
         }
-        val reserved = synchronized(sendJobsByPeer) {
-            if (targets.any { sendJobsByPeer.containsKey(it.sessionId) }) {
-                false
-            } else {
-                targets.forEach { target -> sendJobsByPeer[target.sessionId] = multiPeerSendJob }
-                true
-            }
-        }
-        if (!reserved) return
+        // Reserve every target atomically with single-peer jobs as well.
+        if (!UltraShareSendJobRegistry.reserve(
+                sendJobsByPeer,
+                targets.map { it.sessionId },
+                multiPeerSendJob
+            )
+        ) return
         updateState { current ->
             current.copy(
                 queueTotal = uris.distinctBy { it.toString() }.size,
