@@ -24,6 +24,22 @@ object UltraSharePlatformCompatibility {
     /** Android 10+ uses WifiNetworkSpecifier for app-scoped network requests. */
     fun usesWifiNetworkSpecifier(sdkInt: Int): Boolean = sdkInt >= 29
 
+    /** Android 6–9 association is complete only after supplicant completion. */
+    fun isLegacyWifiNetworkConnected(
+        expectedNetworkId: Int,
+        actualNetworkId: Int,
+        expectedSsid: String,
+        actualSsid: String?,
+        supplicantCompleted: Boolean
+    ): Boolean {
+        if (!supplicantCompleted) return false
+        val expected = expectedSsid.trim().removeSurrounding("\"")
+        val actual = actualSsid?.trim()?.removeSurrounding("\"")
+            ?.takeIf { it.isNotBlank() && it != "<unknown ssid>" }
+        return (expectedNetworkId >= 0 && actualNetworkId == expectedNetworkId) ||
+            (!actual.isNullOrBlank() && actual == expected)
+    }
+
     /** Group creation itself is not gated by the Location Services discovery prerequisite. */
     fun canCreateWifiDirectGroup(sdkInt: Int): Boolean =
         supportsWifiDirectApiLevel(sdkInt)
