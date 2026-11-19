@@ -127,7 +127,7 @@ fun SendFileScreen(
         if (sendHost.isNotBlank()) {
             InfoPanel("الجهاز المحدد", sendHost + " • " + when {
                 sendHost in state.approvedSenderPeerHosts -> "متصل وموثّق"
-                state.requestingConnection -> "بانتظار الموافقة"
+                state.requestingConnection -> "جارٍ إكمال الاقتران"
                 else -> "بانتظار الاقتران"
             })
         }
