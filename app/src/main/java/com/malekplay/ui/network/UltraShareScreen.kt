@@ -956,9 +956,15 @@ class LegacyUltraShareViewModel @Inject constructor(
             // WifiNetworkSpecifier is unavailable before Android 10. Still try the
             // authenticated TCP handshake on the current route: this succeeds when
             // the user has already joined the QR hotspot manually in Wi-Fi settings.
+            val lanFallback = UltraShareNetworkRouting.findNonP2pLanFallbackHost(
+                context, pairing.hosts
+            )
             completeInvitationConnection(
-                host = pairing.host,
-                message = "تم التحقق من الاقتران عبر اتصال Wi-Fi اليدوي.",
+                host = lanFallback ?: pairing.host,
+                message = if (lanFallback != null)
+                    "تم التحقق من مسار LAN الحالي؛ جارٍ إكمال الاقتران."
+                else
+                    "تم التحقق من الاقتران عبر اتصال Wi-Fi اليدوي.",
                 connectionFailureHint = "على Android 9 أو أقدم، اتصل أولاً بشبكة MalekPlayer الظاهرة في رمز QR من إعدادات Wi-Fi، ثم امسح الرمز مرة أخرى."
             )
             return
@@ -1007,10 +1013,21 @@ class LegacyUltraShareViewModel @Inject constructor(
             }
 
             override fun onUnavailable() {
-                _state.value = _state.value.copy(
-                    scanning = false,
-                    error = "لم يكتمل الانضمام إلى شبكة MalekPlayer. وافق على طلب Wi-Fi الذي عرضه Android وتأكد من بقاء نقطة الاتصال مفتوحة."
+                val lanFallback = UltraShareNetworkRouting.findNonP2pLanFallbackHost(
+                    context, pairing.hosts
                 )
+                if (!lanFallback.isNullOrBlank() && connectionStarted.compareAndSet(false, true)) {
+                    hotspotNetworkCallback = null
+                    completeInvitationConnection(
+                        lanFallback,
+                        "تعذر الانضمام إلى نقطة الاتصال؛ تم العثور على مسار LAN بديل والتحقق منه."
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        scanning = false,
+                        error = "لم يكتمل الانضمام إلى شبكة MalekPlayer ولا يوجد مسار LAN بديل متاح. وافق على طلب Wi-Fi أو اتصل بالشبكة المشتركة ثم أعد المحاولة."
+                    )
+                }
             }
 
             override fun onLost(network: android.net.Network) {
@@ -1027,10 +1044,20 @@ class LegacyUltraShareViewModel @Inject constructor(
             connectivity.requestNetwork(request, callback, 30_000)
         } catch (failure: Exception) {
             hotspotNetworkCallback = null
-            _state.value = _state.value.copy(
-                scanning = false,
-                error = failure.localizedMessage ?: "تعذر طلب الانضمام إلى شبكة MalekPlayer."
+            val lanFallback = UltraShareNetworkRouting.findNonP2pLanFallbackHost(
+                context, pairing.hosts
             )
+            if (!lanFallback.isNullOrBlank() && connectionStarted.compareAndSet(false, true)) {
+                completeInvitationConnection(
+                    lanFallback,
+                    "تعذر طلب اتصال نقطة الاتصال؛ تم التحقق من مسار LAN بديل."
+                )
+            } else {
+                _state.value = _state.value.copy(
+                    scanning = false,
+                    error = failure.localizedMessage ?: "تعذر طلب الانضمام إلى شبكة MalekPlayer."
+                )
+            }
         }
     }
 
