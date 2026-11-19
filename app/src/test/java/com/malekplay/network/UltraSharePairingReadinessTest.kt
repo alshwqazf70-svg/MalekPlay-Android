@@ -208,6 +208,8 @@ class UltraSharePairingReadinessTest {
             candidateSsid = "DIRECT-MalekPlay",
             existingWifiPassword = "share1234",
             candidateWifiPassword = "different123",
+            existingWifiSecurity = "wpa2",
+            candidateWifiSecurity = "wpa2",
             existingHosts = listOf("192.168.49.1"),
             candidateHosts = listOf("192.168.49.1", "192.168.1.20")
         )
