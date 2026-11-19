@@ -161,7 +161,6 @@ class UltraShareViewModel @Inject constructor(
         @Volatile private var retainedHotspotNetworkCallback:
             android.net.ConnectivityManager.NetworkCallback? = null
         @Volatile private var retainedHotspotNetworkPaired: Boolean = false
-        @Volatile private var retainedLegacyWifiNetworkId: Int? = null
     }
 
     init {
@@ -988,12 +987,11 @@ private fun forgetApprovedSenderTarget(host: String) {
             // already in progress; enableNetwork() is the authoritative result.
             runCatching { wifi.reconnect() }
             val wifiPreferences = context.getSharedPreferences("ultra_share_wifi", Context.MODE_PRIVATE)
-            val previousNetworkId = retainedLegacyWifiNetworkId
-                ?: wifiPreferences.getInt("legacy_network_id", -1).takeIf { it >= 0 }
+            val previousNetworkId = wifiPreferences.getInt("legacy_network_id", -1)
+                .takeIf { it >= 0 }
             previousNetworkId?.takeIf { it != networkId }?.let { oldId ->
                 runCatching { wifi.removeNetwork(oldId) }
             }
-            retainedLegacyWifiNetworkId = networkId
             wifiPreferences.edit().putInt("legacy_network_id", networkId).apply()
             _state.value = _state.value.copy(
                 requestingConnection = true,
@@ -1040,10 +1038,7 @@ private fun forgetApprovedSenderTarget(host: String) {
     @Suppress("DEPRECATION")
     private fun releaseLegacyWifiNetwork() {
         val preferences = context.getSharedPreferences("ultra_share_wifi", Context.MODE_PRIVATE)
-        val networkId = retainedLegacyWifiNetworkId
-            ?: preferences.getInt("legacy_network_id", -1).takeIf { it >= 0 }
-            ?: return
-        retainedLegacyWifiNetworkId = null
+        val networkId = preferences.getInt("legacy_network_id", -1).takeIf { it >= 0 } ?: return
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE)
             as? android.net.wifi.WifiManager ?: return
         runCatching {
