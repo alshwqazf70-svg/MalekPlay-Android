@@ -8,6 +8,14 @@ from unittest.mock import patch
 
 from ultra_share_web import is_local_host_header, validate_upload
 
+from ultra_share_v2 import (
+    DISCOVERY_PROBE_PROOF,
+    _CONTROL_PEER_LOCK,
+    _CONTROL_PEER_SESSIONS,
+    _control_heartbeat_handler,
+    _safe_name as safe_v2_name,
+)
+
 from ultra_share_pc import (
     DEFAULT_PORT,
     VERSION,
@@ -34,6 +42,39 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
     def test_windows_and_relative_paths_are_reduced_to_safe_names(self):
         self.assertEqual("clip.mp4", safe_name(r"C:\\Users\\Guest\\clip.mp4"))
         self.assertEqual("song.mp3", safe_name("../../music/song.mp3"))
+
+    def test_v2_name_sanitizer_matches_windows_reserved_and_trailing_rules(self):
+        self.assertEqual("_CON.txt", safe_v2_name("CON.txt"))
+        self.assertEqual("_LPT9.mp4", safe_v2_name("LPT9.mp4"))
+        self.assertEqual("clip.mp4", safe_v2_name("  clip.mp4...   "))
+        self.assertEqual("song.mp3", safe_v2_name(r"C:\\Users\\Guest\\song.mp3"))
+
+    def test_android_discovery_probe_proof_is_recognized_without_derivation(self):
+        self.assertEqual(bytes([0x5A]) * 32, DISCOVERY_PROBE_PROOF)
+
+    def test_approved_control_heartbeat_runs_in_independent_handler(self):
+        client, server = socket.socketpair()
+        peer = "192.168.1.20"
+        with _CONTROL_PEER_LOCK:
+            _CONTROL_PEER_SESSIONS[peer] = ("peer-id", server)
+        handler = threading.Thread(
+            target=_control_heartbeat_handler, args=(server, peer), daemon=True
+        )
+        try:
+            handler.start()
+            client.sendall(struct.pack(">H", 4) + b"PING")
+            self.assertEqual(b"\\x00\\x04", client.recv(2))
+            self.assertEqual(b"PONG", client.recv(4))
+            client.sendall(struct.pack(">H", 5) + b"CLOSE")
+            handler.join(timeout=2)
+            self.assertFalse(handler.is_alive())
+            with _CONTROL_PEER_LOCK:
+                self.assertNotIn(peer, _CONTROL_PEER_SESSIONS)
+        finally:
+            client.close()
+            if handler.is_alive():
+                server.close()
+                handler.join(timeout=1)
 
     def test_v2_discovery_offer_matches_android_negotiation_wire_format(self):
         from urllib.parse import unquote
