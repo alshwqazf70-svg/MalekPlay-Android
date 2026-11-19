@@ -777,7 +777,7 @@ object UltraShareBatchTransport {
                                 receiveCipher, receiveKeySpec, reusableEncryptedChunk, reusablePlainChunk
                             )
                             if (transferred == offset) socket.soTimeout = SESSION_TIMEOUT_MS
-                            require(payloadLength >= 8 && reusablePlainChunk[0].toInt() and 0xff == TYPE_CHUNK)
+                            require(payloadLength >= 8 && (reusablePlainChunk[0].toInt() and 0xff) == TYPE_CHUNK)
                             val frameIndex = ((reusablePlainChunk[1].toInt() and 0xff) shl 8) or
                                 (reusablePlainChunk[2].toInt() and 0xff)
                             require(frameIndex == index) { "وصل جزء لملف غير متوقع." }
