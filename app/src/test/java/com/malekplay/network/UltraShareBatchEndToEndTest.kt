@@ -263,12 +263,12 @@ class UltraShareBatchEndToEndTest {
         }
     }
     @Test
-    fun emptyMediaIsAcceptedButWrongMediaFamilyIsRejected() {
+    fun emptyMediaIsRejectedAndWrongMediaFamilyIsRejected() {
         val empty = File.createTempFile("ultrashare-empty-", ".mp3")
         try {
             empty.writeBytes(byteArrayOf())
             assertTrue(empty.length() == 0L)
-            assertTrue(UltraShareMediaSignature.isValid(empty, "empty.mp3", "audio/mpeg"))
+            assertFalse(UltraShareMediaSignature.isValid(empty, "empty.mp3", "audio/mpeg"))
             assertFalse(UltraShareMediaSignature.isValid(empty, "empty.pdf", "application/pdf"))
             assertFalse(UltraShareMediaSignature.isValid(empty, "empty.mp3", "video/mp4"))
         } finally {
