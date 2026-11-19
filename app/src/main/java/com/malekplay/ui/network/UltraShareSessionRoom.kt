@@ -28,6 +28,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -52,7 +54,10 @@ fun UltraShareSessionRoom(
     activeMode: String,
     localDeviceName: String,
     remoteHost: String,
-    selectedMediaCount: Int
+    selectedMediaCount: Int,
+    onPauseSending: () -> Unit,
+    onResumeSending: () -> Unit,
+    onCancelSending: () -> Unit
 ) {
     val isSendingRoom = activeMode == "send"
     // Receiver-side approvals live in activePeers; sender-side approvals are
@@ -77,6 +82,8 @@ fun UltraShareSessionRoom(
     val connected = activePeerCount > 0 || state.approvedPeerHost != null
     val pairingPending = state.requestingConnection || state.pendingConnection != null
     val transferring = state.sending || state.sendProgress != null || state.receiveProgress != null
+    val sendingPaused = !state.sending && state.queueTotal > 0 &&
+        state.status?.contains("أُوقف الطابور مؤقتاً") == true
     val currentBatchEntries = if (state.queueTotal > 0) state.queueEntries.takeLast(state.queueTotal) else emptyList()
     val sendCompleted = !state.sending && state.queueTotal > 0 &&
         state.queueCompleted >= state.queueTotal && currentBatchEntries.size == state.queueTotal &&
@@ -178,6 +185,30 @@ fun UltraShareSessionRoom(
                 )
             }
             Text(status, color = statusColor, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            if (isSendingRoom && (state.sending || sendingPaused)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (state.sending) {
+                        OutlinedButton(
+                            onClick = onPauseSending,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("إيقاف مؤقت") }
+                    } else {
+                        Button(
+                            onClick = onResumeSending,
+                            modifier = Modifier.weight(1f),
+                            enabled = state.approvedSenderPeerHosts.isNotEmpty() ||
+                                !state.approvedPeerHost.isNullOrBlank()
+                        ) { Text("استئناف المتبقي") }
+                    }
+                    OutlinedButton(
+                        onClick = onCancelSending,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("إلغاء الإرسال") }
+                }
+            }
             // Show each peer independently instead of hiding concurrent sessions
             // behind the single headline peer identity above.
             val reconnectablePeerHosts = (
