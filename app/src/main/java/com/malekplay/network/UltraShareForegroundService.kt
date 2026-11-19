@@ -3,25 +3,14 @@ package com.malekplay.network
 import com.malekplay.R
 
 import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
-import android.os.Handler
-import android.os.Looper
-import android.os.PowerManager
-import android.provider.OpenableColumns
-import android.webkit.MimeTypeMap
-import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -44,8 +33,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.IOException
-import java.net.Inet4Address
-import java.net.NetworkInterface
 
 data class UltraShareServiceState(
     val pairingSecret: String = "",
@@ -822,7 +809,7 @@ class UltraShareForegroundService : Service() {
                 activePeers = emptyList()
             )
         }
-        if (::notificationManager.isInitialized) notificationManager.cancel(NOTIFICATION_ID)
+        notificationHelper.cancel()
         UltraShareDiagnostics.event("SERVICE", "DESTROYED")
         UltraShareDiagnostics.endSession("service_destroyed")
         super.onDestroy()
@@ -908,7 +895,7 @@ class UltraShareForegroundService : Service() {
         val senderStillPaired = approvedSendTargets().isNotEmpty() ||
             currentState().approvedSenderPeerHosts.isNotEmpty()
         if (sendJob != null || receiveJob != null || batchReceiveJob != null ||
-            hotspotReservation != null || currentState().hotspotStarting ||
+            hotspotController.isActive || currentState().hotspotStarting ||
             receiverStillWaiting || senderStillPaired
         ) {
             if (receiverStillWaiting || senderStillPaired) startForegroundCompat()
@@ -2741,8 +2728,6 @@ class UltraShareForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "malekplay_ultra_share"
         private const val NOTIFICATION_ID = 38741
-        // Bound CPU/Wi-Fi locks to the platform data-sync foreground-service window.
-        private const val TRANSFER_LOCK_TIMEOUT_MS = 6L * 60L * 60L * 1000L
         private const val SESSION_IDLE_TIMEOUT_MS = 5L * 60L * 1000L
         private const val MESH_DIRECT_CONTROL_PORT = 38_746
         private const val MESH_DIRECT_DIAL_ATTEMPTS = 3
