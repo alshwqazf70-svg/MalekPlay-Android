@@ -46,9 +46,8 @@ if [ ! -d app/build/tmp/kotlin-classes/debugAndroidTest ]; then
   ./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 :app:compileDebugAndroidTestKotlin
 fi
 
-# Build both APKs, then install/run through adb directly. Some hosted emulator/ddmlib
-# combinations incorrectly route a single universal APK through SplitApkInstaller
-# and reject it even on API 29+. Direct adb install avoids that false CI failure.
+# Ensure the prebuilt x86_64 app and instrumentation APKs exist, then install/run
+# through adb directly to avoid emulator-runner split-installer inconsistencies.
 if [ ! -s app/build/outputs/apk/debug/app-debug.apk ] || [ ! -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk ]; then
   ./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 \
     :app:assembleDebug \
