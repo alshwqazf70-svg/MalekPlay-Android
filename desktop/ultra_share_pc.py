@@ -23,6 +23,7 @@ import threading
 import time
 import unicodedata
 from pathlib import Path
+from urllib.parse import quote
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -34,6 +35,7 @@ CHUNK_BYTES = 256 * 1024
 MAX_FILE_BYTES = 100 * 1024 * 1024 * 1024
 GCM_TAG_BYTES = 16
 PROBE = b"MPULTRA_DISCOVER|1"
+PROBE_V2 = b"MPULTRA_DISCOVER|2"
 OFFER_PREFIX = "MPULTRA_OFFER|1|"
 
 
@@ -535,7 +537,22 @@ def receive_one(port: int, secret: str, directory: Path) -> Path:
         return final_path
 
 
-def discovery_responder(port: int, transfer_port: int, device_name: str) -> None:
+def encode_v2_discovery_offer(host: str, v2_port: int, device_name: str,
+                              peer_id: str | None = None) -> bytes:
+    if not is_lan_ipv4(host) or not 1 <= v2_port <= 65535:
+        raise ValueError("Invalid V2 discovery endpoint.")
+    identity = peer_id or secrets.token_hex(16)
+    if len(identity) != 32 or any(ch not in "0123456789abcdefABCDEF" for ch in identity):
+        raise ValueError("Invalid V2 discovery peer identity.")
+    name = str(device_name).strip()[:64] or "MalekPlayer Desktop"
+    # UltraShareNegotiation.kt: MPULTRA_OFFER|2|peerId|name|count|transport,host,port,connected,reachable,priority
+    fields = ("MPULTRA_OFFER", "2", quote(identity, safe=""), quote(name, safe=""), "1",
+              f"WLAN,{quote(host, safe='')},{v2_port},1,1,0")
+    return "|".join(fields).encode("utf-8")
+
+
+def discovery_responder(port: int, transfer_port: int, device_name: str,
+                        v2_transfer_port: int | None = None) -> None:
     response = f"{OFFER_PREFIX}{transfer_port}|{device_name[:64]}".encode("utf-8")
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -543,8 +560,14 @@ def discovery_responder(port: int, transfer_port: int, device_name: str) -> None
         sock.bind(("0.0.0.0", port))
         while True:
             data, address = sock.recvfrom(512)
-            if data == PROBE and is_lan_ipv4(address[0]):
+            if not is_lan_ipv4(address[0]):
+                continue
+            if data == PROBE:
                 sock.sendto(response, address)
+            elif data == PROBE_V2 and v2_transfer_port is not None:
+                sock.sendto(encode_v2_discovery_offer(
+                    address[0], v2_transfer_port, device_name
+                ), address)
 
 
 def discover_devices(timeout: float, port: int) -> list[tuple[str, int, str]]:
@@ -694,7 +717,7 @@ def main() -> int:
 
         responder = threading.Thread(
             target=discovery_responder,
-            args=(args.discovery_port, args.port, args.name),
+            args=(args.discovery_port, args.port, args.name, args.v2_port),
             daemon=True,
         )
         responder.start()
