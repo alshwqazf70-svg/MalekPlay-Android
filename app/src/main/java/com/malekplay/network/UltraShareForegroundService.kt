@@ -598,68 +598,42 @@ class UltraShareForegroundService : Service() {
                                 }
 
                             ) { request ->
+                                // The receiver explicitly started a temporary invitation and
+                                // the peer has now completed the pairing-secret handshake.
+                                // Pairing is the single consent step: accept this paired peer
+                                // immediately and do not interrupt transfers with per-peer or
+                                // per-file approval prompts.
                                 UltraShareDiagnostics.event(
                                     "CONTROL_CHANNEL",
-                                    "PEER_AUTHENTICATED_WAITING_FOR_USER_APPROVAL",
+                                    "PAIRED_PEER_AUTO_ACCEPTED",
                                     mapOf("peerHost" to request.peerAddress, "peerName" to request.peerName, "peerIdPresent" to (request.peerId != null))
                                 )
-                                // MPC2 proves possession of the current session secret, but
-                                // it is not consent to receive files. Serialize prompts and
-                                // require one explicit approval on the receiving device.
-                                pendingConnectionMutex.withLock {
-                                    val prompt = CompletableDeferred<UltraShareControlChannel.Decision>()
-                                    pendingConnectionDecision = prompt
-                                    updateState { current -> current.copy(
-                                        pendingConnection = request,
-                                        status = "طلب اقتران موثّق بانتظار موافقتك من " + request.peerName,
-                                        error = null
-                                    ) }
-                                    val decision = try {
-                                        withTimeoutOrNull(120_000L) { prompt.await() }
-                                            ?: UltraShareControlChannel.Decision.REJECTED
-                                    } finally {
-                                        if (pendingConnectionDecision === prompt) {
-                                            pendingConnectionDecision = null
-                                        }
-                                        updateState { current ->
-                                            if (current.pendingConnection?.requestId == request.requestId) {
-                                                current.copy(pendingConnection = null)
-                                            } else current
-                                        }
-                                    }
-                                    if (decision != UltraShareControlChannel.Decision.ACCEPTED) {
-                                        UltraShareDiagnostics.event(
-                                            "CONTROL_CHANNEL",
-                                            "PEER_APPROVAL_DENIED_OR_EXPIRED",
-                                            mapOf("peerHost" to request.peerAddress, "peerName" to request.peerName)
-                                        )
-                                        return@withLock UltraShareControlChannel.Decision.REJECTED
-                                    }
-
-                                    val authenticatedPeerId = request.peerId ?: request.requestId
-                                    registerApprovedPeer(
-                                        name = request.peerName,
+                                val authenticatedPeerId = request.peerId ?: request.requestId
+                                registerApprovedPeer(
+                                    name = request.peerName,
+                                    host = request.peerAddress,
+                                    role = "جلسة مقترنة مؤقتة",
+                                    sessionId = authenticatedPeerId
+                                )
+                                registerApprovedSendTarget(
+                                    UltraShareApprovedSendTarget(
+                                        sessionId = authenticatedPeerId,
                                         host = request.peerAddress,
-                                        role = "جلسة مؤقتة وافق عليها المستقبل",
-                                        sessionId = authenticatedPeerId
+                                        secret = secret,
+                                        peerId = request.peerId
                                     )
-                                    // The reverse-send target is created only after the
-                                    // receiver explicitly approves this authenticated peer.
-                                    registerApprovedSendTarget(
-                                        UltraShareApprovedSendTarget(
-                                            sessionId = authenticatedPeerId,
-                                            host = request.peerAddress,
-                                            secret = secret,
-                                            peerId = request.peerId
-                                        )
-                                    )
-                                    updateState { current -> current.copy(
-                                        status = "تم قبول " + request.peerName + "؛ الإرسال والاستقبال متاحان.",
-                                        error = null
-                                    ) }
-                                    scheduleIdleDisconnect()
-                                    UltraShareControlChannel.Decision.ACCEPTED
-                                }
+                                )
+                                // A paired session no longer needs public discovery.
+                                // Keep the authenticated control/data listeners alive.
+                                advertisementJob?.cancel()
+                                advertisementJob = null
+                                updateState { current -> current.copy(
+                                    pendingConnection = null,
+                                    status = "تم اقتران " + request.peerName + "؛ الإرسال والاستقبال متاحان مباشرة.",
+                                    error = null
+                                ) }
+                                scheduleIdleDisconnect()
+                                UltraShareControlChannel.Decision.ACCEPTED
                             }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
