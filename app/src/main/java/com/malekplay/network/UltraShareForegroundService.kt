@@ -132,7 +132,7 @@ class UltraShareForegroundService : Service() {
     @Volatile private var activeBatchTransferPort: Int = 0
     @Volatile private var sendJob: Job? = null
     @Volatile private var pauseRequested = false
-    @Volatile private var replacementPending = false
+    private val pendingReplacementCount = java.util.concurrent.atomic.AtomicInteger(0)
     private var advertisementJob: Job? = null
     @Volatile private var controlJob: Job? = null
     @Volatile private var pendingConnectionDecision: CompletableDeferred<UltraShareControlChannel.Decision>? = null
@@ -304,14 +304,14 @@ class UltraShareForegroundService : Service() {
                 val retiringReceive = receiveJob
                 val retiringBatch = batchReceiveJob
                 if (retiringReceive?.isCancelled == true || retiringBatch?.isCancelled == true) {
-                    replacementPending = true
+                    pendingReplacementCount.incrementAndGet()
                     serviceScope.launch {
                         retiringReceive?.cancelAndJoin()
                         retiringBatch?.cancelAndJoin()
                         if (receiveJob === retiringReceive) receiveJob = null
                         if (batchReceiveJob === retiringBatch) batchReceiveJob = null
                         withContext(Dispatchers.Main.immediate) {
-                            replacementPending = false
+                            pendingReplacementCount.updateAndGet { (it - 1).coerceAtLeast(0) }
                             onStartCommand(intent, flags, startId)
                         }
                     }
@@ -887,7 +887,7 @@ class UltraShareForegroundService : Service() {
         notificationHelper.build(currentState(), progress)
 
     private fun finishService() {
-        if (replacementPending) return
+        if (pendingReplacementCount.get() > 0) return
         // A completed file/queue keeps the temporary room available briefly. An idle timer
         // closes all peer sessions and the room after five minutes without active transfer.
         // A failed/closed data listener must never stop the independent MPC2 control
@@ -1837,12 +1837,12 @@ class UltraShareForegroundService : Service() {
         }
         val retiringSend = sendJob
         if (retiringSend?.isCancelled == true) {
-            replacementPending = true
+            pendingReplacementCount.incrementAndGet()
             serviceScope.launch {
                 retiringSend.cancelAndJoin()
                 if (sendJob === retiringSend) sendJob = null
                 withContext(Dispatchers.Main.immediate) {
-                    replacementPending = false
+                    pendingReplacementCount.updateAndGet { (it - 1).coerceAtLeast(0) }
                     startSendingQueue(uris, host, secret, replaceQueue, candidates)
                 }
             }
@@ -2058,12 +2058,12 @@ class UltraShareForegroundService : Service() {
         if (uris.isEmpty() || targets.isEmpty()) return
         val retiringSend = sendJob
         if (retiringSend?.isCancelled == true) {
-            replacementPending = true
+            pendingReplacementCount.incrementAndGet()
             serviceScope.launch {
                 retiringSend.cancelAndJoin()
                 if (sendJob === retiringSend) sendJob = null
                 withContext(Dispatchers.Main.immediate) {
-                    replacementPending = false
+                    pendingReplacementCount.updateAndGet { (it - 1).coerceAtLeast(0) }
                     startSendingQueueToPeers(uris, targets, preserveCompleted)
                 }
             }
