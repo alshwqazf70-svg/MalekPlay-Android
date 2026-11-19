@@ -322,6 +322,7 @@ class UltraShareViewModel @Inject constructor(
             dataChannelReady = false,
             hotspotSsid = null,
             hotspotPassword = null,
+            hotspotSecurity = "wpa2",
             hotspotActive = false,
             hotspotStarting = false,
             lanFallbackReady = false,
