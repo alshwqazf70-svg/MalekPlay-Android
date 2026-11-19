@@ -459,6 +459,7 @@ fun UltraShareExperienceScreen(
 
     LaunchedEffect(pendingQrPairing) {
         val pairing = pendingQrPairing ?: return@LaunchedEffect
+        viewModel.rememberInvitationPeer(pairing.invitationId, pairing.pairingSecret)
         // Probe the QR's current-LAN and P2P host hints before asking Android
         // to switch Wi-Fi or requesting any Wi-Fi Direct permission.
         val reachableHosts = kotlinx.coroutines.withTimeoutOrNull(500L) {
