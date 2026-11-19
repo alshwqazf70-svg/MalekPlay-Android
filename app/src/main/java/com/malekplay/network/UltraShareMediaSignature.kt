@@ -58,9 +58,8 @@ internal object UltraShareMediaSignature {
         if (!UltraShareCore.isAllowedShareFile(fileName, mimeType) || !file.isFile || file.length() <= 0L) return false
         val suppliedExtension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
         val declaredFamily = mimeType.substringBefore('/').lowercase(Locale.ROOT)
-        // Documents, archives, SVG and unknown binary payloads are opaque files;
-        // their authenticated SHA-256 digest is the integrity check.
-        if (suppliedExtension == "svg" || mimeType.equals("image/svg+xml", ignoreCase = true)) return true
+        // Documents, archives and unknown binary payloads are opaque files;
+        // SVG is deliberately excluded by the shared file policy.
         val looksLikeMedia = suppliedExtension in SUPPORTED_EXTENSIONS || declaredFamily in setOf("video", "audio", "image")
         if (!looksLikeMedia) return true
         // Providers may omit media filename extensions; infer only known containers.
