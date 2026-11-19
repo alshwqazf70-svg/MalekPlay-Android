@@ -967,10 +967,16 @@ class UltraShareForegroundService : Service() {
         // A failed/closed data listener must never stop the independent MPC2 control
         // listener while the receiver is still waiting for a peer to pair.
         val receiverStillWaiting = currentState().receiving || controlJob?.isActive == true
+        // Outbound approvals are separate from inbound activePeers. Keep their
+        // authenticated sessions alive after pause/completion so the sender can
+        // resume the remaining queue without pairing again.
+        val senderStillPaired = approvedSendTargets().isNotEmpty() ||
+            currentState().approvedSenderPeerHosts.isNotEmpty()
         if (sendJob != null || receiveJob != null || batchReceiveJob != null ||
-            hotspotReservation != null || currentState().hotspotStarting || receiverStillWaiting
+            hotspotReservation != null || currentState().hotspotStarting ||
+            receiverStillWaiting || senderStillPaired
         ) {
-            if (receiverStillWaiting) startForegroundCompat()
+            if (receiverStillWaiting || senderStillPaired) startForegroundCompat()
             return
         }
 
