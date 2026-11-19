@@ -87,6 +87,14 @@ class UltraShareWifiDirectPolicyTest {
 
 
 
+
+    @Test
+    fun android16GroupCreationForcesLegacyWpa2Compatibility() {
+        assertFalse(shouldForceLegacyWifiDirectSecurity(23))
+        assertFalse(shouldForceLegacyWifiDirectSecurity(35))
+        assertTrue(shouldForceLegacyWifiDirectSecurity(36))
+    }
+
     @Test
     fun qrSecurityUsesWpa3OnlyForAndroid16SaeGroups() {
         assertEquals("wpa2", wifiDirectQrSecurity(23, isWpa3Sae = true))
