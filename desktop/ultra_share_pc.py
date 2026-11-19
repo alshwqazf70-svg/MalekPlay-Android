@@ -107,17 +107,13 @@ def is_allowed_share_file(filename: str, mime: str) -> bool:
     if extension in BLOCKED_EXTENSIONS:
         return False
     value = mime.strip().lower()
-    token = r"[A-Za-z0-9!#def is_allowed_share_file(filename: str, mime: str) -> bool:
-    extension = Path(filename).suffix.lower()
-    if extension in BLOCKED_EXTENSIONS:
-        return False
-    if is_supported_media_mime(mime):
-        return True
-    return mime.strip().lower() in {"application/octet-stream", "application/unknown"} and extension in MEDIA_EXTENSIONS^_.+-]+"
-    return bool(3 <= len(value) <= 160 and re.fullmatch(token + "/" + token, value)
-                and value not in {"application/pdf", "application/vnd.android.package-archive"}
-                and value != "image/svg+xml")
-
+    token = r"[A-Za-z0-9!#$&^_.+-]+"
+    return bool(
+        3 <= len(value) <= 160
+        and re.fullmatch(token + "/" + token, value)
+        and value not in {"application/pdf", "application/vnd.android.package-archive"}
+        and value != "image/svg+xml"
+    )
 
 def recv_exact(sock: socket.socket, length: int) -> bytes:
     data = bytearray()
