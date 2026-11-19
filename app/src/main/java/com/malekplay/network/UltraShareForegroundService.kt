@@ -763,6 +763,7 @@ class UltraShareForegroundService : Service() {
         sendJobsByPeer.values.toSet().forEach { it.cancel() }
         sendJobsByPeer.clear()
         removePersistedLegacyWifiNetwork()
+        updateState { current -> current.copy(wifiDirectLocalAddress = null) }
         receiveJob?.cancel()
         batchReceiveJob?.cancel()
         advertisementJob?.cancel()
@@ -996,6 +997,7 @@ class UltraShareForegroundService : Service() {
             sending = false,
             pairingSecret = "",
             localAddresses = emptyList(),
+            wifiDirectLocalAddress = null,
             controlChannelReady = false,
             dataChannelReady = false,
             controlChannelError = null,
