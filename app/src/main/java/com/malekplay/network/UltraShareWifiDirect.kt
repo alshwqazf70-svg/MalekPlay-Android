@@ -988,7 +988,15 @@ object UltraShareWifiDirect {
         fun connect(deviceAddress: String, preferThisDeviceAsGroupOwner: Boolean) {
             check(!closed) { "جلسة Wi-Fi Direct غير نشطة." }
             if (peerDiscoveryActive) {
-                reportError("لا يمكن بدء اتصال Wi-Fi Direct أثناء استمرار الاكتشاف؛ أوقف عملية البحث وانتظر تأكيد Android أولاً.")
+                // Serialize discovery shutdown before the connect request; some OEMs
+                // reject a connection if peer discovery is still marked active.
+                stopDiscoveryChecked { stopped ->
+                    if (!stopped) {
+                        reportError("تعذر إيقاف بحث Wi-Fi Direct قبل الاتصال بالجهاز.")
+                    } else if (!closed) {
+                        connect(deviceAddress, preferThisDeviceAsGroupOwner)
+                    }
+                }
                 return
             }
             if (!deviceAddress.matches(Regex("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}"))) {
