@@ -61,7 +61,8 @@ fun SendFileScreen(
     onRequestConnection: () -> Unit,
     onSendBatch: (String) -> Unit,
     onSendToAllPeers: () -> Unit,
-    onResumeAllPeers: () -> Unit
+    onResumeAllPeers: () -> Unit,
+    onOpenTransfers: () -> Unit
 ) {
     // Selecting a discovered peer opens the secure pairing fields immediately.
     var showManualPairing by remember(host) { mutableStateOf(host.isNotBlank() && host !in state.approvedSenderPeerHosts) }
@@ -73,6 +74,11 @@ fun SendFileScreen(
         !UltraShareForegroundService.isSendingToPeer(peerHost)
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (state.approvedSenderPeerCount > 0 || state.sending || state.receiveProgress != null) {
+            OutlinedButton(onClick = onOpenTransfers, modifier = Modifier.fillMaxWidth()) {
+                Text("فتح غرفة النقل")
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.VIDEO) }, modifier = Modifier.weight(1f), enabled = true) {
                 Icon(Icons.Filled.Movie, null); Text("فيديو")
