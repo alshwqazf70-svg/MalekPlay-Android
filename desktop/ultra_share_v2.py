@@ -268,21 +268,21 @@ def v2_nonce(prefix: bytes, sequence: int) -> bytes:
 
 
 def v2_write_frame(sock: socket.socket, key: bytes, prefix: bytes,
-                   sequence: int, plaintext: bytes) -> None:
+                   sequence: int, plaintext: bytes, cipher: AESGCM | None = None) -> None:
     if len(plaintext) > MAX_MANIFEST_BYTES + 64:
         raise ValueError("V2 frame exceeds the maximum plaintext size.")
-    encrypted = AESGCM(key).encrypt(v2_nonce(prefix, sequence), plaintext, None)
+    encrypted = (cipher or AESGCM(key)).encrypt(v2_nonce(prefix, sequence), plaintext, None)
     sock.sendall(struct.pack(">I", len(encrypted)) + encrypted)
 
 
 def v2_read_frame(sock: socket.socket, key: bytes, prefix: bytes,
-                  sequence: int, maximum_plain: int) -> bytes:
+                  sequence: int, maximum_plain: int, cipher: AESGCM | None = None) -> bytes:
     if not 0 <= maximum_plain <= MAX_MANIFEST_BYTES + 64:
         raise ValueError("Invalid V2 frame limit.")
     encrypted_size = struct.unpack(">I", recv_exact(sock, 4))[0]
     if not GCM_TAG_BYTES <= encrypted_size <= maximum_plain + GCM_TAG_BYTES:
         raise ValueError("Invalid encrypted V2 frame length.")
-    plain = AESGCM(key).decrypt(
+    plain = (cipher or AESGCM(key)).decrypt(
         v2_nonce(prefix, sequence), recv_exact(sock, encrypted_size), None
     )
     if len(plain) > maximum_plain:
@@ -343,22 +343,32 @@ def _java_read_utf(payload: bytes, offset: int) -> tuple[str, int]:
     return raw.decode("utf-16-be", errors="surrogatepass"), end
 
 
-def _safe_v2_name(value: str) -> str:
-    # Keep the same forbidden code points and UTF-8 byte limit as Android.
+def _sanitize_shared_name(value: str, error: str) -> str:
     import unicodedata
-    leaf = value.replace("\\", "/").rsplit("/", 1)[-1]
+    leaf = str(value).replace("\\\\", "/").rsplit("/", 1)[-1]
     cleaned = "".join(
         ch for ch in leaf
-        if not (ord(ch) < 32 or 127 <= ord(ch) <= 159)
+        if ord(ch) >= 32 and not 127 <= ord(ch) <= 159
         and unicodedata.category(ch) != "Cf"
         and ch not in ':*?"<>|'
-    ).strip().strip(".")
+    ).strip()
+    # Repeatedly remove trailing whitespace/dots (Windows ignores these).
+    previous = None
+    while cleaned != previous:
+        previous = cleaned
+        cleaned = cleaned.rstrip(" .\\t\\r\\n")
     while cleaned and len(cleaned.encode("utf-8")) > MAX_NAME_BYTES:
         cleaned = cleaned[:-1]
+    stem = cleaned.split(".", 1)[0].upper()
+    if stem in {"CON", "PRN", "AUX", "NUL"} or re.fullmatch(r"(?:COM|LPT)[1-9]", stem):
+        cleaned = "_" + cleaned
     if not cleaned or cleaned in {".", ".."}:
-        raise ValueError("Invalid V2 filename.")
+        raise ValueError(error)
     return cleaned
 
+
+def _safe_v2_name(value: str) -> str:
+    return _sanitize_shared_name(value, "Invalid V2 filename.")
 
 def _v2_transfer_id(entry: FileEntry) -> str:
     name = entry.name.encode("utf-8")
@@ -504,7 +514,7 @@ def _media_signature_matches(path: Path, filename: str, mime_type: str) -> bool:
     media_exts = image_exts | audio_exts | video_exts
     declared_family = mime_type.lower().split("/", 1)[0]
     if ext == "svg" or mime_type.lower() == "image/svg+xml":
-        return True
+        return False
     if ext not in media_exts and declared_family not in {"image", "audio", "video"}:
         return True
     if ext not in media_exts:
@@ -595,16 +605,22 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
         challenge = secrets.token_bytes(CHALLENGE_BYTES)
         connection.sendall(struct.pack(">I", HANDSHAKE_MAGIC) + challenge)
         proof = recv_exact(connection, 32)
-        pairing_key = derive_v2_pairing_key(secret, challenge)
-        authenticated = hmac.compare_digest(
-            proof, hmac.new(pairing_key, challenge, hashlib.sha256).digest()
-        )
+        if hmac.compare_digest(proof, DISCOVERY_PROBE_PROOF):
+            connection.sendall(b"\\x00")
+            return []
         with _CONTROL_PEER_LOCK:
             active_peer = _CONTROL_PEER_SESSIONS.get(address[0])
             session_active = (
                 active_peer is not None
                 and active_peer[1].fileno() >= 0
             )
+        if not session_active:
+            connection.sendall(b"\\x00")
+            raise PermissionError("No approved MPC2 control session exists for this peer.")
+        pairing_key = derive_v2_pairing_key(secret, challenge)
+        authenticated = hmac.compare_digest(
+            proof, hmac.new(pairing_key, challenge, hashlib.sha256).digest()
+        )
         approved = authenticated and session_active
         connection.sendall(b"\x01" if approved else b"\x00")
         if not approved:
@@ -867,6 +883,7 @@ CONTROL_PORT = 38744
 CONTROL_MAGIC = 0x4D504332  # MPC2
 CONTROL_VERSION = 1
 CONTROL_AAD = b"MPULTRA_CONTROL_DECISION|1"
+DISCOVERY_PROBE_PROOF = b"\\x5A" * 32
 _CONTROL_PEER_SESSIONS: dict[str, tuple[str, socket.socket]] = {}
 _CONTROL_PEER_LOCK = threading.Lock()
 
