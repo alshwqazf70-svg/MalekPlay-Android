@@ -307,8 +307,9 @@ class UltraShareViewModel @Inject constructor(
                 existingHosts = existingDetails.hosts,
                 candidateHosts = candidateDetails.hosts
             )
-        // Upgrade a fallback QR when P2P credentials arrive, then monotonically
-        // enrich v5 with LAN interfaces that finish enumerating after QR display.
+        // Upgrade a fallback QR when P2P credentials arrive; if a LAN-only v5
+        // was shown first, enrich that same invitation with late SoftAP credentials
+        // and newly enumerated LAN routes without rotating its pairing secret.
         val stablePayload = if (mayUpgradeToUnifiedV5 || mayEnrichV5Routes) payload else
             com.malekplay.network.UltraSharePairingReadiness.stableQrPayload(
                 existingPayload, payload
