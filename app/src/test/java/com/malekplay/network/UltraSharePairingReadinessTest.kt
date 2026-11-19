@@ -122,6 +122,73 @@ class UltraSharePairingReadinessTest {
         assertFalse(wrongSecret)
     }
 
+    @Test fun unifiedV5QrAddsLateLanHostsWithoutChangingItsSessionCredentials() {
+        assertTrue(
+            UltraSharePairingReadiness.shouldEnrichUnifiedV5QrHosts(
+                existingVersion = "5",
+                candidateVersion = "5",
+                existingInvitationId = "invite-1",
+                candidateInvitationId = "invite-1",
+                existingPairingSecret = "123456789",
+                candidatePairingSecret = "123456789",
+                existingSsid = "DIRECT-MalekPlay",
+                candidateSsid = "DIRECT-MalekPlay",
+                existingWifiPassword = "share1234",
+                candidateWifiPassword = "share1234",
+                existingHosts = listOf("192.168.49.1"),
+                candidateHosts = listOf("192.168.49.1", "192.168.1.20")
+            )
+        )
+    }
+
+    @Test fun unifiedV5QrDoesNotDropRoutesOrChangeSessionWhileEnrichingHosts() {
+        val unchanged = UltraSharePairingReadiness.shouldEnrichUnifiedV5QrHosts(
+            existingVersion = "5",
+            candidateVersion = "5",
+            existingInvitationId = "invite-1",
+            candidateInvitationId = "invite-1",
+            existingPairingSecret = "123456789",
+            candidatePairingSecret = "123456789",
+            existingSsid = "DIRECT-MalekPlay",
+            candidateSsid = "DIRECT-MalekPlay",
+            existingWifiPassword = "share1234",
+            candidateWifiPassword = "share1234",
+            existingHosts = listOf("192.168.49.1", "192.168.1.20"),
+            candidateHosts = listOf("192.168.49.1", "192.168.1.20")
+        )
+        val dropsOldRoute = UltraSharePairingReadiness.shouldEnrichUnifiedV5QrHosts(
+            existingVersion = "5",
+            candidateVersion = "5",
+            existingInvitationId = "invite-1",
+            candidateInvitationId = "invite-1",
+            existingPairingSecret = "123456789",
+            candidatePairingSecret = "123456789",
+            existingSsid = "DIRECT-MalekPlay",
+            candidateSsid = "DIRECT-MalekPlay",
+            existingWifiPassword = "share1234",
+            candidateWifiPassword = "share1234",
+            existingHosts = listOf("192.168.49.1", "192.168.1.20"),
+            candidateHosts = listOf("192.168.49.1", "192.168.1.21", "10.0.0.2")
+        )
+        val wrongWifiPassword = UltraSharePairingReadiness.shouldEnrichUnifiedV5QrHosts(
+            existingVersion = "5",
+            candidateVersion = "5",
+            existingInvitationId = "invite-1",
+            candidateInvitationId = "invite-1",
+            existingPairingSecret = "123456789",
+            candidatePairingSecret = "123456789",
+            existingSsid = "DIRECT-MalekPlay",
+            candidateSsid = "DIRECT-MalekPlay",
+            existingWifiPassword = "share1234",
+            candidateWifiPassword = "different123",
+            existingHosts = listOf("192.168.49.1"),
+            candidateHosts = listOf("192.168.49.1", "192.168.1.20")
+        )
+        assertFalse(unchanged)
+        assertFalse(dropsOldRoute)
+        assertFalse(wrongWifiPassword)
+    }
+
     private fun ready(
         receiving: Boolean = true,
         control: Boolean = true,
