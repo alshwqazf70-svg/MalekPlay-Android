@@ -50,6 +50,45 @@ class UltraSharePlatformCompatibilityTest {
         }
     }
 
+    @Test fun legacyWifiJoinWaitsForTheExpectedSupplicantNetwork() {
+        assertTrue(
+            UltraSharePlatformCompatibility.isLegacyWifiNetworkConnected(
+                expectedNetworkId = 7,
+                actualNetworkId = 7,
+                expectedSsid = "DIRECT-MalekPlay",
+                actualSsid = "\"DIRECT-MalekPlay\"",
+                supplicantCompleted = true
+            )
+        )
+        assertTrue(
+            UltraSharePlatformCompatibility.isLegacyWifiNetworkConnected(
+                expectedNetworkId = 7,
+                actualNetworkId = -1,
+                expectedSsid = "DIRECT-MalekPlay",
+                actualSsid = "DIRECT-MalekPlay",
+                supplicantCompleted = true
+            )
+        )
+        assertFalse(
+            UltraSharePlatformCompatibility.isLegacyWifiNetworkConnected(
+                expectedNetworkId = 7,
+                actualNetworkId = 7,
+                expectedSsid = "DIRECT-MalekPlay",
+                actualSsid = "DIRECT-Other",
+                supplicantCompleted = false
+            )
+        )
+        assertFalse(
+            UltraSharePlatformCompatibility.isLegacyWifiNetworkConnected(
+                expectedNetworkId = 7,
+                actualNetworkId = -1,
+                expectedSsid = "DIRECT-MalekPlay",
+                actualSsid = "<unknown ssid>",
+                supplicantCompleted = true
+            )
+        )
+    }
+
     @Test fun apiBelowAppMinimumIsNotSupported() {
         (1..22).forEach { sdk ->
             assertFalse(UltraSharePlatformCompatibility.supportsWifiDirectApiLevel(sdk))
