@@ -1554,7 +1554,9 @@ object UltraShareWifiDirect {
                             // Do not arm the disconnect deadline while a newly-created
                             // owner group is empty. A receiver may wait indefinitely for
                             // the first QR scan; only a peer that has connected can time out.
-                            ownerPeerCheckDeadlineElapsedMs = if (wasConnected) {
+                            ownerPeerCheckDeadlineElapsedMs = if (
+                                shouldStartWifiDirectOwnerPeerDeadline(clientCount = 0, wasConnected = wasConnected)
+                            ) {
                                 android.os.SystemClock.elapsedRealtime() + 35_000L
                             } else 0L
                             requestOwnerPeerConfirmation(info, ownerPeerCheckToken, 0)
@@ -1767,7 +1769,7 @@ object UltraShareWifiDirect {
                         ?.mapNotNull { address -> address.deviceAddress?.takeIf { it.isNotBlank() } }
                         .orEmpty()
                     val clientCount = clientAddresses.size
-                    if (clientCount == 0 && !wasConnected) {
+                    if (!shouldStartWifiDirectOwnerPeerDeadline(clientCount, wasConnected)) {
                         // Empty owner group is a valid waiting-room state. Do not
                         // schedule retries, expire it, or report a pairing failure.
                         ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
@@ -2087,5 +2089,8 @@ internal fun isCurrentWifiDirectGroupAttempt(
 ): Boolean = !sessionClosed && currentToken == callbackToken
 
 /** Use a neutral Wi-Fi Direct owner preference so either Android device may own the group. */
+internal fun shouldStartWifiDirectOwnerPeerDeadline(clientCount: Int, wasConnected: Boolean): Boolean =
+    clientCount > 0 || wasConnected
+
 internal fun wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner: Boolean): Int =
     if (preferThisDeviceAsGroupOwner) 15 else 0
