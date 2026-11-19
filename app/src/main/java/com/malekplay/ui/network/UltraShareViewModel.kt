@@ -918,10 +918,10 @@ private fun forgetApprovedSenderTarget(host: String) {
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE)
             as? android.net.wifi.WifiManager
         if (wifi == null) {
-            _state.value = _state.value.copy(
-                requestingConnection = false,
-                error = "خدمة Wi-Fi غير متاحة؛ افتح إعدادات Wi-Fi واتصل بالشبكة المعروضة في رمز QR."
-            )
+            val message = "خدمة Wi-Fi غير متاحة؛ تعذر الانضمام المباشر إلى الشبكة."
+            if (!fallbackToWifiDirectInvitation(pairing, message)) {
+                _state.value = _state.value.copy(requestingConnection = false, error = message)
+            }
             return
         }
         val ssid = pairing.hotspotSsid ?: return
@@ -1076,7 +1076,10 @@ private fun forgetApprovedSenderTarget(host: String) {
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE)
             as? android.net.ConnectivityManager
         if (connectivity == null) {
-            _state.value = _state.value.copy(error = "خدمة اتصال Wi-Fi غير متاحة على هذا الجهاز.")
+            val message = "خدمة اتصال Wi-Fi غير متاحة على هذا الجهاز."
+            if (!fallbackToWifiDirectInvitation(pairing, message)) {
+                _state.value = _state.value.copy(requestingConnection = false, error = message)
+            }
             return
         }
         hotspotNetworkCallback?.let { old ->
@@ -1176,16 +1179,22 @@ private fun forgetApprovedSenderTarget(host: String) {
                         UltraShareForegroundService.disconnectApprovedPeer(peerHost)
                     }
                 } else if (!paired.get()) {
-                    owner.get()?.fallbackToWifiDirectInvitation(
+                    val fallbackStarted = owner.get()?.fallbackToWifiDirectInvitation(
                         pairing,
                         "انقطع الاتصال بالشبكة قبل اكتمال الاقتران."
-                    )
+                    ) == true
+                    if (!fallbackStarted) {
+                        viewModel?._state?.value = viewModel._state.value.copy(
+                            requestingConnection = false,
+                            error = "انقطع الاتصال بالشبكة قبل اكتمال الاقتران."
+                        )
+                    }
                 }
                 if (isCurrent) {
                     retainedHotspotNetworkCallback = null
                     retainedHotspotNetworkPaired = false
                 }
-                if (viewModel != null && isCurrent) {
+                if (viewModel != null && isCurrent && paired.get()) {
                     val lostHost = connectedHost.get()
                     if (paired.get() && lostHost != null) {
                         viewModel.forgetApprovedSenderTarget(lostHost)
@@ -1212,10 +1221,13 @@ private fun forgetApprovedSenderTarget(host: String) {
             runCatching { connectivity.unregisterNetworkCallback(callback) }
             hotspotNetworkCallback = null
             hotspotNetworkPaired = false
-            _state.value = _state.value.copy(
-                requestingConnection = false,
-                error = failure.localizedMessage ?: "تعذر طلب الانضمام إلى شبكة MalekPlay."
-            )
+            val message = failure.localizedMessage ?: "تعذر طلب الانضمام إلى شبكة MalekPlay."
+            if (!fallbackToWifiDirectInvitation(pairing, message)) {
+                _state.value = _state.value.copy(
+                    requestingConnection = false,
+                    error = message
+                )
+            }
         }
     }
 
