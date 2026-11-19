@@ -158,12 +158,7 @@ class UltraShareForegroundService : Service() {
     private var hotspotReservation: AutoCloseable? = null
     private var hotspotCallback: Any? = null
     private lateinit var notificationManager: NotificationManager
-    private val transferLockGuard = Any()
-    private var wifiLock: WifiManager.WifiLock? = null
-    private var cpuWakeLock: PowerManager.WakeLock? = null
-    private var sendTransferActive = false
-    private var receiveTransferActive = false
-    private var receiveTransferCount = 0
+    private val transferLocks by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { UltraShareTransferLocks(this) }
     @Volatile private var idleDisconnectJob: Job? = null
     // Mesh room state is process-local and is destroyed with the foreground service.
     private val meshRoomGuard = Any()
@@ -1917,56 +1912,15 @@ class UltraShareForegroundService : Service() {
     private fun beginTransfer(isReceiving: Boolean) {
         idleDisconnectJob?.cancel()
         idleDisconnectJob = null
-        synchronized(transferLockGuard) {
-            if (isReceiving) { receiveTransferCount++; receiveTransferActive = true } else sendTransferActive = true
-            runCatching {
-                if (wifiLock?.isHeld != true) {
-                    val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                    wifiLock = manager.createWifiLock(
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) WifiManager.WIFI_MODE_FULL_LOW_LATENCY
-                        else WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-                        "MalekPlayer:UltraShare"
-                    ).apply {
-                        setReferenceCounted(false)
-                        // WifiLock has no timed acquire overload. Its lifetime is
-                        // explicitly bounded by endTransfer()/service shutdown.
-                        acquire()
-                    }
-                }
-            }
-            runCatching {
-                if (cpuWakeLock?.isHeld != true) {
-                    val manager = getSystemService(POWER_SERVICE) as PowerManager
-                    cpuWakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MalekPlayer:UltraShare").apply {
-                        setReferenceCounted(false)
-                        acquire(TRANSFER_LOCK_TIMEOUT_MS)
-                    }
-                }
-            }
-        }
+        transferLocks.beginTransfer(isReceiving)
     }
 
     private fun endTransfer(isReceiving: Boolean) {
-        val idle = synchronized(transferLockGuard) {
-            if (isReceiving) { receiveTransferCount = (receiveTransferCount - 1).coerceAtLeast(0); receiveTransferActive = receiveTransferCount > 0 } else sendTransferActive = false
-            if (!sendTransferActive && receiveTransferCount == 0) releaseTransferLocksLocked()
-            !sendTransferActive && receiveTransferCount == 0
-        }
-        if (idle && sendJob == null) scheduleIdleDisconnect()
+        if (transferLocks.endTransfer(isReceiving) && sendJob == null) scheduleIdleDisconnect()
     }
 
     private fun releaseTransferLocks() {
-        synchronized(transferLockGuard) { releaseTransferLocksLocked() }
-    }
-
-    private fun releaseTransferLocksLocked() {
-        sendTransferActive = false
-        receiveTransferActive = false
-        receiveTransferCount = 0
-        runCatching { wifiLock?.takeIf { it.isHeld }?.release() }
-        runCatching { cpuWakeLock?.takeIf { it.isHeld }?.release() }
-        wifiLock = null
-        cpuWakeLock = null
+        transferLocks.release()
     }
 
     private fun updateState(transform: (UltraShareServiceState) -> UltraShareServiceState) {
