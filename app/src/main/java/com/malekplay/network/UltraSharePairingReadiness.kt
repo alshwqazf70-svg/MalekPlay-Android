@@ -72,9 +72,6 @@ internal object UltraSharePairingReadiness {
             !hotspotSsid.isNullOrBlank() &&
             !hotspotPassword.isNullOrBlank() &&
             localAddresses.any(UltraShareCore::isValidPrivateLanHost)
-
-    fun canSendData(controlSessionActive: Boolean, dataEndpointReachable: Boolean): Boolean =
-        controlSessionActive && dataEndpointReachable
 }
 
 /** A known peer ID must match; a missing ID is allowed only for legacy peers. */

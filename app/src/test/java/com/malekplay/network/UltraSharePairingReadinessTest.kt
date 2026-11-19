@@ -257,10 +257,4 @@ class UltraSharePairingReadinessTest {
         assertFalse(UltraSharePairingReadiness.isDataListenerReady(38742, 0))
     }
 
-    @Test fun dataTransferRequiresBothAuthenticatedControlAndReachableDataEndpoint() {
-        assertTrue(UltraSharePairingReadiness.canSendData(true, true))
-        assertFalse(UltraSharePairingReadiness.canSendData(false, true))
-        assertFalse(UltraSharePairingReadiness.canSendData(true, false))
-        assertFalse(UltraSharePairingReadiness.canSendData(false, false))
-    }
 }

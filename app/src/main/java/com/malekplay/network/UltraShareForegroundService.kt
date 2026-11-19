@@ -2484,21 +2484,14 @@ class UltraShareForegroundService : Service() {
                 val dataNetworks = UltraShareNetworkRouting.findNetworksForHost(
                     this@UltraShareForegroundService, activeHost
                 )
-                val controlReady = UltraShareControlChannel.hasAnyActiveSession(activeHost)
-                // A V1 listener accepts only one transfer socket. Never probe it:
-                // a speculative TCP connect could consume and terminate that listener.
-                // The legacy discovery offer already identifies its advertised V1 port.
+                // The authenticated pairing is the only connection step shown to the user.
+                // Do not open a speculative TCP probe or gate the Send button on a second
+                // listener check: sendBatch performs the real authenticated data handshake.
+                // Its connection failure is retried below, which also covers the short race
+                // while the receiver starts its listener after accepting the pairing.
                 if (dataPort == UltraShareDiscovery.LEGACY_V1_DATA_PORT) {
                     throw IOException(
-                        "ULTRASHARE_LEGACY_PEER: تم الاقتران بالجهاز بنجاح، لكن مستقبل الملفات لديه يستخدم بروتوكول V1 بينما هذا الإصدار يرسل عبر V2. أبقينا قناة الاقتران كما هي ولم نغلقها؛ يلزم تحديث الطرف الآخر أو تفعيل مستقبل V1 قبل نقل الملفات."
-                    )
-                }
-                val dataReady = UltraShareDiscovery.probeDataEndpoint(
-                    activeHost, dataPort, dataNetworks
-                )
-                if (!UltraSharePairingReadiness.canSendData(controlReady, dataReady)) {
-                    throw IOException(
-                        "قناة الاقتران موجودة، لكن منفذ نقل الملفات V2 غير متاح عبر مسارات الشبكة الحالية. لم يبدأ إرسال أي ملف، وما زالت جلسة الاقتران مستقلة عن هذا الفشل."
+                        "هذا الجهاز يستخدم إصدار نقل ملفات قديماً وغير متوافق مع محرك Ultra Share الحالي. حدّث التطبيق على الجهاز الآخر ثم أعد الإرسال."
                     )
                 }
                 return UltraShareBatchTransport.sendBatch(
@@ -2536,9 +2529,8 @@ class UltraShareForegroundService : Service() {
                     failure,
                     "activeHost=" + activeHost + ";retry=" + retry + ";expectedPeerId=" + (expectedPeerId ?: "missing")
                 )
-                // A successful preflight probe can race with listener restart or a
-                // Wi-Fi route transition. Treat connection-refused like other transient
-                // I/O failures and retry the authenticated path before abandoning it.
+                // Retry the real data connection if the receiver listener is still starting,
+                // or if Android briefly changes the active Wi-Fi route.
                 if (retry < 2) {
                     retry++
                     var samePathReady = UltraShareControlChannel.hasAnyActiveSession(activeHost)
