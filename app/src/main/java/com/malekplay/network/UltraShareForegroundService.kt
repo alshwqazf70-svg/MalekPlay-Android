@@ -2052,7 +2052,7 @@ class UltraShareForegroundService : Service() {
                 finishService()
             }
         }
-        sendJobsByPeer[sendKey] = sendJobForPeer
+        if (sendJobsByPeer.putIfAbsent(sendKey, sendJobForPeer) != null) return
         updateState { current -> current.copy(queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال", error = null) }
         sendJobForPeer.start()
     }
@@ -2090,16 +2090,6 @@ class UltraShareForegroundService : Service() {
             return
         }
         startForegroundCompat()
-        updateState { current ->
-            current.copy(
-                queueTotal = uris.distinctBy { it.toString() }.size,
-                queueCompleted = 0,
-                queueTransferredBytes = 0L,
-                queueTotalBytes = 0L,
-                status = "جارٍ تجهيز الإرسال إلى " + targets.size + " أجهزة مقترنة",
-                error = null
-            )
-        }
         lateinit var multiPeerSendJob: Job
         multiPeerSendJob = serviceScope.launch(start = CoroutineStart.LAZY) {
             val queue = uris.distinctBy { it.toString() }
@@ -2385,9 +2375,15 @@ class UltraShareForegroundService : Service() {
                 finishService()
             }
         }
-        synchronized(sendJobsByPeer) {
-            targets.forEach { target -> sendJobsByPeer.putIfAbsent(target.sessionId, multiPeerSendJob) }
+        val reserved = synchronized(sendJobsByPeer) {
+            if (targets.any { sendJobsByPeer.containsKey(it.sessionId) }) {
+                false
+            } else {
+                targets.forEach { target -> sendJobsByPeer[target.sessionId] = multiPeerSendJob }
+                true
+            }
         }
+        if (!reserved) return
         updateState { current ->
             current.copy(
                 queueTotal = uris.distinctBy { it.toString() }.size,
