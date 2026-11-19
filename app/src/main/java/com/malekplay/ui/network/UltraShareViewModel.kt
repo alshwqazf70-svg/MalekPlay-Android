@@ -927,6 +927,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         val ssid = pairing.hotspotSsid ?: return
         val password = pairing.hotspotPassword ?: return
         runCatching {
+            if (!wifi.isWifiEnabled) wifi.isWifiEnabled = true
             val configuration = android.net.wifi.WifiConfiguration().apply {
                 SSID = "\"${ssid}\""
                 preSharedKey = "\"${password}\""
@@ -935,10 +936,13 @@ private fun forgetApprovedSenderTarget(host: String) {
             }
             val networkId = wifi.addNetwork(configuration)
             check(networkId >= 0) { "رفض نظام Android إضافة شبكة Wi-Fi؛ قد تمنع الشركة المصنّعة هذا الأسلوب." }
-            if (!wifi.enableNetwork(networkId, true) || !wifi.reconnect()) {
+            if (!wifi.enableNetwork(networkId, true)) {
                 wifi.removeNetwork(networkId)
                 error("تعذر تفعيل شبكة Wi-Fi الجديدة.")
             }
+            // reconnect() may return false on OEM builds while association is
+            // already in progress; enableNetwork() is the authoritative result.
+            runCatching { wifi.reconnect() }
             retainedLegacyWifiNetworkId?.takeIf { it != networkId }?.let { oldId ->
                 runCatching { wifi.removeNetwork(oldId) }
             }
