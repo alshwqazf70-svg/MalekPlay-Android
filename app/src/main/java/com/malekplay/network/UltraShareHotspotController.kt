@@ -1,5 +1,6 @@
 package com.malekplay.network
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -25,7 +26,7 @@ internal class UltraShareHotspotController(
         private set
     val isActive: Boolean get() = reservation != null
 
-    @Suppress("MissingPermission")
+    @SuppressLint("MissingPermission")
     fun start(
         onStarted: (ssid: String, password: String, addresses: List<String>) -> Unit,
         onReservationStopped: () -> Unit,
