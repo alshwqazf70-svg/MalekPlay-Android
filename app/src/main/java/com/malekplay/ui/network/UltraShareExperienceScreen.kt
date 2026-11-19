@@ -881,7 +881,6 @@ fun UltraShareExperienceScreen(
                         onToggleReceiving = { if (state.receiving) stopReceivingGroup() else startReceivingGroup() },
                         onOpenTransfers = { page = UltraSharePage.TRANSFERS },
                         onSendToGroup = {
-                            selectedUris = emptyList()
                             page = UltraSharePage.SEND
                         },
                         onOpenReceived = { uri, mimeType ->
