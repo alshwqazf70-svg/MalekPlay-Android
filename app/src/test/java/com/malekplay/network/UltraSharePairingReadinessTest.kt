@@ -21,8 +21,13 @@ class UltraSharePairingReadinessTest {
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             )
         )
-        assertTrue(matchesExpectedUltraSharePeerIdentity("known-peer", null))
+        // Missing expected identity is accepted only for legacy discovery entries.
         assertTrue(matchesExpectedUltraSharePeerIdentity(null, "any-peer"))
+        assertTrue(matchesExpectedUltraSharePeerIdentity(null, null))
+        // A known discovered peer must prove that identity during authentication.
+        assertFalse(matchesExpectedUltraSharePeerIdentity("known-peer", null))
+        assertFalse(matchesExpectedUltraSharePeerIdentity("known-peer", ""))
+        assertFalse(matchesExpectedUltraSharePeerIdentity(" ", "authenticated-peer"))
     }
 
     @Test fun approvedSendTargetKeepsSessionIdSeparateFromRemotePeerIdentity() {
