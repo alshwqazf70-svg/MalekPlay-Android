@@ -919,7 +919,7 @@ class UltraShareForegroundService : Service() {
             return
         }
 
-        stopForeground(true)
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
