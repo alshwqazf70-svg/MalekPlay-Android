@@ -81,8 +81,12 @@ class AssMatroskaExtractor(
     override fun binaryElement(id: Int, contentSize: Int, input: ExtractorInput) {
         when (id) {
             ID_FILE_DATA -> {
-                val attachmentName = requireNotNull(currentAttachmentName)
-                val attachmentMime = requireNotNull(currentAttachmentMime)
+                val attachmentName = currentAttachmentName
+                val attachmentMime = currentAttachmentMime
+                if (attachmentName.isNullOrBlank() || attachmentMime.isNullOrBlank()) {
+                    input.skipFully(contentSize)
+                    return
+                }
 
                 if (attachmentMime in fontMimeTypes) {
                     val data = ByteArray(contentSize)
