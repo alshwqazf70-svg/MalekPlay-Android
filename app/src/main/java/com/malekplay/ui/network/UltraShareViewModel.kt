@@ -894,6 +894,12 @@ private fun forgetApprovedSenderTarget(host: String) {
         hotspotNetworkPaired = false
         wifiDirectPrimaryAttempt = false
         hotspotFallbackStarted = false
+        wifiDirectGroupSsid = null
+        wifiDirectGroupPassword = null
+        wifiDirectOwnerAddress = null
+        wifiDirectGroupSecurity = "wpa2"
+        wifiDirectCredentialsFromJoinedInvitation = false
+        dnsSdQrFallbackScheduledFor = null
         val session = wifiDirectSession
         wifiDirectCleanupInProgress = session != null
         // End the logical receive session before asynchronous P2P cleanup callbacks
@@ -914,6 +920,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             wifiDirectLocalAddress = null,
             hotspotSsid = null,
             hotspotPassword = null,
+            hotspotSecurity = "wpa2",
             hotspotStarting = false,
             hotspotActive = false,
             pendingConnection = null,
