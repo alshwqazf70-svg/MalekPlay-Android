@@ -52,9 +52,16 @@ test -s "$test_apk"
 adb install -r "$app_apk"
 adb install -r "$test_apk"
 
-instrumentation="$(adb shell pm list instrumentation | tr -d '\\r' | \
-  sed -n 's/^instrumentation:\\([^ ]*\\).*/\\1/p' | \
-  grep 'androidx.test.runner.AndroidJUnitRunner' | head -n 1)"
+instrumentation="$(adb shell pm list instrumentation | tr -d '\r' | awk '
+  /^instrumentation:/ {
+    sub(/^instrumentation:/, "")
+    sub(/ .*/, "")
+    if (index($0, "androidx.test.runner.AndroidJUnitRunner") > 0) {
+      print
+      exit
+    }
+  }
+')"
 if [ -z "$instrumentation" ]; then
   echo "AndroidX test instrumentation was not registered after APK installation."
   adb shell pm list instrumentation || true
@@ -68,7 +75,8 @@ instrumentation_status=${PIPESTATUS[0]}
 set -e
 
 if [ "$instrumentation_status" -ne 0 ] || \
-   ! grep -Eq 'OK \\([0-9]+ tests?\\)' "ultrashare-diagnostics/instrumentation-api-$expected_api.txt"; then
+   ! grep -Fq 'OK (' "ultrashare-diagnostics/instrumentation-api-$expected_api.txt" || \
+   ! grep -Eq '[0-9]+ tests?' "ultrashare-diagnostics/instrumentation-api-$expected_api.txt"; then
   echo "Android instrumented tests failed on API $expected_api."
   exit 1
 fi
