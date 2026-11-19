@@ -1256,6 +1256,17 @@ private fun forgetApprovedSenderTarget(host: String) {
                         )
                     }
                 }
+            },
+            onLocalAddress = { address ->
+                val safeAddress = address?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
+                _state.value = _state.value.copy(wifiDirectLocalAddress = safeAddress)
+                if (safeAddress != null) {
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        "LOCAL_GROUP_OWNER_ADDRESS_AVAILABLE",
+                        mapOf("addressPresent" to true, "sdkInt" to Build.VERSION.SDK_INT)
+                    )
+                }
             }
         ).also { wifiDirectSession = it }
     }
