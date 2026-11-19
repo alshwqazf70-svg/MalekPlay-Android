@@ -15,7 +15,8 @@ object AssHeaderParser {
      * https://github.com/jellyfin/jellyfin-ffmpeg/issues/506
      */
     private fun fixAssHeaderIfNeed(buffer: ByteArray/*, extra: ByteArray*/): ByteArray {
-        return if (buffer[buffer.size -1] != 0.toByte()) {
+        if (buffer.isEmpty()) return buffer
+        return if (buffer[buffer.size - 1] != 0.toByte()) {
             // validate ass header
             buffer
         } else {
@@ -40,6 +41,7 @@ object AssHeaderParser {
      * headers are preserved.
      */
     fun parse(format: Format, useOriginalHeaders: Boolean): ByteArray {
+        if (format.initializationData.size < 2) return format.initializationData.firstOrNull() ?: ByteArray(0)
         if (useOriginalHeaders) {
             return fixAssHeaderIfNeed(format.initializationData[1])
         }
@@ -53,7 +55,7 @@ object AssHeaderParser {
         val index = lines.indexOfFirst {
             it.startsWith("[Events]")
         }
-        if (index >= 0 && lines[index + 1].startsWith("Format:")) {
+        if (index >= 0 && index + 1 < lines.size && lines[index + 1].startsWith("Format:")) {
             lines[index + 1] = header1
         }
         val result = lines.joinToString(separator = "\n")
