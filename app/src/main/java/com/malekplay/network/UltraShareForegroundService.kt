@@ -755,6 +755,7 @@ class UltraShareForegroundService : Service() {
         idleDisconnectJob = null
         sendJobsByPeer.values.toSet().forEach { it.cancel() }
         sendJobsByPeer.clear()
+        removePersistedLegacyWifiNetwork()
         receiveJob?.cancel()
         batchReceiveJob?.cancel()
         advertisementJob?.cancel()
@@ -767,6 +768,20 @@ class UltraShareForegroundService : Service() {
         hotspotController.stop()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf(startId)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun removePersistedLegacyWifiNetwork() {
+        val preferences = getSharedPreferences("ultra_share_wifi", MODE_PRIVATE)
+        val networkId = preferences.getInt("legacy_network_id", -1)
+        if (networkId < 0) return
+        val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+        runCatching {
+            wifi?.disableNetwork(networkId)
+            wifi?.removeNetwork(networkId)
+            wifi?.saveConfiguration()
+        }.onFailure { UltraShareDiagnostics.failure("SERVICE_LEGACY_WIFI_CLEANUP", it) }
+        preferences.edit().remove("legacy_network_id").apply()
     }
 
     override fun onDestroy() {
