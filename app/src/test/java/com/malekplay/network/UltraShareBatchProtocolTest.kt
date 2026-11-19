@@ -35,16 +35,16 @@ class UltraShareBatchProtocolTest {
         assertEquals(results, UltraShareBatchProtocol.validateResults(manifest, results))
     }
 
-    @Test fun zeroByteFilesRemainValidManifestEntries() {
-        val empty = UltraShareBatchProtocol.newEntry(
-            name = "empty.bin",
-            mimeType = "audio/mpeg",
-            sizeBytes = 0L,
-            sha256 = java.security.MessageDigest.getInstance("SHA-256").digest(ByteArray(0))
-        )
-        val manifest = UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(empty))
-        val decoded = UltraShareBatchProtocol.decode(UltraShareBatchProtocol.encode(manifest))
-        assertEquals(0L, decoded.entries.single().sizeBytes)
+    @Test fun zeroByteMediaIsRejectedAtManifestBoundary() {
+        val result = runCatching {
+            UltraShareBatchProtocol.newEntry(
+                name = "empty.mp3",
+                mimeType = "audio/mpeg",
+                sizeBytes = 0L,
+                sha256 = java.security.MessageDigest.getInstance("SHA-256").digest(ByteArray(0))
+            )
+        }
+        assertTrue(result.isFailure)
     }
 
     @Test fun acceptsOnlyVideoAudioAndImageMediaAtManifestBoundary() {

@@ -51,23 +51,18 @@ class UltraShareBatchTransportTest {
     }
 
     @Test
-    fun zeroByteFilesRemainValidAcrossBatchManifestEncoding() {
+    fun zeroByteMediaIsRejectedBeforeBatchManifestEncoding() {
         val digest = java.security.MessageDigest.getInstance("SHA-256")
             .digest(ByteArray(0))
-        val entry = UltraShareBatchProtocol.newEntry(
-            name = "empty.mp3",
-            mimeType = "audio/mpeg",
-            sizeBytes = 0L,
-            sha256 = digest
-        )
-        val manifest = UltraShareBatchProtocol.Manifest(
-            batchId = java.util.UUID.randomUUID().toString(),
-            entries = listOf(entry)
-        )
-
-        val decoded = UltraShareBatchProtocol.decode(UltraShareBatchProtocol.encode(manifest))
-        assertEquals(0L, decoded.entries.single().sizeBytes)
-        assertEquals(digest.toList(), decoded.entries.single().sha256.toList())
+        val created = runCatching {
+            UltraShareBatchProtocol.newEntry(
+                name = "empty.mp3",
+                mimeType = "audio/mpeg",
+                sizeBytes = 0L,
+                sha256 = digest
+            )
+        }
+        assertTrue("Empty media must be rejected before opening a network session.", created.isFailure)
     }
     @Test
     fun cancellingTransferJobClosesBlockedSocketReadImmediately() = runBlocking {

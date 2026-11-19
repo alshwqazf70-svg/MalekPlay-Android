@@ -254,7 +254,7 @@ object UltraShareBatchTransport {
             mapOf("peerHost" to host, "fileCount" to sources.size)
         )
         val prepared = sources.map { source ->
-            require(source.sizeBytes in 0..UltraShareCore.MAX_FILE_BYTES)
+            require(source.sizeBytes in 1..UltraShareCore.MAX_FILE_BYTES)
             val name = UltraShareCore.sanitizeFileName(source.name)
             val mime = UltraShareCore.sanitizeMimeType(source.mimeType)
             val digest = resolver.openInputStream(source.uri)?.use { input ->

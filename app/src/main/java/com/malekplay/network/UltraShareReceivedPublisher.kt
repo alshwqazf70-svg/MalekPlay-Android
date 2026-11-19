@@ -21,7 +21,7 @@ import kotlin.coroutines.resume
  * Automatically publishes received files to Downloads/MalekPlayer.
  * A durable app-owned copy already exists before this publisher is called, so a
  * MediaStore/legacy storage failure never loses the successfully received file.
- * Empty files and unknown MIME types are intentionally supported.
+ * Only non-empty, signature-verified media reaches this publisher; unknown MIME fallbacks remain supported.
  */
 object UltraShareReceivedPublisher {
 
@@ -32,7 +32,7 @@ object UltraShareReceivedPublisher {
 
     suspend fun publish(context: Context, received: UltraShareCore.ReceivedFile): Uri? =
         withContext(Dispatchers.IO) {
-            check(received.file.isFile && received.file.length() == received.sizeBytes) {
+            check(received.sizeBytes > 0L && received.file.isFile && received.file.length() == received.sizeBytes) {
                 "الملف المستلم غير مكتمل؛ لن نحفظ نسخة ناقصة."
             }
             val app = context.applicationContext

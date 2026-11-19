@@ -71,7 +71,7 @@ object UltraShareBatchProtocol {
         val safeName = UltraShareCore.sanitizeFileName(name)
         val safeMime = UltraShareCore.sanitizeMimeType(mimeType)
         require(safeName.toByteArray(Charsets.UTF_8).size <= MAX_NAME_BYTES)
-        require(sizeBytes in 0..MAX_FILE_BYTES)
+        require(sizeBytes in 1..MAX_FILE_BYTES)
         require(sha256.size == DIGEST_BYTES)
         require(runCatching { UUID.fromString(id) }.isSuccess)
         return FileEntry(id, safeName, safeMime, sizeBytes, sha256.copyOf())
@@ -95,7 +95,7 @@ object UltraShareBatchProtocol {
                 "نوع الملف غير صالح للمشاركة."
             }
             require(entry.mimeType.toByteArray(Charsets.UTF_8).size <= MAX_MIME_BYTES)
-            require(entry.sizeBytes in 0..MAX_FILE_BYTES)
+            require(entry.sizeBytes in 1..MAX_FILE_BYTES)
             require(entry.sha256.size == DIGEST_BYTES)
         }
         require(manifest.totalBytes <= MAX_BATCH_BYTES) {

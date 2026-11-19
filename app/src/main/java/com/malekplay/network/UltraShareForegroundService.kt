@@ -2793,7 +2793,7 @@ class UltraShareForegroundService : Service() {
                     if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) size = cursor.getLong(sizeColumn)
                 }
             }
-        require(size >= 0L) { "تعذر معرفة حجم الملف؛ اختر ملفاً من مدير الملفات يدعم عرض الحجم." }
+        require(size > 0L) { "الملف فارغ ولا يحتوي على وسائط صالحة للمشاركة." }
         val mimeType = UltraShareCore.sanitizeMimeType(
             contentResolver.getType(uri) ?: "application/octet-stream"
         )
