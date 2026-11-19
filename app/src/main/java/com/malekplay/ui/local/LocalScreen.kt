@@ -78,6 +78,7 @@ import com.malekplay.domain.model.ViewMode
 import com.malekplay.ui.components.EmptyState
 import com.malekplay.ui.components.FolderRow
 import com.malekplay.ui.components.MediaGridCard
+import com.malekplay.ui.components.MediaBulkDeleteBar
 import com.malekplay.ui.components.MediaListRow
 import com.malekplay.ui.components.SectionHeader
 import com.malekplay.ui.components.PlaylistPickerDialog
@@ -388,6 +389,18 @@ fun LocalScreen(
                 }
             }
         }
+        if (selectionMode) {
+            val selectedMedia = (searchResults + sortedVideos + sortedAudio)
+                .distinctBy { it.media.uri }
+                .filter { it.media.uri in selectedUris }
+                .map { it.media }
+            MediaBulkDeleteBar(
+                mediaItems = selectedMedia,
+                onDeleted = viewModel::refresh,
+                onClearSelection = { selectedUris.clear() }
+            )
+        }
+
         if (isRefreshing && folders.isEmpty() && videos.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
