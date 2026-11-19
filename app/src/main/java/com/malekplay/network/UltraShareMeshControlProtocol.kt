@@ -112,8 +112,9 @@ internal object UltraShareMeshControlProtocol {
         require(4 + 1 + 1 + ID_BYTES + ID_BYTES + 8 + 2 + message.payload.size <= MAX_MESSAGE_BYTES)
     }
 
+    // IDs are serialized as 16 raw bytes but represented in Kotlin as 32 hex characters.
     private fun isId(value: String): Boolean =
-        value.length == ID_BYTES && value.all { it.digitToIntOrNull(16) != null }
+        value.length == ID_BYTES * 2 && value.all { it.digitToIntOrNull(16) != null }
 
     private fun hexToBytes(value: String): ByteArray {
         require(isId(value))
