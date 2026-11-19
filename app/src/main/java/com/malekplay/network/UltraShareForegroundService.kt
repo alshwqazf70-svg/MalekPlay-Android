@@ -2197,6 +2197,10 @@ class UltraShareForegroundService : Service() {
                                     }
                                 }
                             ) { progress ->
+                                val sendProgress = UltraShareCore.Progress(
+                                    progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                    progress.bytesPerSecond, false
+                                )
                                 updateState { current ->
                                     val transfer = UltraSharePeerTransfer(
                                         host = activePeerHost,
@@ -2208,10 +2212,13 @@ class UltraShareForegroundService : Service() {
                                     )
                                     current.copy(
                                         peerTransfers = current.peerTransfers.filterNot { it.host == activePeerHost } + transfer,
+                                        progress = if (current.receiving) current.receiveProgress else sendProgress,
+                                        sendProgress = sendProgress,
                                         queueCurrentName = progress.fileName,
                                         status = "إرسال دفعة V2 إلى $activePeerHost"
                                     )
                                 }
+                                updateNotification(sendProgress)
                             }
                             val outcomes = outcome.files.associateBy { it.fileId }
                             chunk.forEach { source ->
