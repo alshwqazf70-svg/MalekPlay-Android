@@ -1669,6 +1669,39 @@ private fun forgetApprovedSenderTarget(host: String) {
         }
     }
 
+    fun rememberInvitationPeer(invitationId: String?, secret: String) {
+        if (!UltraShareCore.isValidPairingSecret(secret)) return
+        if (wifiDirectGroupSsid != null && _state.value.wifiDirectLocalAddress == null) {
+            // Do not reuse a previous P2P group's credentials after its interface vanished.
+            wifiDirectGroupSsid = null
+            wifiDirectGroupPassword = null
+            wifiDirectOwnerAddress = null
+            wifiDirectGroupSecurity = "wpa2"
+        }
+        _state.value = _state.value.copy(
+            pairingSecret = secret,
+            invitationId = invitationId?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }.orEmpty(),
+            receiverQrPayload = null,
+            hotspotSsid = wifiDirectGroupSsid ?: _state.value.hotspotSsid,
+            hotspotPassword = wifiDirectGroupPassword ?: _state.value.hotspotPassword,
+            hotspotSecurity = wifiDirectGroupSecurity
+        )
+    }
+
+    private fun rememberInvitationNetwork(pairing: UltraShareQrCode.PairingDetails) {
+        val ssid = pairing.hotspotSsid?.takeIf { it.isNotBlank() } ?: return
+        val password = pairing.hotspotPassword?.takeIf { it.isNotBlank() } ?: return
+        wifiDirectGroupSsid = ssid
+        wifiDirectGroupPassword = password
+        wifiDirectGroupSecurity = pairing.hotspotSecurity
+        wifiDirectOwnerAddress = pairing.hosts.firstOrNull()
+        _state.value = _state.value.copy(
+            hotspotSsid = ssid,
+            hotspotPassword = password,
+            hotspotSecurity = pairing.hotspotSecurity
+        )
+    }
+
     private fun publishUnifiedReceiverQrIfReady() {
         val current = _state.value
         val service = UltraShareForegroundService.state.value
@@ -1680,7 +1713,6 @@ private fun forgetApprovedSenderTarget(host: String) {
 
         val ssid = wifiDirectGroupSsid ?: service.hotspotSsid
         val password = wifiDirectGroupPassword ?: service.hotspotPassword
-        if (ssid.isNullOrBlank() || password.isNullOrBlank()) return
         val ownerAddress = wifiDirectOwnerAddress
             ?: "192.168.49.1".takeIf { wifiDirectGroupSsid != null }
         // Keep the P2P owner address first; otherwise a busy multi-interface
