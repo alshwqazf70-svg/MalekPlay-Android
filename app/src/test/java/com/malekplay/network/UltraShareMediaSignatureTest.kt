@@ -24,14 +24,14 @@ class UltraShareMediaSignatureTest {
     @Test fun acceptsNonMediaDocumentsArchivesAndUnknownBinaryByDigestPolicy() {
         val cases = listOf("archive.zip" to "application/zip", "notes.txt" to "text/plain",
             "unknown.bin" to "application/octet-stream",
-            "report.docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "image.svg" to "image/svg+xml")
+            "report.docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         val file = File.createTempFile("ultrashare-general", ".tmp")
         try {
             file.writeBytes("opaque but integrity-checked bytes".toByteArray())
             cases.forEach { (name, mime) -> assertTrue("$name should be accepted",
                 UltraShareMediaSignature.isValid(file, name, mime)) }
-            assertFalse(UltraShareMediaSignature.isValid(file, "image.svg", "image/svg+xml"))\n            assertFalse(UltraShareMediaSignature.isValid(file, "blocked.pdf", "application/pdf"))
+            assertFalse(UltraShareMediaSignature.isValid(file, "image.svg", "image/svg+xml"))\n            assertFalse(UltraShareMediaSignature.isValid(file, "image.svg", "image/svg+xml"))
+            assertFalse(UltraShareMediaSignature.isValid(file, "blocked.pdf", "application/pdf"))
             assertFalse(UltraShareMediaSignature.isValid(file, "blocked.apk", "application/octet-stream"))
         } finally { file.delete() }
     }
