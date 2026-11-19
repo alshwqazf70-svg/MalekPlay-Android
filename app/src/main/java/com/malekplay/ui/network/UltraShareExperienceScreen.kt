@@ -906,20 +906,18 @@ fun UltraShareExperienceScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
-                            Button(colors = ultraShareButtonColors(), onClick = ::scanQr, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+                            Button(colors = ultraShareButtonColors(), onClick = ::scanQr, modifier = Modifier.fillMaxWidth()) {
                                 Icon(Icons.Filled.QrCode, null)
                                 Text("مسح رمز QR بالكاميرا", modifier = Modifier.padding(start = 8.dp))
                             }
                             OutlinedButton(onClick = { qrImagePicker.launch(arrayOf("image/*")) },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !state.sending
+                                modifier = Modifier.fillMaxWidth()
                             ) { Text("قراءة QR من صورة محفوظة") }
                             OutlinedButton(onClick = {
                                     scanAllNearby()
                                     page = UltraSharePage.NEARBY
                                 },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !state.sending
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 Icon(Icons.Filled.Wifi, null)
                                 Text("البحث عن الأجهزة القريبة", modifier = Modifier.padding(start = 8.dp))
@@ -957,15 +955,13 @@ fun UltraShareExperienceScreen(
                         Button(
                             colors = ultraShareButtonColors(),
                             onClick = ::scanAllNearby,
-                            modifier = Modifier.weight(1f),
-                            enabled = !state.sending
+                            modifier = Modifier.weight(1f)
                         ) {
                             Icon(Icons.Filled.Refresh, null)
                             Text(if (state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning) "إيقاف البحث" else "بحث شامل")
                         }
                         OutlinedButton(onClick = ::scanQr,
-                            modifier = Modifier.weight(1f),
-                            enabled = !state.sending
+                            modifier = Modifier.weight(1f)
                         ) {
                             Icon(Icons.Filled.QrCode, null)
                             Text("مسح QR")
@@ -977,7 +973,7 @@ fun UltraShareExperienceScreen(
                         style = MaterialTheme.typography.bodySmall
                     )
                     OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("البحث عن جهاز") })
-                    OutlinedButton(onClick = ::scanBluetooth, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
+                    OutlinedButton(onClick = ::scanBluetooth, modifier = Modifier.fillMaxWidth()) {
                         Text(if (state.bluetoothScanning || state.bleScanning) "إيقاف بحث Bluetooth/BLE" else "بحث Bluetooth وBLE")
                     }
                     UltraShareRadar(
@@ -1042,7 +1038,7 @@ fun UltraShareExperienceScreen(
                                     if (!sessionReady) {
                                         secret = ""
                                     }
-                                }, enabled = !state.requestingConnection && !state.sending) { Text("اتصال") }
+                                }, enabled = !state.requestingConnection) { Text("اتصال") }
                             }
                         }
                     }
@@ -1053,7 +1049,7 @@ fun UltraShareExperienceScreen(
                         }.forEach { peer ->
                             OutlinedButton(onClick = { viewModel.connectWifiDirectPeer(peer) },
                                 modifier = Modifier.fillMaxWidth(),
-                                enabled = !state.requestingConnection && !state.sending
+                                enabled = !state.requestingConnection
                             ) {
                                 Text("اتصال مباشر • " + peer.name + " • " + peer.status)
                             }
