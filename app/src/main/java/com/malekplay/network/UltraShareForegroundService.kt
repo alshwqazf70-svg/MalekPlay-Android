@@ -223,7 +223,7 @@ class UltraShareForegroundService : Service() {
                 serviceScope.launch(Dispatchers.IO) {
                     closeMeshRoom()
                     hostsToDisconnect.forEach(::disconnectApprovedPeer)
-                    finishService()
+                    withContext(Dispatchers.Main.immediate) { finishService() }
                 }
                 stopLocalHotspot()
                 updateState { current -> current.copy(
@@ -312,8 +312,10 @@ class UltraShareForegroundService : Service() {
                         retiringBatch?.cancelAndJoin()
                         if (receiveJob === retiringReceive) receiveJob = null
                         if (batchReceiveJob === retiringBatch) batchReceiveJob = null
-                        replacementPending = false
-                        onStartCommand(intent, flags, startId)
+                        withContext(Dispatchers.Main.immediate) {
+                            replacementPending = false
+                            onStartCommand(intent, flags, startId)
+                        }
                     }
                     return START_NOT_STICKY
                 }
@@ -1839,8 +1841,10 @@ class UltraShareForegroundService : Service() {
             serviceScope.launch {
                 retiringSend.cancelAndJoin()
                 if (sendJob === retiringSend) sendJob = null
-                replacementPending = false
-                startSendingQueue(uris, host, secret, replaceQueue, candidates)
+                withContext(Dispatchers.Main.immediate) {
+                    replacementPending = false
+                    startSendingQueue(uris, host, secret, replaceQueue, candidates)
+                }
             }
             return
         }
@@ -2058,8 +2062,10 @@ class UltraShareForegroundService : Service() {
             serviceScope.launch {
                 retiringSend.cancelAndJoin()
                 if (sendJob === retiringSend) sendJob = null
-                replacementPending = false
-                startSendingQueueToPeers(uris, targets, preserveCompleted)
+                withContext(Dispatchers.Main.immediate) {
+                    replacementPending = false
+                    startSendingQueueToPeers(uris, targets, preserveCompleted)
+                }
             }
             return
         }
