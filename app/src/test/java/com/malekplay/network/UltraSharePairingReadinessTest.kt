@@ -69,6 +69,59 @@ class UltraSharePairingReadinessTest {
         assertNull(UltraSharePairingReadiness.stableQrPayload(null, null))
     }
 
+    @Test fun lateUnifiedV5QrUpgradesOnlyTheSameFallbackInvitationAndSecret() {
+        assertTrue(
+            UltraSharePairingReadiness.shouldUpgradeStableQrToUnifiedV5(
+                existingVersion = "3",
+                candidateVersion = "5",
+                existingInvitationId = "invite-1",
+                candidateInvitationId = "invite-1",
+                existingPairingSecret = "123456789",
+                candidatePairingSecret = "123456789"
+            )
+        )
+        assertTrue(
+            UltraSharePairingReadiness.shouldUpgradeStableQrToUnifiedV5(
+                existingVersion = "4",
+                candidateVersion = "5",
+                existingInvitationId = "invite-1",
+                candidateInvitationId = "invite-1",
+                existingPairingSecret = "123456789",
+                candidatePairingSecret = "123456789"
+            )
+        )
+    }
+
+    @Test fun unifiedV5QrNeverRotatesOrReplacesAnotherInvitation() {
+        val stableV5 = UltraSharePairingReadiness.shouldUpgradeStableQrToUnifiedV5(
+            existingVersion = "5",
+            candidateVersion = "5",
+            existingInvitationId = "invite-1",
+            candidateInvitationId = "invite-1",
+            existingPairingSecret = "123456789",
+            candidatePairingSecret = "123456789"
+        )
+        val wrongInvitation = UltraSharePairingReadiness.shouldUpgradeStableQrToUnifiedV5(
+            existingVersion = "3",
+            candidateVersion = "5",
+            existingInvitationId = "invite-1",
+            candidateInvitationId = "invite-2",
+            existingPairingSecret = "123456789",
+            candidatePairingSecret = "123456789"
+        )
+        val wrongSecret = UltraSharePairingReadiness.shouldUpgradeStableQrToUnifiedV5(
+            existingVersion = "3",
+            candidateVersion = "5",
+            existingInvitationId = "invite-1",
+            candidateInvitationId = "invite-1",
+            existingPairingSecret = "123456789",
+            candidatePairingSecret = "987654321"
+        )
+        assertFalse(stableV5)
+        assertFalse(wrongInvitation)
+        assertFalse(wrongSecret)
+    }
+
     private fun ready(
         receiving: Boolean = true,
         control: Boolean = true,
