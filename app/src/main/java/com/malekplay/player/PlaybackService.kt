@@ -892,7 +892,7 @@ class PlaybackService : MediaSessionService() {
                     it.port == (if (uri.port == -1) 443 else uri.port) &&
                     isWithinWebDavRoot(requestPath, it.rootPath)
             }
-            .maxByOrNull { normalizeWebDavRoot(it.rootPath).length }
+            .maxByOrNull { normalizeWebDavRoot(it.rootPath)?.length ?: 0 }
             ?: return dataSpec
 
         // Never downgrade a configured WebDAV profile to an unauthenticated request.
@@ -912,15 +912,17 @@ class PlaybackService : MediaSessionService() {
             .build()
     }
 
-    private fun normalizeWebDavRoot(rootPath: String): String {
-        val segments = rootPath.split('/').filter { it.isNotBlank() && it != "." }
-        require(segments.none { it == ".." || '\\' in it }) { "مسار WebDAV الجذر غير صالح" }
+    private fun normalizeWebDavRoot(path: String): String? {
+        val segments = path.split('/').filter { it.isNotBlank() }
+        if (segments.any { it == "." || it == ".." || '\\' in it }) return null
         return if (segments.isEmpty()) "/" else "/" + segments.joinToString("/")
     }
 
     private fun isWithinWebDavRoot(requestPath: String, rootPath: String): Boolean {
-        val root = normalizeWebDavRoot(rootPath)
-        val path = requestPath.ifBlank { "/" }
+        // Reject traversal rather than allowing a URI such as /share/../private
+        // to inherit credentials from the /share profile.
+        val root = normalizeWebDavRoot(rootPath) ?: return false
+        val path = normalizeWebDavRoot(requestPath) ?: return false
         return root == "/" || path == root || path.startsWith("$root/")
     }
 
