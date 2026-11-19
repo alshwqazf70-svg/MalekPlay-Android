@@ -1622,7 +1622,13 @@ private fun forgetApprovedSenderTarget(host: String) {
                     val secret = current.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
                         ?: service.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
                         ?: return@launch
-                    val hosts = (current.localAddresses + service.localAddresses)
+                    // Prefer the P2P group-owner interface so legacy Android
+                    // 6–7 clients retain the direct SoftAP route even when LAN
+                    // interfaces are numerous or DNS-SD is unavailable.
+                    val hosts = (
+                        listOfNotNull(current.wifiDirectLocalAddress, wifiDirectOwnerAddress) +
+                            current.localAddresses + service.localAddresses
+                        )
                         .map { it.trim() }
                         .filter { UltraShareCore.isValidPrivateLanHost(it) }
                         .distinct()
@@ -1659,10 +1665,12 @@ private fun forgetApprovedSenderTarget(host: String) {
         if (ssid.isNullOrBlank() || password.isNullOrBlank()) return
         val ownerAddress = wifiDirectOwnerAddress
             ?: "192.168.49.1".takeIf { wifiDirectGroupSsid != null }
+        // Keep the P2P owner address first; otherwise a busy multi-interface
+        // phone could fill the QR's host limit before 192.168.49.1 is included.
         val hosts = (
-            current.localAddresses +
-                service.localAddresses +
-                listOfNotNull(current.wifiDirectLocalAddress, ownerAddress)
+            listOfNotNull(ownerAddress, current.wifiDirectLocalAddress) +
+                current.localAddresses +
+                service.localAddresses
             ).asSequence()
             .map { it.trim() }
             .filter { UltraShareCore.isValidPrivateLanHost(it) }
