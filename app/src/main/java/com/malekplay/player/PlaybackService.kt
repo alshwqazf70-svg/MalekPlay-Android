@@ -44,6 +44,7 @@ import com.malekplay.player.effects.VideoEnhancementPolicy
 import com.malekplay.player.effects.VideoEnhancementMetrics
 import com.malekplay.player.effects.VideoUpscaleTargetPolicy
 import com.malekplay.player.effects.GoogleMediaEnhancementCapability
+import io.github.peerless2012.ass.media.AssHandler
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.render.AssVideoEffectRegistry
 import io.github.peerless2012.ass.media.type.AssRenderType
@@ -91,6 +92,7 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var localExoPlayer: ExoPlayer? = null
+    private var assHandler: AssHandler? = null
     private var videoUpscalingEnabled = false
     private var videoNoiseReductionEnabled = false
     @Volatile private var videoEffectsBridgeAttached = false
@@ -177,7 +179,8 @@ class PlaybackService : MediaSessionService() {
                 context = this,
                 renderType = AssRenderType.EFFECTS_OPEN_GL,
                 dataSourceFactory = sharedPlaybackDataSourceFactory,
-                renderersFactory = renderersFactory
+                renderersFactory = renderersFactory,
+                assHandlerCallback = { handler -> assHandler = handler }
             )
 
         // CastPlayer wraps the existing ASS-capable ExoPlayer. MediaController,
@@ -296,6 +299,8 @@ class PlaybackService : MediaSessionService() {
         thermalStatusListener = null
         thermalPowerManager = null
         val finalSave = saveCurrentProgress() ?: lastProgressSaveJob
+        assHandler?.release()
+        assHandler = null
         mediaSession?.run {
             player.removeListener(progressListener)
             player.removeListener(videoEffectRouteListener)
