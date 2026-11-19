@@ -45,11 +45,13 @@ import com.malekplay.core.ui.theme.MalekPlayColors
 @Composable
 fun DevicePickerBottomSheet(
     discoveredPeers: List<com.malekplay.network.UltraShareDiscovery.Peer>,
+    wifiDirectPeers: List<com.malekplay.network.UltraShareWifiDirect.Peer>,
     activePeers: List<com.malekplay.network.UltraSharePeerSession>,
     isScanning: Boolean,
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
-    onPeerSelected: (String) -> Unit
+    onPeerSelected: (String) -> Unit,
+    onWifiDirectPeerSelected: (com.malekplay.network.UltraShareWifiDirect.Peer) -> Unit
 ) {
     var search by remember { mutableStateOf("") }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -58,6 +60,9 @@ fun DevicePickerBottomSheet(
     }
     val visibleActive = activePeers.filter {
         it.name.contains(search, ignoreCase = true) || it.host.contains(search, ignoreCase = true)
+    }
+    val visibleWifiDirect = wifiDirectPeers.filter {
+        it.name.contains(search, ignoreCase = true) || it.deviceAddress.contains(search, ignoreCase = true)
     }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Color(0xFF17131F)) {
         Column(
@@ -68,7 +73,7 @@ fun DevicePickerBottomSheet(
                 Icon(Icons.Filled.Devices, contentDescription = null, tint = MalekPlayColors.PurpleBright)
                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
                     Text("اختر جهاز الاستقبال", color = Color.White, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
-                    Text("اختر الجهاز ثم أكمل الاقتران الآمن عبر QR", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
+                    Text("تظهر هنا أجهزة الشبكة المحلية وWi-Fi Direct؛ يلزم توثيق آمن قبل نقل الملفات.", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
                 }
                 TextButton(onClick = onRefresh, enabled = !isScanning) {
                     if (isScanning) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
@@ -98,18 +103,29 @@ fun DevicePickerBottomSheet(
                         PeerChoiceRow(peer.name, peer.host, true) { onPeerSelected(peer.host) }
                     }
                 }
+                if (visibleWifiDirect.isNotEmpty()) {
+                    item { Text("أجهزة Wi-Fi Direct", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold) }
+                    items(visibleWifiDirect, key = { "p2p:${it.deviceAddress.lowercase()}" }) { peer ->
+                        PeerChoiceRow(
+                            peer.name,
+                            peer.status,
+                            false,
+                            "Wi-Fi Direct • اتصال مباشر",
+                        ) { onWifiDirectPeerSelected(peer) }
+                    }
+                }
                 if (visibleDiscovered.isNotEmpty()) {
-                    item { Text("أجهزة قريبة", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold) }
+                    item { Text("أجهزة الشبكة المحلية", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold) }
                     items(visibleDiscovered, key = { "nearby:${it.peerId ?: it.host}" }) { peer ->
                         val route = peer.candidates.firstOrNull()?.transport?.toString().orEmpty()
                         PeerChoiceRow(peer.name, peer.host, false, route) { onPeerSelected(peer.host) }
                     }
                 }
-                if (visibleActive.isEmpty() && visibleDiscovered.isEmpty()) {
+                if (visibleActive.isEmpty() && visibleDiscovered.isEmpty() && visibleWifiDirect.isEmpty()) {
                     item {
                         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D)), modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                if (isScanning) "نبحث عن أجهزة MalekPlay على الشبكة المحلية…" else "لم نعثر على أجهزة بعد. تأكد من اتصال الهاتفين بالشبكة نفسها ثم حدّث البحث.",
+                                if (isScanning) "نبحث عن أجهزة MalekPlay عبر الشبكة المحلية وWi-Fi Direct…" else "لم نعثر على أجهزة بعد. فعّل Wi-Fi أو Wi-Fi Direct ثم حدّث البحث.",
                                 modifier = Modifier.padding(16.dp), color = Color.LightGray
                             )
                         }
