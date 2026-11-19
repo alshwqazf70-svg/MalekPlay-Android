@@ -629,6 +629,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
         ))
         receive_sequence += 1
         connection.settimeout(max(SESSION_TIMEOUT_SECONDS, min(900.0, manifest.total_bytes / (256 * 1024))))
+        connection.settimeout(max(SESSION_TIMEOUT_SECONDS, min(900.0, manifest.total_bytes / (256 * 1024))))
 
         identity = peer_identity or active_peer[0] or address[0]
         peer_folder = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
