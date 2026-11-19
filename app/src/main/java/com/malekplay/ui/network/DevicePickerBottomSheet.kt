@@ -74,9 +74,14 @@ fun DevicePickerBottomSheet(
                     Text("اختر جهاز الاستقبال", color = Color.White, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
                     Text("تظهر هنا أجهزة الشبكة المحلية وWi-Fi Direct؛ يلزم توثيق آمن قبل نقل الملفات.", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
                 }
-                TextButton(onClick = onRefresh, enabled = !isScanning) {
-                    if (isScanning) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Filled.Refresh, contentDescription = "تحديث البحث")
+                TextButton(onClick = onRefresh) {
+                    if (isScanning) {
+                        CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                        Text("إيقاف")
+                    } else {
+                        Icon(Icons.Filled.Refresh, contentDescription = "تحديث البحث")
+                        Text("تحديث")
+                    }
                 }
             }
             OutlinedTextField(
