@@ -831,24 +831,33 @@ class LegacyUltraShareViewModel @Inject constructor(
         if (!_state.value.receiving || _state.value.pairedSession ||
             _state.value.hotspotActive || _state.value.hotspotStarting
         ) return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            // Android 6–7 have no LocalOnlyHotspot API. Keep the receiver and
-            // publish a LAN QR when a real WLAN/Ethernet route is available;
-            // the user may also enable the system hotspot manually.
-            UltraShareForegroundService.refreshLocalAddresses(context)
-            val lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
-                context, _state.value.localAddresses
-            )
+
+        // Prefer an already-connected, verified WLAN/Ethernet route before
+        // requesting a new SoftAP. This also preserves pairing when Android 13+
+        // nearby-device permission is denied but both phones share a LAN.
+        UltraShareForegroundService.refreshLocalAddresses(context)
+        val lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+            context, _state.value.localAddresses
+        )
+        if (lanHosts.isNotEmpty()) {
             _state.value = _state.value.copy(
                 localAddresses = lanHosts,
                 hotspotStarting = false,
-                error = if (lanHosts.isEmpty())
-                    "هذا الإصدار لا يدعم إنشاء نقطة اتصال داخل التطبيق. اتصل بشبكة Wi-Fi مشتركة أو فعّل نقطة اتصال النظام يدوياً؛ سيظهر QR تلقائياً عند توفر عنوان محلي."
-                else null,
-                status = if (lanHosts.isEmpty())
-                    "الاستقبال يعمل؛ ننتظر شبكة محلية صالحة لعرض رمز الاقتران."
-                else
-                    "الاستقبال يعمل عبر الشبكة المحلية. امسح رمز QR للانضمام."
+                hotspotActive = false,
+                error = null,
+                status = "تعذر Wi-Fi Direct؛ الاستقبال جاهز عبر شبكة Wi-Fi المحلية. امسح رمز QR للانضمام."
+            )
+            publishStableReceiverQrIfReady()
+            return
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            // Android 6–7 have no LocalOnlyHotspot API. Keep the receiver alive;
+            // a QR appears automatically when a shared WLAN/Ethernet route exists.
+            _state.value = _state.value.copy(
+                hotspotStarting = false,
+                error = "هذا الإصدار لا يدعم إنشاء نقطة اتصال داخل التطبيق. اتصل بشبكة Wi-Fi مشتركة أو فعّل نقطة اتصال النظام يدوياً؛ سيظهر QR تلقائياً عند توفر عنوان محلي.",
+                status = "الاستقبال يعمل؛ ننتظر شبكة محلية صالحة لعرض رمز الاقتران."
             )
             publishStableReceiverQrIfReady()
             return
@@ -861,7 +870,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         hotspotStarting = false,
                         error = failure.localizedMessage
-                            ?: "تعذر تشغيل نقطة الاتصال المحلية البديلة. تحقق من دعم Wi-Fi في الجهاز."
+                            ?: "تعذر تشغيل نقطة الاتصال المحلية البديلة. تحقق من إذن الأجهزة القريبة ودعم Wi-Fi في الجهاز."
                     )
                     publishStableReceiverQrIfReady()
                 }
