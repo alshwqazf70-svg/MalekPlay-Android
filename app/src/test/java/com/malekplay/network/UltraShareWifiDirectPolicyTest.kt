@@ -7,6 +7,41 @@ import org.junit.Test
 
 class UltraShareWifiDirectPolicyTest {
     @Test
+    fun delayedDnsSdCallbacksCannotReviveACancelledInvitationRequest() {
+        val originalRequest = Any()
+        val replacementRequest = Any()
+
+        assertTrue(
+            isCurrentWifiDirectInvitationRequest(
+                sessionClosed = false,
+                currentRequest = originalRequest,
+                callbackRequest = originalRequest
+            )
+        )
+        assertFalse(
+            isCurrentWifiDirectInvitationRequest(
+                sessionClosed = false,
+                currentRequest = replacementRequest,
+                callbackRequest = originalRequest
+            )
+        )
+        assertFalse(
+            isCurrentWifiDirectInvitationRequest(
+                sessionClosed = false,
+                currentRequest = null,
+                callbackRequest = originalRequest
+            )
+        )
+        assertFalse(
+            isCurrentWifiDirectInvitationRequest(
+                sessionClosed = true,
+                currentRequest = originalRequest,
+                callbackRequest = originalRequest
+            )
+        )
+    }
+
+    @Test
     fun acceptsFormedClientGroupForAnActiveQrPairingWithoutComparingRotatingMacAddresses() {
         assertTrue(
             isReadyWifiDirectClientGroup(
