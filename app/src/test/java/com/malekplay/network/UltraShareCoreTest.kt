@@ -8,7 +8,7 @@ import org.junit.Test
 class UltraShareCoreTest {
 
     @Test
-    fun sharePolicyAllowsOnlyVideoAudioAndRasterImageMedia() {
+    fun sharePolicyAllowsOrdinaryFilesAndBlocksOnlyApkAndPdf() {
         listOf("video/mp4", "video/x-matroska", "audio/mpeg", "image/jpeg", "image/webp")
             .forEach { assertTrue(UltraShareCore.isSupportedShareMimeType(it)) }
         listOf(
@@ -21,13 +21,14 @@ class UltraShareCoreTest {
         assertTrue(UltraShareCore.isAllowedShareFile("track.mp3", "audio/mpeg"))
         assertTrue(UltraShareCore.isAllowedShareFile("photo.jpg", "image/jpeg"))
         assertTrue(UltraShareCore.isAllowedShareFile("provider-file.mp4", "application/octet-stream"))
-        assertFalse(UltraShareCore.isAllowedShareFile("archive.zip", "application/zip"))
-        assertFalse(UltraShareCore.isAllowedShareFile("document.txt", "text/plain"))
-        assertFalse(UltraShareCore.isAllowedShareFile("unknown.bin", "application/octet-stream"))
+        assertTrue(UltraShareCore.isAllowedShareFile("archive.zip", "application/zip"))
+        assertTrue(UltraShareCore.isAllowedShareFile("document.txt", "text/plain"))
+        assertTrue(UltraShareCore.isAllowedShareFile("unknown.bin", "application/octet-stream"))
+        assertTrue(UltraShareCore.isAllowedShareFile("report.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+        assertTrue(UltraShareCore.isAllowedShareFile("image.svg", "image/svg+xml"))
         assertFalse(UltraShareCore.isAllowedShareFile("renamed.apk", "video/mp4"))
         assertFalse(UltraShareCore.isAllowedShareFile("document.pdf", "application/octet-stream"))
-        assertFalse(UltraShareCore.isAllowedShareFile("image.svg", "image/svg+xml"))
-        assertFalse(UltraShareCore.isAllowedShareFile("image.svg", "image/png"))
+
         assertFalse(UltraShareCore.isAllowedShareFile("", "application/octet-stream"))
     }
 

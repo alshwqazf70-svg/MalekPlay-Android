@@ -21,7 +21,8 @@ object UltraShareBatchProtocol {
     const val MAX_NAME_BYTES = 180
     const val MAX_MIME_BYTES = 192
     const val MAX_FILE_BYTES = UltraShareCore.MAX_FILE_BYTES
-    const val MAX_BATCH_BYTES = 20L * 1024 * 1024 * 1024
+    // A single maximum-size file must not be rejected later by the batch manifest.
+    const val MAX_BATCH_BYTES = MAX_FILE_BYTES
 
     private const val MAGIC = 0x4D505532 // MPU2
     private const val ID_BYTES = 16
@@ -99,7 +100,7 @@ object UltraShareBatchProtocol {
             require(entry.sha256.size == DIGEST_BYTES)
         }
         require(manifest.totalBytes <= MAX_BATCH_BYTES) {
-            "إجمالي حجم الدفعة يتجاوز الحد الأقصى البالغ 20 جيجابايت."
+            "إجمالي حجم الدفعة يتجاوز الحد الأقصى البالغ 100 جيجابايت."
         }
         return manifest
     }

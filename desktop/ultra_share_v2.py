@@ -778,7 +778,7 @@ def _build_local_manifest(paths: list[Path]) -> tuple[Manifest, list[Path]]:
         if not path.is_file():
             raise ValueError(f"Not a regular file: {path}")
         size = path.stat().st_size
-        if not 0 <= size <= MAX_FILE_BYTES:
+        if not 1 <= size <= MAX_FILE_BYTES:
             raise ValueError(f"File size outside V2 limit: {path.name}")
         digest = _hash_path(path)
         mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"

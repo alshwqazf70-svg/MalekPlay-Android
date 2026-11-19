@@ -21,6 +21,21 @@ class UltraShareMediaSignatureTest {
         }
     }
 
+    @Test fun acceptsNonMediaDocumentsArchivesAndUnknownBinaryByDigestPolicy() {
+        val cases = listOf("archive.zip" to "application/zip", "notes.txt" to "text/plain",
+            "unknown.bin" to "application/octet-stream",
+            "report.docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "image.svg" to "image/svg+xml")
+        val file = File.createTempFile("ultrashare-general", ".tmp")
+        try {
+            file.writeBytes("opaque but integrity-checked bytes".toByteArray())
+            cases.forEach { (name, mime) -> assertTrue("$name should be accepted",
+                UltraShareMediaSignature.isValid(file, name, mime)) }
+            assertFalse(UltraShareMediaSignature.isValid(file, "blocked.pdf", "application/pdf"))
+            assertFalse(UltraShareMediaSignature.isValid(file, "blocked.apk", "application/octet-stream"))
+        } finally { file.delete() }
+    }
+
     @Test fun rejectsUnknownAndEmptySignatures() {
         val file = File.createTempFile("ultrashare", ".mp4")
         try {
@@ -46,12 +61,12 @@ class UltraShareMediaSignatureTest {
         }
     }
 
-    @Test fun rejectsManifestAboveTotalBatchLimit() {
+    @Test fun rejectsManifestAbove100GiBTotalBatchLimit() {
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
         val first = UltraShareBatchProtocol.newEntry("a.mp4", "video/mp4",
-            11L * 1024 * 1024 * 1024, digest)
+            60L * 1024 * 1024 * 1024, digest)
         val second = UltraShareBatchProtocol.newEntry("b.mp4", "video/mp4",
-            10L * 1024 * 1024 * 1024, digest)
+            41L * 1024 * 1024 * 1024, digest)
         val manifest = UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(first, second))
         org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
             UltraShareBatchProtocol.validate(manifest)

@@ -79,11 +79,11 @@ fun SendFileScreen(
             }
         }
         OutlinedButton(
-            onClick = { onPickMedia(arrayOf("video/*", "audio/*", "image/*")) },
+            onClick = { onPickMedia(arrayOf("*/*")) },
             modifier = Modifier.fillMaxWidth(),
             enabled = !state.sending
         ) {
-            Text("اختيار فيديو أو موسيقى أو صورة")
+            Text("اختيار ملفات من الهاتف (كل الأنواع المسموحة)")
         }
         if (libraryLoading) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

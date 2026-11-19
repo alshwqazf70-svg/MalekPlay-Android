@@ -47,12 +47,17 @@ class UltraShareBatchProtocolTest {
         assertTrue(result.isFailure)
     }
 
-    @Test fun acceptsOnlyVideoAudioAndImageMediaAtManifestBoundary() {
+    @Test fun acceptsOrdinaryFilesAndRejectsOnlyBlockedApkAndPdfAtManifestBoundary() {
         listOf(
             "clip.mp4" to "video/mp4",
             "track.mp3" to "audio/mpeg",
             "photo.jpg" to "image/jpeg",
-            "provider-media.mp4" to "application/octet-stream"
+            "provider-media.mp4" to "application/octet-stream",
+            "archive.zip" to "application/zip",
+            "notes.txt" to "text/plain",
+            "unknown.bin" to "application/octet-stream",
+            "report.docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "image.svg" to "image/svg+xml"
         ).forEach { (name, mime) ->
             val item = UltraShareBatchProtocol.newEntry(
                 name, mime, 1L, MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
@@ -63,12 +68,10 @@ class UltraShareBatchProtocolTest {
         }
 
         listOf(
-            "archive.zip" to "application/zip",
-            "document.txt" to "text/plain",
-            "unknown.bin" to "application/octet-stream",
             "document.pdf" to "application/pdf",
+            "renamed.pdf" to "text/plain",
             "package.apk" to "application/vnd.android.package-archive",
-            "image.svg" to "image/svg+xml"
+            "renamed.apk" to "image/jpeg"
         ).forEach { (name, mime) ->
             val item = UltraShareBatchProtocol.newEntry(
                 name, mime, 1L, MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
@@ -112,6 +115,17 @@ class UltraShareBatchProtocolTest {
         assertThrows(IllegalArgumentException::class.java) {
             UltraShareBatchProtocol.validateResults(manifest, invalid)
         }
+    }
+
+    @Test fun manifestSupportsSingleFileAt100GiBAndRejectsBatchAbove100GiB() {
+        val digest = MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
+        val maximum = UltraShareBatchProtocol.newEntry("maximum.bin", "application/octet-stream", UltraShareBatchProtocol.MAX_FILE_BYTES, digest)
+        val valid = UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(maximum))
+        assertEquals(UltraShareBatchProtocol.MAX_BATCH_BYTES, UltraShareBatchProtocol.validate(valid).totalBytes)
+        val first = UltraShareBatchProtocol.newEntry("first.bin", "application/octet-stream", 60L * 1024 * 1024 * 1024, digest)
+        val second = UltraShareBatchProtocol.newEntry("second.bin", "application/octet-stream", 41L * 1024 * 1024 * 1024, digest)
+        val oversized = UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(first, second))
+        assertThrows(IllegalArgumentException::class.java) { UltraShareBatchProtocol.validate(oversized) }
     }
 
     @Test fun encodedManifestStaysWithinConfiguredBound() {

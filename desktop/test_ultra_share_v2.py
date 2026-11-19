@@ -94,7 +94,7 @@ class UltraShareV2ManifestTests(unittest.TestCase):
     def test_rejects_bad_header_truncation_and_trailing_data(self):
         manifest = Manifest(
             str(uuid.uuid4()),
-            (FileEntry(str(uuid.uuid4()), "x.mp4", "video/mp4", 0, hashlib.sha256(b"").digest()),),
+            (FileEntry(str(uuid.uuid4()), "x.mp4", "video/mp4", 1, hashlib.sha256(b"x").digest()),),
         )
         encoded = encode_manifest(manifest)
         for malformed in (b"bad!", encoded[:-1], encoded + b"\x00"):
@@ -127,7 +127,7 @@ class UltraShareV2ManifestTests(unittest.TestCase):
 
     def test_v2_offsets_are_bound_to_every_manifest_file(self):
         first = FileEntry(str(uuid.uuid4()), "a.mp4", "video/mp4", 10, hashlib.sha256(b"a").digest())
-        second = FileEntry(str(uuid.uuid4()), "b.mp3", "audio/mpeg", 0, hashlib.sha256(b"").digest())
+        second = FileEntry(str(uuid.uuid4()), "b.mp3", "audio/mpeg", 1, hashlib.sha256(b"x").digest())
         manifest = Manifest(str(uuid.uuid4()), (first, second))
         encoded = _encode_v2_offsets(manifest, {first.file_id: 7, second.file_id: 0})
         self.assertEqual({first.file_id: 7, second.file_id: 0}, _read_v2_offsets(encoded, manifest))

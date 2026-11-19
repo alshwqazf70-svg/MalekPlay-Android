@@ -180,33 +180,24 @@ object UltraShareCore {
         "aiff", "aif", "mid", "midi",
         "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff"
     )
-    private val BLOCKED_EXTENSIONS = setOf(
-        "apk", "aab", "dex", "jar", "exe", "msi", "bat", "cmd", "sh",
-        "pdf", "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "svg"
-    )
-
-    /** Accept media MIME families only; SVG is excluded because it can contain active content. */
+    private val BLOCKED_EXTENSIONS = setOf("apk", "pdf")
+    private val BLOCKED_MIME_TYPES = setOf("application/pdf", "application/vnd.android.package-archive", "application/x-android-package-archive")
+    private fun isValidShareMimeSyntax(raw: String): Boolean {
+        val candidate = raw.trim()
+        val token = "[A-Za-z0-9!#$&^_.+-]+"
+        return candidate.length in 3..160 && Regex("^$token/$token$").matches(candidate)
+    }
     fun isSupportedShareMimeType(raw: String): Boolean {
         val candidate = raw.trim().lowercase(Locale.ROOT)
-        val token = "[A-Za-z0-9!#$&^_.+-]+"
-        if (candidate.length !in 3..160 || !Regex("^$token/$token$").matches(candidate)) return false
-        if (candidate == "image/svg+xml") return false
+        if (!isValidShareMimeSyntax(candidate) || candidate == "image/svg+xml") return false
         return candidate.substringBefore('/') in setOf("video", "audio", "image")
     }
-
-    /**
-     * Enforce media-only sharing at the protocol boundary, not just in the picker.
-     * Some document providers label ordinary media as application/octet-stream;
-     * allow that fallback only when the filename has a known media extension.
-     */
+    /** Ordinary files are opaque bytes; APK and PDF are blocked by product policy. */
     fun isAllowedShareFile(fileName: String, mimeType: String): Boolean {
-        if (fileName.isBlank()) return false
+        if (fileName.isBlank() || !isValidShareMimeSyntax(mimeType)) return false
         val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
-        if (extension in BLOCKED_EXTENSIONS) return false
-        if (isSupportedShareMimeType(mimeType)) return true
         val mime = mimeType.trim().lowercase(Locale.ROOT)
-        return mime in setOf("application/octet-stream", "application/unknown") &&
-            extension in MEDIA_EXTENSIONS
+        return extension !in BLOCKED_EXTENSIONS && mime !in BLOCKED_MIME_TYPES
     }
 
     @Deprecated("Use isSupportedShareMimeType.")

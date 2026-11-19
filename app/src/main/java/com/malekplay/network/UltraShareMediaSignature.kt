@@ -55,14 +55,16 @@ internal object UltraShareMediaSignature {
     }
 
     fun isValid(file: File, fileName: String, mimeType: String): Boolean {
-        if (!UltraShareCore.isAllowedShareFile(fileName, mimeType)) return false
+        if (!UltraShareCore.isAllowedShareFile(fileName, mimeType) || !file.isFile || file.length() <= 0L) return false
         val suppliedExtension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
-        // Some Android document providers return a media MIME type but omit the
-        // filename extension. Infer only well-known container types, then still
-        // require the matching file signature before accepting the transfer.
-        val ext = suppliedExtension.takeIf { it in SUPPORTED_EXTENSIONS }
-            ?: extensionForMime(mimeType)
-            ?: return false
+        val declaredFamily = mimeType.substringBefore('/').lowercase(Locale.ROOT)
+        // Documents, archives, SVG and unknown binary payloads are opaque files;
+        // their authenticated SHA-256 digest is the integrity check.
+        if (suppliedExtension == "svg" || mimeType.equals("image/svg+xml", ignoreCase = true)) return true
+        val looksLikeMedia = suppliedExtension in SUPPORTED_EXTENSIONS || declaredFamily in setOf("video", "audio", "image")
+        if (!looksLikeMedia) return true
+        // Providers may omit media filename extensions; infer only known containers.
+        val ext = suppliedExtension.takeIf { it in SUPPORTED_EXTENSIONS } ?: extensionForMime(mimeType) ?: return false
         val family = when (ext) {
             "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff" -> "image"
             "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr",
