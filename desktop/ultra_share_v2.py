@@ -487,7 +487,9 @@ def _hash_path(path: Path) -> bytes:
 
 
 def _media_signature_matches(path: Path, filename: str, mime_type: str) -> bool:
-    """Validate actual media container bytes; unknown formats fail closed."""
+    """Validate media bytes; opaque files rely on the authenticated SHA-256 digest."""
+    if not _allowed_share_file(filename, mime_type):
+        return False
     try:
         if not Path(path).is_file() or Path(path).stat().st_size <= 0:
             return False
