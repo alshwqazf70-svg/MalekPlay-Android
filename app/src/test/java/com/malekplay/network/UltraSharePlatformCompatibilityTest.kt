@@ -33,6 +33,8 @@ class UltraSharePlatformCompatibilityTest {
         (23..36).forEach { sdk ->
             assertTrue("Wi-Fi Direct must remain available from API 23 through 36 (sdk=$sdk).",
                 UltraSharePlatformCompatibility.supportsWifiDirectApiLevel(sdk))
+            assertTrue("Group creation must not depend on Location Services (sdk=$sdk).",
+                UltraSharePlatformCompatibility.canCreateWifiDirectGroup(sdk))
         }
     }
 
