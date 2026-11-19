@@ -1298,8 +1298,9 @@ fun UltraShareExperienceScreen(
     if (showDevicePicker) {
         DevicePickerBottomSheet(
             discoveredPeers = state.discoveredPeers,
+            wifiDirectPeers = state.wifiDirectPeers,
             activePeers = state.activePeers,
-            isScanning = state.scanning,
+            isScanning = state.scanning || state.wifiDirectScanning,
             onDismiss = { showDevicePicker = false },
             onRefresh = ::scanAllNearby,
             onPeerSelected = { selectedHost ->
@@ -1310,6 +1311,12 @@ fun UltraShareExperienceScreen(
                 if (!sessionReady) {
                     secret = ""
                 }
+            },
+            onWifiDirectPeerSelected = { peer ->
+                showDevicePicker = false
+                page = UltraSharePage.SEND
+                secret = ""
+                viewModel.connectWifiDirectPeer(peer)
             }
         )
     }
