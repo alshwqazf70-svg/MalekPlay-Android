@@ -9,6 +9,20 @@ import org.junit.Test
 
 class UltraShareNetworkRoutingTest {
 
+
+    @Test
+    fun identifiesDefaultAndroidWifiDirectGroupHosts() {
+        assertTrue(
+            UltraShareNetworkRouting.isWifiDirectGroupHost("192.168.49.1")
+        )
+        assertTrue(
+            UltraShareNetworkRouting.isWifiDirectGroupHost("192.168.49.23")
+        )
+        assertFalse(
+            UltraShareNetworkRouting.isWifiDirectGroupHost("8.8.8.8")
+        )
+    }
+
     @Test
     fun meshAuthorityAdvertisesItsP2pAddressAlongsideLanAddresses() {
         assertEquals(
