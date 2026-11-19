@@ -1637,8 +1637,8 @@ private fun forgetApprovedSenderTarget(host: String) {
                 val current = _state.value
                 val service = UltraShareForegroundService.state.value
                 if (current.receiving && service.controlChannelReady) {
-                    val secret = current.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
-                        ?: service.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
+                    val secret = service.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
+                        ?: current.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
                         ?: return@launch
                     // Prefer the P2P group-owner interface so legacy Android
                     // 6–7 clients retain the direct SoftAP route even when LAN
@@ -1679,7 +1679,6 @@ private fun forgetApprovedSenderTarget(host: String) {
             wifiDirectGroupSecurity = "wpa2"
         }
         _state.value = _state.value.copy(
-            pairingSecret = secret,
             invitationId = invitationId?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }.orEmpty(),
             receiverQrPayload = null,
             hotspotSsid = wifiDirectGroupSsid ?: _state.value.hotspotSsid,
@@ -1705,8 +1704,8 @@ private fun forgetApprovedSenderTarget(host: String) {
     private fun publishUnifiedReceiverQrIfReady() {
         val current = _state.value
         val service = UltraShareForegroundService.state.value
-        val secret = current.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
-            ?: service.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
+        val secret = service.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
+            ?: current.pairingSecret.takeIf { UltraShareCore.isValidPairingSecret(it) }
             ?: return
         if (!current.receiving && !service.receiving) return
         if (!service.controlChannelReady) return
