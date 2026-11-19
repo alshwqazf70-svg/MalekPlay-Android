@@ -1,6 +1,5 @@
 package com.malekplay.ui.network
 
-import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,14 +18,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 
 @Composable
 fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String) -> Unit) {
     val context = LocalContext.current
-    val prefs = remember(context) { context.getSharedPreferences("malekplay_network_profiles", Context.MODE_PRIVATE) }
+    val profileStore = remember(context) { NetworkProfileStore(context) }
     val vault = remember(context) { NetworkCredentialVault(context) }
     val webDav = remember { WebDavClient() }
     val smb = remember { SmbClient() }
@@ -39,7 +36,9 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var rootPath by remember { mutableStateOf("/") }
-    var profiles by remember { mutableStateOf(loadProfiles(prefs.getString("profiles", "[]") ?: "[]")) }
+    var profiles by remember(profileStore) {
+        mutableStateOf(runCatching { profileStore.load() }.getOrDefault(emptyList()))
+    }
     var active by remember { mutableStateOf<NetworkProfile?>(null) }
     var currentPath by remember { mutableStateOf("") }
     var entries by remember { mutableStateOf<List<NetworkEntry>>(emptyList()) }
@@ -73,18 +72,6 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                 message = "تم استيراد ملف known_hosts"
             }.onFailure { message = "تعذر استيراد الملف: ${it.localizedMessage}" }
         }
-    }
-
-    fun saveProfiles(next: List<NetworkProfile>) {
-        profiles = next
-        val json = JSONArray().apply {
-            next.forEach { p ->
-                put(JSONObject().put("id", p.id).put("protocol", p.protocol.name)
-                    .put("host", p.host).put("port", p.port).put("username", p.username)
-                    .put("rootPath", p.rootPath).put("displayName", p.displayName))
-            }
-        }
-        prefs.edit().putString("profiles", json.toString()).apply()
     }
 
     fun connect(profile: NetworkProfile, path: String) {
@@ -122,7 +109,7 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                 }
                 active = profile
                 currentPath = path.ifBlank { profile.rootPath }
-                message = "تم الاتصال بالمصدر. اختر ملف WebDAV لتشغيله مباشرة."
+                message = "تم الاتصال بالمصدر. اختر ملف فيديو أو صوت لتشغيله مباشرة."
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -172,7 +159,21 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                                     importedHosts.copyTo(profileHosts, overwrite = true)
                                 }
                                 vault.save(id, username, password)
-                                saveProfiles(profiles + profile)
+                                try {
+                                    profileStore.save(profile)
+                                } catch (failure: Throwable) {
+                                    runCatching { vault.remove(id) }.onFailure(failure::addSuppressed)
+                                    throw failure
+                                }
+                                profiles = profileStore.load()
+                                // The imported trust file is only a staging copy. Keep the
+                                // profile-scoped known_hosts file and remove both staging files.
+                                knownHosts?.let { imported ->
+                                    if (imported.exists()) require(imported.delete()) {
+                                        "تعذر حذف ملف known_hosts المؤقت بعد الاستيراد"
+                                    }
+                                }
+                                File(context.filesDir, "network_known_hosts_import.tmp").delete()
                                 name = ""; host = ""; username = ""; password = ""; rootPath = "/"
                                 knownHosts = null
                                 showAdd = false
@@ -190,8 +191,8 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
                             }
                             TextButton(enabled = !busy, onClick = { connect(profile, profile.rootPath) }) { Text("اتصال") }
                             TextButton(onClick = {
-                                saveProfiles(profiles.filterNot { it.id == profile.id })
-                                vault.remove(profile.id)
+                                profileStore.remove(profile.id)
+                                profiles = profileStore.load()
                                 File(context.filesDir, "network/known_hosts/${profile.id}").delete()
                                 if (active?.id == profile.id) { active = null; entries = emptyList() }
                             }) { Text("حذف") }
@@ -255,17 +256,6 @@ fun NetworkSourcesDialog(onDismiss: () -> Unit, onPlayNetworkMedia: (Uri, String
         confirmButton = { TextButton(onClick = onDismiss) { Text("إغلاق") } }
     )
 }
-
-private fun loadProfiles(raw: String): List<NetworkProfile> = runCatching {
-    val array = JSONArray(raw)
-    buildList {
-        for (i in 0 until array.length()) {
-            val o = array.getJSONObject(i)
-            add(NetworkProfile(o.getString("id"), NetworkProtocol.valueOf(o.getString("protocol")),
-                normalizeNetworkHost(o.getString("host")), o.getInt("port"), o.optString("username"), o.optString("rootPath", "/"), o.optString("displayName").ifBlank { o.optString("name", o.getString("host")) } ))
-        }
-    }
-}.getOrDefault(emptyList())
 
 private fun nameFor(profile: NetworkProfile): String =
     profile.displayName
