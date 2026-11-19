@@ -15,6 +15,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -173,6 +175,13 @@ object UltraShareControlChannel {
                     val socket = try {
                         server.accept()
                     } catch (_: SocketTimeoutException) {
+                        continue
+                    }
+                    val remoteAddress = socket.inetAddress
+                    if (remoteAddress !is java.net.Inet4Address ||
+                        !(remoteAddress.isSiteLocalAddress || remoteAddress.isLinkLocalAddress || remoteAddress.isLoopbackAddress)
+                    ) {
+                        runCatching { socket.close() }
                         continue
                     }
                     if (!permits.tryAcquire()) {
@@ -486,20 +495,25 @@ object UltraShareControlChannel {
                                     val wire = ByteArray(length)
                                     session.input.readFully(wire)
                                     val plaintext = session.frames.open(wire)
-                                    check(session.incoming.trySend(plaintext).isSuccess) {
-                                        "قائمة رسائل الجهاز ممتلئة؛ أُغلقت قناة التحكم لحماية الذاكرة."
+                                    check(withTimeoutOrNull(2_000L) { session.incoming.send(plaintext); true } == true) {
+                                        "تعذر تمرير رسائل الجهاز خلال المهلة المحددة."
                                     }
                                     UltraShareDiagnostics.event(
                                         "CONTROL_CHANNEL", "CLIENT_APP_FRAME_QUEUED",
                                         mapOf("peerHost" to host, "payloadBytes" to plaintext.size)
                                     )
                                 }
-                                "CLOSE" -> error("أغلق الجهاز الآخر قناة التحكم.")
+                                "CLOSE" -> {
+                                    retireClientSession(host, session, onSessionClosed, java.io.EOFException("Peer closed control session"), logFailure = false)
+                                    return@launch
+                                }
                                 else -> error("استجابة قناة التحكم غير معروفة.")
                             }
                         }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
+                    } catch (_: java.io.EOFException) {
+                        retireClientSession(host, session, onSessionClosed, java.io.EOFException("Peer closed control session"), logFailure = false)
                     } catch (failure: Exception) {
                         retireClientSession(host, session, onSessionClosed, failure)
                     }
@@ -579,7 +593,8 @@ object UltraShareControlChannel {
         host: String,
         session: ClientSession,
         onSessionClosed: (String) -> Unit,
-        failure: Exception
+        failure: Exception,
+        logFailure: Boolean = true
     ) {
         val removed = synchronized(clientSessionGuard) {
             if (!clientSessions.remove(host, session)) {
@@ -765,8 +780,8 @@ object UltraShareControlChannel {
         check(pairingAttemptLimiter.isAllowed(peerAddress)) {
             "تم إيقاف محاولات الاقتران مؤقتاً لهذا الجهاز بسبب تكرار المحاولات الفاشلة."
         }
-        val input = DataInputStream(socket.getInputStream())
-        val output = DataOutputStream(socket.getOutputStream())
+        val input = DataInputStream(BufferedInputStream(socket.getInputStream()))
+        val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream()))
         val challenge = ByteArray(CHALLENGE_BYTES).also(SecureRandom()::nextBytes)
         output.writeInt(MAGIC)
         output.writeByte(VERSION)
@@ -784,9 +799,12 @@ object UltraShareControlChannel {
             )
             return
         }
-        require(requestId.length in 16..MAX_ID_BYTES &&
-            requestId.all { it.isLetterOrDigit() || it == '-' }
-        ) { "معرّف طلب الاتصال غير صالح." }
+        if (requestId.length !in 16..MAX_ID_BYTES ||
+            requestId.any { !(it.isLetterOrDigit() || it == '-') }
+        ) {
+            pairingAttemptLimiter.recordFailure(peerAddress)
+            error("معرّف طلب الاتصال غير صالح.")
+        }
         val nameLength = input.readUnsignedShort()
         require(nameLength in 1..MAX_NAME_BYTES)
         val nameBytes = ByteArray(nameLength)
@@ -794,16 +812,19 @@ object UltraShareControlChannel {
         val suppliedMac = ByteArray(MAC_BYTES)
         input.readFully(suppliedMac)
         val name = nameBytes.toString(Charsets.UTF_8)
-        require(name.isNotBlank() && name.none { it.isISOControl() }) {
-            "اسم الجهاز غير صالح."
+        if (name.isBlank() || name.any { it.isISOControl() }) {
+            pairingAttemptLimiter.recordFailure(peerAddress)
+            error("اسم الجهاز غير صالح.")
         }
 
         val announcedPeerId = requestId.takeIf { value ->
             value.length == MAX_ID_BYTES && value.takeLast(32).all { it.digitToIntOrNull(16) != null }
         }?.takeLast(32)
         val selectedPairingSecret = if (pairingSecretResolver != null) {
-            pairingSecretResolver(announcedPeerId)
-                ?: error("هذا الجهاز ليس عضواً موثقاً في غرفة Mesh.")
+            pairingSecretResolver(announcedPeerId) ?: run {
+                pairingAttemptLimiter.recordFailure(peerAddress)
+                error("هذا الجهاز ليس عضواً موثقاً في غرفة Mesh.")
+            }
         } else {
             pairingSecret ?: error("رمز الاقتران غير متاح.")
         }
@@ -914,8 +935,8 @@ object UltraShareControlChannel {
                         val wire = ByteArray(length)
                         input.readFully(wire)
                         val plaintext = active.frames.open(wire)
-                        check(active.incoming.trySend(plaintext).isSuccess) {
-                            "قائمة رسائل الجهاز ممتلئة؛ أُغلقت قناة التحكم لحماية الذاكرة."
+                        check(withTimeoutOrNull(2_000L) { active.incoming.send(plaintext); true } == true) {
+                            "تعذر تمرير رسائل الجهاز خلال المهلة المحددة."
                         }
                         UltraShareDiagnostics.event(
                             "CONTROL_CHANNEL", "SERVER_APP_FRAME_QUEUED",
