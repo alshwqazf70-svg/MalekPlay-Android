@@ -717,7 +717,6 @@ fun UltraShareExperienceScreen(
             StatusPanel(
                 title = when {
                     state.sending -> "جارٍ إرسال الملفات"
-                    state.pendingConnection != null -> "التحقق من جهاز مقترن"
                     state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty() -> "جهاز متصل وجاهز"
                     state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning -> "البحث عن الأجهزة القريبة"
                     else -> "جاهز للمشاركة"
@@ -1298,9 +1297,6 @@ fun UltraShareExperienceScreen(
 
                 UltraSharePage.HOME -> Unit
             }
-            if (page != UltraSharePage.RECEIVE && state.pendingConnection != null) {
-                IncomingRequestPanel(state.pendingConnection!!, viewModel::acceptConnection, viewModel::rejectConnection)
-            }
             state.error?.takeIf { page != UltraSharePage.SEND && page != UltraSharePage.NEARBY }?.let { ErrorPanel(it) }
         }
         Spacer(Modifier.height(12.dp))
@@ -1448,24 +1444,6 @@ internal fun InfoPanel(title: String, body: String) {
 internal fun ErrorPanel(message: String) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) {
         Text(message, modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onErrorContainer)
-    }
-}
-
-@Composable
-private fun IncomingRequestPanel(
-    request: com.malekplay.network.UltraShareControlChannel.Request,
-    onAccept: () -> Unit,
-    onReject: () -> Unit
-) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("طلب اتصال وارد", color = MaterialTheme.colorScheme.onTertiaryContainer, fontWeight = FontWeight.Bold)
-            Text(request.peerName + " • " + request.peerAddress, color = MaterialTheme.colorScheme.onTertiaryContainer)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(colors = ultraShareButtonColors(), onClick = onAccept, modifier = Modifier.weight(1f)) { Text("قبول") }
-                OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) { Text("رفض") }
-            }
-        }
     }
 }
 
