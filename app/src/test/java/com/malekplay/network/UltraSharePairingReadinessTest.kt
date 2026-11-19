@@ -135,8 +135,31 @@ class UltraSharePairingReadinessTest {
                 candidateSsid = "DIRECT-MalekPlay",
                 existingWifiPassword = "share1234",
                 candidateWifiPassword = "share1234",
+                existingWifiSecurity = "wpa2",
+                candidateWifiSecurity = "wpa2",
                 existingHosts = listOf("192.168.49.1"),
                 candidateHosts = listOf("192.168.49.1", "192.168.1.20")
+            )
+        )
+    }
+
+    @Test fun lanOnlyUnifiedV5QrCanGainLateLanHostsWithoutInventingWifiCredentials() {
+        assertTrue(
+            UltraSharePairingReadiness.shouldEnrichUnifiedV5QrHosts(
+                existingVersion = "5",
+                candidateVersion = "5",
+                existingInvitationId = "invite-lan",
+                candidateInvitationId = "invite-lan",
+                existingPairingSecret = "123456789",
+                candidatePairingSecret = "123456789",
+                existingSsid = null,
+                candidateSsid = null,
+                existingWifiPassword = null,
+                candidateWifiPassword = null,
+                existingWifiSecurity = "wpa2",
+                candidateWifiSecurity = "wpa2",
+                existingHosts = listOf("192.168.1.20"),
+                candidateHosts = listOf("192.168.1.20", "10.0.0.4")
             )
         )
     }
@@ -153,6 +176,8 @@ class UltraSharePairingReadinessTest {
             candidateSsid = "DIRECT-MalekPlay",
             existingWifiPassword = "share1234",
             candidateWifiPassword = "share1234",
+            existingWifiSecurity = "wpa2",
+            candidateWifiSecurity = "wpa2",
             existingHosts = listOf("192.168.49.1", "192.168.1.20"),
             candidateHosts = listOf("192.168.49.1", "192.168.1.20")
         )
@@ -167,6 +192,8 @@ class UltraSharePairingReadinessTest {
             candidateSsid = "DIRECT-MalekPlay",
             existingWifiPassword = "share1234",
             candidateWifiPassword = "share1234",
+            existingWifiSecurity = "wpa2",
+            candidateWifiSecurity = "wpa2",
             existingHosts = listOf("192.168.49.1", "192.168.1.20"),
             candidateHosts = listOf("192.168.49.1", "192.168.1.21", "10.0.0.2")
         )
