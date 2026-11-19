@@ -50,8 +50,7 @@ fun DevicePickerBottomSheet(
     isScanning: Boolean,
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
-    onPeerSelected: (String) -> Unit,
-    onWifiDirectPeerSelected: (com.malekplay.network.UltraShareWifiDirect.Peer) -> Unit
+    onPeerSelected: (String) -> Unit
 ) {
     var search by remember { mutableStateOf("") }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -104,14 +103,22 @@ fun DevicePickerBottomSheet(
                     }
                 }
                 if (visibleWifiDirect.isNotEmpty()) {
-                    item { Text("أجهزة Wi-Fi Direct", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold) }
+                    item {
+                        Text("أجهزة Wi-Fi Direct المكتشفة", color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold)
+                    }
+                    item {
+                        Text(
+                            "هذه نتائج اكتشاف لاسلكي فقط، ولا تثبت أن الجهاز الآخر يشغّل MalekPlay. لا يمكن بدء النقل قبل إنشاء جلسة اقتران موثّقة.",
+                            color = Color.LightGray,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                     items(visibleWifiDirect, key = { "p2p:${it.deviceAddress.lowercase()}" }) { peer ->
-                        PeerChoiceRow(
-                            peer.name,
-                            peer.status,
-                            false,
-                            "Wi-Fi Direct • اتصال مباشر",
-                        ) { onWifiDirectPeerSelected(peer) }
+                        PeerInfoRow(
+                            name = peer.name,
+                            detail = peer.status,
+                            route = "Wi-Fi Direct • لم يتم توثيق MalekPlay"
+                        )
                     }
                 }
                 if (visibleDiscovered.isNotEmpty()) {
@@ -160,6 +167,49 @@ private fun PeerChoiceRow(name: String, host: String, connected: Boolean, route:
                 if (route.isNotBlank()) Text(route, color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall)
             }
             Button(onClick = onClick) { Text(if (connected) "متابعة" else "اختيار") }
+        }
+    }
+}
+
+
+@Composable
+private fun PeerInfoRow(name: String, detail: String, route: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            androidx.compose.foundation.layout.Box(
+                Modifier.size(42.dp).background(
+                    MalekPlayColors.PurpleBright.copy(alpha = 0.16f),
+                    CircleShape
+                ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.Wifi,
+                    contentDescription = null,
+                    tint = MalekPlayColors.PurpleBright
+                )
+            }
+            Column(
+                Modifier.weight(1f).padding(horizontal = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    name,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(detail, color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
+                Text(route, color = MalekPlayColors.PurpleBright, style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
 }
