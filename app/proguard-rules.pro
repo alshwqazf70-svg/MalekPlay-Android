@@ -52,3 +52,6 @@
 # Optional Java Expression Language integration in the transitive MBassador dependency.
 # MalekPlay does not use EL-based event filters; R8 can safely omit this optional path.
 -dontwarn javax.el.**
+
+# Required by ass-media-local AssMatroskaExtractor reflection in minified release builds.
+-keepclassmembers class androidx.media3.extractor.mkv.MatroskaExtractor { *** extractorOutput; *** subtitleSample; }
