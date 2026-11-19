@@ -735,7 +735,7 @@ class UltraShareForegroundService : Service() {
         }
         updateState { current -> current.copy(
                 receiving = false,
-                sending = sendJobsByPeer.isNotEmpty(),
+                sending = false,
                 pairingSecret = "",
                 localAddresses = emptyList(),
                 controlChannelReady = false,
@@ -797,7 +797,7 @@ class UltraShareForegroundService : Service() {
         updateState { current ->
             current.copy(
                 receiving = false,
-                sending = sendJobsByPeer.isNotEmpty(),
+                sending = false,
                 pairingSecret = "",
                 localAddresses = emptyList(),
                 controlChannelReady = false,
@@ -970,7 +970,7 @@ class UltraShareForegroundService : Service() {
         closeMeshRoom()
         updateState { current -> current.copy(
             receiving = false,
-            sending = sendJobsByPeer.isNotEmpty(),
+            sending = false,
             pairingSecret = "",
             localAddresses = emptyList(),
             controlChannelReady = false,
