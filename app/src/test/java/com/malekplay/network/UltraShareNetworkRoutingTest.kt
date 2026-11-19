@@ -8,6 +8,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UltraShareNetworkRoutingTest {
+
+    @Test
+    fun meshAuthorityAdvertisesItsP2pAddressAlongsideLanAddresses() {
+        assertEquals(
+            listOf("192.168.1.20", "192.168.49.1"),
+            UltraShareNetworkRouting.meshPeerLocalAddresses(
+                lanAddresses = listOf("192.168.1.20", "192.168.1.20", "127.0.0.1"),
+                wifiDirectAddress = "192.168.49.1"
+            )
+        )
+    }
+
     @Test
     fun rejectsThisDevicesOwnAddressAsARemotePeer() {
         val localAddresses = setOf("192.168.43.163", "10.0.20.48")
