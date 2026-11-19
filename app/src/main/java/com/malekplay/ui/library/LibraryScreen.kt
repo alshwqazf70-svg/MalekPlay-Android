@@ -1,5 +1,6 @@
 package com.malekplay.ui.library
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
@@ -11,6 +12,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -60,6 +62,7 @@ import com.malekplay.domain.model.ViewMode
 import com.malekplay.ui.components.MediaGridCard
 import com.malekplay.ui.components.MediaThumbnail
 import com.malekplay.ui.components.MediaDeleteButton
+import com.malekplay.ui.components.MediaBulkDeleteBar
 import com.malekplay.ui.components.PlaylistPickerDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -87,6 +90,9 @@ fun LibraryScreen(
     var filter by remember { mutableStateOf(LibraryFilter.ALL) }
     var sortOpen by remember { mutableStateOf(false) }
     var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
+    val selectedUris = remember { mutableStateListOf<Uri>() }
+    val selectionMode = selectedUris.isNotEmpty()
+    fun toggleSelection(uri: Uri) { if (uri in selectedUris) selectedUris.remove(uri) else selectedUris.add(uri) }
     var assistantQuery by remember { mutableStateOf("") }
     var assistantSubmittedQuery by remember { mutableStateOf("") }
     val assistantFlow: Flow<LibraryAssistantResponse?> = remember(assistantSubmittedQuery) {
@@ -308,6 +314,13 @@ fun LibraryScreen(
                 },
                 label = "library-view"
             ) { mode ->
+                if (selectionMode) {
+                    MediaBulkDeleteBar(
+                        mediaItems = visibleItems.filter { it.media.uri in selectedUris }.map { it.media },
+                        onDeleted = viewModel::refresh,
+                        onClearSelection = { selectedUris.clear() }
+                    )
+                }
                 if (visibleItems.isEmpty()) {
                     EmptyLibrary(
                         searching = searching && query.isNotBlank(),
@@ -327,7 +340,10 @@ fun LibraryScreen(
                                 onPlay = { onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
                                 onAddToPlaylist = { playlistTarget = item.media },
-                                onDeleted = viewModel::refresh
+                                onDeleted = viewModel::refresh,
+                                selectionMode = selectionMode,
+                                isSelected = item.media.uri in selectedUris,
+                                onSelect = { toggleSelection(item.media.uri) }
                             )
                         }
                     }
@@ -342,7 +358,10 @@ fun LibraryScreen(
                                 onClick = { onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
                                 onAddToPlaylist = { playlistTarget = item.media },
-                                onDeleted = viewModel::refresh
+                                onDeleted = viewModel::refresh,
+                                selectionMode = selectionMode,
+                                isSelected = item.media.uri in selectedUris,
+                                onSelect = { toggleSelection(item.media.uri) }
                             )
                         }
                     }
@@ -571,15 +590,20 @@ private fun PremiumVideoRow(
     onClick: () -> Unit,
     onFavourite: () -> Unit,
     onAddToPlaylist: () -> Unit,
-    onDeleted: () -> Unit
+    onDeleted: () -> Unit,
+    selectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onSelect: () -> Unit = {}
 ) {
     val colors = MaterialTheme.colorScheme
     val glass = Brush.verticalGradient(listOf(colors.surfaceContainerHigh, colors.surface))
     val glassStroke = Brush.linearGradient(listOf(colors.primary.copy(alpha = .45f), colors.outlineVariant, colors.secondary.copy(alpha = .25f)))
     Row(
         Modifier.fillMaxWidth().animateContentSize().clip(RoundedCornerShape(19.dp)).background(glass)
-            .border(1.dp, glassStroke, RoundedCornerShape(19.dp))
-            .clickable(onClick = onClick).padding(10.dp),
+            .border(1.dp, if (isSelected) colors.primary else glassStroke, RoundedCornerShape(19.dp))
+            .combinedClickable(onClick = { if (selectionMode) onSelect() else onClick() }, onLongClick = onSelect)
+            .background(if (isSelected) colors.primaryContainer.copy(alpha = 0.35f) else Color.Transparent)
+            .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.size(116.dp, 74.dp).clip(RoundedCornerShape(13.dp))) {
@@ -633,7 +657,16 @@ private fun PremiumVideoRow(
                 modifier = Modifier.size(19.dp)
             )
         }
-        MediaDeleteButton(media = item.media, compact = true, onDeleted = onDeleted)
+        if (selectionMode || isSelected) {
+            Icon(
+                Icons.Filled.CheckCircle,
+                contentDescription = if (isSelected) "محدد" else "تحديد",
+                tint = if (isSelected) colors.primary else colors.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp).clickable(onClick = onSelect)
+            )
+        } else {
+            MediaDeleteButton(media = item.media, compact = true, onDeleted = onDeleted)
+        }
     }
 }
 
