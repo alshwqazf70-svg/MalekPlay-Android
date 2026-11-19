@@ -1070,7 +1070,12 @@ fun UltraShareExperienceScreen(
                 UltraSharePage.TRANSFERS -> {
                     UltraShareSessionRoom(
                         state = state,
-                        activeMode = if (state.sending || host.isNotBlank() || selectedUris.isNotEmpty()) "send" else "receive",
+                        activeMode = when {
+                            state.sending || state.sendProgress != null -> "send"
+                            state.receiveProgress != null -> "receive"
+                            host.isNotBlank() || selectedUris.isNotEmpty() -> "send"
+                            else -> "receive"
+                        },
                         localDeviceName = Build.MODEL?.take(40)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlayer Android",
                         remoteHost = host.ifBlank { state.activePeers.firstOrNull()?.host.orEmpty() },
                         selectedMediaCount = selectedUris.size,
