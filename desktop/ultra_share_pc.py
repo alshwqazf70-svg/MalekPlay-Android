@@ -11,6 +11,7 @@ import getpass
 import hashlib
 import hmac
 import ipaddress
+import ipaddress
 import mimetypes
 import re
 import os
@@ -101,12 +102,21 @@ def is_supported_media_mime(value: str) -> bool:
 
 
 def is_allowed_share_file(filename: str, mime: str) -> bool:
+    """Mirror Android V2: allow ordinary opaque files except blocked formats."""
+    extension = Path(filename).suffix.lower()
+    if extension in BLOCKED_EXTENSIONS:
+        return False
+    value = mime.strip().lower()
+    token = r"[A-Za-z0-9!#def is_allowed_share_file(filename: str, mime: str) -> bool:
     extension = Path(filename).suffix.lower()
     if extension in BLOCKED_EXTENSIONS:
         return False
     if is_supported_media_mime(mime):
         return True
-    return mime.strip().lower() in {"application/octet-stream", "application/unknown"} and extension in MEDIA_EXTENSIONS
+    return mime.strip().lower() in {"application/octet-stream", "application/unknown"} and extension in MEDIA_EXTENSIONS^_.+-]+"
+    return bool(3 <= len(value) <= 160 and re.fullmatch(token + "/" + token, value)
+                and value not in {"application/pdf", "application/vnd.android.package-archive"}
+                and value != "image/svg+xml")
 
 
 def recv_exact(sock: socket.socket, length: int) -> bytes:
@@ -172,11 +182,15 @@ def safe_name(raw: str) -> str:
         if not (ord(ch) < 32 or 127 <= ord(ch) <= 159)
         and unicodedata.category(ch) != "Cf"
         and ch not in ':*?"<>|'
-    ).strip().strip(".")
+    ).strip(" .")
     while len(name.encode("utf-8")) > 180:
         name = name[:-1]
+    name = name.strip(" .")
     if not name or name in {".", ".."}:
         raise ValueError("The file name is not valid.")
+    reserved = {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
+    if name.split(".", 1)[0].upper() in reserved:
+        name = "_" + name
     return name
 
 
@@ -269,7 +283,8 @@ def unique_destination(directory: Path, filename: str) -> Path:
     raise OSError("Could not create a unique destination filename.")
 
 
-def send_once(host: str, port: int, secret: str, source: Path) -> None:
+def send_once(host: str, port: int, secret: str, source: Path,
+              prepared_digest: bytes | None = None) -> None:
     size = source.stat().st_size
     if size < 0 or size > MAX_FILE_BYTES:
         raise ValueError("The file size is outside the supported range.")
@@ -277,14 +292,9 @@ def send_once(host: str, port: int, secret: str, source: Path) -> None:
     mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
     if not is_allowed_share_file(filename, mime):
         raise ValueError("APK and PDF files cannot be shared.")
-    digest = hashlib.sha256()
-    with source.open("rb") as stream:
-        while True:
-            block = stream.read(CHUNK_BYTES)
-            if not block:
-                break
-            digest.update(block)
-    file_digest = digest.digest()
+    file_digest = prepared_digest if prepared_digest is not None else hash_file(source)
+    if len(file_digest) != 32:
+        raise ValueError("Invalid source SHA-256 digest.")
 
     with socket.create_connection((host, port), timeout=20) as sock:
         sock.settimeout(20)
@@ -355,9 +365,10 @@ def send_file(host: str, port: int, secret: str, source: Path) -> None:
     host = private_ipv4(host)
     if not source.is_file():
         raise FileNotFoundError(source)
+    prepared_digest = hash_file(source)
     for attempt in range(3):
         try:
-            send_once(host, port, secret, source)
+            send_once(host, port, secret, source, prepared_digest)
             return
         # Retry transport interruptions only; authentication and local file errors are permanent.
         except (TimeoutError, ConnectionError) as exc:
@@ -533,7 +544,23 @@ def discover_devices(timeout: float, port: int) -> list[tuple[str, int, str]]:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.bind(("0.0.0.0", 0))
         sock.settimeout(0.5)
-        sock.sendto(PROBE, ("255.255.255.255", port))
+        targets = {"255.255.255.255"}
+        try:
+            import psutil
+            for addresses in psutil.net_if_addrs().values():
+                for item in addresses:
+                    if item.family == socket.AF_INET and item.address and item.netmask:
+                        try:
+                            network = ipaddress.IPv4Network(f"{item.address}/{item.netmask}", strict=False)
+                            if not network.is_loopback and not network.is_link_local and network.prefixlen < 31:
+                                targets.add(str(network.broadcast_address))
+                        except (ipaddress.AddressValueError, ipaddress.NetmaskValueError):
+                            continue
+        except ImportError:
+            pass
+        for target in targets:
+            try: sock.sendto(PROBE, (target, port))
+            except OSError: continue
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:

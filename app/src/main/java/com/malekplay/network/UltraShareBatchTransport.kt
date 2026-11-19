@@ -415,8 +415,6 @@ object UltraShareBatchTransport {
                     "resumedBytes" to offsets.values.sum()
                 )
             )
-            val outcomes = ArrayList<UltraShareBatchProtocol.FileResult>(manifest.entries.size)
-
             prepared.forEachIndexed { index, (source, entry, preparedDigest) ->
                 currentCoroutineContext().ensureActive()
                 val offset = offsets.getValue(entry.id)
@@ -507,10 +505,6 @@ object UltraShareBatchTransport {
                         "sizeBytes" to entry.sizeBytes
                     )
                 )
-                outcomes += UltraShareBatchProtocol.FileResult(
-                    entry.id, UltraShareBatchProtocol.FileStatus.COMPLETED,
-                    entry.sizeBytes
-                )
             }
             writeFrame(output, sendKey, noncePrefix, sendSequence++, byteArrayOf(TYPE_BATCH_END.toByte()))
             // The receiver verifies SHA-256 and publishes files before sending its final
@@ -577,6 +571,9 @@ object UltraShareBatchTransport {
         // Detect the explicit reachability probe before running the expensive PIN KDF.
         if (isDiscoveryProbeProof(proof)) throw DiscoveryProbeConnection()
         val peerHost = socket.inetAddress.hostAddress.orEmpty()
+        if (!UltraShareControlChannel.hasAnyActiveSession(peerHost)) {
+            throw IOException("لا توجد جلسة موافقة نشطة لهذا الجهاز.")
+        }
         val selectedPairingSecret = selectPeerPairingSecret(
             fallbackSecret = pairingSecret,
             peerHost = peerHost,
@@ -733,7 +730,11 @@ object UltraShareBatchTransport {
                             currentCoroutineContext().ensureActive()
                             val remaining = entry.sizeBytes - transferred
                             val maximumPayload = minOf(FRAME_BYTES.toLong(), remaining + 7L).toInt()
+                            if (transferred == offset && offset > 0L) {
+                                socket.soTimeout = maxOf(SESSION_TIMEOUT_MS, verificationTimeoutMillis(offset))
+                            }
                             val payload = readFrame(input, receiveKey, noncePrefix, receiveSequence++, maximumPayload)
+                            if (transferred == offset) socket.soTimeout = SESSION_TIMEOUT_MS
                             val frame = DataInputStream(ByteArrayInputStream(payload))
                             require(frame.readUnsignedByte() == TYPE_CHUNK) { "إطار بيانات غير متوقع." }
                             require(frame.readUnsignedShort() == index) { "وصل جزء لملف غير متوقع." }

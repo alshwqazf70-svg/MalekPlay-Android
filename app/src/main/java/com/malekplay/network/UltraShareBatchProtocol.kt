@@ -42,7 +42,7 @@ object UltraShareBatchProtocol {
 
         override fun hashCode(): Int =
             31 * (31 * (31 * id.hashCode() + name.hashCode()) + sizeBytes.hashCode()) +
-                sha256.contentHashCode()
+                31 * (31 * mimeType.hashCode() + sizeBytes.hashCode()) + sha256.contentHashCode()
     }
 
     data class Manifest(val batchId: String, val entries: List<FileEntry>) {
@@ -71,6 +71,7 @@ object UltraShareBatchProtocol {
     ): FileEntry {
         val safeName = UltraShareCore.sanitizeFileName(name)
         val safeMime = UltraShareCore.sanitizeMimeType(mimeType)
+        require(UltraShareCore.isAllowedShareFile(safeName, safeMime)) { "نوع الملف غير مسموح للمشاركة." }
         require(safeName.toByteArray(Charsets.UTF_8).size <= MAX_NAME_BYTES)
         require(sizeBytes in 1..MAX_FILE_BYTES)
         require(sha256.size == DIGEST_BYTES)
@@ -86,6 +87,7 @@ object UltraShareBatchProtocol {
             "عدد ملفات الدفعة خارج الحد المسموح."
         }
         val ids = HashSet<String>(manifest.entries.size)
+        val transferIds = HashSet<String>(manifest.entries.size)
         manifest.entries.forEach { entry ->
             require(runCatching { UUID.fromString(entry.id) }.isSuccess)
             require(ids.add(entry.id)) { "يوجد معرّف ملف مكرر داخل الدفعة." }
@@ -98,6 +100,9 @@ object UltraShareBatchProtocol {
             require(entry.mimeType.toByteArray(Charsets.UTF_8).size <= MAX_MIME_BYTES)
             require(entry.sizeBytes in 1..MAX_FILE_BYTES)
             require(entry.sha256.size == DIGEST_BYTES)
+            require(transferIds.add(UltraShareCore.buildTransferId(entry.name, entry.sizeBytes, entry.sha256))) {
+                "يوجد ملف مكرر بالمحتوى نفسه داخل الدفعة."
+            }
         }
         require(manifest.totalBytes <= MAX_BATCH_BYTES) {
             "إجمالي حجم الدفعة يتجاوز الحد الأقصى البالغ 100 جيجابايت."
@@ -155,10 +160,11 @@ object UltraShareBatchProtocol {
     fun validateResults(manifest: Manifest, results: List<FileResult>): List<FileResult> {
         validate(manifest)
         require(results.size == manifest.entries.size) { "نتائج الملفات لا تطابق بيان الدفعة." }
-        val expected = manifest.entries.map { it.id }.toSet()
+        val entriesById = manifest.entries.associateBy { it.id }
+        val expected = entriesById.keys
         require(results.map { it.fileId }.toSet() == expected) { "معرّفات نتائج الملفات غير مطابقة." }
         results.forEach { result ->
-            val entry = manifest.entries.first { it.id == result.fileId }
+            val entry = entriesById.getValue(result.fileId)
             require(result.transferredBytes in 0..entry.sizeBytes)
             if (result.status == FileStatus.COMPLETED) {
                 require(result.transferredBytes == entry.sizeBytes)

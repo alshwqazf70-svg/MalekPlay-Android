@@ -12,6 +12,8 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Locale
 import javax.crypto.Mac
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
@@ -45,15 +47,13 @@ object UltraShareCore {
     private const val PIN_KDF_ITERATIONS = 210_000
     private const val PIN_SALT_BYTES = 16
     private const val CHALLENGE_BYTES = 32
-    private val destinationPublicationLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+    private val destinationPublicationLocks = Array(64) { Any() }
 
     /** Serialize final-name selection and publication across concurrent V2 receiver workers. */
     internal fun <T> withDestinationPublicationLock(directory: File, action: () -> T): T {
-        val key = directory.absoluteFile.path
-        val lock = destinationPublicationLocks[key] ?: Any().let { candidate ->
-            destinationPublicationLocks.putIfAbsent(key, candidate) ?: candidate
-        }
-        return synchronized(lock) { action() }
+        val key = runCatching { directory.canonicalPath }.getOrElse { directory.absolutePath }
+        val stripe = (key.hashCode() and Int.MAX_VALUE) % destinationPublicationLocks.size
+        return synchronized(destinationPublicationLocks[stripe]) { action() }
     }
 
     data class Progress(
@@ -100,34 +100,44 @@ object UltraShareCore {
         require(isValidPairingSecret(value)) { "رمز الاقتران غير صالح." }
         require(challenge.size == CHALLENGE_BYTES) { "تحدي الاقتران غير صالح." }
         if (value.length == PIN_LENGTH) {
-            // Avoid provider-specific SecretKeyFactory registration: some Android/OEM
-            // providers omit PBKDF2WithHmacSHA256 even when HmacSHA256 is available.
-            // This RFC 8018 implementation preserves the existing desktop wire vector.
-            val password = value.toByteArray(Charsets.US_ASCII)
             val salt = challenge.copyOfRange(0, PIN_SALT_BYTES)
+            val passwordChars = value.toCharArray()
+            var spec: PBEKeySpec? = null
+            try {
+                val nativeKey = runCatching {
+                    spec = PBEKeySpec(passwordChars, salt, PIN_KDF_ITERATIONS, SECRET_BYTES * 8)
+                    SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+                }.getOrNull()
+                if (nativeKey != null && nativeKey.size == SECRET_BYTES) return nativeKey
+            } finally {
+                spec?.clearPassword()
+                passwordChars.fill('\u0000')
+            }
+            val password = value.toByteArray(Charsets.US_ASCII)
             val blockInput = ByteArray(salt.size + 4)
             salt.copyInto(blockInput)
-            blockInput[blockInput.lastIndex] = 1 // INT_32_BE(1)
-            val mac = Mac.getInstance("HmacSHA256")
-            mac.init(SecretKeySpec(password, "HmacSHA256"))
-            var u = mac.doFinal(blockInput)
-            val derived = u.copyOf()
+            blockInput[blockInput.lastIndex] = 1
+            val u = ByteArray(32)
+            val next = ByteArray(32)
+            val derived = ByteArray(32)
             try {
+                val mac = Mac.getInstance("HmacSHA256")
+                mac.init(SecretKeySpec(password, "HmacSHA256"))
+                mac.update(blockInput)
+                mac.doFinal(u, 0)
+                System.arraycopy(u, 0, derived, 0, u.size)
                 repeat(PIN_KDF_ITERATIONS - 1) {
-                    val next = mac.doFinal(u)
-                    for (index in derived.indices) {
-                        derived[index] = (derived[index].toInt() xor next[index].toInt()).toByte()
-                    }
-                    u.fill(0)
-                    u = next
+                    mac.update(u)
+                    mac.doFinal(next, 0)
+                    for (index in derived.indices) derived[index] =
+                        (derived[index].toInt() xor next[index].toInt()).toByte()
+                    System.arraycopy(next, 0, u, 0, u.size)
+                    next.fill(0)
                 }
                 return derived.copyOf(SECRET_BYTES)
             } finally {
-                password.fill(0)
-                salt.fill(0)
-                blockInput.fill(0)
-                u.fill(0)
-                derived.fill(0)
+                password.fill(0); salt.fill(0); blockInput.fill(0)
+                u.fill(0); next.fill(0); derived.fill(0)
             }
         }
         return ByteArray(SECRET_BYTES) { index ->
@@ -150,7 +160,7 @@ object UltraShareCore {
                     type == Character.FORMAT.toInt()
                 if (!forbidden) appendCodePoint(codePoint)
             }
-        }.trim().trim('.')
+        }.trim { it <= ' ' || it == '.' }
 
         // Bound the UTF-8 filename without splitting a Unicode code point.
         while (cleaned.isNotEmpty() && cleaned.toByteArray(Charsets.UTF_8).size > 180) {
@@ -173,13 +183,6 @@ object UltraShareCore {
         }
     }
 
-    private val MEDIA_EXTENSIONS = setOf(
-        "mp4", "m4v", "mkv", "mov", "webm", "avi", "3gp", "3g2", "mpg", "mpeg",
-        "ts", "mts", "m2ts", "wmv", "flv", "ogv",
-        "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "wma", "amr",
-        "aiff", "aif", "mid", "midi",
-        "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff"
-    )
     private val BLOCKED_EXTENSIONS = setOf("apk", "pdf")
     private val BLOCKED_MIME_TYPES = setOf("application/pdf", "application/vnd.android.package-archive", "application/x-android-package-archive")
     private fun isValidShareMimeSyntax(raw: String): Boolean {
@@ -249,6 +252,11 @@ object UltraShareCore {
         require(host.matches(Regex("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}"))) {
             "أدخل عنوان IPv4 المحلي الظاهر على جهاز الاستقبال."
         }
+        val octets = host.split('.')
+        require(octets.size == 4 && octets.all { part ->
+            part.isNotEmpty() && (part == "0" || part[0] != '0') &&
+                part.all { it in '0'..'9' } && (part.toIntOrNull()?.let { it in 0..255 } == true)
+        }) { "عنوان IPv4 غير صالح." }
         val address = InetAddress.getByName(host)
         require(address is Inet4Address && isPrivateLanAddress(address)) {
             "عنوان الاستقبال يجب أن يكون عنواناً خاصاً أو محلياً على الشبكة."

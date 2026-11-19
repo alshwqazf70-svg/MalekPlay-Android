@@ -52,7 +52,7 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         self.assertEqual("clip.mp4", safe_name("clip\u200b.mp4"))
         self.assertEqual("song.mp3", safe_name("song\u0085.mp3"))
 
-    def test_v1_policy_accepts_media_only_and_blocks_documents_archives_and_apps(self):
+    def test_share_policy_allows_subtitles_and_ordinary_files_but_blocks_dangerous_formats(self):
         for mime in ("video/mp4", "audio/mpeg", "image/jpeg"):
             self.assertTrue(is_supported_media_mime(mime))
         for mime in ("application/zip", "text/plain", "application/octet-stream",
@@ -61,11 +61,18 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         from ultra_share_pc import is_allowed_share_file
         self.assertTrue(is_allowed_share_file("clip.mp4", "video/mp4"))
         self.assertTrue(is_allowed_share_file("provider-media.mp4", "application/octet-stream"))
-        self.assertFalse(is_allowed_share_file("archive.zip", "application/zip"))
-        self.assertFalse(is_allowed_share_file("unknown.bin", "application/octet-stream"))
+        self.assertTrue(is_allowed_share_file("movie.srt", "application/x-subrip"))
+        self.assertTrue(is_allowed_share_file("captions.ass", "text/plain"))
+        self.assertTrue(is_allowed_share_file("notes.txt", "text/plain"))
+        self.assertTrue(is_allowed_share_file("archive.zip", "application/zip"))
+        self.assertTrue(is_allowed_share_file("unknown.bin", "application/octet-stream"))
         self.assertFalse(is_allowed_share_file("payload.apk", "video/mp4"))
         self.assertFalse(is_allowed_share_file("document.pdf", "application/octet-stream"))
         self.assertFalse(is_allowed_share_file("image.svg", "image/png"))
+        for reserved in ("CON", "PRN.txt", "AUX.mp3", "NUL", "COM1.log", "LPT9.mp4"):
+            with self.subTest(reserved=reserved):
+                self.assertTrue(safe_name(reserved).startswith("_"))
+        self.assertEqual("video.mp4", safe_name(".  video.mp4"))
 
     def test_metadata_round_trip_matches_android_wire_layout(self):
         digest = hashlib.sha256(b"hello").digest()

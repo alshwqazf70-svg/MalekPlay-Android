@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.net.InetAddress
@@ -29,6 +30,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Android-runtime smoke tests for APIs that JVM protocol tests cannot exercise.
@@ -56,31 +58,30 @@ class UltraShareNetworkRuntimeInstrumentedTest {
 
         ServerSocket(0, 1, boundAddress).use { server ->
             server.soTimeout = 8_000
-            val client = Socket()
-            network.bindSocket(client)
-            client.soTimeout = 8_000
-            client.connect(InetSocketAddress(boundAddress, server.localPort), 5_000)
-            server.accept().use { accepted ->
-                accepted.soTimeout = 8_000
-                client.use { connected ->
+            Socket().use { client ->
+                network.bindSocket(client)
+                client.soTimeout = 8_000
+                client.connect(InetSocketAddress(boundAddress, server.localPort), 5_000)
+                server.accept().use { accepted ->
+                    accepted.soTimeout = 8_000
+                    val writerFailure = AtomicReference<Throwable?>()
+                    val peerWriterFailure = AtomicReference<Throwable?>()
                     val writer = Thread {
-                        connected.getOutputStream().write(outbound)
-                        connected.getOutputStream().flush()
+                        try { client.getOutputStream().write(outbound); client.getOutputStream().flush() }
+                        catch (failure: Throwable) { writerFailure.set(failure) }
                     }
                     val peerWriter = Thread {
-                        accepted.getOutputStream().write(inbound)
-                        accepted.getOutputStream().flush()
+                        try { accepted.getOutputStream().write(inbound); accepted.getOutputStream().flush() }
+                        catch (failure: Throwable) { peerWriterFailure.set(failure) }
                     }
-                    writer.start()
-                    peerWriter.start()
-
+                    writer.start(); peerWriter.start()
                     val receivedByPeer = ByteArray(outbound.size).also { DataInputStream(accepted.getInputStream()).readFully(it) }
-                    val receivedByClient = ByteArray(inbound.size).also { DataInputStream(connected.getInputStream()).readFully(it) }
-                    writer.join(8_000)
-                    peerWriter.join(8_000)
-
+                    val receivedByClient = ByteArray(inbound.size).also { DataInputStream(client.getInputStream()).readFully(it) }
+                    writer.join(8_000); peerWriter.join(8_000)
                     assertTrue("Local sender thread did not finish", !writer.isAlive)
                     assertTrue("Local receiver thread did not finish", !peerWriter.isAlive)
+                    writerFailure.get()?.let { throw AssertionError("Local sender failed", it) }
+                    peerWriterFailure.get()?.let { throw AssertionError("Local peer writer failed", it) }
                     assertArrayEquals(outbound, receivedByPeer)
                     assertArrayEquals(inbound, receivedByClient)
                 }
@@ -104,11 +105,18 @@ class UltraShareNetworkRuntimeInstrumentedTest {
             .build()
 
         try {
-            manager.requestNetwork(request, callback, 8_000)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                manager.requestNetwork(request, callback, 8_000)
+            } else {
+                @Suppress("DEPRECATION")
+                manager.requestNetwork(request, callback)
+            }
             if (!available.await(9, TimeUnit.SECONDS)) {
                 Assume.assumeTrue("No Wi-Fi transport is available on this emulator/device", false)
             }
             assertNotNull("Android reported Wi-Fi available without a Network", selected)
+        } catch (_: SecurityException) {
+            Assume.assumeTrue("Wi-Fi route request permission is unavailable in this test environment", false)
         } finally {
             runCatching { manager.unregisterNetworkCallback(callback) }
         }
