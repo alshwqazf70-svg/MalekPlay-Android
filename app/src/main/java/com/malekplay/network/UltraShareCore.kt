@@ -195,7 +195,8 @@ object UltraShareCore {
     /** Ordinary files are opaque bytes; APK and PDF are blocked by product policy. */
     fun isAllowedShareFile(fileName: String, mimeType: String): Boolean {
         if (fileName.isBlank() || !isValidShareMimeSyntax(mimeType)) return false
-        val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        val normalizedName = runCatching { sanitizeFileName(fileName) }.getOrNull() ?: return false
+        val extension = normalizedName.substringAfterLast('.', "").lowercase(Locale.ROOT)
         val mime = mimeType.trim().lowercase(Locale.ROOT)
         return extension !in BLOCKED_EXTENSIONS && mime !in BLOCKED_MIME_TYPES
     }
