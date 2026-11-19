@@ -459,45 +459,20 @@ fun UltraShareExperienceScreen(
 
     LaunchedEffect(pendingQrPairing) {
         val pairing = pendingQrPairing ?: return@LaunchedEffect
-        if (!pairing.hotspotSsid.isNullOrBlank() && !pairing.hotspotPassword.isNullOrBlank()) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                // Android 8–9 joins the hotspot manually in system Wi-Fi settings;
-                // the subsequent LAN/MPC2 connection needs no Wi-Fi Direct permission.
-                pendingQrPairing = null
-                viewModel.connectHotspotInvitation(pairing)
-            } else {
-                val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT).toTypedArray()
-                val missing = required.filter {
-                    ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-                }
-                if (missing.isNotEmpty()) {
-                    wifiPermission.launch(missing.toTypedArray())
-                } else {
-                    pendingQrPairing = null
-                    viewModel.connectHotspotInvitation(pairing)
-                }
-            }
-        } else if (pairing.invitationId.isNullOrBlank()) {
-            pendingQrPairing = null
-            if (pairing.host.isNotBlank()) {
-                viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
-            }
-        } else {
+        val needsP2pFallback = pairing.hotspotSsid.isNullOrBlank() ||
+            pairing.hotspotPassword.isNullOrBlank()
+        if (needsP2pFallback && !pairing.invitationId.isNullOrBlank()) {
             val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT).toTypedArray()
             val missing = required.filter {
                 ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
             }
             if (missing.isNotEmpty()) {
                 wifiPermission.launch(missing.toTypedArray())
-            } else {
-                pendingQrPairing = null
-                viewModel.joinWifiDirectInvitation(
-                    pairing.invitationId,
-                    pairing.pairingSecret,
-                    pairing.hosts
-                )
+                return@LaunchedEffect
             }
         }
+        pendingQrPairing = null
+        viewModel.joinUnifiedInvitation(pairing)
     }
 
     // Discovery is deliberately user-initiated. Opening UltraShare must not
@@ -742,7 +717,7 @@ fun UltraShareExperienceScreen(
             StatusPanel(
                 title = when {
                     state.sending -> "جارٍ إرسال الملفات"
-                    state.pendingConnection != null -> "طلب اتصال وارد"
+                    state.pendingConnection != null -> "التحقق من جهاز مقترن"
                     state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty() -> "جهاز متصل وجاهز"
                     state.scanning || state.wifiDirectScanning || state.bluetoothScanning || state.bleScanning -> "البحث عن الأجهزة القريبة"
                     else -> "جاهز للمشاركة"
@@ -757,9 +732,6 @@ fun UltraShareExperienceScreen(
                 Text("فتح غرفة النقل — السرعة والتقدم والوقت المتبقي")
             }
             UltraShareHelpCard()
-            state.pendingConnection?.let {
-                IncomingRequestPanel(it, viewModel::acceptConnection, viewModel::rejectConnection)
-            }
         } else {
             PageHeader(
                 title = when (page) {
