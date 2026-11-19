@@ -508,22 +508,30 @@ fun UltraShareExperienceScreen(
     )
     val wifiDirectQrPayload = state.invitationId
         .takeIf {
-            com.malekplay.network.UltraSharePairingReadiness.canShowWifiDirectQr(
-                receiving = state.receiving,
-                controlChannelReady = state.controlChannelReady,
-                dataChannelReady = state.dataChannelReady,
-                activePeerCount = state.activePeers.size,
-                pairingSecret = state.pairingSecret,
-                invitationId = state.invitationId
-            )
+            !state.hotspotSsid.isNullOrBlank() &&
+                !state.hotspotPassword.isNullOrBlank() &&
+                com.malekplay.network.UltraSharePairingReadiness.canShowWifiDirectQr(
+                    receiving = state.receiving,
+                    controlChannelReady = state.controlChannelReady,
+                    dataChannelReady = state.dataChannelReady,
+                    activePeerCount = state.activePeers.size,
+                    pairingSecret = state.pairingSecret,
+                    invitationId = state.invitationId
+                )
         }
         ?.let {
-            // DNS-SD is the primary route. Include only addresses owned by a live
-            // non-P2P interface as an optional authenticated LAN fallback.
-            com.malekplay.network.UltraShareQrCode.createReceiverPayload(
-                wifiDirectFallbackHosts,
-                state.pairingSecret,
-                it
+            // v5 advertises the P2P group as a normal WPA2 SoftAP as well as
+            // any live WLAN routes, so Android 6–16 can join without DNS-SD.
+            val hosts = (
+                wifiDirectFallbackHosts +
+                    listOfNotNull(state.wifiDirectLocalAddress, "192.168.49.1")
+                ).distinct().take(8)
+            UltraShareQrCode.createUnifiedReceiverPayload(
+                hosts = hosts,
+                pairingSecret = state.pairingSecret,
+                ssid = state.hotspotSsid,
+                wifiPassword = state.hotspotPassword,
+                invitationId = it
             )
         }
     val hotspotQrPayload = state.localAddresses
@@ -542,11 +550,12 @@ fun UltraShareExperienceScreen(
             )
         }
         ?.let {
-            UltraShareQrCode.createHotspotReceiverPayload(
+            UltraShareQrCode.createUnifiedReceiverPayload(
                 hosts = it,
                 pairingSecret = state.pairingSecret,
-                ssid = state.hotspotSsid!!,
-                password = state.hotspotPassword!!
+                ssid = state.hotspotSsid,
+                wifiPassword = state.hotspotPassword,
+                invitationId = state.invitationId.takeIf { id -> id.isNotBlank() }
             )
         }
     val liveLanFallbackHosts = remember(context, state.localAddresses) {
