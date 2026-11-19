@@ -2056,84 +2056,94 @@ class UltraShareForegroundService : Service() {
                     try {
                         beginTransfer(isReceiving = false)
                         var activeV2Host = host
-                        val batch = sendBatchWithRetry(
-                            sources = v2Candidates.map { it.second },
-                            host = host,
-                            secret = secret,
-                            candidates = candidates,
-                            expectedPeerId = approvedSendTarget(host)?.peerId,
-                            onHostChanged = { activeV2Host = it }
-                        ) { progress ->
-                            if (v2ProgressFileId != null && v2ProgressFileId != progress.fileId) {
-                                v2ProgressCompletedBytes = if (Long.MAX_VALUE - v2ProgressCompletedBytes < v2ProgressFileSize)
-                                    Long.MAX_VALUE else v2ProgressCompletedBytes + v2ProgressFileSize
-                            }
-                            v2ProgressFileId = progress.fileId
-                            v2ProgressFileSize = progress.totalBytes
-                            updateState { current ->
-                                val peerTransfer = UltraSharePeerTransfer(
+                        v2Candidates.chunked(UltraShareBatchProtocol.MAX_FILES).forEach { candidateChunk ->
+                            try {
+                                val batch = sendBatchWithRetry(
+                                    sources = candidateChunk.map { it.second },
                                     host = activeV2Host,
-                                    fileName = progress.fileName,
-                                    transferredBytes = progress.transferredBytes,
-                                    totalBytes = progress.totalBytes,
-                                    bytesPerSecond = progress.bytesPerSecond,
-                                    status = "يرسل الآن"
-                                )
-                                val sendProgress = UltraShareCore.Progress(
-                                    progress.fileName, progress.transferredBytes, progress.totalBytes,
-                                    progress.bytesPerSecond, false
-                                )
-                                current.copy(
-                                    peerTransfers = current.peerTransfers.filterNot { it.host == activeV2Host } + peerTransfer,
-                                    // A single progress bar cannot truthfully represent both directions.
-                                    progress = if (current.receiving) null else sendProgress,
-                                    sendProgress = sendProgress,
-                                    queueCurrentName = progress.fileName,
-                                    queueTransferredBytes = minOf(totalBytes, v2ProgressCompletedBytes + progress.transferredBytes),
-                                    status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
-                                )
+                                    secret = secret,
+                                    candidates = candidates,
+                                    expectedPeerId = approvedSendTarget(host)?.peerId,
+                                    onHostChanged = { activeV2Host = it }
+                                ) { progress ->
+                                    if (v2ProgressFileId != null && v2ProgressFileId != progress.fileId) {
+                                        v2ProgressCompletedBytes = if (Long.MAX_VALUE - v2ProgressCompletedBytes < v2ProgressFileSize)
+                                            Long.MAX_VALUE else v2ProgressCompletedBytes + v2ProgressFileSize
+                                    }
+                                    v2ProgressFileId = progress.fileId
+                                    v2ProgressFileSize = progress.totalBytes
+                                    val sendProgress = UltraShareCore.Progress(
+                                        progress.fileName, progress.transferredBytes, progress.totalBytes,
+                                        progress.bytesPerSecond, false
+                                    )
+                                    updateState { current ->
+                                        val peerTransfer = UltraSharePeerTransfer(
+                                            host = activeV2Host,
+                                            fileName = progress.fileName,
+                                            transferredBytes = progress.transferredBytes,
+                                            totalBytes = progress.totalBytes,
+                                            bytesPerSecond = progress.bytesPerSecond,
+                                            status = "يرسل الآن"
+                                        )
+                                        current.copy(
+                                            peerTransfers = current.peerTransfers.filterNot { it.host == activeV2Host } + peerTransfer,
+                                            progress = if (current.receiving) current.receiveProgress else sendProgress,
+                                            sendProgress = sendProgress,
+                                            queueCurrentName = progress.fileName,
+                                            queueTransferredBytes = minOf(totalBytes, v2ProgressCompletedBytes + progress.transferredBytes),
+                                            status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
+                                        )
+                                    }
+                                    updateNotification(sendProgress)
+                                }
+                                val uriById = candidateChunk.associate { it.second.fileId to it.first }
+                                updateState { current ->
+                                    val completed = batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }
+                                    val failedInChunk = batch.files.size - completed
+                                    val previous = current.peerTransfers.firstOrNull { it.host == activeV2Host }
+                                    val summary = (previous ?: UltraSharePeerTransfer(activeV2Host, "", 0L, 0L, 0L, "اكتملت الدفعة"))
+                                        .copy(
+                                            fileName = "نتيجة الدفعة",
+                                            transferredBytes = batch.files.sumOf { it.transferredBytes.coerceAtLeast(0L) },
+                                            totalBytes = candidateChunk.sumOf { it.second.sizeBytes.coerceAtLeast(0L) },
+                                            bytesPerSecond = 0L,
+                                            status = if (failedInChunk == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failedInChunk",
+                                            updatedAtMillis = System.currentTimeMillis()
+                                        )
+                                    current.copy(peerTransfers = current.peerTransfers.filterNot { it.host == activeV2Host } + summary)
+                                }
+                                batch.files.forEachIndexed { index, outcome ->
+                                    val uri = uriById[outcome.fileId] ?: return@forEachIndexed
+                                    val metadata = metadataByUri[uri] ?: readDocumentMetadata(uri)
+                                    if (outcome.status == UltraShareBatchProtocol.FileStatus.COMPLETED) {
+                                        sent++
+                                        completedBytes = if (Long.MAX_VALUE - completedBytes < metadata.third) Long.MAX_VALUE else completedBytes + metadata.third
+                                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_COMPLETED)
+                                    } else {
+                                        failed++
+                                        lastError = outcome.error ?: "فشل إرسال ${metadata.first}"
+                                        UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
+                                    }
+                                    updateState { current -> current.copy(
+                                        queueCompleted = sent + failed,
+                                        queueTotal = queue.size,
+                                        queueTotalBytes = totalBytes,
+                                        queueTransferredBytes = completedBytes
+                                    ) }
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                UltraShareDiagnostics.failure("SEND_V2_BATCH", failure, "host=" + activeV2Host + "; files=" + candidateChunk.size)
+                                failed += candidateChunk.size
+                                lastError = failure.localizedMessage ?: "فشلت دفعة V2."
+                                candidateChunk.forEach { (uri, source) ->
+                                    UltraShareQueueStore.update(
+                                        this@UltraShareForegroundService, uri, source.name,
+                                        UltraShareQueueStore.STATUS_FAILED, lastError
+                                    )
+                                }
                             }
-                            updateNotification(
-                                UltraShareCore.Progress(
-                                    progress.fileName, progress.transferredBytes, progress.totalBytes,
-                                    progress.bytesPerSecond, false
-                                )
-                            )
-                        }
-                        val uriById = v2Candidates.associate { it.second.fileId to it.first }
-                        updateState { current ->
-                            val completed = batch.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }
-                            val failed = batch.files.size - completed
-                            val previous = current.peerTransfers.firstOrNull { it.host == activeV2Host }
-                            val summary = (previous ?: UltraSharePeerTransfer(activeV2Host, "", 0L, 0L, 0L, "اكتملت الدفعة"))
-                                .copy(
-                                    fileName = "نتيجة الدفعة",
-                                    transferredBytes = batch.files.sumOf { it.transferredBytes.coerceAtLeast(0L) },
-                                    totalBytes = v2Candidates.sumOf { it.second.sizeBytes.coerceAtLeast(0L) },
-                                    bytesPerSecond = 0L,
-                                    status = if (failed == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failed",
-                                    updatedAtMillis = System.currentTimeMillis()
-                                )
-                            current.copy(peerTransfers = current.peerTransfers.filterNot { it.host == activeV2Host } + summary)
-                        }
-                        batch.files.forEachIndexed { index, outcome ->
-                            val uri = uriById[outcome.fileId] ?: return@forEachIndexed
-                            val metadata = metadataByUri[uri] ?: readDocumentMetadata(uri)
-                            if (outcome.status == UltraShareBatchProtocol.FileStatus.COMPLETED) {
-                                sent++
-                                completedBytes = if (Long.MAX_VALUE - completedBytes < metadata.third) Long.MAX_VALUE else completedBytes + metadata.third
-                                UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_COMPLETED)
-                            } else {
-                                failed++
-                                lastError = outcome.error ?: "فشل إرسال ${metadata.first}"
-                                UltraShareQueueStore.update(this@UltraShareForegroundService, uri, metadata.first, UltraShareQueueStore.STATUS_FAILED, lastError)
-                            }
-                            updateState { current -> current.copy(
-                                queueCompleted = index + 1,
-                                queueTotal = queue.size,
-                                queueTotalBytes = totalBytes,
-                                queueTransferredBytes = completedBytes
-                            ) }
                         }
                     } catch (cancelled: CancellationException) {
                         withContext(NonCancellable) {
