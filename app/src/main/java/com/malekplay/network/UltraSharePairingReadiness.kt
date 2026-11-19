@@ -41,6 +41,38 @@ internal object UltraSharePairingReadiness {
             !existingPairingSecret.isNullOrBlank() &&
             existingPairingSecret == candidatePairingSecret
 
+    /**
+     * Local interface enumeration can finish after the first v5 QR is shown.
+     * Enrich that same invitation only when every existing route is retained
+     * and the candidate adds at least one new host with identical credentials.
+     */
+    fun shouldEnrichUnifiedV5QrHosts(
+        existingVersion: String?,
+        candidateVersion: String?,
+        existingInvitationId: String?,
+        candidateInvitationId: String?,
+        existingPairingSecret: String?,
+        candidatePairingSecret: String?,
+        existingSsid: String?,
+        candidateSsid: String?,
+        existingWifiPassword: String?,
+        candidateWifiPassword: String?,
+        existingHosts: List<String>,
+        candidateHosts: List<String>
+    ): Boolean =
+        existingVersion == "5" &&
+            candidateVersion == "5" &&
+            !existingInvitationId.isNullOrBlank() &&
+            existingInvitationId == candidateInvitationId &&
+            !existingPairingSecret.isNullOrBlank() &&
+            existingPairingSecret == candidatePairingSecret &&
+            !existingSsid.isNullOrBlank() &&
+            existingSsid == candidateSsid &&
+            !existingWifiPassword.isNullOrBlank() &&
+            existingWifiPassword == candidateWifiPassword &&
+            candidateHosts.size > existingHosts.size &&
+            candidateHosts.containsAll(existingHosts)
+
     fun isDataListenerReady(actualPort: Int, expectedPort: Int): Boolean =
         expectedPort in 1..65535 && actualPort == expectedPort
 
