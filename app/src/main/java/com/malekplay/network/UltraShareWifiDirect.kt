@@ -1610,6 +1610,7 @@ object UltraShareWifiDirect {
                         mapOf("isGroupOwner" to info.isGroupOwner, "groupOwnerHost" to info.groupOwnerAddress?.hostAddress)
                     )
                     if (!info.groupFormed) {
+                        runCatching { onLocalAddress(null) }
                         cancelOwnerPeerConfirmation()
                         cancelClientPeerConfirmation()
                         if (wasConnected) {
@@ -1623,11 +1624,9 @@ object UltraShareWifiDirect {
                         cancelClientPeerConfirmation()
                         requestGroupCredentials()
                         val localGroupOwnerAddress = info.groupOwnerAddress?.hostAddress
-                        if (localGroupOwnerAddress != null &&
-                            UltraShareCore.isValidPrivateLanHost(localGroupOwnerAddress)
-                        ) {
-                            onLocalAddress(localGroupOwnerAddress)
-                        }
+                        publishLocalP2pAddress(
+                            localGroupOwnerAddress?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
+                        )
                         // Do not equate an empty owner group with a paired device. Poll
                         // GroupInfo briefly because GROUP_FORMED can precede clientList updates.
                         if (!ownerPeerCheckInFlight && ownerPeerCheckRunnable == null) {
