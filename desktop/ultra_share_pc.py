@@ -558,6 +558,7 @@ def discovery_responder(port: int, transfer_port: int, device_name: str,
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.bind(("0.0.0.0", port))
+        stable_peer_id = secrets.token_hex(16)
         while True:
             data, address = sock.recvfrom(512)
             if not is_lan_ipv4(address[0]):
@@ -566,7 +567,7 @@ def discovery_responder(port: int, transfer_port: int, device_name: str,
                 sock.sendto(response, address)
             elif data == PROBE_V2 and v2_transfer_port is not None:
                 sock.sendto(encode_v2_discovery_offer(
-                    address[0], v2_transfer_port, device_name
+                    address[0], v2_transfer_port, device_name, stable_peer_id
                 ), address)
 
 
