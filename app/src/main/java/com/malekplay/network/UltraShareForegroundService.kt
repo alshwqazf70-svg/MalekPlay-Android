@@ -754,6 +754,7 @@ class UltraShareForegroundService : Service() {
         idleDisconnectJob?.cancel()
         idleDisconnectJob = null
         sendJobsByPeer.values.toSet().forEach { it.cancel() }
+        sendJobsByPeer.clear()
         receiveJob?.cancel()
         batchReceiveJob?.cancel()
         advertisementJob?.cancel()
@@ -1814,7 +1815,9 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun updateState(transform: (UltraShareServiceState) -> UltraShareServiceState) {
-        mutableState.update(transform)
+        mutableState.update { current ->
+            transform(current).copy(sending = sendJobsByPeer.isNotEmpty())
+        }
     }
 
     private fun publish(state: UltraShareServiceState) {
@@ -1851,7 +1854,6 @@ class UltraShareForegroundService : Service() {
         }
         if (sendJobsByPeer.containsKey(sendKey)) return
         startForegroundCompat()
-        updateState { current -> current.copy(sending = true, queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال", error = null) }
         lateinit var sendJobForPeer: Job
         sendJobForPeer = serviceScope.launch(start = CoroutineStart.LAZY) {
             var sent = 0
@@ -2050,6 +2052,7 @@ class UltraShareForegroundService : Service() {
             }
         }
         sendJobsByPeer[sendKey] = sendJobForPeer
+        updateState { current -> current.copy(queueTotal = uris.size, status = "جارٍ تجهيز " + uris.size + " ملفات للإرسال", error = null) }
         sendJobForPeer.start()
     }
     private fun startSendingQueueToPeers(
@@ -2088,7 +2091,6 @@ class UltraShareForegroundService : Service() {
         startForegroundCompat()
         updateState { current ->
             current.copy(
-                sending = true,
                 queueTotal = uris.distinctBy { it.toString() }.size,
                 queueCompleted = 0,
                 queueTransferredBytes = 0L,
@@ -2384,6 +2386,13 @@ class UltraShareForegroundService : Service() {
         }
         synchronized(sendJobsByPeer) {
             targets.forEach { target -> sendJobsByPeer.putIfAbsent(target.sessionId, multiPeerSendJob) }
+        }
+        updateState { current ->
+            current.copy(
+                queueTotal = uris.distinctBy { it.toString() }.size,
+                status = "جارٍ تجهيز الإرسال إلى " + targets.size + " أجهزة مقترنة",
+                error = null
+            )
         }
         multiPeerSendJob.start()
     }
