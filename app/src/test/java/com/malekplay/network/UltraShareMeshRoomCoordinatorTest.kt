@@ -67,7 +67,7 @@ class UltraShareMeshRoomCoordinatorTest {
             val ack = joiner.acceptRosterUpdate(a, update)
             assertEquals(2L, joiner.state().revision)
             assertEquals(2, joiner.state().members.size)
-            val rosterPayload = UltraShareMeshControlProtocol.decode(update.payload)!!.payload
+            val rosterPayload = update.payload
             assertTrue(authority.verifyAcknowledgement(b, ack,
                 UltraShareMeshControlProtocol.Type.ROSTER_ACK, rosterPayload))
         } finally { authority.close(); joiner.close() }

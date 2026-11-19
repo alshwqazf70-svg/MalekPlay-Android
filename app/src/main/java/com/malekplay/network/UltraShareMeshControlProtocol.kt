@@ -55,7 +55,8 @@ internal object UltraShareMeshControlProtocol {
         require(bytes.size in (4 + 1 + 1 + ID_BYTES + ID_BYTES + 8 + 2)..MAX_MESSAGE_BYTES)
         DataInputStream(ByteArrayInputStream(bytes)).use { input ->
             require(input.readInt() == MAGIC && input.readUnsignedByte() == VERSION)
-            val type = Type.entries.firstOrNull { it.wire == input.readUnsignedByte() }
+            val typeWire = input.readUnsignedByte()
+            val type = Type.entries.firstOrNull { it.wire == typeWire }
                 ?: error("Unknown Mesh control message type.")
             val roomId = bytesToHex(ByteArray(ID_BYTES).also(input::readFully))
             val senderId = bytesToHex(ByteArray(ID_BYTES).also(input::readFully))
