@@ -126,8 +126,13 @@ fun LibraryScreen(
         }
     }
 
-    BackHandler(folder != null || searching || filter != LibraryFilter.ALL) {
+    androidx.compose.runtime.LaunchedEffect(folder, searching, filter) {
+        selectedUris.clear()
+    }
+
+    BackHandler(selectionMode || folder != null || searching || filter != LibraryFilter.ALL) {
         when {
+            selectionMode -> selectedUris.clear()
             folder != null -> folder = null
             searching -> { searching = false; query = "" }
             else -> filter = LibraryFilter.ALL
@@ -315,6 +320,7 @@ fun LibraryScreen(
                 },
                 label = "library-view"
             ) { mode ->
+                Column(Modifier.fillMaxSize()) {
                 if (selectionMode) {
                     MediaBulkDeleteBar(
                         mediaItems = visibleItems.filter { it.media.uri in selectedUris }.map { it.media },
@@ -366,6 +372,7 @@ fun LibraryScreen(
                             )
                         }
                     }
+                }
                 }
             }
         }
