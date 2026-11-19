@@ -249,7 +249,7 @@ jobs:
   android-runtime-tests:
     name: Android network runtime tests (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -257,6 +257,9 @@ jobs:
         # Cover the declared minimum Android version, the primary field-test baseline,
         # and the current target SDK runtime behavior.
         api-level: [23, 29, 36]
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
@@ -267,6 +270,15 @@ jobs:
           java-version: "17"
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v5
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+      - name: Install Android SDK platform and build tools
+        run: "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+      - name: Prebuild x86_64 app and test APKs before emulator startup
+        run: ./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Run Android instrumented tests on emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
