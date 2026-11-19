@@ -515,7 +515,11 @@ object UltraShareDiscovery {
         routes.distinct().any { network -> probeV2DataEndpoint(host, port, network) }
     }
 
-    internal suspend fun probeControlHostsFast(hosts: List<String>, timeoutMs: Int = 400): List<String> =
+    internal suspend fun probeControlHostsFast(
+        hosts: List<String>,
+        timeoutMs: Int = 400,
+        port: Int = UltraShareControlChannel.DEFAULT_PORT
+    ): List<String> =
         withContext(Dispatchers.IO) {
             kotlinx.coroutines.coroutineScope {
                 hosts.asSequence()
@@ -526,7 +530,7 @@ object UltraShareDiscovery {
                     .map { host ->
                         async {
                             host.takeIf {
-                                probeEndpoint(it, UltraShareControlChannel.DEFAULT_PORT, null, timeoutMs)
+                                port in 1..65535 && probeEndpoint(it, port, null, timeoutMs)
                             }
                         }
                     }
