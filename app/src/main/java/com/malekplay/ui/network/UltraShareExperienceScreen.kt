@@ -770,11 +770,15 @@ fun UltraShareExperienceScreen(
                 subtitle = "${(state.activePeers.map { it.host } + state.approvedSenderPeerHosts).distinct().size} متصل • ${state.discoveredPeers.size + state.wifiDirectPeers.size + state.bluetoothPeers.size + state.blePeers.size} جهاز قريب • ${selectedUris.size} ملف محدد",
                 active = state.sending || state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty()
             )
-            OutlinedButton(
-                onClick = { page = UltraSharePage.TRANSFERS },
-                modifier = Modifier.fillMaxWidth()
+            if (state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty() ||
+                state.sending || state.receiveProgress != null
             ) {
-                Text("فتح غرفة النقل — السرعة والتقدم والوقت المتبقي")
+                OutlinedButton(
+                    onClick = { page = UltraSharePage.TRANSFERS },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("فتح غرفة النقل — السرعة والتقدم والوقت المتبقي")
+                }
             }
             UltraShareHelpCard()
         } else {
@@ -858,7 +862,8 @@ fun UltraShareExperienceScreen(
                         onSendToAllPeers = {
                             if (viewModel.sendBatchToApprovedPeers(selectedUris)) selectedUris = emptyList()
                         },
-                        onResumeAllPeers = viewModel::resumePendingForAllPeers
+                        onResumeAllPeers = viewModel::resumePendingForAllPeers,
+                        onOpenTransfers = { page = UltraSharePage.TRANSFERS }
                     )
                 }
                 UltraSharePage.RECEIVE -> {
@@ -874,6 +879,11 @@ fun UltraShareExperienceScreen(
                         onStartHotspot = ::startHotspot,
                         onStopHotspot = viewModel::stopHotspot,
                         onToggleReceiving = { if (state.receiving) stopReceivingGroup() else startReceivingGroup() },
+                        onOpenTransfers = { page = UltraSharePage.TRANSFERS },
+                        onSendToGroup = {
+                            selectedUris = emptyList()
+                            page = UltraSharePage.SEND
+                        },
                         onOpenReceived = { uri, mimeType ->
                             val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, mimeType)
                                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -1110,7 +1120,13 @@ fun UltraShareExperienceScreen(
                                 )
                             }
                         },
-                        onCancelSending = viewModel::cancelSending
+                        onCancelSending = viewModel::cancelSending,
+                        onPickAndSendFiles = {
+                            page = UltraSharePage.SEND
+                            mediaPicker.launch(arrayOf("*/*"))
+                        },
+                        onShowGroupQr = { page = UltraSharePage.RECEIVE },
+                        onBackHome = { page = UltraSharePage.HOME }
                     )
                     val connectedHosts = (
                         state.activePeers.map { it.host } + state.approvedSenderPeerHosts
