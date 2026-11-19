@@ -147,6 +147,9 @@ class AssHandler(
 
     private fun releaseMediaResources(closeAssInstance: Boolean) {
         // AssTrack, AssRender and Ass expose idempotent release() methods in ass-kt.
+        // Detach the track from its renderer before releasing either native handle.
+        runCatching { render?.setTrack(null) }
+            .onFailure { Log.w("AssHandler", "Could not detach native ASS track", it) }
         // They share the Ass native lock, so each native handle is closed safely.
         (availableTracks.values + listOfNotNull(track)).toSet().forEach { nativeTrack ->
             runCatching { nativeTrack.release() }
@@ -172,6 +175,7 @@ class AssHandler(
      * Configures the selected ASS track if available.
      * @param tracks The selected tracks.
      */
+    @Synchronized
     override fun onTracksChanged(tracks: Tracks) {
         Log.i("AssHandler", "onTracksChanged $tracks")
 
@@ -192,6 +196,7 @@ class AssHandler(
         updateTrack()
     }
 
+    @Synchronized
     private fun updateTrack() {
         val selectedId = format?.id?.takeIf { it.isNotBlank() }?.substringAfter(":")
         val track = if (selectedId != null) {
