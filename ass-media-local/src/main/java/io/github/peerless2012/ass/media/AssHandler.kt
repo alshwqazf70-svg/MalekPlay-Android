@@ -54,6 +54,7 @@ class AssHandler(
 
     /** The available ASS tracks in the current media. */
     private val availableTracks = mutableMapOf<String, AssTrack>()
+    private var fallbackTrackId: String? = null
 
     /** Fonts encountered before any ASS track was created. Flushed in [createTrack]. */
     private val pendingFonts = mutableListOf<Pair<String, ByteArray>>()
@@ -154,6 +155,7 @@ class AssHandler(
         runCatching { render?.release() }
             .onFailure { Log.w("AssHandler", "Could not release native ASS renderer", it) }
         availableTracks.clear()
+        fallbackTrackId = null
         track = null
         render = null
         format = null
@@ -191,15 +193,12 @@ class AssHandler(
     }
 
     private fun updateTrack() {
-        val track = availableTracks.firstNotNullOfOrNull {
-            // When media without external subtitles, format id will not change.
-            // When media with external subtitles, format will become like 1:1 .
-            // So to compat both situation, we extract the actual id after the colon.
-            if (format?.id?.substringAfter(":") == it.key) {
-                it.value
-            } else {
-                null
-            }
+        val selectedId = format?.id?.takeIf { it.isNotBlank() }?.substringAfter(":")
+        val track = if (selectedId != null) {
+            availableTracks[selectedId]
+        } else {
+            fallbackTrackId?.let(availableTracks::get)
+                ?: availableTracks.values.singleOrNull()
         }
         if (track == null || this.track == track) return
 
@@ -298,7 +297,9 @@ class AssHandler(
             val header = AssHeaderParser.parse(format, renderType != AssRenderType.CUES)
             track.readBuffer(header)
         }
-        val trackId = format.id?.takeIf { it.isNotBlank() } ?: "ass-track-${availableTracks.size}"
+        val declaredTrackId = format.id?.takeIf { it.isNotBlank() }
+        val trackId = declaredTrackId ?: "ass-track-${availableTracks.size}"
+        if (declaredTrackId == null) fallbackTrackId = trackId
         availableTracks[trackId] = track
 
         updateTrack()
