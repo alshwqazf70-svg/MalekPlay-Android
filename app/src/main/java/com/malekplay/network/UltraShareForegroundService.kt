@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
@@ -605,7 +606,7 @@ class UltraShareForegroundService : Service() {
                                 // MPC2 proves possession of the current session secret, but
                                 // it is not consent to receive files. Serialize prompts and
                                 // require one explicit approval on the receiving device.
-                                kotlinx.coroutines.sync.withLock(pendingConnectionMutex) {
+                                pendingConnectionMutex.withLock {
                                     val prompt = CompletableDeferred<UltraShareControlChannel.Decision>()
                                     pendingConnectionDecision = prompt
                                     updateState { current -> current.copy(
