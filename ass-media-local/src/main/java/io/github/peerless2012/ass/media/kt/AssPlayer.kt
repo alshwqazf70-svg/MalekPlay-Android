@@ -27,9 +27,11 @@ fun ExoPlayer.Builder.buildWithAssSupport(
     subtitleView: SubtitleView? = null,
     dataSourceFactory: DataSource.Factory = DefaultDataSource.Factory(context),
     extractorsFactory: ExtractorsFactory = DefaultExtractorsFactory(),
-    renderersFactory: RenderersFactory = DefaultRenderersFactory(context)
+    renderersFactory: RenderersFactory = DefaultRenderersFactory(context),
+    assHandlerCallback: ((AssHandler) -> Unit)? = null
 ): ExoPlayer {
     val assHandler = AssHandler(renderType)
+    assHandlerCallback?.invoke(assHandler)
     val assSubtitleParserFactory = AssSubtitleParserFactory(assHandler)
 
     val mediaSourceFactory = DefaultMediaSourceFactory(
