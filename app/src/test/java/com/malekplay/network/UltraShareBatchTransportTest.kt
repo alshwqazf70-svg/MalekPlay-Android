@@ -21,6 +21,43 @@ import org.junit.Test
 
 class UltraShareBatchTransportTest {
 
+
+    @Test
+    fun qrFastProbeCompletesTheMpc2GreetingOnAnAlreadyReachableHost() = runBlocking {
+        val localPrivateAddress = java.net.NetworkInterface.getNetworkInterfaces().toList()
+            .asSequence()
+            .filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList().asSequence() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .firstOrNull { it.isSiteLocalAddress && !it.isLoopbackAddress }
+            ?.hostAddress
+            ?: return@runBlocking
+        val server = ServerSocket(0, 1, java.net.InetAddress.getByName(localPrivateAddress))
+        val greeting = launch(Dispatchers.IO) {
+            server.accept().use { socket ->
+                val output = java.io.DataOutputStream(socket.getOutputStream())
+                output.writeInt(0x4D504332)
+                output.writeByte(1)
+                output.write(ByteArray(32) { it.toByte() })
+                output.flush()
+            }
+        }
+        try {
+            val reachable = withTimeout(1_500L) {
+                UltraShareDiscovery.probeControlHostsFast(
+                    hosts = listOf(localPrivateAddress, localPrivateAddress),
+                    timeoutMs = 400,
+                    port = server.localPort
+                )
+            }
+            assertEquals(listOf(localPrivateAddress), reachable)
+            greeting.join()
+        } finally {
+            greeting.cancelAndJoin()
+            server.close()
+        }
+    }
+
     @Test
     fun multipleApprovedPeersCanSendAtTheSameTime() = runBlocking {
         val targets = listOf(
