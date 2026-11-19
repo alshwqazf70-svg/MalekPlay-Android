@@ -71,10 +71,10 @@ fun SendFileScreen(
             OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.VIDEO) }, modifier = Modifier.weight(1f), enabled = true) {
                 Icon(Icons.Filled.Movie, null); Text("فيديو")
             }
-            OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.AUDIO) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
+            OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.AUDIO) }, modifier = Modifier.weight(1f), enabled = true) {
                 Icon(Icons.Filled.FolderOpen, null); Text("موسيقى")
             }
-            OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.IMAGE) }, modifier = Modifier.weight(1f), enabled = !state.sending) {
+            OutlinedButton(onClick = { onLoadPhoneMedia(MediaType.IMAGE) }, modifier = Modifier.weight(1f), enabled = true) {
                 Icon(Icons.Filled.Image, null); Text("صور")
             }
         }
