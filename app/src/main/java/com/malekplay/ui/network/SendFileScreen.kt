@@ -131,10 +131,16 @@ fun SendFileScreen(
                 else -> "بانتظار الاقتران"
             })
         }
-        if (state.approvedSenderPeerCount == 0) OutlinedButton(onClick = { showManualPairing = !showManualPairing }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (showManualPairing) "إخفاء بيانات الاقتران" else "إظهار بيانات الاقتران")
+        OutlinedButton(onClick = { showManualPairing = !showManualPairing }, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                when {
+                    showManualPairing -> "إخفاء بيانات الاقتران"
+                    state.approvedSenderPeerCount == 0 -> "إظهار بيانات الاقتران"
+                    else -> "إضافة جهاز آخر باستخدام PIN"
+                }
+            )
         }
-        if (state.approvedSenderPeerCount == 0 && showManualPairing) {
+        if (showManualPairing) {
             InfoPanel("إكمال الاتصال الآمن", "تم اختيار الجهاز. أدخل رمز الاقتران ذي 9 أرقام الظاهر على شاشة الاستقبال، أو امسح رمز QR الخاص به.")
             OutlinedTextField(value = host, onValueChange = onHostChange, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("عنوان الجهاز") })
             OutlinedTextField(value = secret, onValueChange = onSecretChange, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("رمز الاقتران (9 أرقام)") })
