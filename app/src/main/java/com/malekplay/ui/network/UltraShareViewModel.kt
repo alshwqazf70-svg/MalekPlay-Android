@@ -1058,9 +1058,10 @@ private fun forgetApprovedSenderTarget(host: String) {
                 // Wait for the actual supplicant/network ID instead of assuming a
                 // fixed delay means the phone has joined the DIRECT SoftAP.
                 val associated = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
-                    while (true) {
+                    var connected = false
+                    while (!connected) {
                         val info = runCatching { wifi.connectionInfo }.getOrNull()
-                        val connected = com.malekplay.network.UltraSharePlatformCompatibility
+                        connected = com.malekplay.network.UltraSharePlatformCompatibility
                             .isLegacyWifiNetworkConnected(
                                 expectedNetworkId = networkId,
                                 actualNetworkId = info?.networkId ?: -1,
@@ -1069,11 +1070,9 @@ private fun forgetApprovedSenderTarget(host: String) {
                                 supplicantCompleted = info?.supplicantState ==
                                     android.net.wifi.SupplicantState.COMPLETED
                             )
-                        if (connected) return@withTimeoutOrNull true
-                        delay(250L)
+                        if (!connected) delay(250L)
                     }
-                    @Suppress("UNREACHABLE_CODE")
-                    false
+                    connected
                 } == true
                 if (!associated) {
                     val message = "انتهت مهلة الانضمام إلى شبكة المجموعة قبل اكتمال اتصال Wi-Fi."
