@@ -278,7 +278,7 @@ class UltraShareForegroundService : Service() {
                     approvedSendTargets().map { it.host }).distinct()
                 serviceScope.launch(Dispatchers.IO) {
                     hostsToDisconnect.forEach(::disconnectApprovedPeer)
-                    finishService()
+                    withContext(Dispatchers.Main.immediate) { finishService() }
                 }
                 stopLocalHotspot()
                 if (sendJob == null && receiveJob == null && batchReceiveJob == null) finishService()
