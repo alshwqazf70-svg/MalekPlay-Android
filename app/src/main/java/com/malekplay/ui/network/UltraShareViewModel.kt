@@ -302,6 +302,8 @@ class UltraShareViewModel @Inject constructor(
                 candidateSsid = candidateDetails.hotspotSsid,
                 existingWifiPassword = existingDetails.hotspotPassword,
                 candidateWifiPassword = candidateDetails.hotspotPassword,
+                existingWifiSecurity = existingDetails.hotspotSecurity,
+                candidateWifiSecurity = candidateDetails.hotspotSecurity,
                 existingHosts = existingDetails.hosts,
                 candidateHosts = candidateDetails.hosts
             )
