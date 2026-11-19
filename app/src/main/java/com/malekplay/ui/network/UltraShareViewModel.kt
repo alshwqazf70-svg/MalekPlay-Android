@@ -1493,7 +1493,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                 service.localAddresses +
                 listOfNotNull(current.wifiDirectLocalAddress, ownerAddress)
             ).asSequence()
-            .map(String::trim)
+            .map { it.trim() }
             .filter { UltraShareCore.isValidPrivateLanHost(it) }
             .distinct()
             .take(8)
