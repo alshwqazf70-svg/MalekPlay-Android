@@ -85,6 +85,15 @@ class UltraShareWifiDirectPolicyTest {
         assertFalse(claimWifiDirectPeerRefreshCompletion(finished))
     }
 
+
+    @Test
+    fun idleOwnerGroupNeverStartsThePeerDisconnectDeadline() {
+        assertFalse(shouldStartWifiDirectOwnerPeerDeadline(clientCount = 0, wasConnected = false))
+        assertTrue(shouldStartWifiDirectOwnerPeerDeadline(clientCount = 1, wasConnected = false))
+        assertTrue(shouldStartWifiDirectOwnerPeerDeadline(clientCount = 0, wasConnected = true))
+        assertTrue(shouldStartWifiDirectOwnerPeerDeadline(clientCount = 3, wasConnected = true))
+    }
+
     @Test
     fun wifiDirectOwnerNegotiationIsSymmetricForBothPairingDirections() {
         assertEquals(15, wifiDirectNeutralGroupOwnerIntent(preferThisDeviceAsGroupOwner = true))
