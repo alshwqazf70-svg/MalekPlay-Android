@@ -807,16 +807,17 @@ object UltraShareWifiDirect {
                         val requiresLegacyCompatibility =
                             shouldForceLegacyWifiDirectSecurity(Build.VERSION.SDK_INT)
                         val compatibilityConfig = if (requiresLegacyCompatibility) {
-                            runCatching {
+                            val configResult = runCatching {
                                 android.net.wifi.p2p.WifiP2pConfig.Builder()
                                     .setPccModeConnectionType(
                                         android.net.wifi.p2p.WifiP2pConfig.PCC_MODE_CONNECTION_TYPE_LEGACY_ONLY
                                     )
                                     .build()
-                            }.getOrElse { failure ->
+                            }
+                            if (configResult.isFailure) {
                                 UltraShareDiagnostics.failure(
                                     "WIFI_DIRECT_LEGACY_COMPAT_GROUP_CONFIG",
-                                    failure
+                                    configResult.exceptionOrNull()!!
                                 )
                                 finishGroupAttempt(token)
                                 reportError(
@@ -824,14 +825,8 @@ object UltraShareWifiDirect {
                                 )
                                 return@requestGroupInfo
                             }
+                            configResult.getOrThrow()
                         } else null
-                        if (requiresLegacyCompatibility && compatibilityConfig == null) {
-                            finishGroupAttempt(token)
-                            reportError(
-                                "تعذر تهيئة مجموعة Wi-Fi Direct بوضع WPA2 المتوافق مع Android 6–15؛ سنستخدم مسار نقطة الاتصال البديل."
-                            )
-                            return@requestGroupInfo
-                        }
                         if (compatibilityConfig != null) {
                             // Never silently retry with an unconstrained Android 16
                             // group: that could become WPA3-SAE-only and strand
