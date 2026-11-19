@@ -20,6 +20,27 @@ internal object UltraSharePairingReadiness {
     fun stableQrPayload(existing: String?, candidate: String?): String? =
         existing?.takeIf { it.isNotBlank() } ?: candidate?.takeIf { it.isNotBlank() }
 
+    /**
+     * A receiver may publish a LAN/DNS-SD fallback QR before Android returns its
+     * Wi-Fi Direct SoftAP credentials. Permit exactly one monotonic upgrade to v5
+     * for the same ephemeral invitation and secret; never rotate an established v5
+     * invitation or replace it with another session's credentials.
+     */
+    fun shouldUpgradeStableQrToUnifiedV5(
+        existingVersion: String?,
+        candidateVersion: String?,
+        existingInvitationId: String?,
+        candidateInvitationId: String?,
+        existingPairingSecret: String?,
+        candidatePairingSecret: String?
+    ): Boolean =
+        existingVersion != "5" &&
+            candidateVersion == "5" &&
+            !existingInvitationId.isNullOrBlank() &&
+            existingInvitationId == candidateInvitationId &&
+            !existingPairingSecret.isNullOrBlank() &&
+            existingPairingSecret == candidatePairingSecret
+
     fun isDataListenerReady(actualPort: Int, expectedPort: Int): Boolean =
         expectedPort in 1..65535 && actualPort == expectedPort
 
