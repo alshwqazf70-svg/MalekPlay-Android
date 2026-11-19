@@ -929,9 +929,57 @@ def _write_java_utf_socket(sock: socket.socket, value: str) -> None:
     sock.sendall(_java_write_utf(value))
 
 
+_CONTROL_FAILED_ATTEMPTS: dict[str, list[float]] = {}
+_CONTROL_COOLDOWN_UNTIL: dict[str, float] = {}
+_CONTROL_ATTEMPT_LOCK = threading.Lock()
+
+
+def _control_peer_allowed(peer: str) -> bool:
+    now = time.monotonic()
+    with _CONTROL_ATTEMPT_LOCK:
+        if _CONTROL_COOLDOWN_UNTIL.get(peer, 0.0) > now:
+            return False
+        attempts = [stamp for stamp in _CONTROL_FAILED_ATTEMPTS.get(peer, [])
+                    if now - stamp < 60.0]
+        _CONTROL_FAILED_ATTEMPTS[peer] = attempts
+        return len(attempts) < 5
+
+
+def _record_control_failure(peer: str) -> None:
+    now = time.monotonic()
+    with _CONTROL_ATTEMPT_LOCK:
+        attempts = [stamp for stamp in _CONTROL_FAILED_ATTEMPTS.get(peer, [])
+                    if now - stamp < 60.0]
+        attempts.append(now)
+        _CONTROL_FAILED_ATTEMPTS[peer] = attempts
+        if len(attempts) >= 5:
+            _CONTROL_COOLDOWN_UNTIL[peer] = now + 60.0
+
+
+def _control_heartbeat_handler(connection: socket.socket, peer_host: str) -> None:
+    try:
+        connection.settimeout(18.0)
+        while True:
+            command = _read_java_utf_socket(connection)
+            if command == "PING":
+                _write_java_utf_socket(connection, "PONG")
+            elif command == "CLOSE":
+                break
+            else:
+                raise ValueError("Unknown MPC2 control command.")
+    except (OSError, EOFError, ValueError):
+        pass
+    finally:
+        with _CONTROL_PEER_LOCK:
+            current = _CONTROL_PEER_SESSIONS.get(peer_host)
+            if current is not None and current[1] is connection:
+                _CONTROL_PEER_SESSIONS.pop(peer_host, None)
+        connection.close()
+
+
 def serve_control_once(port: int, secret: str, local_name: str,
                        approve: callable, on_listening=None) -> None:
-    """Serve one Android MPC2 control request and retain approved heartbeat."""
+    """Approve one MPC2 peer; keep its heartbeat in an independent handler thread."""
     safe_local_name = str(local_name)[:48]
     while safe_local_name and len(safe_local_name.encode("utf-8")) > 96:
         safe_local_name = safe_local_name[:-1]
@@ -954,42 +1002,65 @@ def serve_control_once(port: int, secret: str, local_name: str,
             except socket.timeout:
                 continue
 
-    with connection:
-        if not _is_private_v2_peer(address[0]):
-            raise PermissionError("Rejected control peer outside the private LAN.")
-        connection.settimeout(8.0)
-        challenge = secrets.token_bytes(CHALLENGE_BYTES)
-        connection.sendall(struct.pack(">IB", CONTROL_MAGIC, CONTROL_VERSION) + challenge)
-        request_id = _read_java_utf_socket(connection)
-        if not 16 <= len(request_id) <= 64 or any(
-            not (char.isalnum() or char == "-") for char in request_id
-        ):
-            raise ValueError("Invalid MPC2 request id.")
-        name_length = struct.unpack(">H", recv_exact(connection, 2))[0]
-        if not 1 <= name_length <= 96:
-            raise ValueError("Invalid MPC2 peer name length.")
-        peer_name_bytes = recv_exact(connection, name_length)
-        peer_name = peer_name_bytes.decode("utf-8", errors="strict")
-        if not peer_name.strip() or any(ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in peer_name):
-            raise ValueError("Invalid MPC2 peer name.")
-        supplied_mac = recv_exact(connection, 32)
-        pairing_key = derive_v2_pairing_key(secret, challenge)
-        expected_mac = _control_request_mac(
-            pairing_key, challenge, request_id, peer_name_bytes
-        )
-        if not hmac.compare_digest(supplied_mac, expected_mac):
-            raise PermissionError("MPC2 pairing authentication failed.")
+    peer_host = address[0]
+    if not _is_private_v2_peer(peer_host):
+        connection.close()
+        raise PermissionError("Rejected control peer outside the private LAN.")
+    if not _control_peer_allowed(peer_host):
+        connection.close()
+        raise PermissionError("MPC2 pairing is temporarily rate limited for this peer.")
 
-        accepted = bool(approve(peer_name, address[0]))
-        peer_id = (
-            request_id[-32:].lower()
-            if len(request_id) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in request_id[-32:])
-            else None
-        )
-        if accepted:
-            with _CONTROL_PEER_LOCK:
-                _CONTROL_PEER_SESSIONS[address[0]] = (peer_id or address[0], connection)
-        try:
+    session_socket = None
+    handler_started = False
+    accepted = False
+    try:
+        with connection:
+            connection.settimeout(8.0)
+            challenge = secrets.token_bytes(CHALLENGE_BYTES)
+            connection.sendall(struct.pack(">IB", CONTROL_MAGIC, CONTROL_VERSION) + challenge)
+            request_id = _read_java_utf_socket(connection)
+            if not 16 <= len(request_id) <= 64 or any(
+                not (char.isalnum() or char == "-") for char in request_id
+            ):
+                _record_control_failure(peer_host)
+                raise ValueError("Invalid MPC2 request id.")
+            name_length = struct.unpack(">H", recv_exact(connection, 2))[0]
+            if not 1 <= name_length <= 96:
+                _record_control_failure(peer_host)
+                raise ValueError("Invalid MPC2 peer name length.")
+            peer_name_bytes = recv_exact(connection, name_length)
+            peer_name = peer_name_bytes.decode("utf-8", errors="strict")
+            if not peer_name.strip() or any(ord(ch) < 32 or 127 <= ord(ch) <= 159 for ch in peer_name):
+                _record_control_failure(peer_host)
+                raise ValueError("Invalid MPC2 peer name.")
+            supplied_mac = recv_exact(connection, 32)
+            pairing_key = derive_v2_pairing_key(secret, challenge)
+            expected_mac = _control_request_mac(
+                pairing_key, challenge, request_id, peer_name_bytes
+            )
+            if not hmac.compare_digest(supplied_mac, expected_mac):
+                _record_control_failure(peer_host)
+                raise PermissionError("MPC2 pairing authentication failed.")
+
+            with _CONTROL_ATTEMPT_LOCK:
+                _CONTROL_FAILED_ATTEMPTS.pop(peer_host, None)
+                _CONTROL_COOLDOWN_UNTIL.pop(peer_host, None)
+            accepted = bool(approve(peer_name, peer_host))
+            peer_id = (
+                request_id[-32:].lower()
+                if len(request_id) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in request_id[-32:])
+                else None
+            )
+            if accepted:
+                session_socket = connection.dup()
+                with _CONTROL_PEER_LOCK:
+                    previous = _CONTROL_PEER_SESSIONS.get(peer_host)
+                    _CONTROL_PEER_SESSIONS[peer_host] = (peer_id or peer_host, session_socket)
+                if previous is not None and previous[1] is not session_socket:
+                    try:
+                        previous[1].close()
+                    except OSError:
+                        pass
             encoded_local_name = name_bytes.hex()
             response = (
                 f"ACCEPT|{request_id}|{encoded_local_name}"
@@ -1000,24 +1071,21 @@ def serve_control_once(port: int, secret: str, local_name: str,
             if len(frame) > 512:
                 raise ValueError("MPC2 decision frame exceeds its limit.")
             connection.sendall(struct.pack(">I", len(frame)) + frame)
-            if not accepted:
-                return
-
-            connection.settimeout(18.0)
-            while True:
-                command = _read_java_utf_socket(connection)
-                if command == "PING":
-                    _write_java_utf_socket(connection, "PONG")
-                elif command == "CLOSE":
-                    return
-                else:
-                    raise ValueError("Unknown MPC2 control command.")
-        finally:
-            if accepted:
-                with _CONTROL_PEER_LOCK:
-                    current = _CONTROL_PEER_SESSIONS.get(address[0])
-                    if current is not None and current[1] is connection:
-                        _CONTROL_PEER_SESSIONS.pop(address[0], None)
+            if accepted and session_socket is not None:
+                threading.Thread(
+                    target=_control_heartbeat_handler,
+                    args=(session_socket, peer_host),
+                    name="ultrashare-mpc2-peer-" + peer_host,
+                    daemon=True,
+                ).start()
+                handler_started = True
+    finally:
+        if session_socket is not None and not handler_started:
+            with _CONTROL_PEER_LOCK:
+                current = _CONTROL_PEER_SESSIONS.get(peer_host)
+                if current is not None and current[1] is session_socket:
+                    _CONTROL_PEER_SESSIONS.pop(peer_host, None)
+            session_socket.close()
 
 
 class ControlSession:
