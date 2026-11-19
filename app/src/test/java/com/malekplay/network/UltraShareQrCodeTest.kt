@@ -139,7 +139,8 @@ class UltraShareQrCodeTest {
             pairingSecret = secret,
             ssid = "DIRECT-MalekPlay",
             wifiPassword = "share12345",
-            invitationId = "mesh-peer-23"
+            invitationId = "mesh-peer-23",
+            wifiSecurity = "wpa3"
         )
 
         val decoded = UltraShareQrCode.parsePayload(payload)
@@ -150,6 +151,7 @@ class UltraShareQrCodeTest {
         assertEquals(secret, decoded.pairingSecret)
         assertEquals("DIRECT-MalekPlay", decoded.hotspotSsid)
         assertEquals("share12345", decoded.hotspotPassword)
+        assertEquals("wpa3", decoded.hotspotSecurity)
         assertEquals("mesh-peer-23", decoded.invitationId)
         assertEquals(UltraShareControlChannel.DEFAULT_PORT, decoded.port)
     }
