@@ -35,7 +35,8 @@ object UltraShareWifiDirect {
         initialChannel: WifiP2pManager.Channel,
         private val onPeers: (List<Peer>) -> Unit,
         private val onConnected: (host: String?, isGroupOwner: Boolean) -> Unit,
-        private val onError: (String) -> Unit
+        private val onError: (String) -> Unit,
+        private val onLocalAddress: (String?) -> Unit
     ) : Closeable {
         private val appContext = context.applicationContext
         @Volatile private var channel: WifiP2pManager.Channel = initialChannel
@@ -1495,6 +1496,12 @@ object UltraShareWifiDirect {
                     }
                     if (info.isGroupOwner) {
                         cancelClientPeerConfirmation()
+                        val localGroupOwnerAddress = info.groupOwnerAddress?.hostAddress
+                        if (localGroupOwnerAddress != null &&
+                            UltraShareCore.isValidPrivateLanHost(localGroupOwnerAddress)
+                        ) {
+                            onLocalAddress(localGroupOwnerAddress)
+                        }
                         // Do not equate an empty owner group with a paired device. Poll
                         // GroupInfo briefly because GROUP_FORMED can precede clientList updates.
                         if (!ownerPeerCheckInFlight && ownerPeerCheckRunnable == null) {
@@ -1911,7 +1918,8 @@ object UltraShareWifiDirect {
         context: Context,
         onPeers: (List<Peer>) -> Unit,
         onConnected: (host: String?, isGroupOwner: Boolean) -> Unit,
-        onError: (String) -> Unit
+        onError: (String) -> Unit,
+        onLocalAddress: (String?) -> Unit = {}
     ): Session {
         val manager = context.applicationContext.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
             ?: error("هذا الجهاز لا يدعم Wi-Fi Direct.")
@@ -1921,7 +1929,7 @@ object UltraShareWifiDirect {
             Looper.getMainLooper(),
             WifiP2pManager.ChannelListener { session?.onChannelDisconnected() }
         ) ?: error("تعذر تهيئة Wi-Fi Direct على هذا الجهاز.")
-        val created = Session(context, manager, channel, onPeers, onConnected, onError)
+        val created = Session(context, manager, channel, onPeers, onConnected, onError, onLocalAddress)
         session = created
         return created
     }
