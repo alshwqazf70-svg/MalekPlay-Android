@@ -735,7 +735,7 @@ class UltraShareForegroundService : Service() {
         }
         updateState { current -> current.copy(
                 receiving = false,
-                sending = false,
+                sending = sendJobsByPeer.isNotEmpty(),
                 pairingSecret = "",
                 localAddresses = emptyList(),
                 controlChannelReady = false,
@@ -797,7 +797,7 @@ class UltraShareForegroundService : Service() {
         updateState { current ->
             current.copy(
                 receiving = false,
-                sending = false,
+                sending = sendJobsByPeer.isNotEmpty(),
                 pairingSecret = "",
                 localAddresses = emptyList(),
                 controlChannelReady = false,
@@ -910,7 +910,7 @@ class UltraShareForegroundService : Service() {
         if (currentState().activePeers.isNotEmpty()) {
             updateState { current ->
                 current.copy(
-                    sending = false,
+                    sending = sendJobsByPeer.isNotEmpty(),
                     progress = if (current.receiving) current.receiveProgress else null,
                     sendProgress = null,
                     status = "اكتمل النقل؛ الاتصال مع الجهاز الآخر ما زال نشطاً وجاهزاً."
@@ -970,7 +970,7 @@ class UltraShareForegroundService : Service() {
         closeMeshRoom()
         updateState { current -> current.copy(
             receiving = false,
-            sending = false,
+            sending = sendJobsByPeer.isNotEmpty(),
             pairingSecret = "",
             localAddresses = emptyList(),
             controlChannelReady = false,
@@ -2029,10 +2029,10 @@ class UltraShareForegroundService : Service() {
                 }
                 // V2 is the only supported file data plane. No per-file V1 fallback.
                 UltraShareDiagnostics.event("TRANSFER", "SEND_QUEUE_FINISHED", mapOf("sent" to sent, "failed" to failed, "total" to queue.size))
-                updateState { current -> current.copy(sending = false, status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null) }
+                updateState { current -> current.copy(sending = sendJobsByPeer.isNotEmpty(), status = "انتهى الطابور: أُرسل " + sent + " من " + queue.size + " ملفات", error = if (failed > 0) "تعذر إرسال " + failed + " ملفات. آخر خطأ: " + lastError else null) }
             } catch (cancelled: CancellationException) {
                 updateState { current -> current.copy(
-                    sending = false,
+                    sending = sendJobsByPeer.isNotEmpty(),
                     progress = if (current.receiving) current.receiveProgress else null,
                     sendProgress = null,
                     queueTransferredBytes = completedBytes,
@@ -2354,7 +2354,7 @@ class UltraShareForegroundService : Service() {
                 }
                 updateState { current ->
                     current.copy(
-                        sending = false,
+                        sending = sendJobsByPeer.isNotEmpty(),
                         status = "أُوقف الإرسال الجماعي؛ احتُفظ بحالات كل جهاز للاستئناف."
                     )
                 }
