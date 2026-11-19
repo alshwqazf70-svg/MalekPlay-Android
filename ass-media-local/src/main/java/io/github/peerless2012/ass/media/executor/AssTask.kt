@@ -13,7 +13,7 @@ import io.github.peerless2012.ass.AssTexType
  */
 class AssTask(private val render: AssRender) : Runnable {
 
-    var executorBusy = false
+    @Volatile var executorBusy = false
 
     var presentationTimeUs: Long = 0
 
