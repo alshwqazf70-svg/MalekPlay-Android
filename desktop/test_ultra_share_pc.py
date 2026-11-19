@@ -13,6 +13,12 @@ from ultra_share_v2 import (
     DISCOVERY_PROBE_PROOF,
     _CONTROL_PEER_LOCK,
     _CONTROL_PEER_SESSIONS,
+    _CONTROL_ATTEMPT_LOCK,
+    _CONTROL_FAILED_ATTEMPTS,
+    _CONTROL_COOLDOWN_UNTIL,
+    _control_peer_allowed,
+    _record_control_failure,
+    _media_signature_matches,
     _control_heartbeat_handler,
     _safe_name as safe_v2_name,
 )
@@ -49,6 +55,27 @@ class UltraShareDesktopProtocolTests(unittest.TestCase):
         self.assertEqual("_LPT9.mp4", safe_v2_name("LPT9.mp4"))
         self.assertEqual("clip.mp4", safe_v2_name("  clip.mp4...   "))
         self.assertEqual("song.mp3", safe_v2_name(r"C:\\Users\\Guest\\song.mp3"))
+
+    def test_control_failed_attempts_enter_per_peer_cooldown(self):
+        peer = "192.168.1.99"
+        with _CONTROL_ATTEMPT_LOCK:
+            _CONTROL_FAILED_ATTEMPTS.pop(peer, None)
+            _CONTROL_COOLDOWN_UNTIL.pop(peer, None)
+        self.assertTrue(_control_peer_allowed(peer))
+        for _ in range(5):
+            _record_control_failure(peer)
+        self.assertFalse(_control_peer_allowed(peer))
+        with _CONTROL_ATTEMPT_LOCK:
+            _CONTROL_FAILED_ATTEMPTS.pop(peer, None)
+            _CONTROL_COOLDOWN_UNTIL.pop(peer, None)
+
+    def test_v2_svg_is_rejected_before_manifest_or_signature_acceptance(self):
+        from ultra_share_v2 import _allowed_share_file
+        with tempfile.TemporaryDirectory() as temporary:
+            vector = Path(temporary) / "image.svg"
+            vector.write_text("<svg/>", encoding="utf-8")
+            self.assertFalse(_allowed_share_file("image.svg", "image/svg+xml"))
+            self.assertFalse(_media_signature_matches(vector, "image.svg", "image/svg+xml"))
 
     def test_android_discovery_probe_proof_is_recognized_without_derivation(self):
         self.assertEqual(bytes([0x5A]) * 32, DISCOVERY_PROBE_PROOF)
