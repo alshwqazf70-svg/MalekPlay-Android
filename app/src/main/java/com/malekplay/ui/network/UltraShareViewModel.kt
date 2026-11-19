@@ -652,6 +652,9 @@ class UltraShareViewModel @Inject constructor(
                                 onSessionClosed = { disconnectedHost ->
                                     UltraShareForegroundService.disconnectApprovedPeer(disconnectedHost)
                                     forgetApprovedSenderTarget(disconnectedHost)
+                                    if (UltraShareForegroundService.approvedSendTargets().isEmpty()) {
+                                        releaseLegacyWifiNetwork()
+                                    }
                                 },
                                 onSessionReady = { readyHost ->
                                     UltraShareForegroundService.startMeshSession(context, readyHost)
@@ -1097,6 +1100,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                     secret = pairing.pairingSecret,
                     alternateHosts = hosts.dropWhile { it != targetHost }.drop(1),
                     onConnectionFailed = { rejected, reason ->
+                        releaseLegacyWifiNetwork()
                         if (!rejected) fallbackToWifiDirectInvitation(
                             pairing,
                             reason ?: "تعذر الوصول إلى مجموعة Wi-Fi بعد الانضمام إليها."
