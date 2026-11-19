@@ -8,7 +8,6 @@ import android.content.Context
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.ServiceCompat
@@ -190,7 +189,7 @@ class UltraShareForegroundService : Service() {
                 ACTION_MESH_SESSION_READY
             )
         ) startForegroundCompat()
-        when (requestedAction) {
+        when (intent?.action) {
             ACTION_PAUSE -> {
                 if (currentState().sending && currentState().queueTotal > 0 && sendJob != null) {
                     pauseRequested = true
