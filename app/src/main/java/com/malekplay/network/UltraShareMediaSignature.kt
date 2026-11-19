@@ -73,7 +73,6 @@ internal object UltraShareMediaSignature {
             "ts", "mts", "m2ts", "wmv", "flv", "ogv" -> "video"
             else -> return false
         }
-        val declaredFamily = mimeType.substringBefore('/').lowercase()
         if (declaredFamily !in setOf(family, "application")) return false
         if (declaredFamily == "application" &&
             mimeType.lowercase() !in setOf("application/octet-stream", "application/unknown")) return false
