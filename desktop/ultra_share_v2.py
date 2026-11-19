@@ -593,7 +593,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
         connection.sendall(struct.pack(">I", HANDSHAKE_MAGIC) + challenge)
         proof = recv_exact(connection, 32)
         if hmac.compare_digest(proof, DISCOVERY_PROBE_PROOF):
-            connection.sendall(b"\\x00")
+            connection.sendall(b"\x00")
             return []
         with _CONTROL_PEER_LOCK:
             active_peer = _CONTROL_PEER_SESSIONS.get(address[0])
@@ -602,7 +602,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
                 and active_peer[1].fileno() >= 0
             )
         if not session_active:
-            connection.sendall(b"\\x00")
+            connection.sendall(b"\x00")
             raise PermissionError("No approved MPC2 control session exists for this peer.")
         pairing_key = derive_v2_pairing_key(secret, challenge)
         authenticated = hmac.compare_digest(
