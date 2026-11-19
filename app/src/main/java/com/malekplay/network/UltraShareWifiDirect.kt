@@ -1570,6 +1570,21 @@ object UltraShareWifiDirect {
         }
 
         @SuppressLint("MissingPermission")
+
+        private fun publishLocalP2pAddress(fallbackAddress: String? = null, attempt: Int = 0) {
+            if (closed) return
+            val localAddress = UltraShareNetworkRouting.wifiDirectLocalIpv4Addresses().firstOrNull()
+                ?: fallbackAddress?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
+            if (localAddress != null) {
+                runCatching { onLocalAddress(localAddress) }
+                    .onFailure { UltraShareDiagnostics.failure("WIFI_DIRECT_LOCAL_ADDRESS_CALLBACK", it) }
+            } else if (attempt < 8) {
+                mainHandler.postDelayed({
+                    if (!closed) publishLocalP2pAddress(null, attempt + 1)
+                }, 250L)
+            }
+        }
+
         private fun requestConnectionInfo() {
             // Ignore an older framework callback if another connection/group query
             // was issued after it. Android broadcasts and OEM callbacks can overlap.
