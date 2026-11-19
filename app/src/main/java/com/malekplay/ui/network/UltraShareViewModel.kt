@@ -885,6 +885,28 @@ private fun forgetApprovedSenderTarget(host: String) {
      * Joins the temporary LocalOnlyHotspot advertised by QR v4, then performs
      * the same authenticated MPC2 handshake as every other route.
      */
+    private fun fallbackToWifiDirectInvitation(
+        pairing: com.malekplay.network.UltraShareQrCode.PairingDetails,
+        reason: String
+    ): Boolean {
+        val invitationId = pairing.invitationId?.takeIf { it.isNotBlank() } ?: return false
+        val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
+        val missing = required.filter {
+            androidx.core.content.ContextCompat.checkSelfPermission(context, it) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            _state.value = _state.value.copy(
+                requestingConnection = false,
+                error = "$reason امنح إذن Wi-Fi Direct ثم أعد محاولة الانضمام."
+            )
+            return true
+        }
+        UltraShareDiagnostics.event("PAIRING", "DIRECT_WIFI_JOIN_FAILED_FALLING_BACK_TO_DNSSD")
+        joinWifiDirectInvitation(invitationId, pairing.pairingSecret, pairing.hosts)
+        return true
+    }
+
     @Suppress("DEPRECATION")
     private fun connectLegacyWifiNetwork(
         pairing: com.malekplay.network.UltraShareQrCode.PairingDetails
@@ -944,12 +966,12 @@ private fun forgetApprovedSenderTarget(host: String) {
         }.onFailure { failure ->
             releaseLegacyWifiNetwork()
             UltraShareDiagnostics.failure("LEGACY_WIFI_JOIN", failure)
-            _state.value = _state.value.copy(
-                requestingConnection = false,
-                error = (failure.localizedMessage
-                    ?: "تعذر الانضمام التلقائي إلى شبكة Wi-Fi على هذا الجهاز.") +
-                    " يمكنك الاتصال بها يدوياً من إعدادات Wi-Fi ثم إعادة مسح الرمز."
-            )
+            val message = (failure.localizedMessage
+                ?: "تعذر الانضمام التلقائي إلى شبكة Wi-Fi على هذا الجهاز.") +
+                " يمكنك الاتصال بها يدوياً من إعدادات Wi-Fi ثم إعادة مسح الرمز."
+            if (!fallbackToWifiDirectInvitation(pairing, message)) {
+                _state.value = _state.value.copy(requestingConnection = false, error = message)
+            }
         }
     }
 
@@ -1119,10 +1141,13 @@ private fun forgetApprovedSenderTarget(host: String) {
                 if (viewModel != null && viewModel.hotspotNetworkCallback === this) {
                     viewModel.hotspotNetworkCallback = null
                     viewModel.hotspotNetworkPaired = false
-                    viewModel._state.value = viewModel._state.value.copy(
-                        requestingConnection = false,
-                        error = "لم يكتمل الانضمام إلى شبكة MalekPlay. وافق على طلب Wi-Fi الذي عرضه Android وأبقِ نقطة الاتصال مفتوحة."
-                    )
+                    val message = "لم يكتمل الانضمام إلى شبكة MalekPlay. وافق على طلب Wi-Fi الذي عرضه Android وأبقِ نقطة الاتصال مفتوحة."
+                    if (!viewModel.fallbackToWifiDirectInvitation(pairing, message)) {
+                        viewModel._state.value = viewModel._state.value.copy(
+                            requestingConnection = false,
+                            error = message
+                        )
+                    }
                 }
                 runCatching { connectivity.unregisterNetworkCallback(this) }
             }
@@ -1136,6 +1161,11 @@ private fun forgetApprovedSenderTarget(host: String) {
                     connectedHost.get()?.let { peerHost ->
                         UltraShareForegroundService.disconnectApprovedPeer(peerHost)
                     }
+                } else if (!paired.get()) {
+                    owner.get()?.fallbackToWifiDirectInvitation(
+                        pairing,
+                        "انقطع الاتصال بالشبكة قبل اكتمال الاقتران."
+                    )
                 }
                 if (isCurrent) {
                     retainedHotspotNetworkCallback = null
