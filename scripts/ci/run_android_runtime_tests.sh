@@ -37,6 +37,9 @@ if [ "$booted" != true ]; then
   exit 1
 fi
 
+# Verify the Android-test Kotlin source set as an explicit CI gate.
+./gradlew --build-cache --stacktrace --max-workers=2 :app:compileDebugAndroidTestKotlin
+
 # Build both APKs, then install/run through adb directly. Some hosted emulator/ddmlib
 # combinations incorrectly route a single universal APK through SplitApkInstaller
 # and reject it even on API 29+. Direct adb install avoids that false CI failure.
