@@ -788,9 +788,9 @@ class UltraShareForegroundService : Service() {
             runCatching { wifi.disableNetwork(networkId) }
             val removed = wifi.removeNetwork(networkId)
             val profileStillExists = runCatching {
-                wifi.configuredNetworks?.any { it.networkId == networkId } == true
-            }.getOrDefault(!removed)
-            if (removed || !profileStillExists) {
+                wifi.configuredNetworks?.any { it.networkId == networkId }
+            }.getOrNull()
+            if (removed || profileStillExists == false) {
                 runCatching { wifi.saveConfiguration() }
                 preferences.edit().remove("legacy_network_id").apply()
             } else {
