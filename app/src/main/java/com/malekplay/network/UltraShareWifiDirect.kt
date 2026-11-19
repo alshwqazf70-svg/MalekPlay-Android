@@ -774,6 +774,7 @@ object UltraShareWifiDirect {
                         return@requestGroupInfo
                     }
                     try {
+                        var usedCompatibilityConfig = false
                         val listener = object : WifiP2pManager.ActionListener {
                             override fun onSuccess() {
                                 if (!closed && isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) {
@@ -783,6 +784,17 @@ object UltraShareWifiDirect {
 
                             override fun onFailure(reason: Int) {
                                 if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return
+                                if (usedCompatibilityConfig && attempt == 0) {
+                                    // Some Android 16 OEM P2P stacks reject the
+                                    // compatibility config overload. Retry once with
+                                    // the platform's default legacy group creation.
+                                    finishGroupAttempt(token)
+                                    runCatching { manager.cancelConnect(channel, null) }
+                                    mainHandler.postDelayed({
+                                        if (!closed) createGroupAttempt(onCreated, 1)
+                                    }, 500L)
+                                    return
+                                }
                                 UltraShareDiagnostics.event(
                                     "WIFI_DIRECT",
                                     "CREATE_GROUP_REJECTED_BY_FRAMEWORK",
@@ -804,7 +816,7 @@ object UltraShareWifiDirect {
                         // Android 16 can negotiate WPA3-only P2P groups. Force the
                         // legacy WPA2 profile so Android 6–15 devices can join the
                         // same group through WifiManager.addNetwork/WifiNetworkSpecifier.
-                        val compatibilityConfig = if (Build.VERSION.SDK_INT >= 36) {
+                        val compatibilityConfig = if (Build.VERSION.SDK_INT >= 36 && attempt == 0) {
                             runCatching {
                                 android.net.wifi.p2p.WifiP2pConfig.Builder()
                                     .setPccModeConnectionType(
