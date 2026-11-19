@@ -1259,7 +1259,8 @@ fun UltraShareExperienceScreen(
                                     if (entry.status == UltraShareQueueStore.STATUS_FAILED) {
                                         TextButton(
                                             onClick = { viewModel.retryFile(entry, host) },
-                                            enabled = !state.sending && host.isNotBlank() && host in state.approvedSenderPeerHosts
+                                            enabled = host.isNotBlank() && host in state.approvedSenderPeerHosts &&
+                                                !UltraShareForegroundService.isSendingToPeer(host)
                                         ) { Text("إعادة المحاولة") }
                                     }
                                 }
