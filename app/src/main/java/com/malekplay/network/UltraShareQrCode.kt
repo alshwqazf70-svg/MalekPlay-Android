@@ -234,7 +234,7 @@ object UltraShareQrCode {
                     }
                 }
         } else null
-        require(hosts.isNotEmpty() || hotspotSsid != null || invitationId != null) {
+        require(hosts.isNotEmpty() || invitationId != null) {
             "لا يحتوي رمز QR على أي مسار اتصال صالح."
         }
         return PairingDetails(host, port, secret, hosts, invitationId, hotspotSsid, hotspotPassword)
