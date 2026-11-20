@@ -973,6 +973,9 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     fun stopReceiving() {
+        // Explicitly closing the room releases all network pins owned by this
+        // temporary sharing session; a later session must negotiate its own route.
+        UltraShareNetworkRouting.clearPinnedNetworks()
         hotspotNetworkCallback?.let { callback ->
             val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE)
                 as? android.net.ConnectivityManager
@@ -1351,6 +1354,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         val callback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: android.net.Network) {
                 UltraShareDiagnostics.event("WIFI_NETWORK", "AVAILABLE", mapOf("networkHandle" to network.networkHandle))
+                UltraShareNetworkRouting.pinNetworkForHosts(pairing.hosts + pairing.host, network)
                 if (!connectionStarted.compareAndSet(false, true)) return
                 val viewModel = owner.get() ?: run {
                     runCatching { connectivity.unregisterNetworkCallback(this) }
@@ -1420,6 +1424,7 @@ private fun forgetApprovedSenderTarget(host: String) {
 
             override fun onLost(network: android.net.Network) {
                 UltraShareDiagnostics.event("WIFI_NETWORK", "LOST", mapOf("networkHandle" to network.networkHandle, "paired" to paired.get()))
+                UltraShareNetworkRouting.releasePinnedNetworkForHosts(pairing.hosts + pairing.host, network)
                 networkLost.set(true)
                 val viewModel = owner.get()
                 val isCurrent = retainedHotspotNetworkCallback === this
