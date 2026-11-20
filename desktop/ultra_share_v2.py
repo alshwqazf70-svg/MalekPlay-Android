@@ -641,9 +641,18 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
         offsets: dict[str, int] = {}
         partials: dict[str, Path] = {}
         completed: dict[str, Path] = {}
+        transfer_counts: dict[str, int] = {}
+        for item in manifest.entries:
+            base_id = _v2_transfer_id(item)
+            transfer_counts[base_id] = transfer_counts.get(base_id, 0) + 1
+        duplicate_transfer_ids = {key for key, count in transfer_counts.items() if count > 1}
+
+        def state_transfer_id(item: FileEntry) -> str:
+            base_id = _v2_transfer_id(item)
+            return base_id + "-" + uuid.UUID(item.file_id).hex if base_id in duplicate_transfer_ids else base_id
 
         for entry in manifest.entries:
-            transfer_id = _v2_transfer_id(entry)
+            transfer_id = state_transfer_id(entry)
             partial = state / f".ultrashare-v2-{transfer_id}.part"
             receipt = state / f".ultrashare-v2-{transfer_id}.received"
             existing: Path | None = None
@@ -747,7 +756,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
                     })
                     continue
                 destination = _unique_v2_destination(directory, entry.name)
-                receipt = state / f".ultrashare-v2-{_v2_transfer_id(entry)}.received"
+                receipt = state / f".ultrashare-v2-{state_transfer_id(entry)}.received"
                 receipt_text = f"{entry.size_bytes}:{entry.sha256.hex()}:{destination.name}"
                 _atomic_text(receipt, receipt_text)
                 try:
