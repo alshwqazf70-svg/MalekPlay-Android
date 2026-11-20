@@ -51,6 +51,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     private val app = context.applicationContext
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS).callTimeout(45, TimeUnit.SECONDS).build()
+    private val publicSearchCache = object : LinkedHashMap<String, List<OnlineSubtitle>>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<OnlineSubtitle>>?) = size > 12
+    }
 
     fun saveCredentials(apiKey: String, username: String, password: String) {
         require(apiKey.isNotBlank() && username.isNotBlank() && password.isNotBlank())
@@ -96,11 +99,14 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             " S%02dE%02d".format(Locale.ROOT, season, episode)
         } else ""
         val query = (title.trim().take(150) + episodeSuffix).trim()
-        val languages = language.split(',').map { it.trim().lowercase(Locale.ROOT) }
+        val languages = language.split(',').map { SubtitleQueryCleaner.normalizeLanguage(it.trim()) }
             .filter { it in setOf("ar", "en") }.ifEmpty { listOf("ar", "en") }
+        val cacheKey = query.lowercase(Locale.ROOT)
+        val cached = synchronized(publicSearchCache) { publicSearchCache[cacheKey] }
+        if (cached != null) return cached.filter { SubtitleQueryCleaner.normalizeLanguage(it.language) in languages }
+            .sortedBy { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 }
         val urlBuilder = Uri.parse("$PUBLIC_API/search/subtitles").buildUpon()
             .appendQueryParameter("title", query)
-        if (languages.size == 1) urlBuilder.appendQueryParameter("language", languages.single())
         val request = Request.Builder().url(urlBuilder.build().toString())
             .header("User-Agent", AGENT).header("Accept", "application/json")
             .apply {
@@ -108,7 +114,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer")
             }.get().build()
         val data = execute(request).optJSONArray("data") ?: return emptyList()
-        return buildList {
+        val parsed = buildList {
             for (index in 0 until data.length()) {
                 val item = data.optJSONObject(index) ?: continue
                 val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
@@ -127,9 +133,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     sourceId = id, provider = PUBLIC_PROVIDER
                 ))
             }
-        }.distinctBy { it.sourceId }.filter { result ->
-            languages.any { it == SubtitleQueryCleaner.normalizeLanguage(result.language) }
-        }.sortedBy { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 }.take(40)
+        }.distinctBy { it.sourceId }.take(40)
+        synchronized(publicSearchCache) { publicSearchCache[cacheKey] = parsed }
+        return parsed.filter { SubtitleQueryCleaner.normalizeLanguage(it.language) in languages }
+            .sortedBy { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 }
     }
 
     fun download(subtitle: OnlineSubtitle): Uri {
