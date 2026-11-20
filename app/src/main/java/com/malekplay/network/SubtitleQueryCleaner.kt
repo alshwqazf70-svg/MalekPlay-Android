@@ -22,7 +22,7 @@ object SubtitleQueryCleaner {
     private val knownExtension = Regex("""(?i)\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|mpeg|mpg|3gp|ogv|srt|ass|ssa|vtt)$""")
     private val trailingReleaseGroup = Regex("""-\s*[A-Z0-9]{2,14}$""")
     private val trailingKnownReleaseGroup = Regex(
-        """(?i)-\s*(?:Pahe|GalaxyRG|NTb|MeGusta|YIFY|YTS|RARBG|FGT|EVO|KILLERS|DEFLATE|PSA|AMZN|NTG|ION10|SPARKS)$"""
+        """(?i)(?:\s+|-)(?:Pahe|GalaxyRG|NTb|MeGusta|YIFY|YTS|RARBG|FGT|EVO|KILLERS|DEFLATE|PSA|AMZN|NTG|ION10|SPARKS)$"""
     )
 
     fun clean(raw: String): CleanSubtitleQuery {
