@@ -1367,6 +1367,9 @@ fun VideoPlayerScreen(
                 results = onlineSubtitleResults,
                 loading = onlineSubtitleLoading,
                 error = onlineSubtitleError,
+                translationLoading = subtitleTranslationLoading,
+                translationCompletedCues = subtitleTranslationCompletedCues,
+                translationTotalCues = subtitleTranslationTotalCues,
                 onSearch = {
                     viewModel.searchOnlineSubtitles(
                         onlineQuery, onlineLanguage,
@@ -1375,6 +1378,7 @@ fun VideoPlayerScreen(
                 },
                 onDownload = viewModel::downloadOnlineSubtitle,
                 onDownloadAndTranslate = viewModel::downloadAndTranslateOnlineSubtitleToArabic,
+                onCancelTranslation = viewModel::cancelSubtitleTranslation,
                 onSaveCredentials = viewModel::saveOnlineSubtitleCredentials,
                 onSaveProviderKeys = viewModel::saveOnlineSubtitleProviderKeys,
                 onDismiss = { if (!onlineSubtitleLoading) showOnlineSubtitles = false }
