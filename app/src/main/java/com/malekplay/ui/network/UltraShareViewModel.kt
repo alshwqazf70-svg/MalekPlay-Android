@@ -227,7 +227,7 @@ class UltraShareViewModel @Inject constructor(
                             ).isNotEmpty()
                         ),
                     pendingConnection = serviceState.pendingConnection,
-                    activePeers = serviceState.activePeers,
+                    activePeers = serviceState.roomPeers.ifEmpty { serviceState.activePeers },
                     reconnectablePeers = serviceState.reconnectablePeers,
                     peerTransfers = serviceState.peerTransfers,
                     approvedSenderPeerCount = serviceState.approvedSenderPeerHosts.size,
