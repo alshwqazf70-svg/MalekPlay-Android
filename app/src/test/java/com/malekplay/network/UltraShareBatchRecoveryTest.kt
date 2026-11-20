@@ -87,6 +87,23 @@ class UltraShareBatchRecoveryTest {
     }
 
     @Test
+    fun failedSingleFileBatchDoesNotRepeatTheSameSession() = runBlocking {
+        var singleCalls = 0
+        val result = UltraShareBatchRecovery.execute(
+            items = listOf("only.mp4"),
+            sendBatch = { throw IOException("all bounded retries exhausted") },
+            sendSingle = {
+                singleCalls++
+                "unexpected"
+            },
+            onItemFailure = { item, failure -> "FAILED:$item:${failure.message}" }
+        )
+
+        assertEquals(listOf("FAILED:only.mp4:all bounded retries exhausted"), result)
+        assertEquals(0, singleCalls)
+    }
+
+    @Test
     fun perFileRecoveryContinuesAfterOneItemFails() = runBlocking {
         val visited = mutableListOf<Int>()
         val result = UltraShareBatchRecovery.execute(
