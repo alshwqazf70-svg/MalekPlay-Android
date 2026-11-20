@@ -660,20 +660,20 @@ class PlaybackService : MediaSessionService() {
             // Keep older GPUs within a predictable texture budget rather than
             // allocating a native-resolution intermediate surface unconditionally.
             val maxLongEdge = profile.upscaleMaxLongEdge
-            val target = VideoUpscaleTargetPolicy.resolve(
+            lanczosTarget = VideoUpscaleTargetPolicy.resolve(
                 sourceWidth = videoSize.width,
                 sourceHeight = videoSize.height,
                 displayWidth = metrics.widthPixels,
                 displayHeight = metrics.heightPixels,
                 maxLongEdge = maxLongEdge
             )
-            if (target != null) {
+            if (lanczosTarget != null) {
                 effects += LanczosResample.scaleToFitWithFlexibleOrientation(
-                    target.longEdge,
-                    target.shortEdge
+                    lanczosTarget!!.longEdge,
+                    lanczosTarget!!.shortEdge
                 )
                 videoLanczosSubmitted = true
-                Log.i(TAG, "Lanczos upscale target=" + target.longEdge + "x" + target.shortEdge +
+                Log.i(TAG, "Lanczos upscale target=" + lanczosTarget!!.longEdge + "x" + lanczosTarget!!.shortEdge +
                     "; source=" + videoSize.width + "x" + videoSize.height)
             } else {
                 Log.i(TAG, "Lanczos upscale skipped: source already meets the capped display target")
@@ -682,8 +682,29 @@ class PlaybackService : MediaSessionService() {
         // The same GlEffect instance remains in the graph; only its atomic
         // parameters change, so toggles and profile changes affect the next frame.
         videoEnhancementPipeline?.let(effects::add)
+        val videoSize = player.videoSize
+        val signature = listOf(
+            videoSize.width,
+            videoSize.height,
+            videoUpscalingEnabled,
+            videoNoiseReductionEnabled,
+            profile.wireValue,
+            tuning.downgradeReason.orEmpty(),
+            lanczosTarget?.longEdge ?: 0,
+            lanczosTarget?.shortEdge ?: 0
+        ).joinToString("|")
+        if (signature == lastAppliedEnhancementSignature &&
+            videoEffectsBridgeAttached && AssVideoEffectRegistry.isAttached(player)
+        ) {
+            return true
+        }
         val applied = runCatching {
-            applyEffectChain(player, effects, hasLanczos = videoLanczosSubmitted)
+            applyEffectChain(
+                player,
+                effects,
+                hasLanczos = videoLanczosSubmitted,
+                lanczosTarget = lanczosTarget
+            )
         }.onFailure { error ->
             Log.e(TAG, "Failed to apply local video enhancement effects", error)
         }.getOrDefault(false)
@@ -692,13 +713,13 @@ class PlaybackService : MediaSessionService() {
             // AssOverlayManager preserves its last known-good effect list when a replacement
             // is rejected. Clear that list explicitly after disabling the request so a stale
             // GPU chain cannot keep running while the UI reports that enhancement is off.
-            Log.e(TAG, "Video enhancement chain was rejected; disabling the previous effect list")
-            AssVideoEffectRegistry.lastFailure(player)?.let { reason ->
-                VideoEnhancementMetrics.recordFailure(
-                    "effect_apply",
-                    IllegalStateException(reason)
-                )
-            }
+            val rejectionReason = AssVideoEffectRegistry.lastFailure(player)
+                ?: "AssVideoEffectRegistry rejected the effect list (manager missing, non-operational, or wrong player looper)"
+            VideoEnhancementMetrics.recordFailure(
+                "effect_apply",
+                IllegalStateException(rejectionReason)
+            )
+            Log.e(TAG, "Video enhancement chain was rejected: $rejectionReason")
             disableAllVideoEnhancements()
             val cleared = runCatching {
                 applyEffectChain(
@@ -713,6 +734,7 @@ class PlaybackService : MediaSessionService() {
             }
             return false
         }
+        lastAppliedEnhancementSignature = signature
         Log.i(
             TAG,
             "Video effects applied: " + effects.joinToString { it.javaClass.simpleName } +
@@ -732,10 +754,13 @@ class PlaybackService : MediaSessionService() {
     private fun applyEffectChain(
         player: ExoPlayer,
         effects: List<Effect>,
-        hasLanczos: Boolean
+        hasLanczos: Boolean,
+        lanczosTarget: VideoUpscaleTarget? = null
     ): Boolean {
         val hasCurrentItem = player.currentMediaItem != null
-        val structuralChange = appliedLanczosEffect != hasLanczos
+        val targetKey = lanczosTarget?.let { it.longEdge to it.shortEdge }
+        val structuralChange = appliedLanczosEffect != hasLanczos ||
+            appliedLanczosTarget != targetKey
         val needsRebind = hasCurrentItem &&
             player.playbackState != Player.STATE_IDLE &&
             structuralChange
@@ -765,6 +790,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         appliedLanczosEffect = hasLanczos
+        appliedLanczosTarget = targetKey
         videoEnhancementPipelineAttached = pipelineIncluded
         if (needsRebind) {
             player.prepare()
