@@ -2,6 +2,7 @@ package com.malekplay.network
 
 import android.content.Context
 import android.net.Uri
+import com.malekplay.translation.SrtSubtitleParser
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -51,7 +52,7 @@ internal fun isValidSubtitlePayload(bytes: ByteArray, extension: String): Boolea
         bytes.isEmpty() || bytes.size > 8 * 1024 * 1024
     ) return false
 
-    val text = bytes.toString(Charsets.UTF_8)
+    val text = runCatching { SrtSubtitleParser.decode(bytes) }.getOrNull() ?: return false
         .trimStart('\uFEFF', ' ', '\t', '\n', '\r')
     val timestamp = """(?:\d{1,2}:)?\d{1,2}:\d{2}[,.]\d{3}"""
     val arrowCue = Regex(
@@ -640,7 +641,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
 
     private fun ByteArray.isZip() = size > 3 && this[0] == 0x50.toByte() && this[1] == 0x4b.toByte()
     private fun detect(bytes: ByteArray): String? {
-        val text = bytes.toString(Charsets.UTF_8).trimStart('\uFEFF', ' ', '\n', '\r')
+        val text = runCatching { SrtSubtitleParser.decode(bytes) }.getOrNull() ?: return null
+            .trimStart('\uFEFF', ' ', '\n', '\r')
         return when {
             text.startsWith("WEBVTT", true) -> "vtt"
             text.contains("-->") -> "srt"
