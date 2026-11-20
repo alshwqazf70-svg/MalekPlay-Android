@@ -30,6 +30,7 @@ import com.malekplay.domain.model.MediaItem as DomainMedia
 import com.malekplay.network.DiscoveredNetworkDevice
 import com.malekplay.network.OnlineSubtitle
 import com.malekplay.network.OnlineSubtitleRepository
+import com.malekplay.network.SubtitleQueryCleaner
 import com.malekplay.player.LocalSubtitleResolver
 import com.malekplay.player.PipController
 import com.malekplay.player.PlaybackService
@@ -658,7 +659,7 @@ class PlayerViewModel @Inject constructor(
                 } else null
             }
             if (requestGeneration != playbackGeneration || _controller.value !== player) return@launch
-            if (selectedSubtitle != null && selectedSubtitle.language != "ar") {
+            if (selectedSubtitle != null && SubtitleQueryCleaner.normalizeLanguage(selectedSubtitle.language) != "ar") {
                 translationSourceSubtitleUri = selectedSubtitle.uri
                 _subtitleTranslationAvailable.value = true
                 _subtitleTranslationError.value = null
