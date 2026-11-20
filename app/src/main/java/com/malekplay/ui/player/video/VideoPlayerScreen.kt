@@ -710,6 +710,19 @@ fun VideoPlayerScreen(
                 }
             }
     ) {
+        if (internalAiFallback) {
+            Text(
+                text = "يعمل محرك الذكاء البصري الداخلي عبر GPU (الوضع الذكي)",
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 72.dp)
+                    .background(Color(0xCC211638))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                color = Color.White,
+                fontSize = 12.sp,
+                maxLines = 1
+            )
+        }
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
