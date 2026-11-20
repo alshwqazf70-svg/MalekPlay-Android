@@ -649,7 +649,16 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
 
         def state_transfer_id(item: FileEntry) -> str:
             base_id = _v2_transfer_id(item)
-            return base_id + "-" + uuid.UUID(item.file_id).hex if base_id in duplicate_transfer_ids else base_id
+            per_file_id = base_id + "-" + uuid.UUID(item.file_id).hex
+            per_file_prefix = f".ultrashare-v2-{per_file_id}"
+            legacy_prefix = f".ultrashare-v2-{base_id}"
+            state_suffixes = (".part", ".resume", ".resume.tmp", ".received")
+            if any((state / (per_file_prefix + suffix)).exists() for suffix in state_suffixes):
+                return per_file_id
+            has_legacy_state = any((state / (legacy_prefix + suffix)).exists() for suffix in state_suffixes)
+            if has_legacy_state and base_id not in duplicate_transfer_ids:
+                return base_id
+            return per_file_id
 
         for entry in manifest.entries:
             transfer_id = state_transfer_id(entry)
