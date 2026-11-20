@@ -50,14 +50,16 @@ internal fun isValidSubtitlePayload(bytes: ByteArray, extension: String): Boolea
 
     val text = bytes.toString(Charsets.UTF_8)
         .trimStart('\uFEFF', ' ', '\t', '\n', '\r')
-    val timestamp = """\d{2}:\d{2}:\d{2}[,.]\d{3}"""
+    val timestamp = """(?:\d{1,2}:)?\d{1,2}:\d{2}[,.]\d{3}"""
     val arrowCue = Regex(
         """(?m)^\s*$timestamp\s+-->\s*$timestamp(?:\s+.*)?$"""
     ).containsMatchIn(text)
+    val assCue = text.contains("[Script Info]", ignoreCase = true) &&
+        text.contains("[Events]", ignoreCase = true) &&
+        text.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
     val detected = when {
         text.startsWith("WEBVTT", ignoreCase = true) && arrowCue -> "vtt"
-        text.contains("[Script Info]", ignoreCase = true) &&
-            text.contains("[Events]", ignoreCase = true) -> "ass"
+        assCue -> "ass"
         arrowCue -> "srt"
         else -> return false
     }
@@ -118,7 +120,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }
         task.run()
         try {
-            return SubtitleResultPolicy.rankAndFilter(task.get(), language).take(40)
+            return SubtitleResultPolicy.rankAndFilter(task.get(), language, resolvedSeason, resolvedEpisode).take(40)
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             throw java.io.IOException("تم إيقاف البحث عن الترجمة", interrupted)
@@ -143,13 +145,15 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
 
         // Fetch both supported languages once so language-filter changes stay local.
         val providerLanguages = "ar,en"
-        val publicAttempt = runCatching { searchPublic(providerTitle, season, episode) }
-        val accountAttempt = if (hasCredentials()) {
+        val publicAttempt = runCatching { searchPublic(cleaned.title, cleaned.year, season, episode) }
+        val accountEnabled = hasCredentials()
+        val accountAttempt = if (accountEnabled) {
             runCatching { search(providerTitle, providerLanguages, season, episode, mediaUri) }
         } else null
         val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
-        val subdlAttempt = if (!subdlKey.isNullOrBlank()) runCatching {
-            searchSubDl(cleaned.title, providerLanguages, season, episode, cleaned.year, subdlKey)
+        val subdlEnabled = !subdlKey.isNullOrBlank()
+        val subdlAttempt = if (subdlEnabled) runCatching {
+            searchSubDl(cleaned.title, providerLanguages, season, episode, cleaned.year, requireNotNull(subdlKey))
         } else null
         val combined = (
             publicAttempt.getOrDefault(emptyList()) +
@@ -157,11 +161,14 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 subdlAttempt?.getOrDefault(emptyList()).orEmpty()
             ).distinctBy { it.provider + ":" + it.sourceId }
 
-        if (combined.isEmpty()) {
-            val failure = publicAttempt.exceptionOrNull()
-                ?: accountAttempt?.exceptionOrNull()
-                ?: subdlAttempt?.exceptionOrNull()
-            if (failure != null) throw failure
+        val enabledProviderCount = 1 + (if (accountEnabled) 1 else 0) + (if (subdlEnabled) 1 else 0)
+        val failures = listOfNotNull(
+            publicAttempt.exceptionOrNull(),
+            accountAttempt?.exceptionOrNull(),
+            subdlAttempt?.exceptionOrNull()
+        )
+        if (combined.isEmpty() && failures.size == enabledProviderCount) {
+            throw failures.last()
         }
         automaticSearchCache.put(queryKey, combined)
         return combined
@@ -169,19 +176,42 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
 
     private fun searchPublic(
         title: String,
+        year: Int?,
         season: Int?,
         episode: Int?
     ): List<OnlineSubtitle> {
         require(title.isNotBlank()) { "أدخل اسم الفيلم أو المسلسل" }
-        val query = SubtitleQueryCleaner.appendEpisodeIfMissing(
-            title.trim().take(150), season, episode
-        )
+        val cleanTitle = title.trim().take(150)
+        val titleWithYear = cleanTitle + (year?.let { " $it" } ?: "")
+        val candidates = buildList {
+            add(SubtitleQueryCleaner.appendEpisodeIfMissing(titleWithYear, season, episode))
+            if (year != null) {
+                add(SubtitleQueryCleaner.appendEpisodeIfMissing(cleanTitle, season, episode))
+            }
+            if (season != null || episode != null) add(cleanTitle)
+        }.map(String::trim).filter(String::isNotBlank).distinctBy { it.lowercase(Locale.ROOT) }
+
+        val failures = mutableListOf<Exception>()
+        candidates.forEach { query ->
+            val result = runCatching { searchPublicQuery(query) }
+            if (result.isSuccess) {
+                val subtitles = result.getOrDefault(emptyList())
+                if (subtitles.isNotEmpty()) return subtitles
+            } else {
+                result.exceptionOrNull()?.let(failures::add)
+            }
+        }
+        if (failures.size == candidates.size && failures.isNotEmpty()) throw failures.last()
+        return emptyList()
+    }
+
+    private fun searchPublicQuery(query: String): List<OnlineSubtitle> {
         val cacheKey = query.lowercase(Locale.ROOT)
-        val cached = publicSearchCache.get(cacheKey)
-        if (cached != null) return cached
-        val urlBuilder = Uri.parse("$PUBLIC_API/search/subtitles").buildUpon()
+        publicSearchCache.get(cacheKey)?.let { return it }
+        val url = Uri.parse("$PUBLIC_API/search/subtitles").buildUpon()
             .appendQueryParameter("title", query)
-        val request = Request.Builder().url(urlBuilder.build().toString())
+            .build().toString()
+        val request = Request.Builder().url(url)
             .header("User-Agent", AGENT).header("Accept", "application/json")
             .apply {
                 val bearer = vault.load(WEBSITE_KEY_SLOT)?.first
@@ -200,12 +230,15 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     else -> languageValue.toString()
                 }
                 add(OnlineSubtitle(
-                    fileId = 0L, language = SubtitleProviderResultParser.language(languageCode),
+                    fileId = 0L,
+                    language = SubtitleProviderResultParser.language(languageCode),
                     release = SubtitleProviderResultParser.release(
                         item.optString("release"), item.optString("film_title", "Subtitle")
                     ),
-                    downloads = SubtitleProviderResultParser.downloadCount(item.optInt("downloads")), format = format,
-                    sourceId = id, provider = PUBLIC_PROVIDER
+                    downloads = SubtitleProviderResultParser.downloadCount(item.optInt("downloads")),
+                    format = format,
+                    sourceId = id,
+                    provider = PUBLIC_PROVIDER
                 ))
             }
         }.distinctBy { it.sourceId }.take(40)
