@@ -120,7 +120,14 @@ fun OnlineSubtitleSearchSheet(
                     enabled = subdlKey.isNotBlank() || websiteKey.isNotBlank(),
                     modifier = Modifier.fillMaxWidth()) { Text("حفظ مفاتيح المزودين") }
             }
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            error?.let { message ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = onSearch, enabled = query.isNotBlank() && !loading) {
+                        Text("إعادة المحاولة")
+                    }
+                }
+            }
             if (!loading && results.isEmpty() && error == null) {
                 Text("اكتب العنوان واضغط بحث لعرض الترجمات المتاحة.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
