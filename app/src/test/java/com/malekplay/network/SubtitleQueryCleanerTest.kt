@@ -33,6 +33,17 @@ class SubtitleQueryCleanerTest {
         assertNull(result.episode)
     }
 
+    @Test fun stripsReleaseGroupWithoutDamagingHyphenatedTitles() {
+        assertEquals("Spider-Man", SubtitleQueryCleaner.clean("Spider-Man-GROUP.mkv").title)
+        assertEquals("The Batman", SubtitleQueryCleaner.clean("The.Batman.2022-RARBG.mkv").title)
+    }
+
+    @Test fun supportsMoreAudioAndDynamicRangeTags() {
+        val result = SubtitleQueryCleaner.clean("Oppenheimer.2023.1080p.WEBRip.AAC5.1.Dolby.Vision-GROUP.mkv")
+        assertEquals("Oppenheimer", result.title)
+        assertEquals(2023, result.year)
+    }
+
     @Test fun handlesEmptyAndUriLikeNames() {
         assertEquals("", SubtitleQueryCleaner.clean("").title)
         assertEquals("My Film", SubtitleQueryCleaner.clean("content://media/external/video/My_Film.mkv").title)
