@@ -74,6 +74,20 @@ interface UserDataDao {
     @Query("SELECT mediaId FROM history ORDER BY lastPlayedAtMs DESC LIMIT :limit")
     suspend fun recentHistoryIds(limit: Int): List<String>
 
+    /** Bounded snapshot for portable user-data backups. */
+    @Query("SELECT * FROM history ORDER BY lastPlayedAtMs DESC LIMIT 200")
+    suspend fun historySnapshot(): List<HistoryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun replaceHistoryRows(entries: List<HistoryEntity>)
+
+    /** Replaces restored history as one database transaction. */
+    @Transaction
+    suspend fun replaceHistory(entries: List<HistoryEntity>) {
+        clearHistory()
+        if (entries.isNotEmpty()) replaceHistoryRows(entries)
+    }
+
     /** Emits the most recently played item and updates live after each real playback start. */
     @Query("SELECT mediaId FROM history ORDER BY lastPlayedAtMs DESC LIMIT 1")
     fun observeLastPlayedMediaId(): Flow<String?>
