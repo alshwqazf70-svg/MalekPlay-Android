@@ -67,6 +67,11 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         !key.isNullOrBlank() && !user?.first.isNullOrBlank() && !user?.second.isNullOrBlank()
     }.getOrDefault(false)
 
+    fun saveProviderApiKeys(subdlKey: String, websiteKey: String) {
+        if (subdlKey.isNotBlank()) vault.save(SUBDL_KEY_SLOT, subdlKey.trim(), "api-key")
+        if (websiteKey.isNotBlank()) vault.save(WEBSITE_KEY_SLOT, websiteKey.trim(), "api-key")
+    }
+
     /**
      * Searches a public guest endpoint first. No account, API key, or setup is required
      * for the user. The provider documents a small daily guest quota, so failures are
@@ -77,13 +82,20 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val accountAttempt = if (hasCredentials()) {
             runCatching { search(title, language, season, episode) }
         } else null
+        val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
+        val subdlAttempt = if (!subdlKey.isNullOrBlank()) runCatching {
+            searchSubDl(title, language, season, episode, subdlKey)
+        } else null
         val publicResults = publicAttempt.getOrDefault(emptyList())
         val accountResults = accountAttempt?.getOrDefault(emptyList()).orEmpty()
-        if (publicAttempt.isFailure && accountAttempt?.isFailure != false) {
-            throw publicAttempt.exceptionOrNull() ?: IllegalStateException("تعذر البحث عن الترجمة")
+        val subdlResults = subdlAttempt?.getOrDefault(emptyList()).orEmpty()
+        if (publicAttempt.isFailure && accountAttempt?.isFailure != false && subdlAttempt?.isFailure != false) {
+            throw publicAttempt.exceptionOrNull() ?: subdlAttempt?.exceptionOrNull()
+                ?: IllegalStateException("تعذر البحث عن الترجمة")
         }
-        return (publicResults + accountResults)
+        return (publicResults + accountResults + subdlResults)
             .distinctBy { it.provider + ":" + it.sourceId }
+            .sortedBy { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 }
             .take(40)
     }
 
@@ -141,6 +153,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
 
     fun download(subtitle: OnlineSubtitle): Uri {
         if (subtitle.provider == PUBLIC_PROVIDER) return downloadPublic(subtitle)
+        if (subtitle.provider == SUBDL_PROVIDER) return downloadSubDl(subtitle)
         return download(subtitle.fileId)
     }
 
@@ -182,6 +195,69 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 writeSubtitleAtomically(dir, "$cachePrefix.$ext", bytes)
             }
             require(target.length() in 1..MAX_BYTES.toLong()) { "حجم ملف الترجمة غير صالح" }
+            return Uri.fromFile(target)
+        }
+    }
+
+    private fun searchSubDl(
+        title: String, language: String, season: Int?, episode: Int?, apiKey: String
+    ): List<OnlineSubtitle> {
+        val languages = language.split(',').map(SubtitleQueryCleaner::normalizeLanguage)
+            .filter { it in setOf("ar", "en") }.joinToString(",") { it.uppercase(Locale.ROOT) }
+        val url = Uri.parse(SUBDL_API).buildUpon()
+            .appendQueryParameter("api_key", apiKey)
+            .appendQueryParameter("film_name", title.take(150))
+            .appendQueryParameter("languages", languages.ifBlank { "AR,EN" })
+            .appendQueryParameter("subs_per_page", "30")
+            .apply {
+                if (season != null && episode != null) {
+                    appendQueryParameter("season_number", season.toString())
+                    appendQueryParameter("episode_number", episode.toString())
+                }
+            }.build().toString()
+        val data = execute(Request.Builder().url(url).header("User-Agent", AGENT)
+            .header("Accept", "application/json").get().build()).optJSONArray("subtitles")
+            ?: return emptyList()
+        return buildList {
+            for (index in 0 until data.length()) {
+                val item = data.optJSONObject(index) ?: continue
+                val downloadPath = item.optString("url").takeIf { it.isNotBlank() } ?: continue
+                val release = item.optString("release_name").ifBlank { title }
+                val extension = release.substringAfterLast('.', "srt").lowercase(Locale.ROOT)
+                    .takeIf { it in FORMATS } ?: "srt"
+                val lang = SubtitleQueryCleaner.normalizeLanguage(
+                    item.optString("lang").ifBlank { item.optString("language") }
+                )
+                add(OnlineSubtitle(
+                    fileId = 0L, language = lang, release = release,
+                    downloads = item.optInt("downloads"), format = extension,
+                    sourceId = downloadPath, provider = SUBDL_PROVIDER
+                ))
+            }
+        }.distinctBy { it.sourceId }.take(40)
+    }
+
+    private fun downloadSubDl(subtitle: OnlineSubtitle): Uri {
+        val path = subtitle.sourceId
+        val downloadUri = when {
+            path.startsWith("https://") -> Uri.parse(path)
+            path.startsWith("/") -> Uri.parse("https://dl.subdl.com$path")
+            else -> Uri.parse("https://dl.subdl.com/$path")
+        }
+        require(downloadUri.scheme == "https" && downloadUri.host in setOf("dl.subdl.com", "subdl.com")) {
+            "رابط تنزيل ترجمة SubDL غير آمن"
+        }
+        val directory = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
+        val response = client.newCall(Request.Builder().url(downloadUri.toString()).get().build()).execute()
+        response.use {
+            if (!it.isSuccessful) error("تعذر تنزيل ترجمة SubDL (HTTP ${it.code})")
+            val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
+            val prefix = "subtitle-subdl-${subtitle.sourceId.hashCode().toUInt()}"
+            val target = if (bytes.isZip()) extract(bytes, directory, subtitle.sourceId.hashCode().toLong(), prefix)
+            else {
+                val ext = detect(bytes) ?: subtitle.format
+                writeSubtitleAtomically(directory, "$prefix.$ext", bytes)
+            }
             return Uri.fromFile(target)
         }
     }
@@ -358,6 +434,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         const val PUBLIC_API = "$PUBLIC_BASE/api"
         const val PUBLIC_PROVIDER = "subtitleSearchEngine"
         const val WEBSITE_KEY_SLOT = "subtitles_website_api_key"
+        const val SUBDL_KEY_SLOT = "subdl_api_key"
+        const val SUBDL_API = "https://api.subdl.com/api/v1/subtitles"
+        const val SUBDL_PROVIDER = "subdl"
         const val AGENT = "MalekPlayer v2.0.0"
         const val KEY_SLOT = "opensubtitles_api_key"
         const val USER_SLOT = "opensubtitles_account"
