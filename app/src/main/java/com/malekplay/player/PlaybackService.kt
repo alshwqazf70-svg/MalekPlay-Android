@@ -97,6 +97,7 @@ class PlaybackService : MediaSessionService() {
     private var videoNoiseReductionEnabled = false
     @Volatile private var videoEffectsBridgeAttached = false
     @Volatile private var videoLanczosSubmitted = false
+    private var appliedLanczosEffect = false
     @Volatile private var lastRendererFrameCount = 0L
     @Volatile private var lastAverageProcessingOffsetUs = 0L
     @Volatile private var droppedVideoFramesTotal = 0L
@@ -590,14 +591,12 @@ class PlaybackService : MediaSessionService() {
         val player = localExoPlayer ?: return false
         if (!hasAnyVideoEnhancementEnabled()) {
             videoLanczosSubmitted = false
-            videoEffectsBridgeAttached = runCatching {
-                AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
-            }.getOrDefault(false)
+            videoEffectsBridgeAttached = applyEffectChain(player, emptyList(), hasLanczos = false)
             return videoEffectsBridgeAttached
         }
         if (!isLocalClearVideoSession()) {
             disableAllVideoEnhancements()
-            runCatching { AssVideoEffectRegistry.setAdditionalEffects(player, emptyList()) }
+            videoEffectsBridgeAttached = applyEffectChain(player, emptyList(), hasLanczos = false)
             return false
         }
         // A user may toggle an effect while Media3 is still selecting tracks or
@@ -647,7 +646,7 @@ class PlaybackService : MediaSessionService() {
             effects += VideoDetailEnhancementEffect(profile.detailStrength)
         }
         val applied = runCatching {
-            AssVideoEffectRegistry.setAdditionalEffects(player, effects)
+            applyEffectChain(player, effects, hasLanczos = videoLanczosSubmitted)
         }.onFailure { error ->
             Log.e(TAG, "Failed to apply local video enhancement effects", error)
         }.getOrDefault(false)
@@ -681,6 +680,45 @@ class PlaybackService : MediaSessionService() {
                 "; api=" + Build.VERSION.SDK_INT +
                 "; downgrade=" + (tuning.downgradeReason ?: "none")
         )
+        return true
+    }
+
+    /**
+     * Lanczos changes the Media3 effect graph structure. Rebuild only when that
+     * structural stage is added/removed, preserving the active queue item, exact
+     * position and play intent. Parameter-only effect changes remain in-place.
+     */
+    private fun applyEffectChain(
+        player: ExoPlayer,
+        effects: List<Effect>,
+        hasLanczos: Boolean
+    ): Boolean {
+        val hasCurrentItem = player.currentMediaItem != null
+        val needsRebind = hasCurrentItem &&
+            player.playbackState != Player.STATE_IDLE &&
+            appliedLanczosEffect != hasLanczos
+        val itemIndex = player.currentMediaItemIndex
+        val positionMs = player.currentPosition
+        val shouldPlay = player.playWhenReady
+
+        if (needsRebind) player.stop()
+        val accepted = AssVideoEffectRegistry.setAdditionalEffects(player, effects)
+        if (!accepted) {
+            if (needsRebind) {
+                // The registry retains the last known-good effect list on rejection.
+                player.prepare()
+                if (itemIndex != C.INDEX_UNSET) player.seekTo(itemIndex, positionMs)
+                player.playWhenReady = shouldPlay
+            }
+            return false
+        }
+
+        appliedLanczosEffect = hasLanczos
+        if (needsRebind) {
+            player.prepare()
+            if (itemIndex != C.INDEX_UNSET) player.seekTo(itemIndex, positionMs)
+            player.playWhenReady = shouldPlay
+        }
         return true
     }
 
