@@ -96,6 +96,7 @@ class PlaybackService : MediaSessionService() {
     private var videoUpscalingEnabled = false
     private var videoNoiseReductionEnabled = false
     private var videoEnhancementPipeline: VideoEnhancementPipelineEffect? = null
+    private var videoEnhancementPipelineAttached = false
     @Volatile private var videoEffectsBridgeAttached = false
     @Volatile private var videoLanczosSubmitted = false
     private var appliedLanczosEffect = false
@@ -195,7 +196,9 @@ class PlaybackService : MediaSessionService() {
         // than replacing the GlEffect and recreating Media3's frame processor.
         val pipeline = VideoEnhancementPipelineEffect()
         videoEnhancementPipeline = pipeline
-        if (!AssVideoEffectRegistry.setAdditionalEffects(player, listOf(pipeline))) {
+        videoEnhancementPipelineAttached =
+            AssVideoEffectRegistry.setAdditionalEffects(player, listOf(pipeline))
+        if (!videoEnhancementPipelineAttached) {
             Log.e(TAG, "Could not attach the always-ready GPU enhancement pipeline")
         }
 
@@ -738,7 +741,12 @@ class PlaybackService : MediaSessionService() {
             structuralChange
         // Denoise/detail/profile changes only mutate the already-installed
         // pipeline's AtomicReference. Do not call setVideoEffects again for them.
-        if (!structuralChange && AssVideoEffectRegistry.isAttached(player)) return true
+        val pipelineIncluded = videoEnhancementPipeline != null &&
+            effects.any { it === videoEnhancementPipeline }
+        if (!structuralChange &&
+            pipelineIncluded == videoEnhancementPipelineAttached &&
+            AssVideoEffectRegistry.isAttached(player)
+        ) return true
 
         val itemIndex = player.currentMediaItemIndex
         val positionMs = player.currentPosition
@@ -757,6 +765,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         appliedLanczosEffect = hasLanczos
+        videoEnhancementPipelineAttached = pipelineIncluded
         if (needsRebind) {
             player.prepare()
             if (itemIndex != C.INDEX_UNSET) player.seekTo(itemIndex, positionMs)
