@@ -732,9 +732,14 @@ class PlaybackService : MediaSessionService() {
         hasLanczos: Boolean
     ): Boolean {
         val hasCurrentItem = player.currentMediaItem != null
+        val structuralChange = appliedLanczosEffect != hasLanczos
         val needsRebind = hasCurrentItem &&
             player.playbackState != Player.STATE_IDLE &&
-            appliedLanczosEffect != hasLanczos
+            structuralChange
+        // Denoise/detail/profile changes only mutate the already-installed
+        // pipeline's AtomicReference. Do not call setVideoEffects again for them.
+        if (!structuralChange && AssVideoEffectRegistry.isAttached(player)) return true
+
         val itemIndex = player.currentMediaItemIndex
         val positionMs = player.currentPosition
         val shouldPlay = player.playWhenReady
