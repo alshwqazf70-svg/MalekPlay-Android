@@ -51,9 +51,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     private val app = context.applicationContext
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS).callTimeout(45, TimeUnit.SECONDS).build()
-    private val publicSearchCache = object : LinkedHashMap<String, List<OnlineSubtitle>>(8, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<OnlineSubtitle>>?) = size > 12
-    }
+    private val publicSearchCache = SubtitleSearchResultCache(12)
 
     fun saveCredentials(apiKey: String, username: String, password: String) {
         require(apiKey.isNotBlank() && username.isNotBlank() && password.isNotBlank())
@@ -114,9 +112,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val languages = language.split(',').map { SubtitleQueryCleaner.normalizeLanguage(it.trim()) }
             .filter { it in setOf("ar", "en") }.ifEmpty { listOf("ar", "en") }
         val cacheKey = query.lowercase(Locale.ROOT)
-        val cached = synchronized(publicSearchCache) { publicSearchCache[cacheKey] }
-        if (cached != null) return cached.filter { SubtitleQueryCleaner.normalizeLanguage(it.language) in languages }
-            .sortedBy { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 }
+        val cached = publicSearchCache.get(cacheKey)
+        if (cached != null) return SubtitleResultPolicy.rankAndFilter(cached, languages.joinToString(","))
         val urlBuilder = Uri.parse("$PUBLIC_API/search/subtitles").buildUpon()
             .appendQueryParameter("title", query)
         val request = Request.Builder().url(urlBuilder.build().toString())
@@ -146,9 +143,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 ))
             }
         }.distinctBy { it.sourceId }.take(40)
-        synchronized(publicSearchCache) { publicSearchCache[cacheKey] = parsed }
-        return parsed.filter { SubtitleQueryCleaner.normalizeLanguage(it.language) in languages }
-            .sortedBy { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 }
+        publicSearchCache.put(cacheKey, parsed)
+        return SubtitleResultPolicy.rankAndFilter(parsed, languages.joinToString(","))
     }
 
     fun download(subtitle: OnlineSubtitle): Uri {
