@@ -235,16 +235,14 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val url = Uri.parse(SUBDL_API).buildUpon()
             .appendQueryParameter("api_key", apiKey)
             .appendQueryParameter("film_name", title.take(150))
-            .appendQueryParameter("type", if (season != null && episode != null) "tv" else "movie")
+            .appendQueryParameter("type", if (season != null || episode != null) "tv" else "movie")
             .apply { if (year != null) appendQueryParameter("year", year.toString()) }
             .appendQueryParameter("languages", languages.ifBlank { "AR,EN" })
             .appendQueryParameter("subs_per_page", "30")
             .appendQueryParameter("unpack", "1")
             .apply {
-                if (season != null && episode != null) {
-                    appendQueryParameter("season_number", season.toString())
-                    appendQueryParameter("episode_number", episode.toString())
-                }
+                season?.let { appendQueryParameter("season_number", it.toString()) }
+                episode?.let { appendQueryParameter("episode_number", it.toString()) }
             }.build().toString()
         val payload = execute(Request.Builder().url(url).header("User-Agent", AGENT)
             .header("Accept", "application/json").get().build())
