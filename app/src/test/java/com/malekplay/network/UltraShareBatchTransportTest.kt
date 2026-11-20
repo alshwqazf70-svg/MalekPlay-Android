@@ -82,6 +82,44 @@ class UltraShareBatchTransportTest {
 
 
     @Test
+    fun independentSourcePreparationKeepsHealthyItemsWhenOneProviderFails() = runBlocking {
+        val results = UltraShareBatchTransport.mapSourcesIndependently(
+            sources = listOf("first", "unavailable", "third"),
+            maxConcurrency = 2
+        ) { source ->
+            if (source == "unavailable") throw java.io.IOException("provider unavailable")
+            kotlinx.coroutines.delay(if (source == "first") 40L else 10L)
+            source.uppercase()
+        }
+
+        assertEquals(listOf("FIRST", null, "THIRD"), results.map { it.value })
+        assertEquals("provider unavailable", results[1].failure?.message)
+        assertTrue(results[0].failure == null)
+        assertTrue(results[2].failure == null)
+    }
+
+    @Test
+    fun independentSourcePreparationStillPropagatesCancellation() = runBlocking {
+        val siblingCancelled = CompletableDeferred<Unit>()
+        val work = launch {
+            UltraShareBatchTransport.mapSourcesIndependently(
+                sources = listOf(0, 1),
+                maxConcurrency = 2
+            ) { value ->
+                if (value == 0) kotlinx.coroutines.awaitCancellation()
+                try {
+                    kotlinx.coroutines.awaitCancellation()
+                } finally {
+                    siblingCancelled.complete(Unit)
+                }
+            }
+        }
+        kotlinx.coroutines.delay(20L)
+        work.cancelAndJoin()
+        assertTrue(siblingCancelled.isCompleted)
+    }
+
+    @Test
     fun qrFastProbeCompletesTheMpc2GreetingOnAnAlreadyReachableHost() = runBlocking {
         val localPrivateAddress = java.net.NetworkInterface.getNetworkInterfaces().toList()
             .asSequence()
