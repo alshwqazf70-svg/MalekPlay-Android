@@ -1441,25 +1441,25 @@ private fun ZapyaPrimaryAction(
             modifier = Modifier.size(148.dp),
             onClick = onClick,
             shape = CircleShape,
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF172A43))
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF251535))
         ) {
             Box(
                 modifier = Modifier.fillMaxSize().padding(5.dp)
                     .background(
-                        Brush.radialGradient(listOf(Color(0xFF203D5A), Color(0xFF111D35))),
+                        Brush.radialGradient(listOf(Color(0xFF3A2054), Color(0xFF171021))),
                         CircleShape
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier.size(116.dp)
-                        .background(Color(0xFF152B45), CircleShape),
+                        .background(Color(0xFF2B1940), CircleShape),
                     contentAlignment = Alignment.Center
                 ) { icon() }
             }
         }
-        Text(title, color = Color(0xFF78E8F2), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        Text(subtitle, color = Color(0xFFB7C5E7), style = MaterialTheme.typography.labelSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center, minLines = 2)
+        Text(title, color = MalekPlayColors.PurpleBright, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Text(subtitle, color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.labelSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center, minLines = 2)
     }
 }
 
