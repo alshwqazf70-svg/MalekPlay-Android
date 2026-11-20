@@ -1197,7 +1197,8 @@ private fun forgetApprovedSenderTarget(host: String) {
                     requestConnection(
                         host = firstHost,
                         secret = pairing.pairingSecret,
-                        alternateHosts = pairing.hosts.drop(1)
+                        alternateHosts = pairing.hosts.drop(1),
+                        port = pairing.port
                     )
                 } else {
                     _state.value = _state.value.copy(
@@ -1291,6 +1292,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                     secret = pairing.pairingSecret,
                     alternateHosts = pairing.hosts.drop(1),
                     preferredNetwork = network,
+                    port = pairing.port,
                     onConnectionEstablished = { peerHost ->
                         if (networkLost.get()) {
                             UltraShareForegroundService.disconnectApprovedPeer(peerHost)
