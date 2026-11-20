@@ -442,6 +442,7 @@ object UltraShareBatchTransport {
                     "resumedBytes" to offsets.values.sum()
                 )
             )
+            val reusableSourceChunk = ByteArray(CHUNK_BYTES - 8)
             prepared.forEachIndexed { index, (source, entry, preparedDigest) ->
                 currentCoroutineContext().ensureActive()
                 val offset = offsets.getValue(entry.id)
@@ -465,7 +466,7 @@ object UltraShareBatchTransport {
                 resolver.openInputStream(source.uri)?.use { raw ->
                     BufferedInputStream(raw, BUFFER_BYTES).use { stream ->
                         skipAndDigest(stream, offset, streamedDigest)
-                        val buffer = ByteArray(CHUNK_BYTES - 8)
+                        val buffer = reusableSourceChunk
                         while (transferred < entry.sizeBytes) {
                             currentCoroutineContext().ensureActive()
                             val wanted = minOf(buffer.size.toLong(), entry.sizeBytes - transferred).toInt()
