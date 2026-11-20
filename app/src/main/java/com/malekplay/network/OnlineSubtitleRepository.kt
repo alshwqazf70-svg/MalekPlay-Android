@@ -82,8 +82,15 @@ internal fun isValidSubtitlePayload(bytes: ByteArray, extension: String): Boolea
 
 class OnlineSubtitleRepository(context: Context, private val vault: NetworkCredentialVault) {
     private val app = context.applicationContext
-    private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS).callTimeout(45, TimeUnit.SECONDS).build()
+    private val client = OkHttpClient.Builder()
+        // Provider API calls carry API keys/tokens; never follow redirects that
+        // could forward custom credential headers to another origin.
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(45, TimeUnit.SECONDS)
+        .build()
     // Download redirects are followed manually so every hop is checked before
     // connecting and credentials are never forwarded to a different host.
     private val downloadClient = client.newBuilder()
