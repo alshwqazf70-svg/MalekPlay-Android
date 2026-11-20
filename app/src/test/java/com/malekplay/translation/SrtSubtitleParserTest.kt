@@ -69,7 +69,7 @@ class SrtSubtitleParserTest {
         val lines = cues.first().split('\n')
         assertEquals(1, SrtSubtitleParser.timingLineIndex(lines))
         val (masked, tags) = SrtSubtitleParser.maskMarkup("<i>Hello</i>")
-        assertTrue(masked.contains("MALekPLAYTAG0TOKEN"))
+        assertTrue(masked.contains("§T0§"))
         assertEquals("<i>Bonjour</i>", SrtSubtitleParser.restoreMarkup(
             masked.replace("Hello", "Bonjour"), tags
         ))
