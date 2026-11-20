@@ -134,8 +134,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             for (index in 0 until data.length()) {
                 val item = data.optJSONObject(index) ?: continue
                 val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
-                val format = item.optString("format").lowercase(Locale.ROOT)
-                if (format !in FORMATS) continue
+                val format = SubtitleProviderResultParser.format(item.optString("format")) ?: continue
                 val languageValue = item.opt("language")
                 val languageCode = when (languageValue) {
                     is JSONObject -> languageValue.optString("code", "en")
@@ -143,9 +142,11 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     else -> languageValue.toString()
                 }
                 add(OnlineSubtitle(
-                    fileId = 0L, language = languageCode,
-                    release = item.optString("release").ifBlank { item.optString("film_title", "Subtitle") },
-                    downloads = item.optInt("downloads"), format = format,
+                    fileId = 0L, language = SubtitleProviderResultParser.language(languageCode),
+                    release = SubtitleProviderResultParser.release(
+                        item.optString("release"), item.optString("film_title", "Subtitle")
+                    ),
+                    downloads = SubtitleProviderResultParser.downloadCount(item.optInt("downloads")), format = format,
                     sourceId = id, provider = PUBLIC_PROVIDER
                 ))
             }
@@ -225,15 +226,14 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             for (index in 0 until data.length()) {
                 val item = data.optJSONObject(index) ?: continue
                 val downloadPath = item.optString("url").takeIf { it.isNotBlank() } ?: continue
-                val release = item.optString("release_name").ifBlank { title }
-                val extension = release.substringAfterLast('.', "srt").lowercase(Locale.ROOT)
-                    .takeIf { it in FORMATS } ?: "srt"
-                val lang = SubtitleQueryCleaner.normalizeLanguage(
+                val release = SubtitleProviderResultParser.release(item.optString("release_name"), title)
+                val extension = SubtitleProviderResultParser.format(release.substringAfterLast('.', "srt")) ?: "srt"
+                val lang = SubtitleProviderResultParser.language(
                     item.optString("lang").ifBlank { item.optString("language") }
                 )
                 add(OnlineSubtitle(
                     fileId = 0L, language = lang, release = release,
-                    downloads = item.optInt("downloads"), format = extension,
+                    downloads = SubtitleProviderResultParser.downloadCount(item.optInt("downloads")), format = extension,
                     sourceId = downloadPath, provider = SUBDL_PROVIDER
                 ))
             }
