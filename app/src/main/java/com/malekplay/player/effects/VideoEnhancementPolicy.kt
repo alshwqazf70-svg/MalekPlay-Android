@@ -8,12 +8,14 @@ enum class VideoEnhancementProfile(
     val wireValue: String,
     val denoiseStrength: Float,
     val detailStrength: Float,
+    /** Long-edge GPU texture ceiling used only when Lanczos upscaling is requested. */
+    val upscaleMaxLongEdge: Int,
     /** Frame interpolation remains disabled for every preset; no synthetic frames are generated. */
     val previousFrameWeight: Float = 0f
 ) {
-    ECONOMY("economy", 0.24f, 0.48f),
-    BALANCED("balanced", 0.38f, 0.78f),
-    ULTRA("ultra", 0.50f, 1.02f);
+    ECONOMY("economy", 0.24f, 0.48f, 1920),
+    BALANCED("balanced", 0.38f, 0.78f, 2560),
+    ULTRA("ultra", 0.50f, 1.02f, 2960);
 
     companion object {
         fun fromWireValue(value: String?): VideoEnhancementProfile =
