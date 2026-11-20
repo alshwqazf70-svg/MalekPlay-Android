@@ -207,6 +207,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 if (subtitles.isNotEmpty()) return subtitles
             } else {
                 val failure = result.exceptionOrNull() ?: return@forEach
+                if (failure !is Exception) throw failure
                 failures += failure
                 // Authentication and quota failures are query-independent. Retrying
                 // the same provider with weaker titles only burns the guest/API quota.
