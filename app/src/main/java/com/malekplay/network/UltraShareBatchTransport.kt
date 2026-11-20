@@ -302,6 +302,58 @@ object UltraShareBatchTransport {
         }
     }
 
+    /** A per-item preparation result: ordinary file failures do not cancel sibling items. */
+    internal data class IndependentSourceResult<T>(
+        val value: T? = null,
+        val failure: Exception? = null
+    )
+
+    /**
+     * Bounded ordered preparation that isolates ordinary per-source failures.
+     * Cancellation is deliberately rethrown so stopping the parent transfer still
+     * cancels every in-flight content-provider read.
+     */
+    internal suspend fun <T, R> mapSourcesIndependently(
+        sources: List<T>,
+        maxConcurrency: Int = MAX_PARALLEL_SOURCE_PREPARATION,
+        transform: suspend (T) -> R
+    ): List<IndependentSourceResult<R>> = mapSourcesBounded(sources, maxConcurrency) { source ->
+        try {
+            IndependentSourceResult(value = transform(source))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            IndependentSourceResult(failure = failure)
+        }
+    }
+
+    private data class PreparedSource(
+        val sourceIndex: Int,
+        val source: Source,
+        val entry: UltraShareBatchProtocol.FileEntry,
+        val digest: ByteArray
+    )
+
+    private fun preparationFailureOutcome(source: Source, failure: Exception): FileOutcome {
+        val safeName = runCatching { UltraShareCore.sanitizeFileName(source.name) }
+            .getOrDefault("ملف غير صالح")
+        val reason = when (failure) {
+            is SecurityException -> "انتهت صلاحية الوصول إلى الملف."
+            is IOException -> "تعذرت قراءة الملف من موفر المحتوى."
+            is IllegalArgumentException -> failure.message?.take(160)
+                ?: "بيانات الملف غير صالحة."
+            else -> "تعذر تجهيز الملف."
+        }
+        return FileOutcome(
+            fileId = source.fileId,
+            fileName = safeName,
+            receivedFile = null,
+            status = UltraShareBatchProtocol.FileStatus.FAILED,
+            transferredBytes = 0L,
+            error = reason
+        )
+    }
+
     suspend fun sendBatch(
         resolver: ContentResolver,
         sources: List<Source>,
@@ -323,10 +375,17 @@ object UltraShareBatchTransport {
             "SOURCE_PREPARATION_STARTED",
             mapOf("peerHost" to host, "fileCount" to sources.size)
         )
-        // Hash independent content-provider streams concurrently, but keep the
-        // fan-out deliberately small for API 23 devices and low-memory OEM builds.
-        // awaitAll preserves the caller's source order in the resulting manifest.
-        val prepared = mapSourcesBounded(sources, MAX_PARALLEL_SOURCE_PREPARATION) { source ->
+        require(sources.map { it.fileId }.distinct().size == sources.size) {
+            "تحتوي قائمة الإرسال على معرّف ملف مكرر."
+        }
+        // Prepare files independently: a revoked URI or malformed item is recorded
+        // as a per-file failure instead of cancelling every healthy item in the queue.
+        // The bounded mapper still preserves input order and propagates parent cancellation.
+        val preparationResults = mapSourcesIndependently(
+            sources.withIndex().toList(),
+            MAX_PARALLEL_SOURCE_PREPARATION
+        ) { indexed ->
+            val source = indexed.value
             require(source.sizeBytes in 1..UltraShareCore.MAX_FILE_BYTES)
             val name = UltraShareCore.sanitizeFileName(source.name)
             val mime = UltraShareCore.sanitizeMimeType(source.mimeType)
@@ -344,12 +403,21 @@ object UltraShareBatchTransport {
                 }
                 require(countTotal == source.sizeBytes) { "حجم الملف لا يطابق بياناته: $name" }
                 md.digest()
-            } ?: error("تعذر فتح الملف: $name")
-            Triple(source, UltraShareBatchProtocol.newEntry(name, mime, source.sizeBytes, digest, source.fileId), digest)
+            } ?: throw IOException("تعذر فتح الملف: $name")
+            PreparedSource(
+                sourceIndex = indexed.index,
+                source = source,
+                entry = UltraShareBatchProtocol.newEntry(
+                    name, mime, source.sizeBytes, digest, source.fileId
+                ),
+                digest = digest
+            )
         }
+        val prepared = preparationResults.mapNotNull { it.value }
         val manifest = UltraShareBatchProtocol.Manifest(
-            java.util.UUID.randomUUID().toString(), prepared.map { it.second }
+            java.util.UUID.randomUUID().toString(), prepared.map { it.entry }
         )
+        val preparationFailures = preparationResults.count { it.failure != null }
         UltraShareDiagnostics.event(
             "DATA_SEND",
             "SOURCE_PREPARATION_COMPLETED",
@@ -357,9 +425,24 @@ object UltraShareBatchTransport {
                 "peerHost" to host,
                 "batchId" to manifest.batchId,
                 "fileCount" to manifest.entries.size,
-                "totalBytes" to manifest.entries.sumOf { it.sizeBytes }
+                "failedPreparationCount" to preparationFailures,
+                "totalBytes" to manifest.totalBytes
             )
         )
+        if (prepared.isEmpty()) {
+            val failedOutcomes = sources.mapIndexed { index, source ->
+                preparationFailureOutcome(
+                    source,
+                    checkNotNull(preparationResults[index].failure)
+                )
+            }
+            UltraShareDiagnostics.event(
+                "DATA_SEND",
+                "BATCH_SKIPPED_NO_READABLE_SOURCES",
+                mapOf("peerHost" to host, "failedFiles" to failedOutcomes.size)
+            )
+            return@withContext BatchOutcome(manifest.batchId, failedOutcomes)
+        }
         val target = java.net.InetAddress.getByName(host)
         // Keep the preferred Network first, exhaust all distinct Android routes,
         // then try the process-default route exactly as the preflight probe does.
@@ -495,8 +578,11 @@ object UltraShareBatchTransport {
                 )
             )
             val reusableSourceChunk = ByteArray(CHUNK_BYTES - 8)
-            prepared.forEachIndexed { index, (source, entry, preparedDigest) ->
+            prepared.forEachIndexed { index, preparedSource ->
                 currentCoroutineContext().ensureActive()
+                val source = preparedSource.source
+                val entry = preparedSource.entry
+                val preparedDigest = preparedSource.digest
                 val offset = offsets.getValue(entry.id)
                 UltraShareDiagnostics.event(
                     "DATA_SEND",
@@ -600,10 +686,22 @@ object UltraShareBatchTransport {
                 readFrame(input, receiveKey, noncePrefix, receiveSequence, UltraShareBatchProtocol.MAX_MANIFEST_BYTES, cipher = receiveCipher, keySpec = receiveKeySpec), manifest
             )
             val byId = results.associateBy { it.fileId }
-            val batchOutcome = BatchOutcome(manifest.batchId, manifest.entries.map { entry ->
+            val remoteOutcomes = prepared.associate { preparedSource ->
+                val entry = preparedSource.entry
                 val result = byId.getValue(entry.id)
-                FileOutcome(entry.id, entry.name, null, result.status, result.transferredBytes, result.error)
-            })
+                preparedSource.sourceIndex to FileOutcome(
+                    entry.id, entry.name, null, result.status, result.transferredBytes, result.error
+                )
+            }
+            val batchOutcome = BatchOutcome(
+                manifest.batchId,
+                preparationResults.mapIndexed { index, preparation ->
+                    remoteOutcomes[index] ?: preparationFailureOutcome(
+                        sources[index],
+                        checkNotNull(preparation.failure)
+                    )
+                }
+            )
             UltraShareDiagnostics.event(
                 "DATA_SEND",
                 "BATCH_SEND_COMPLETED",
