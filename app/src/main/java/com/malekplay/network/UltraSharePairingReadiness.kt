@@ -6,6 +6,23 @@ package com.malekplay.network
  * its delay or failure must not block pairing.
  */
 internal object UltraSharePairingReadiness {
+    /** P2P recovery is allowed only after LAN probing and any hotspot transition are complete. */
+    fun shouldStartWifiDirectFallback(
+        receiving: Boolean,
+        lanProbeInProgress: Boolean,
+        hotspotActive: Boolean,
+        hotspotFallbackStarted: Boolean,
+        invitationIdBlank: Boolean,
+        wifiDirectAlreadyAttempted: Boolean,
+        hasActivePeers: Boolean
+    ): Boolean =
+        receiving &&
+            !lanProbeInProgress &&
+            !hotspotActive &&
+            !hotspotFallbackStarted &&
+            invitationIdBlank &&
+            !wifiDirectAlreadyAttempted &&
+            !hasActivePeers
     /** Reuses stored route hints only for the exact same ephemeral invitation. */
     fun stableInvitationHosts(
         storedInvitationId: String?,
