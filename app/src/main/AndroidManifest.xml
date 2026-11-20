@@ -14,6 +14,8 @@
     <!-- Required by ConnectivityManager.requestNetwork() for Wi-Fi NetworkSpecifier joins. -->
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Wi-Fi is optional hardware; core playback remains available without it. -->
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Optional classic Bluetooth discovery; never used as the file-transfer transport. -->
@@ -58,6 +60,8 @@
     <!-- Audio effects (equalizer, bass boost, virtualizer, loudness) and visualizer -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Microphone access is only used by the user-enabled audio visualizer. -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <uses-feature android:name="android.software.picture_in_picture" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
