@@ -653,8 +653,14 @@ fun VideoPlayerScreen(
         val activePlayer = controller
         val activeView = playerView
         val videoSurface = activeView?.videoSurfaceView as? SurfaceView
-        if (activePlayer == null || videoSurface == null) {
+        if (activePlayer == null) {
             googleAiState = GoogleMediaEnhancementState.WAITING_FOR_VIDEO
+            return@LaunchedEffect
+        }
+        if (videoSurface == null) {
+            // TextureView or OEM-specific output routing cannot use the Google
+            // surface bridge; keep AI enhancement available through the GPU path.
+            activateInternalAiFallback()
             return@LaunchedEffect
         }
 
