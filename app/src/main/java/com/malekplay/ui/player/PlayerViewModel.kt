@@ -1364,6 +1364,7 @@ class PlayerViewModel @Inject constructor(
 
     fun searchOnlineSubtitles(title: String, language: String, season: Int?, episode: Int?) {
         if (_onlineSubtitleLoading.value) return
+        val targetMediaId = currentMediaId
         viewModelScope.launch {
             _onlineSubtitleLoading.value = true
             _onlineSubtitleError.value = null
@@ -1380,14 +1381,18 @@ class PlayerViewModel @Inject constructor(
                 val results = withContext(Dispatchers.IO) {
                     onlineSubtitleRepository.searchAutomatic(title, language, season, episode, sourceUri)
                 }
+                // A slow provider response must never populate the sheet for a different video.
+                if (currentMediaId != targetMediaId) return@launch
                 _onlineSubtitleResults.value = results
                 if (results.isEmpty()) _onlineSubtitleError.value = "لم نعثر على ترجمة مطابقة. جرّب تعديل اسم العنوان أو اللغة."
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                _onlineSubtitleError.value = when (error) {
-                    is java.io.IOException -> "تعذر الاتصال بخدمات الترجمة. تحقق من الإنترنت ثم أعد المحاولة."
-                    else -> error.message ?: "تعذر البحث عن الترجمة"
+                if (currentMediaId == targetMediaId) {
+                    _onlineSubtitleError.value = when (error) {
+                        is java.io.IOException -> "تعذر الاتصال بخدمات الترجمة. تحقق من الإنترنت ثم أعد المحاولة."
+                        else -> error.message ?: "تعذر البحث عن الترجمة"
+                    }
                 }
             } finally {
                 _onlineSubtitleLoading.value = false
