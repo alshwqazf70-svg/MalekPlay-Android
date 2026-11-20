@@ -79,22 +79,29 @@ class UltraShareBatchEndToEndTest {
             byteArrayOf(0, 0, 0, 24).copyInto(secondMp4, 0)
             "ftypmp42".toByteArray().copyInto(secondMp4, 4)
             val firstSource = File(sourceDirectory, "first.mp4").apply { writeBytes(mp4Bytes) }
+            val duplicateDirectory = File(sourceDirectory, "duplicate-source").apply { mkdirs() }
+            val duplicateSource = File(duplicateDirectory, "first.mp4").apply { writeBytes(mp4Bytes) }
             val secondSource = File(sourceDirectory, "second.mp4").apply { writeBytes(secondMp4) }
             val resolver = RuntimeEnvironment.getApplication().contentResolver
             val sent = UltraShareBatchTransport.sendBatch(
                 resolver = resolver,
                 sources = listOf(
                     UltraShareBatchTransport.Source(Uri.fromFile(firstSource), "first.mp4", "video/mp4", firstSource.length()),
+                    UltraShareBatchTransport.Source(Uri.fromFile(duplicateSource), "first.mp4", "video/mp4", duplicateSource.length()),
                     UltraShareBatchTransport.Source(Uri.fromFile(secondSource), "second.mp4", "video/mp4", secondSource.length())
                 ),
                 host = host, port = dataPort, pairingSecret = secret
             )
             val received = withTimeout(20_000) { receiverResult.await() }
-            assertEquals(2, sent.files.size)
+            assertEquals(3, sent.files.size)
             assertTrue(sent.files.all { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED })
-            assertEquals(2, received.files.size)
+            assertEquals(3, received.files.size)
             assertTrue(received.files.all { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED })
-            for ((name, expected) in listOf("first.mp4" to mp4Bytes, "second.mp4" to secondMp4)) {
+            for ((name, expected) in listOf(
+                "first.mp4" to mp4Bytes,
+                "first (1).mp4" to mp4Bytes,
+                "second.mp4" to secondMp4
+            )) {
                 val actual = File(receivedDirectory, name)
                 assertTrue("Missing published file: $name", actual.isFile)
                 assertArrayEquals(expected, actual.readBytes())
