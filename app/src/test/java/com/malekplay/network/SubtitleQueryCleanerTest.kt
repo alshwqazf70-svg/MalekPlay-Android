@@ -31,6 +31,15 @@ class SubtitleQueryCleanerTest {
         assertEquals(3, result.episode)
     }
 
+    @Test fun episodeSuffixIsAppendedOnlyWhenMissing() {
+        assertEquals("Arthdal Chronicles S01E01",
+            SubtitleQueryCleaner.appendEpisodeIfMissing("Arthdal Chronicles", 1, 1))
+        assertEquals("Arthdal Chronicles S01E01",
+            SubtitleQueryCleaner.appendEpisodeIfMissing("Arthdal Chronicles S01E01", 1, 1))
+        assertEquals("The Office 2x03",
+            SubtitleQueryCleaner.appendEpisodeIfMissing("The Office 2x03", 2, 3))
+    }
+
     @Test fun keepsPlainMovieTitleAndDoesNotInventEpisode() {
         val result = SubtitleQueryCleaner.clean("Interstellar (2014).mp4")
         assertEquals("Interstellar", result.title)
