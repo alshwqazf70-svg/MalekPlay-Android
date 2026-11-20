@@ -61,7 +61,7 @@ object SubtitleQueryCleaner {
         val base = title.trim()
         if (season == null || episode == null) return base
         val containsEpisode = Regex(
-            """(?i)(?:^|\\b)S\\d{1,2}E\\d{1,3}(?:\\b|$)|\\b\\d{1,2}x\\d{1,3}\\b"""
+            """(?i)(?:^|\b)S\d{1,2}E\d{1,3}(?:\b|$)|\b\d{1,2}x\d{1,3}\b"""
         ).containsMatchIn(base)
         return if (containsEpisode) base
         else base + " S%02dE%02d".format(Locale.ROOT, season, episode)
