@@ -386,6 +386,14 @@ class GoogleMediaEnhancementPlayerBridge(
     }
 
     private fun publish(state: GoogleMediaEnhancementState, progress: Int = 0, message: String? = null) {
+        if (state == GoogleMediaEnhancementState.UNSUPPORTED ||
+            state == GoogleMediaEnhancementState.FAILED
+        ) {
+            VideoEnhancementMetrics.recordFailure(
+                "google_media_enhancement",
+                IllegalStateException(message ?: state.name)
+            )
+        }
         if (!closed) listener.onStateChanged(state, progress.coerceIn(0, 100), message)
     }
 
