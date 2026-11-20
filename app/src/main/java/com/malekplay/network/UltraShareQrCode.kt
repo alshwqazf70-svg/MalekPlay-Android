@@ -328,7 +328,8 @@ object UltraShareQrCode {
         val roomPsk = if (version == ROOM_VERSION) uri.getQueryParameter("psk")?.also {
             require(it.length in 8..63) { "كلمة مرور Wi-Fi غير صالحة." }
         } else hotspotPassword
-        require(hosts.isNotEmpty()) { "لا يحتوي رمز QR على عنوان IPv4 محلي صالح." }
+        // Route validation above intentionally permits an invitation-only v3/v5
+        // payload when its peer identity is present and LAN hosts are not yet known.
         return PairingDetails(host, port, secret, hosts, invitationId, roomSsid, roomPsk, hotspotSecurity, deviceName, mode)
     }
 
