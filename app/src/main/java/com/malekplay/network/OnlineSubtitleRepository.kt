@@ -206,7 +206,13 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 val subtitles = result.getOrDefault(emptyList())
                 if (subtitles.isNotEmpty()) return subtitles
             } else {
-                result.exceptionOrNull()?.let(failures::add)
+                val failure = result.exceptionOrNull() ?: return@forEach
+                failures += failure
+                // Authentication and quota failures are query-independent. Retrying
+                // the same provider with weaker titles only burns the guest/API quota.
+                if (failure is SubtitleHttpException &&
+                    failure.statusCode in setOf(401, 403, 429)
+                ) throw failure
             }
         }
         if (failures.size == candidates.size && failures.isNotEmpty()) throw failures.last()
@@ -580,7 +586,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             if (!it.isSuccessful) {
                 if (it.code == 429) {
                     if (request.url.host == PUBLIC_HOST) {
-                        error("تم بلوغ الحد اليومي للبحث المجاني في subtitles.website. أضف مفتاح API مجانيًا من الإعدادات الاختيارية في نافذة البحث.")
+                        throw SubtitleHttpException(
+                            429,
+                            "تم بلوغ الحد اليومي للبحث المجاني في subtitles.website. أضف مفتاح API مجانيًا من الإعدادات الاختيارية في نافذة البحث."
+                        )
                     } else {
                         error("أوقف مزود الترجمة الطلبات مؤقتًا (HTTP 429). انتظر قليلًا ثم أعد المحاولة.")
                     }
