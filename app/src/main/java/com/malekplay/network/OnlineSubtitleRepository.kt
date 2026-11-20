@@ -29,14 +29,16 @@ import kotlinx.coroutines.withContext
 private class SubtitleHttpException(val statusCode: Int, message: String) : IOException(message)
 
 /** Validates every subtitle download hop before the client opens its next connection. */
-internal fun isSafeSubtitleDownloadUri(uri: Uri, allowedDomain: String? = null): Boolean {
-    val host = uri.host?.lowercase(Locale.ROOT) ?: return false
-    if (uri.scheme != "https" || uri.userInfo != null || uri.port !in listOf(-1, 443)) {
-        return false
-    }
-    val domain = allowedDomain?.lowercase(Locale.ROOT) ?: return true
-    return host == domain || host.endsWith(".$domain")
-}
+internal fun isSafeSubtitleDownloadUrl(rawUrl: String, allowedDomain: String? = null): Boolean =
+    runCatching {
+        val uri = java.net.URI(rawUrl)
+        val host = uri.host?.lowercase(Locale.ROOT) ?: return@runCatching false
+        if (uri.scheme != "https" || uri.rawUserInfo != null || uri.port !in listOf(-1, 443)) {
+            return@runCatching false
+        }
+        val domain = allowedDomain?.lowercase(Locale.ROOT) ?: return@runCatching true
+        host == domain || host.endsWith(".$domain")
+    }.getOrDefault(false)
 
 data class OnlineSubtitle(
     val fileId: Long,
@@ -616,7 +618,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             require(current.method == "GET") {
                 "رُفض تحويل طلب POST حفاظاً على سلامة بيانات الدخول"
             }
-            require(isSafeSubtitleDownloadUri(Uri.parse(nextUrl.toString()), allowedDomain)) {
+            require(isSafeSubtitleDownloadUrl(nextUrl.toString(), allowedDomain)) {
                 if (allowedDomain == null) "رابط إعادة التوجيه ليس HTTPS آمناً"
                 else "حوّل مزود الترجمة التنزيل إلى نطاق غير موثوق"
             }
@@ -669,7 +671,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     }
 
     private fun isTrustedHttpsHost(uri: Uri, baseDomain: String): Boolean =
-        isSafeSubtitleDownloadUri(uri, baseDomain)
+        isSafeSubtitleDownloadUrl(uri.toString(), baseDomain)
 
     private fun isTrustedHttpsUrl(url: String, baseDomain: String): Boolean =
         runCatching { isTrustedHttpsHost(Uri.parse(url), baseDomain) }.getOrDefault(false)
