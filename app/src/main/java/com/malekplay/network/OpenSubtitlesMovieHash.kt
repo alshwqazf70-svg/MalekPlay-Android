@@ -31,8 +31,9 @@ object OpenSubtitlesMovieHash {
         val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
             ?: error("تعذر فتح ملف الفيديو لحساب البصمة")
         val size = descriptor.statSize
-        require(size >= CHUNK_SIZE * 2L) {
-            "ملف الفيديو صغير جدًا لحساب بصمة OpenSubtitles"
+        if (size < CHUNK_SIZE * 2L) {
+            descriptor.close()
+            error("ملف الفيديو صغير جدًا لحساب بصمة OpenSubtitles")
         }
         // Some content providers expose pipe-backed descriptors which cannot seek.
         // AutoCloseInputStream also owns and closes the ParcelFileDescriptor exactly once.
