@@ -15,9 +15,11 @@ enum class VideoEnhancementProfile(
     /** Frame interpolation remains disabled for every preset; no synthetic frames are generated. */
     val previousFrameWeight: Float = 0f
 ) {
-    ECONOMY("economy", 0.24f, 0.48f, 0.07f, 0.08f, 1920),
-    BALANCED("balanced", 0.38f, 0.78f, 0.12f, 0.16f, 2560),
-    ULTRA("ultra", 0.50f, 1.02f, 0.16f, 0.22f, 2960);
+    // Presets have deliberately separated spatial-detail strengths while keeping
+    // denoise and texture budgets conservative on mobile GPUs.
+    ECONOMY("economy", 0.22f, 0.62f, 0.09f, 0.10f, 1920),
+    BALANCED("balanced", 0.34f, 0.90f, 0.14f, 0.19f, 2560),
+    ULTRA("ultra", 0.44f, 1.12f, 0.19f, 0.27f, 2960);
 
     companion object {
         fun fromWireValue(value: String?): VideoEnhancementProfile =
