@@ -37,8 +37,6 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.effect.LanczosResample
-import com.malekplay.player.effects.SpatialNoiseReductionEffect
-import com.malekplay.player.effects.VideoDetailEnhancementEffect
 import com.malekplay.player.effects.VideoEnhancementProfile
 import com.malekplay.player.effects.VideoEnhancementPolicy
 import com.malekplay.player.effects.VideoEnhancementMetrics
@@ -502,10 +500,13 @@ class PlaybackService : MediaSessionService() {
             lastRendererFrameCount = 0L
             lastAverageProcessingOffsetUs = 0L
             droppedVideoFramesTotal = 0L
-            // Effects are opt-in per video. Do not keep a GPU pipeline running
-            // after the user advances to another item.
+            // Keep the same always-attached shader in passthrough mode for the
+            // next item; per-video enhancement state is reset without removing
+            // the VideoFrameProcessor's configured effect graph.
             disableAllVideoEnhancements()
-            localExoPlayer?.let { AssVideoEffectRegistry.setAdditionalEffects(it, emptyList()) }
+            localExoPlayer?.let {
+                applyEffectChain(it, listOfNotNull(videoEnhancementPipeline), hasLanczos = false)
+            }
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -613,7 +614,11 @@ class PlaybackService : MediaSessionService() {
         }
         if (!isLocalClearVideoSession()) {
             disableAllVideoEnhancements()
-            videoEffectsBridgeAttached = applyEffectChain(player, emptyList(), hasLanczos = false)
+            videoEffectsBridgeAttached = applyEffectChain(
+                player,
+                listOfNotNull(videoEnhancementPipeline),
+                hasLanczos = false
+            )
             return false
         }
         // A user may toggle an effect while Media3 is still selecting tracks or
