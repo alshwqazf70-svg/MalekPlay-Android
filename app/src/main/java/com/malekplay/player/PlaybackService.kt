@@ -440,7 +440,9 @@ class PlaybackService : MediaSessionService() {
         override fun onDeviceInfoChanged(deviceInfo: DeviceInfo) {
             if (deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                 disableAllVideoEnhancements()
-                localExoPlayer?.let { AssVideoEffectRegistry.setAdditionalEffects(it, emptyList()) }
+                localExoPlayer?.let {
+                    applyEffectChain(it, listOfNotNull(videoEnhancementPipeline), hasLanczos = false)
+                }
             }
         }
     }
