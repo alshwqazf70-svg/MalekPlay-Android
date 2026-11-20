@@ -70,6 +70,48 @@ class MalekPlayBackupManagerTest {
         }
     }
     @Test
+    fun acceptsHistoryAndKeepsLegacyBackupsWithoutHistoryCompatible() {
+        val legacy = validateBackupCollections(validBackup())
+        assertEquals(null, legacy.history)
+
+        val withHistory = validBackup().put(
+            "history",
+            JSONArray().put(
+                JSONObject()
+                    .put("mediaId", "media-1")
+                    .put("lastPlayedAtMs", 1_700_000_000_000L)
+                    .put("playCount", 3)
+            )
+        )
+        val validated = validateBackupCollections(withHistory)
+        assertEquals(1, validated.history?.length())
+        assertEquals("media-1", validated.history?.getJSONObject(0)?.getString("mediaId"))
+    }
+
+    @Test
+    fun rejectsMalformedOrDuplicateHistoryEntries() {
+        val malformed = validBackup().put(
+            "history",
+            JSONArray().put(JSONObject().put("mediaId", "media-1").put("lastPlayedAtMs", 1.5).put("playCount", 2))
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            validateBackupCollections(malformed)
+        }
+
+        val duplicateEntry = JSONObject()
+            .put("mediaId", "media-1")
+            .put("lastPlayedAtMs", 100L)
+            .put("playCount", 1)
+        val duplicate = validBackup().put(
+            "history",
+            JSONArray().put(duplicateEntry).put(JSONObject(duplicateEntry.toString()))
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            validateBackupCollections(duplicate)
+        }
+    }
+
+    @Test
     fun boundedBackupReaderHandlesProvidersThatReturnZero() = runBlocking {
         val delegate = ByteArrayInputStream(byteArrayOf(4, 5, 6))
         val source = object : InputStream() {
