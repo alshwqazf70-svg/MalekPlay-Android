@@ -129,11 +129,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         episode: Int?
     ): List<OnlineSubtitle> {
         require(title.isNotBlank()) { "أدخل اسم الفيلم أو المسلسل" }
-        val hasEpisodeInTitle = Regex("""(?i)(?:^|\b)S\d{1,2}E\d{1,3}(?:\b|$)|\b\d{1,2}x\d{1,3}\b""").containsMatchIn(title)
-        val episodeSuffix = if (!hasEpisodeInTitle && season != null && episode != null) {
-            " S%02dE%02d".format(Locale.ROOT, season, episode)
-        } else ""
-        val query = (title.trim().take(150) + episodeSuffix).trim()
+        val query = SubtitleQueryCleaner.appendEpisodeIfMissing(
+            title.trim().take(150), season, episode
+        )
         val cacheKey = query.lowercase(Locale.ROOT)
         val cached = publicSearchCache.get(cacheKey)
         if (cached != null) return cached
