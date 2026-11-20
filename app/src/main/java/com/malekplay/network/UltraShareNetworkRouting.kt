@@ -14,6 +14,32 @@ import java.net.InetAddress
  * interface addresses can miss that route and silently send sockets over WLAN.
  */
 internal object UltraShareNetworkRouting {
+    // Keep the exact Network selected by WifiNetworkSpecifier for the lifetime of
+    // the paired room. Data sockets can then reuse the same route after the QR
+    // control handshake instead of guessing again from ConnectivityManager.
+    private val pinnedNetworksByHost = java.util.concurrent.ConcurrentHashMap<String, Network>()
+
+    internal fun pinNetworkForHosts(hosts: List<String>, network: Network) {
+        hosts.asSequence()
+            .map { it.trim() }
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
+            .distinct()
+            .forEach { pinnedNetworksByHost[it] = network }
+    }
+
+    internal fun releasePinnedNetworkForHosts(hosts: List<String>, network: Network? = null) {
+        hosts.asSequence()
+            .map { it.trim() }
+            .distinct()
+            .forEach { host ->
+                if (network == null) pinnedNetworksByHost.remove(host)
+                else pinnedNetworksByHost.remove(host, network)
+            }
+    }
+
+    internal fun clearPinnedNetworks() {
+        pinnedNetworksByHost.clear()
+    }
     /** Executes route attempts in order and stops only after the first successful connection. */
     internal fun <T> firstSuccessfulRoute(
         routes: List<T>,
@@ -96,6 +122,8 @@ internal object UltraShareNetworkRouting {
         val active = if (android.os.Build.VERSION.SDK_INT >= 23) {
             runCatching { manager.activeNetwork }.getOrNull()
         } else null
+        val pinned = pinnedNetworksByHost[remote.hostAddress.orEmpty()]
+            ?.takeIf { runCatching { manager.getNetworkCapabilities(it) != null }.getOrDefault(false) }
 
         val allNetworks = manager.allNetworks
         val routeMatches = allNetworks.mapNotNull { network ->
@@ -162,7 +190,9 @@ internal object UltraShareNetworkRouting {
                 }
             )
         )
-        orderedMatches.map { it.first.first }
+        (listOfNotNull(pinned) + orderedMatches.map { it.first.first })
+            .distinct()
+            .take(4)
     }.onFailure { failure ->
         UltraShareDiagnostics.failure("NETWORK_ROUTE_DISCOVERY", failure, "host=" + host)
     }.getOrDefault(emptyList())
