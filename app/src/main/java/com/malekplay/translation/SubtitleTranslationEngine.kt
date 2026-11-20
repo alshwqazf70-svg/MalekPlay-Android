@@ -210,6 +210,7 @@ class SubtitleTranslationEngine @Inject constructor(
 
 
     private fun resolveSubtitleFormat(source: Uri, text: String): String? {
+        SrtSubtitleParser.detectFormat(text)?.let { return it }
         val displayName = runCatching {
             context.contentResolver.query(
                 source,
