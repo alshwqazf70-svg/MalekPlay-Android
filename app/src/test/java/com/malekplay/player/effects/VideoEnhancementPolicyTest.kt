@@ -130,6 +130,21 @@ class VideoEnhancementPolicyTest {
         assertEquals(null, VideoUpscaleTargetPolicy.resolve(0, 360, 2960, 1440, 1920))
     }
 
+    @Test fun profileUpscaleBudgetsMatchSupportedDisplayClasses() {
+        assertEquals(1920, VideoEnhancementProfile.ECONOMY.upscaleMaxLongEdge)
+        assertEquals(2560, VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge)
+        assertEquals(2960, VideoEnhancementProfile.ULTRA.upscaleMaxLongEdge)
+    }
+
+    @Test fun balancedAndUltraCanUseNote9ClassDisplayTargetsForLowResolutionVideo() {
+        val balanced = VideoUpscaleTargetPolicy.resolve(640, 360, 2960, 1440,
+            VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge)
+        val ultra = VideoUpscaleTargetPolicy.resolve(640, 360, 2960, 1440,
+            VideoEnhancementProfile.ULTRA.upscaleMaxLongEdge)
+        assertEquals(VideoUpscaleTarget(2560, 1440), balanced)
+        assertEquals(VideoUpscaleTarget(2960, 1665), ultra)
+    }
+
     @Test fun invalidWireValueFallsBackToBalanced() {
         assertEquals(VideoEnhancementProfile.BALANCED, VideoEnhancementProfile.fromWireValue("invalid"))
     }
