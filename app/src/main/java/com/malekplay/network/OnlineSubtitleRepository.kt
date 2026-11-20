@@ -77,7 +77,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
      * for the user. The provider documents a small daily guest quota, so failures are
      * surfaced cleanly and can be retried later.
      */
-    fun searchAutomatic(title: String, language: String, season: Int?, episode: Int?): List<OnlineSubtitle> {
+    fun searchAutomatic(title: String, language: String, season: Int?, episode: Int?, mediaUri: Uri? = null): List<OnlineSubtitle> {
         val publicAttempt = runCatching { searchPublic(title, language, season, episode) }
         val accountAttempt = if (hasCredentials()) {
             runCatching { search(title, language, season, episode) }
@@ -262,13 +262,24 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }
     }
 
-    fun search(title: String, language: String, season: Int?, episode: Int?): List<OnlineSubtitle> {
+    fun search(title: String, language: String, season: Int?, episode: Int?, mediaUri: Uri? = null): List<OnlineSubtitle> {
         val key = credentials().first
         require(title.isNotBlank()) { "أدخل اسم الفيلم أو المسلسل" }
         val url = Uri.parse("$BASE/subtitles").buildUpon()
             .appendQueryParameter("query", title.trim().take(180).lowercase(Locale.ROOT))
             .appendQueryParameter("languages", language)
             .apply {
+                if (mediaUri != null) {
+                    runCatching {
+                        val hash = OpenSubtitlesMovieHash.calculate(app, mediaUri)
+                        val size = if (mediaUri.scheme == "file") File(requireNotNull(mediaUri.path)).length()
+                            else app.contentResolver.openFileDescriptor(mediaUri, "r")?.use { it.statSize } ?: -1L
+                        if (size > 0L) {
+                            appendQueryParameter("moviehash", hash)
+                            appendQueryParameter("moviebytesize", size.toString())
+                        }
+                    }
+                }
                 if (season != null && episode != null) {
                     appendQueryParameter("type", "episode")
                     appendQueryParameter("season_number", season.toString())
