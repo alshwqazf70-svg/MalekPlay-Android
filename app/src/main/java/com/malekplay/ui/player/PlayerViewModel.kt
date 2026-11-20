@@ -1349,6 +1349,11 @@ class PlayerViewModel @Inject constructor(
             .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ بيانات الخدمة" }
     }
 
+    fun saveOnlineSubtitleProviderKeys(subdlKey: String, websiteKey: String) {
+        runCatching { onlineSubtitleRepository.saveProviderApiKeys(subdlKey, websiteKey) }
+            .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ مفاتيح مزودي الترجمة" }
+    }
+
     fun searchOnlineSubtitles(title: String, language: String, season: Int?, episode: Int?) {
         if (_onlineSubtitleLoading.value) return
         viewModelScope.launch {
@@ -1357,7 +1362,8 @@ class PlayerViewModel @Inject constructor(
             _onlineSubtitleResults.value = emptyList()
             try {
                 val results = withContext(Dispatchers.IO) {
-                    onlineSubtitleRepository.searchAutomatic(title, language, season, episode)
+                    val sourceUri = currentMediaId?.let { runCatching { Uri.parse(it) }.getOrNull() }
+                    onlineSubtitleRepository.searchAutomatic(title, language, season, episode, sourceUri)
                 }
                 _onlineSubtitleResults.value = results
                 if (results.isEmpty()) _onlineSubtitleError.value = "لم نعثر على ترجمة مطابقة. جرّب تعديل اسم العنوان أو اللغة."
