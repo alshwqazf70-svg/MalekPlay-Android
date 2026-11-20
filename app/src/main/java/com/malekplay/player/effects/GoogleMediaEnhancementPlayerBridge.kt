@@ -208,11 +208,24 @@ class GoogleMediaEnhancementPlayerBridge(
         val localConfiguration = player.currentMediaItem?.localConfiguration
         val uri = localConfiguration?.uri
         if (localConfiguration == null || uri == null ||
-            (uri.scheme != "file" && uri.scheme != "content") ||
             localConfiguration.drmConfiguration != null
         ) {
             retryBlocked = true
-            publish(GoogleMediaEnhancementState.UNSUPPORTED, message = "AI enhancement requires a clear local video")
+            publish(
+                GoogleMediaEnhancementState.UNSUPPORTED,
+                message = "Google AI requires a clear, non-DRM video source"
+            )
+            return
+        }
+        val sourceScheme = uri.scheme?.lowercase()
+        if (sourceScheme != "file" && sourceScheme != "content") {
+            // Network sources (HTTP/HTTPS/SMB/DLNA-backed URIs) stay on the
+            // local ExoPlayer output and are handed to the internal GPU fallback.
+            retryBlocked = true
+            publish(
+                GoogleMediaEnhancementState.UNSUPPORTED,
+                message = "Google AI surface routing does not support source scheme: ${sourceScheme ?: "unknown"}; internal GPU fallback will be used"
+            )
             return
         }
 
