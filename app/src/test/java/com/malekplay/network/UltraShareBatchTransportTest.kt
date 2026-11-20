@@ -45,6 +45,29 @@ class UltraShareBatchTransportTest {
     }
 
     @Test
+    fun sourcePreparationFailureCancelsOtherInFlightPreparations() = runBlocking {
+        val siblingCancelled = CompletableDeferred<Unit>()
+        val failure = runCatching {
+            UltraShareBatchTransport.mapSourcesBounded(
+                sources = listOf(0, 1),
+                maxConcurrency = 2
+            ) { value ->
+                if (value == 0) {
+                    kotlinx.coroutines.delay(30L)
+                    throw java.io.IOException("source unavailable")
+                }
+                try {
+                    kotlinx.coroutines.awaitCancellation()
+                } finally {
+                    siblingCancelled.complete(Unit)
+                }
+            }
+        }
+        assertTrue(failure.isFailure)
+        assertTrue(siblingCancelled.isCompleted)
+    }
+
+    @Test
     fun sourcePreparationRejectsUnsafeConcurrencyAndReturnsEmptyForNoSources() = runBlocking {
         assertTrue(runCatching {
             UltraShareBatchTransport.mapSourcesBounded(
