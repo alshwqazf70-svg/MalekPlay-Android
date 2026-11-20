@@ -54,6 +54,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -223,6 +224,8 @@ fun VideoPlayerScreen(
     val onlineSubtitleError by viewModel.onlineSubtitleError.collectAsStateWithLifecycle()
     val subtitleTranslationAvailable by viewModel.subtitleTranslationAvailable.collectAsStateWithLifecycle()
     val subtitleTranslationLoading by viewModel.subtitleTranslationLoading.collectAsStateWithLifecycle()
+    val subtitleTranslationCompletedCues by viewModel.subtitleTranslationCompletedCues.collectAsStateWithLifecycle()
+    val subtitleTranslationTotalCues by viewModel.subtitleTranslationTotalCues.collectAsStateWithLifecycle()
     val subtitleTranslationError by viewModel.subtitleTranslationError.collectAsStateWithLifecycle()
     val sleepEndsAt by viewModel.sleepTimerEndsAtMs.collectAsStateWithLifecycle()
     val inPip by viewModel.pipController.inPip.collectAsStateWithLifecycle()
@@ -753,6 +756,44 @@ fun VideoPlayerScreen(
                 }
             }
     ) {
+        if (subtitleTranslationLoading) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                color = Color(0xF0181822),
+                shape = MaterialTheme.shapes.large,
+                tonalElevation = 8.dp
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("ترجمة الترجمة إلى العربية", color = Color.White)
+                        TextButton(onClick = viewModel::cancelSubtitleTranslation) {
+                            Text("إلغاء")
+                        }
+                    }
+                    val total = subtitleTranslationTotalCues
+                    val completed = subtitleTranslationCompletedCues
+                    val fraction = if (total > 0) completed.toFloat() / total else 0f
+                    LinearProgressIndicator(
+                        progress = fraction.coerceIn(0f, 1f),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        text = if (total > 0) "$completed / $total مقطع" else
+                            "جارٍ تجهيز نموذج اللغة أو تحليل ملف الترجمة…",
+                        color = Color.White.copy(alpha = 0.78f),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+        }
         if (internalAiFallback) {
             Text(
                 text = "يعمل محرك الذكاء البصري الداخلي عبر GPU (الوضع الذكي)",
