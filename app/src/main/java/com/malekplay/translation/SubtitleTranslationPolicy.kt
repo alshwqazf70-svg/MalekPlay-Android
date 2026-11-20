@@ -34,7 +34,7 @@ internal object SubtitleTranslationPolicy {
     /** Joins wrapped dialogue lines while keeping separate speakers on distinct lines. */
     fun mergeWrappedDialogueLines(text: String): String {
         val lines = text.replace("\r\n", "\n").replace('\r', '\n')
-            .lineSequence().map(String::trim).filter(String::isNotBlank).toList()
+            .lineSequence().map { it.trim() }.filter { it.isNotBlank() }.toList()
         if (lines.size < 2) return text.trim()
         return buildString {
             lines.forEachIndexed { index, line ->
