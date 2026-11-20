@@ -48,9 +48,9 @@ internal object SubtitleTranslationPolicy {
     }
 
     private fun flexibleSeparatorPattern(separator: String): Regex {
-        val match = Regex("""§C(\\d+)_(\\d+)§""").matchEntire(separator) ?: return Regex.escape(separator).toRegex()
+        val match = Regex("""§C(\d+)_(\d+)§""").matchEntire(separator) ?: return Regex.escape(separator).toRegex()
         return Regex(
-            """§\\s*C\\s*${match.groupValues[1]}\\s*_\\s*${match.groupValues[2]}\\s*§""",
+            """§\s*C\s*${match.groupValues[1]}\s*_\s*${match.groupValues[2]}\s*§""",
             RegexOption.IGNORE_CASE
         )
     }
