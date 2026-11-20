@@ -1029,6 +1029,20 @@ class PlayerViewModel @Inject constructor(
     /** Resolves provider URIs using display name, MIME type, then a bounded content sniff. */
     private fun resolveSubtitleExtension(uri: Uri): String? {
         val supported = setOf("ass", "ssa", "srt", "vtt")
+        // Prefer a strong content signature so providers that expose a misleading
+        // display name or generic MIME type do not attach the wrong Media3 decoder.
+        val prefix = runCatching {
+            app.contentResolver.openInputStream(uri)?.use { input ->
+                val bytes = ByteArray(8192)
+                val count = input.read(bytes)
+                if (count > 0) {
+                    runCatching { SrtSubtitleParser.decode(bytes.copyOf(count)) }
+                        .getOrElse { String(bytes, 0, count, Charsets.UTF_8) }
+                } else ""
+            }
+        }.getOrNull().orEmpty()
+        SrtSubtitleParser.detectFormat(prefix)?.let { return it }
+
         val displayName = runCatching {
             app.contentResolver.query(
                 uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
@@ -1045,34 +1059,11 @@ class PlayerViewModel @Inject constructor(
                 .lowercase(java.util.Locale.ROOT).takeIf { it in supported }
         if (nameExtension != null) return nameExtension
 
-        val mimeExtension = when (runCatching { app.contentResolver.getType(uri) }.getOrNull()
+        return when (runCatching { app.contentResolver.getType(uri) }.getOrNull()
             ?.substringBefore(';')?.trim()?.lowercase(java.util.Locale.ROOT)) {
             "text/vtt" -> "vtt"
             "application/x-subrip", "application/srt", "text/srt" -> "srt"
             "text/x-ssa", "application/x-ass", "text/x-ass" -> "ass"
-            else -> null
-        }
-        if (mimeExtension != null) return mimeExtension
-
-        val prefix = runCatching {
-            app.contentResolver.openInputStream(uri)?.use { input ->
-                val bytes = ByteArray(8192)
-                val count = input.read(bytes)
-                if (count > 0) {
-                    val decoded = runCatching {
-                        SrtSubtitleParser.decode(bytes.copyOf(count))
-                    }.getOrElse {
-                        String(bytes, 0, count, Charsets.UTF_8)
-                    }
-                    decoded.trimStart('\uFEFF', ' ', '\t', '\r', '\n')
-                } else ""
-            }
-        }.getOrNull().orEmpty()
-        return when {
-            prefix.startsWith("WEBVTT", ignoreCase = true) -> "vtt"
-            prefix.contains("[Events]", ignoreCase = true) &&
-                prefix.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) } -> "ass"
-            prefix.contains("-->") -> "srt"
             else -> null
         }
     }
