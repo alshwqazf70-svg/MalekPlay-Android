@@ -621,6 +621,10 @@ fun VideoPlayerScreen(
 
     fun activateInternalAiFallback() {
         if (internalAiFallback || internalAiFallbackPending) return
+        // Stop observing/retrying the Google surface backend before switching
+        // the same player back to its native output and internal GPU effects.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) googleAiBridge?.close()
+        googleAiBridge = null
         internalAiFallbackPending = true
         val requestVersion = googleAiRequestVersion
         viewModel.setInternalGpuEnhancementEnabled(true) { applied ->
