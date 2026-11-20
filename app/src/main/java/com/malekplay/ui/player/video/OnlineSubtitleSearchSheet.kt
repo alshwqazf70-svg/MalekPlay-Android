@@ -47,13 +47,16 @@ fun OnlineSubtitleSearchSheet(
     episode: String, onEpisodeChange: (String) -> Unit,
     results: List<OnlineSubtitle>, loading: Boolean, error: String?,
     onSearch: () -> Unit, onDownload: (OnlineSubtitle) -> Unit,
-    onSaveCredentials: (String, String, String) -> Unit, onDismiss: () -> Unit
+    onSaveCredentials: (String, String, String) -> Unit,
+    onSaveProviderKeys: (String, String) -> Unit, onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var credentialsExpanded by remember { mutableStateOf(false) }
     var apiKey by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var subdlKey by remember { mutableStateOf("") }
+    var websiteKey by remember { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -102,9 +105,16 @@ fun OnlineSubtitleSearchSheet(
                     label = { Text("اسم مستخدم OpenSubtitles") })
                 OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), singleLine = true,
                     label = { Text("كلمة المرور") })
-                Button(onClick = { onSaveCredentials(apiKey, username, password); credentialsExpanded = false },
+                Button(onClick = { onSaveCredentials(apiKey, username, password) },
                     enabled = apiKey.isNotBlank() && username.isNotBlank() && password.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth()) { Text("حفظ البيانات بأمان") }
+                    modifier = Modifier.fillMaxWidth()) { Text("حفظ بيانات OpenSubtitles بأمان") }
+                OutlinedTextField(subdlKey, { subdlKey = it }, Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("مفتاح SubDL المجاني (اختياري)") })
+                OutlinedTextField(websiteKey, { websiteKey = it }, Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("مفتاح subtitles.website (اختياري)") })
+                Button(onClick = { onSaveProviderKeys(subdlKey, websiteKey) },
+                    enabled = subdlKey.isNotBlank() || websiteKey.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()) { Text("حفظ مفاتيح المزودين") }
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             if (!loading && results.isEmpty() && error == null) {
