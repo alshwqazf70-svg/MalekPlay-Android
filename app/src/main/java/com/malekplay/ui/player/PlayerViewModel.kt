@@ -975,7 +975,14 @@ class PlayerViewModel @Inject constructor(
 
     /** Adds an external subtitle without discarding the current playback queue. */
     fun addExternalSubtitle(uri: Uri, rememberAsTranslationSource: Boolean = true) {
-        val targetMediaId = currentMediaId
+        addExternalSubtitleForMedia(uri, currentMediaId, rememberAsTranslationSource)
+    }
+
+    private fun addExternalSubtitleForMedia(
+        uri: Uri,
+        targetMediaId: String?,
+        rememberAsTranslationSource: Boolean
+    ) {
         viewModelScope.launch {
             val extension = withContext(Dispatchers.IO) { resolveSubtitleExtension(uri) }
             val mimeType = when (extension) {
@@ -1111,7 +1118,7 @@ class PlayerViewModel @Inject constructor(
                     _subtitleTranslationError.value = "تغير الملف أثناء الترجمة؛ أعد المحاولة على الملف الحالي"
                     return@launch
                 }
-                addExternalSubtitle(translated, rememberAsTranslationSource = false)
+                addExternalSubtitleForMedia(translated, targetMediaId, rememberAsTranslationSource = false)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
