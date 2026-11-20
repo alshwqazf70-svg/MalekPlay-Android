@@ -29,7 +29,31 @@ internal object SubtitleTranslationPolicy {
     }
 
     fun separator(batchStart: Int, position: Int): String =
-        "MALekPLAYCUE" + batchStart + "_" + position + "BOUNDARYTOKEN"
+        "§C${batchStart}_${position}§"
+
+    /** Joins wrapped dialogue lines while keeping separate speakers on distinct lines. */
+    fun mergeWrappedDialogueLines(text: String): String {
+        val lines = text.replace("\r\n", "\n").replace('\r', '\n')
+            .lineSequence().map(String::trim).filter(String::isNotBlank).toList()
+        if (lines.size < 2) return text.trim()
+        return buildString {
+            lines.forEachIndexed { index, line ->
+                if (index > 0) {
+                    if (line.startsWith("-") || lines[index - 1].startsWith("-")) append('\n')
+                    else append(' ')
+                }
+                append(line)
+            }
+        }
+    }
+
+    private fun flexibleSeparatorPattern(separator: String): Regex {
+        val match = Regex("""§C(\\d+)_(\\d+)§""").matchEntire(separator) ?: return Regex.escape(separator).toRegex()
+        return Regex(
+            """§\\s*C\\s*${match.groupValues[1]}\\s*_\\s*${match.groupValues[2]}\\s*§""",
+            RegexOption.IGNORE_CASE
+        )
+    }
 
     fun splitBatchTranslation(translated: String, separators: List<String>): List<String>? {
         if (separators.isEmpty()) {
@@ -39,10 +63,11 @@ internal object SubtitleTranslationPolicy {
         val parts = mutableListOf<String>()
         var remaining = translated
         separators.forEach { separator ->
-            val index = remaining.indexOf(separator)
-            if (index < 0 || remaining.indexOf(separator, index + separator.length) >= 0) return null
-            parts += remaining.substring(0, index).trim()
-            remaining = remaining.substring(index + separator.length)
+            val pattern = flexibleSeparatorPattern(separator)
+            val match = pattern.find(remaining) ?: return null
+            if (pattern.find(remaining, match.range.last + 1) != null) return null
+            parts += remaining.substring(0, match.range.first).trim()
+            remaining = remaining.substring(match.range.last + 1)
         }
         parts += remaining.trim()
         return parts.takeIf { it.size == separators.size + 1 && it.all(String::isNotBlank) }
