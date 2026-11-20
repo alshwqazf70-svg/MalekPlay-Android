@@ -663,7 +663,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val buffer = ByteArray(8192)
         var total = 0
         while (true) {
-            val count = input.read(buffer)
+            // Content providers and wrapped streams should make progress for a
+            // positive-length read, but tolerate OEM/provider implementations
+            // that transiently return zero instead of spinning forever.
+            val count = readStreamWithProgress(input, buffer)
             if (count < 0) break
             total += count
             require(total <= MAX_BYTES) { "حجم ملف الترجمة يتجاوز الحد المسموح" }
