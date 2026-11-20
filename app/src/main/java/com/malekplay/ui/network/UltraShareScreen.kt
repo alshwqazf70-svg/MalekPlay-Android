@@ -893,10 +893,24 @@ class LegacyUltraShareViewModel @Inject constructor(
             if (readiness == null || !readiness.controlChannelReady) {
                 val reason = readiness?.controlChannelError
                     ?: "لم يبدأ خادم الاتصال الآمن على المنفذ 38744 خلال 15 ثانية."
+                // Do not leave a receiver session latched in the UI without a QR:
+                // the start button is disabled while receiving=true, so the user
+                // otherwise cannot retry after the control listener failed to start.
+                // Retire the incomplete session and preserve the actionable error.
+                stopReceiving()
                 _state.value = _state.value.copy(
                     wifiDirectInvitationReady = false,
+                    receiverQrPayload = null,
                     error = reason,
-                    status = "لم يُعرض رمز QR لأن خادم الاستقبال الآمن لم يصبح جاهزاً. أعد تشغيل الاستقبال."
+                    status = "توقف الاستقبال لأن قناة الاقتران الآمنة لم تصبح جاهزة. صحّح السبب ثم ابدأ الاستقبال مجدداً."
+                )
+                UltraShareDiagnostics.event(
+                    "PAIRING_QR",
+                    "RECEIVER_START_ABORTED_CONTROL_NOT_READY",
+                    mapOf(
+                        "controlChannelErrorPresent" to !readiness?.controlChannelError.isNullOrBlank(),
+                        "timeout" to (readiness == null)
+                    )
                 )
                 return@launch
             }
