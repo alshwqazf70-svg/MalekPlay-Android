@@ -19,6 +19,12 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.FutureTask
 import java.util.zip.ZipInputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
 private class SubtitleHttpException(val statusCode: Int, message: String) : IOException(message)
 
@@ -284,13 +290,23 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         return parsed
     }
 
-    fun download(subtitle: OnlineSubtitle): Uri {
-        if (subtitle.provider == PUBLIC_PROVIDER) return downloadPublic(subtitle)
-        if (subtitle.provider == SUBDL_PROVIDER) return downloadSubDl(subtitle)
-        return download(subtitle.fileId)
+    /**
+     * Downloads on IO and keeps the active OkHttp call cancellable until its body
+     * has been fully consumed, so the player's Cancel action closes a blocked read.
+     */
+    suspend fun download(subtitle: OnlineSubtitle): Uri = withContext(Dispatchers.IO) {
+        when (subtitle.provider) {
+            PUBLIC_PROVIDER -> downloadPublic(subtitle)
+            SUBDL_PROVIDER -> downloadSubDl(subtitle)
+            else -> downloadOpenSubtitles(subtitle.fileId)
+        }
     }
 
-    private fun downloadPublic(subtitle: OnlineSubtitle): Uri {
+    suspend fun download(fileId: Long): Uri = withContext(Dispatchers.IO) {
+        downloadOpenSubtitles(fileId)
+    }
+
+    private suspend fun downloadPublic(subtitle: OnlineSubtitle): Uri {
         require(subtitle.sourceId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) {
             "معرّف الترجمة غير صالح"
         }
@@ -323,13 +339,12 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 val bearer = vault.load(WEBSITE_KEY_SLOT)?.first
                 if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer")
             }.get().build()
-        val response = executeDownload(downloadRequest, PUBLIC_HOST)
-        response.use {
-            require(isTrustedHttpsUrl(it.request.url.toString(), PUBLIC_HOST)) {
+        return withDownloadResponse(downloadRequest, PUBLIC_HOST) { response ->
+            require(isTrustedHttpsUrl(response.request.url.toString(), PUBLIC_HOST)) {
                 "حوّل مزود الترجمة التنزيل إلى نطاق غير موثوق"
             }
-            if (!it.isSuccessful) error("تعذر تنزيل الترجمة (HTTP ${it.code})")
-            val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
+            if (!response.isSuccessful) error("تعذر تنزيل الترجمة (HTTP ${response.code})")
+            val bytes = response.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
             require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
             val target = if (bytes.isZip()) {
                 extract(bytes, dir, 0L, cachePrefix)
@@ -339,7 +354,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 writeSubtitleAtomically(dir, "$cachePrefix.$ext", bytes)
             }
             require(target.length() in 1..MAX_BYTES.toLong()) { "حجم ملف الترجمة غير صالح" }
-            return Uri.fromFile(target)
+            Uri.fromFile(target)
         }
     }
 
@@ -401,7 +416,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }.distinctBy { it.sourceId }.take(40)
     }
 
-    private fun downloadSubDl(subtitle: OnlineSubtitle): Uri {
+    private suspend fun downloadSubDl(subtitle: OnlineSubtitle): Uri {
         val path = subtitle.sourceId
         val downloadUri = when {
             path.startsWith("https://") -> Uri.parse(path)
@@ -423,19 +438,19 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 val key = vault.load(SUBDL_KEY_SLOT)?.first
                 if (!key.isNullOrBlank()) header("x-api-key", key)
             }.get().build()
-        val response = executeDownload(downloadRequest, "subdl.com")
-        response.use {
-            require(isTrustedHttpsUrl(it.request.url.toString(), "subdl.com")) {
+        return withDownloadResponse(downloadRequest, "subdl.com") { response ->
+            require(isTrustedHttpsUrl(response.request.url.toString(), "subdl.com")) {
                 "حوّل SubDL التنزيل إلى نطاق غير موثوق"
             }
-            if (!it.isSuccessful) error("تعذر تنزيل ترجمة SubDL (HTTP ${it.code})")
-            val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
+            if (!response.isSuccessful) error("تعذر تنزيل ترجمة SubDL (HTTP ${response.code})")
+            val bytes = response.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
             val target = if (bytes.isZip()) extract(bytes, directory, 0L, prefix)
             else {
                 val ext = detect(bytes) ?: subtitle.format
                 writeSubtitleAtomically(directory, "$prefix.$ext", bytes)
             }
-            return Uri.fromFile(target)
+            require(target.length() in 1..MAX_BYTES.toLong()) { "حجم ملف الترجمة غير صالح" }
+            Uri.fromFile(target)
         }
     }
 
@@ -483,14 +498,14 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }.distinctBy { it.fileId }.take(40)
     }
 
-    fun download(fileId: Long): Uri {
+    private suspend fun downloadOpenSubtitles(fileId: Long): Uri {
         require(fileId > 0)
         val dir = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
         dir.listFiles()?.firstOrNull {
             it.name.startsWith("subtitle-$fileId.") && isValidCachedSubtitle(it)
         }?.let { return Uri.fromFile(it) }
         val (key, account) = credentials()
-        fun downloadLink(token: String): String {
+        suspend fun downloadLink(token: String): String {
             val body = JSONObject().put("file_id", fileId).toString().toRequestBody(JSON)
             val request = Request.Builder().url("$BASE/download").header("Api-Key", key)
                 .header("Authorization", "Bearer $token").header("User-Agent", AGENT)
@@ -509,20 +524,19 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         require(linkUri.scheme == "https" && !linkUri.host.isNullOrBlank() &&
             linkUri.userInfo == null && linkUri.port in listOf(-1, 443)
         ) { "رابط الترجمة غير آمن" }
-        val response = executeDownload(Request.Builder().url(linkUri.toString()).get().build())
-        response.use {
-            if (it.request.url.isHttps.not() || it.request.url.username.isNotEmpty() ||
-                it.request.url.password.isNotEmpty()
+        return withDownloadResponse(Request.Builder().url(linkUri.toString()).get().build()) { response ->
+            if (response.request.url.isHttps.not() || response.request.url.username.isNotEmpty() ||
+                response.request.url.password.isNotEmpty()
             ) error("حوّل OpenSubtitles التنزيل إلى رابط غير آمن")
-            if (!it.isSuccessful) error("تعذر تنزيل الترجمة (HTTP " + it.code + ")")
-            val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
+            if (!response.isSuccessful) error("تعذر تنزيل الترجمة (HTTP ${response.code})")
+            val bytes = response.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
             require(bytes.isNotEmpty() && bytes.size <= MAX_BYTES) { "حجم ملف الترجمة غير صالح" }
             val target = if (bytes.isZip()) extract(bytes, dir, fileId) else {
                 val ext = detect(bytes) ?: error("صيغة ملف الترجمة غير مدعومة")
                 writeSubtitleAtomically(dir, "subtitle-$fileId.$ext", bytes)
             }
             require(target.length() in 1..MAX_BYTES.toLong())
-            return Uri.fromFile(target)
+            Uri.fromFile(target)
         }
     }
 
@@ -554,22 +568,50 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
 
 
     /**
-     * Follows at most five HTTPS redirects. The destination policy is checked
-     * before the next socket is opened, not after OkHttp has already contacted it.
-     * Sensitive headers are stripped whenever a redirect changes host.
+     * Manually follows bounded HTTPS redirects. The active call remains registered
+     * with the coroutine until the response body is consumed, so cancellation closes
+     * blocked network reads instead of waiting for the socket timeout.
      */
-    private fun executeDownload(
+    @OptIn(InternalCoroutinesApi::class)
+    private suspend fun <T> withDownloadResponse(
         request: Request,
-        allowedDomain: String? = null
-    ): okhttp3.Response {
+        allowedDomain: String? = null,
+        consume: (okhttp3.Response) -> T
+    ): T {
         var current = request
         repeat(MAX_DOWNLOAD_REDIRECTS + 1) { hop ->
-            val response = downloadClient.newCall(current).execute()
-            if (response.code !in 300..399) return response
+            val call = downloadClient.newCall(current)
+            val job = currentCoroutineContext()[Job]
+            val cancellationHandle = job?.invokeOnCompletion(
+                onCancelling = true,
+                invokeImmediately = true
+            ) { cause ->
+                if (cause != null) call.cancel()
+            }
+            val response = try {
+                call.execute()
+            } catch (failure: Throwable) {
+                cancellationHandle?.dispose()
+                throw failure
+            }
+
+            if (response.code !in 300..399) {
+                return try {
+                    currentCoroutineContext().ensureActive()
+                    consume(response)
+                } finally {
+                    response.close()
+                    cancellationHandle?.dispose()
+                }
+            }
 
             val location = response.header("Location")
             val nextUrl = location?.let { current.url.resolve(it) }
-            response.close()
+            try {
+                response.close()
+            } finally {
+                cancellationHandle?.dispose()
+            }
             require(nextUrl != null) { "أعاد مزود الترجمة تحويلاً دون وجهة صالحة" }
             require(isSafeSubtitleDownloadUri(Uri.parse(nextUrl.toString()), allowedDomain)) {
                 if (allowedDomain == null) "رابط إعادة التوجيه ليس HTTPS آمناً"
