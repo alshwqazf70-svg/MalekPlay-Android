@@ -26,9 +26,10 @@ data class VideoEnhancementPipelineConfig(
     val contrastBoost: Float = 0f,
     val clarityStrength: Float = 0f
 ) {
+    // Toggle flags are authoritative: stale preset strengths must never keep
+    // enhancement work running after every stage has been switched off.
     val hasActiveStage: Boolean
-        get() = denoiseEnabled || detailEnabled || aiBoostEnabled ||
-            contrastBoost > 0f || clarityStrength > 0f
+        get() = denoiseEnabled || detailEnabled || aiBoostEnabled
 }
 
 @UnstableApi
@@ -169,8 +170,7 @@ private class VideoEnhancementPipelineProgram(
                 vec4 center = texture2D(uTexSampler, vTexSamplingCoord);
                 // A true one-sample passthrough is used while all enhancement stages
                 // are disabled, including while Google's surface bridge owns output.
-                if (uDenoiseEnabled < 0.5 && uDetailEnabled < 0.5 &&
-                    uContrastBoost <= 0.0 && uClarityStrength <= 0.0) {
+                if (uDenoiseEnabled < 0.5 && uDetailEnabled < 0.5) {
                     gl_FragColor = center;
                     return;
                 }
