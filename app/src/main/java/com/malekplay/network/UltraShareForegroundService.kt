@@ -137,6 +137,8 @@ class UltraShareForegroundService : Service() {
     @Volatile private var activeBatchTransferPort: Int = 0
     @Volatile private var activeControlPort: Int = UltraShareControlChannel.DEFAULT_PORT
     @Volatile private var addressMonitorJob: Job? = null
+    private val notificationProgressGuard = Any()
+    @Volatile private var lastProgressNotificationAtMs: Long = 0L
     @Volatile private var pauseRequested = false
     private val pendingReplacementCount = java.util.concurrent.atomic.AtomicInteger(0)
     private var advertisementJob: Job? = null
@@ -946,6 +948,17 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun updateNotification(progress: UltraShareCore.Progress) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val completed = progress.totalBytes > 0L && progress.transferredBytes >= progress.totalBytes
+        val shouldNotify = synchronized(notificationProgressGuard) {
+            if (!completed && now - lastProgressNotificationAtMs < 350L) {
+                false
+            } else {
+                lastProgressNotificationAtMs = now
+                true
+            }
+        }
+        if (!shouldNotify) return
         val current = currentState()
         val visibleProgress = when {
             current.sending && current.receiving -> null
