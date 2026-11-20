@@ -52,8 +52,8 @@ internal fun isValidSubtitlePayload(bytes: ByteArray, extension: String): Boolea
         bytes.isEmpty() || bytes.size > 8 * 1024 * 1024
     ) return false
 
-    val text = runCatching { SrtSubtitleParser.decode(bytes) }.getOrNull() ?: return false
-        .trimStart('\uFEFF', ' ', '\t', '\n', '\r')
+    val decodedText = runCatching { SrtSubtitleParser.decode(bytes) }.getOrNull() ?: return false
+    val text = decodedText.trimStart('\uFEFF', ' ', '\t', '\n', '\r')
     val timestamp = """(?:\d{1,2}:)?\d{1,2}:\d{2}[,.]\d{3}"""
     val arrowCue = Regex(
         """(?m)^\s*$timestamp\s+-->\s*$timestamp(?:\s+.*)?$"""
@@ -641,8 +641,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
 
     private fun ByteArray.isZip() = size > 3 && this[0] == 0x50.toByte() && this[1] == 0x4b.toByte()
     private fun detect(bytes: ByteArray): String? {
-        val text = runCatching { SrtSubtitleParser.decode(bytes) }.getOrNull() ?: return null
-            .trimStart('\uFEFF', ' ', '\n', '\r')
+        val decodedText = runCatching { SrtSubtitleParser.decode(bytes) }.getOrNull() ?: return null
+        val text = decodedText.trimStart('\uFEFF', ' ', '\n', '\r')
         return when {
             text.startsWith("WEBVTT", true) -> "vtt"
             text.contains("-->") -> "srt"
