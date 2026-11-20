@@ -1397,6 +1397,11 @@ class PlayerViewModel @Inject constructor(
                     return@launch
                 }
                 addExternalSubtitle(uri)
+                if (_playerError.value == null) {
+                    android.widget.Toast.makeText(app, "تم تنزيل الترجمة وتطبيقها بنجاح", android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    _onlineSubtitleError.value = _playerError.value
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
