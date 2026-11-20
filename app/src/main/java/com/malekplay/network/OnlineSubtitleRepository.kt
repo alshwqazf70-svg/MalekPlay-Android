@@ -380,7 +380,13 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         response.use {
             val text = it.body?.string().orEmpty()
             if (!it.isSuccessful) {
-                if (it.code == 429) error("تم بلوغ الحد اليومي للبحث المجاني. أضف مفتاح API مجانيًا من الإعدادات الاختيارية في نافذة البحث.")
+                if (it.code == 429) {
+                    if (request.url.host == PUBLIC_HOST) {
+                        error("تم بلوغ الحد اليومي للبحث المجاني في subtitles.website. أضف مفتاح API مجانيًا من الإعدادات الاختيارية في نافذة البحث.")
+                    } else {
+                        error("أوقف مزود الترجمة الطلبات مؤقتًا (HTTP 429). انتظر قليلًا ثم أعد المحاولة.")
+                    }
+                }
                 if (it.code == 401 || it.code == 403) error("مفتاح خدمة الترجمة غير صالح أو لا يملك صلاحية البحث.")
                 val message = runCatching { JSONObject(text).optString("message") }.getOrNull()
                 error(message?.takeIf(String::isNotBlank) ?: "خدمة الترجمة أعادت خطأ (HTTP " + it.code + ")")
