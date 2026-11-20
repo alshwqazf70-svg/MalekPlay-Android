@@ -32,7 +32,7 @@ internal object UltraShareDeviceNetworkInfo {
                 }
             if (size <= 0L) {
                 size = runCatching {
-                    contentResolver.openAssetFileDescriptor(uri, "r")?.use { descriptor -> descriptor.length }
+                    contentResolver.openAssetFileDescriptor(uri, "r")?.use { descriptor -> descriptor.length.takeIf { it >= 0L } ?: -1L }
                 }.getOrDefault(-1L)
             }
         }
