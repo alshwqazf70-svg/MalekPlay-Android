@@ -246,9 +246,13 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     appendQueryParameter("episode_number", episode.toString())
                 }
             }.build().toString()
-        val data = execute(Request.Builder().url(url).header("User-Agent", AGENT)
-            .header("Accept", "application/json").get().build()).optJSONArray("subtitles")
-            ?: return emptyList()
+        val payload = execute(Request.Builder().url(url).header("User-Agent", AGENT)
+            .header("Accept", "application/json").get().build())
+        if (payload.has("status") && !payload.optBoolean("status")) {
+            error(payload.optString("error").takeIf { it.isNotBlank() }
+                ?: "رفضت خدمة SubDL طلب البحث")
+        }
+        val data = payload.optJSONArray("subtitles") ?: return emptyList()
         return buildList {
             for (index in 0 until data.length()) {
                 val parent = data.optJSONObject(index) ?: continue
