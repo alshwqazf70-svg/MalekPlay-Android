@@ -44,6 +44,11 @@ class SubtitleQueryCleanerTest {
         assertEquals(2023, result.year)
     }
 
+    @Test fun stripsMultichannelAudioWhenNoResolutionTagExists() {
+        assertEquals("Movie Name", SubtitleQueryCleaner.clean("Movie.Name.DDP5.1-GROUP.mkv").title)
+        assertEquals("Movie Name", SubtitleQueryCleaner.clean("Movie_Name_AAC5.1-RELEASE.mkv").title)
+    }
+
     @Test fun handlesEmptyAndUriLikeNames() {
         assertEquals("", SubtitleQueryCleaner.clean("").title)
         assertEquals("My Film", SubtitleQueryCleaner.clean("content://media/external/video/My_Film.mkv").title)
