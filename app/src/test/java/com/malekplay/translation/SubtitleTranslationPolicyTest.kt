@@ -75,4 +75,27 @@ class SubtitleTranslationPolicyTest {
             )
         )
     }
+
+    @Test
+    fun toleratesWhitespaceAroundCompactBatchSeparators() {
+        val separator = SubtitleTranslationPolicy.separator(3, 0)
+        val translated = "مرحبا\\n§ C 3 _ 0 §\\nكيف حالك؟"
+        assertEquals(
+            listOf("مرحبا", "كيف حالك؟"),
+            SubtitleTranslationPolicy.splitBatchTranslation(translated, listOf(separator))
+        )
+    }
+
+    @Test
+    fun mergesWrappedLinesButKeepsTwoSpeakerDialogueSeparated() {
+        assertEquals(
+            "This is one sentence",
+            SubtitleTranslationPolicy.mergeWrappedDialogueLines("This is one\\n sentence")
+        )
+        assertEquals(
+            "- Hello\\n- مرحباً",
+            SubtitleTranslationPolicy.mergeWrappedDialogueLines("- Hello\\n- مرحباً")
+        )
+    }
+
 }
