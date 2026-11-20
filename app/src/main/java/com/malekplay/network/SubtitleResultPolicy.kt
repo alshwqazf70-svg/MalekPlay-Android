@@ -12,7 +12,7 @@ internal object SubtitleResultPolicy {
             .filter { it == "ar" || it == "en" }.toSet().ifEmpty { setOf("ar", "en") }
         val episodePattern = if (season != null && episode != null) {
             Regex(
-                """(?i)(?:\\bS0?${season}E0?${episode}\\b|\\b${season}x0?${episode}\\b)"""
+                """(?i)(?:\bS0?${season}E0?${episode}\b|\b${season}x0?${episode}\b)"""
             )
         } else null
         return results.filter { SubtitleQueryCleaner.normalizeLanguage(it.language) in wanted }
