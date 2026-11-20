@@ -193,10 +193,14 @@ class SubtitleTranslationEngine @Inject constructor(
                 val temporary = File.createTempFile("malekplay-ar-", ".part", context.cacheDir)
                 try {
                     temporary.writeText(translated, StandardCharsets.UTF_8)
-                    if (cacheFile.exists() && !cacheFile.delete()) {
-                        error("تعذر استبدال ملف الترجمة المؤقت")
+                    // Same-directory rename is atomic on the app filesystem. Do not
+                    // delete an existing cache entry first: another playback job may
+                    // have completed the identical translation concurrently.
+                    if (!temporary.renameTo(cacheFile)) {
+                        check(cacheFile.isFile && cacheFile.length() > 0L) {
+                            "تعذر حفظ الترجمة في الذاكرة المؤقتة"
+                        }
                     }
-                    check(temporary.renameTo(cacheFile)) { "تعذر حفظ الترجمة في الذاكرة المؤقتة" }
                     cacheFile
                 } finally {
                     if (temporary.exists()) temporary.delete()
