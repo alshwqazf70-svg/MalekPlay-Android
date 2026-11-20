@@ -664,7 +664,7 @@ class PlaybackService : MediaSessionService() {
             }
             disableAllVideoEnhancements()
             val cleared = runCatching {
-                AssVideoEffectRegistry.setAdditionalEffects(player, emptyList())
+                applyEffectChain(player, emptyList(), hasLanczos = false)
             }.getOrDefault(false)
             videoEffectsBridgeAttached = cleared
             if (!cleared) {
