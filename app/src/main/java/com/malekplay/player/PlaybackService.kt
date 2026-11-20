@@ -43,6 +43,7 @@ import com.malekplay.player.effects.VideoEnhancementMetrics
 import com.malekplay.player.effects.VideoEnhancementPipelineEffect
 import com.malekplay.player.effects.VideoEnhancementPipelineConfig
 import com.malekplay.player.effects.VideoUpscaleTargetPolicy
+import com.malekplay.player.effects.VideoUpscaleTarget
 import com.malekplay.player.effects.GoogleMediaEnhancementCapability
 import io.github.peerless2012.ass.media.AssHandler
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
@@ -100,6 +101,8 @@ class PlaybackService : MediaSessionService() {
     @Volatile private var videoEffectsBridgeAttached = false
     @Volatile private var videoLanczosSubmitted = false
     private var appliedLanczosEffect = false
+    private var appliedLanczosTarget: Pair<Int, Int>? = null
+    private var lastAppliedEnhancementSignature: String? = null
     @Volatile private var lastRendererFrameCount = 0L
     @Volatile private var lastAverageProcessingOffsetUs = 0L
     @Volatile private var droppedVideoFramesTotal = 0L
@@ -199,7 +202,10 @@ class PlaybackService : MediaSessionService() {
         videoEnhancementPipelineAttached =
             AssVideoEffectRegistry.setAdditionalEffects(player, listOf(pipeline))
         if (!videoEnhancementPipelineAttached) {
-            Log.e(TAG, "Could not attach the always-ready GPU enhancement pipeline")
+            val reason = AssVideoEffectRegistry.lastFailure(player)
+                ?: "ASS effect manager did not accept the initial GPU pipeline"
+            VideoEnhancementMetrics.recordFailure("ass_effect_manager_attach", IllegalStateException(reason))
+            Log.e(TAG, "Could not attach the always-ready GPU enhancement pipeline: $reason")
         }
 
         // Probe Google AI capability without touching the active decoder or surface.
@@ -401,6 +407,7 @@ class PlaybackService : MediaSessionService() {
                 PlaybackVideoEffects.ACTION_QUALITY_PROFILE -> setVideoEnhancementProfile(
                     VideoEnhancementProfile.fromWireValue(args.getString(PlaybackVideoEffects.KEY_PROFILE))
                 )
+                PlaybackVideoEffects.ACTION_INTERNAL_GPU_ENHANCEMENT -> setInternalGpuEnhancement(requested)
                 else -> false
             }
             return Futures.immediateFuture(
@@ -417,15 +424,18 @@ class PlaybackService : MediaSessionService() {
         putBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, videoUpscalingEnabled)
         putBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, videoNoiseReductionEnabled)
         putString(PlaybackVideoEffects.KEY_STATE_PROFILE, videoEnhancementProfile.wireValue)
-        val metrics = VideoEnhancementMetrics.snapshot()
         // Read the live registry state instead of exposing a stale service-side flag.
         videoEffectsBridgeAttached = localExoPlayer?.let(AssVideoEffectRegistry::isAttached) == true
+        val bridgeFailure = localExoPlayer?.let(AssVideoEffectRegistry::lastFailure)
+        if (bridgeFailure != null && VideoEnhancementMetrics.snapshot().lastFailure != bridgeFailure) {
+            VideoEnhancementMetrics.recordFailure("ass_overlay_manager", IllegalStateException(bridgeFailure))
+        }
+        val metrics = VideoEnhancementMetrics.snapshot()
         putBoolean(PlaybackVideoEffects.KEY_DIAG_UPSCALE_SUBMITTED, videoLanczosSubmitted && videoEffectsBridgeAttached)
         putLong(PlaybackVideoEffects.KEY_DIAG_DENOISE_DRAWS, metrics.denoiseDraws)
         putLong(PlaybackVideoEffects.KEY_DIAG_DETAIL_DRAWS, metrics.detailDraws)
         putLong(PlaybackVideoEffects.KEY_DIAG_TOTAL_DRAWS, metrics.processedDraws)
         putString(PlaybackVideoEffects.KEY_DIAG_LAST_EFFECT, metrics.lastEffectName)
-        val bridgeFailure = localExoPlayer?.let(AssVideoEffectRegistry::lastFailure)
         putString(
             PlaybackVideoEffects.KEY_DIAG_LAST_FAILURE,
             metrics.lastFailure ?: bridgeFailure ?: if (!videoEffectsBridgeAttached) {
@@ -456,7 +466,9 @@ class PlaybackService : MediaSessionService() {
             totalProcessingOffsetUs: Long,
             frameCount: Int
         ) {
-            if (!hasAnyVideoEnhancementEnabled() || frameCount <= 0) return
+            val chainConnected = videoEffectsBridgeAttached || videoEnhancementPipelineAttached ||
+                localExoPlayer?.let(AssVideoEffectRegistry::isAttached) == true
+            if (frameCount <= 0 || (!hasAnyVideoEnhancementEnabled() && !chainConnected)) return
             val gpu = VideoEnhancementMetrics.snapshot()
             val averageOffsetUs = totalProcessingOffsetUs / frameCount
             lastRendererFrameCount += frameCount.toLong()
@@ -526,6 +538,12 @@ class PlaybackService : MediaSessionService() {
             if (hasAnyVideoEnhancementEnabled()) applyVideoEnhancements()
         }
 
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY && hasAnyVideoEnhancementEnabled()) {
+                applyVideoEnhancements()
+            }
+        }
+
         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
             if (hasAnyVideoEnhancementEnabled()) applyVideoEnhancements()
         }
@@ -569,10 +587,31 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun setVideoEnhancementProfile(profile: VideoEnhancementProfile): Boolean {
-        val previous = videoEnhancementProfile
+        val previousProfile = videoEnhancementProfile
+        val previousUpscaling = videoUpscalingEnabled
         videoEnhancementProfile = profile
+        // A quality preset is an explicit request to activate visible GPU detail enhancement.
+        if (!hasAnyVideoEnhancementEnabled() && isLocalClearVideoSession()) {
+            videoUpscalingEnabled = true
+        }
         if (applyVideoEnhancements()) return true
-        videoEnhancementProfile = previous
+        videoEnhancementProfile = previousProfile
+        videoUpscalingEnabled = previousUpscaling
+        applyVideoEnhancements()
+        return false
+    }
+
+    /** Switch both internal GPU stages in one service transaction for AI fallback. */
+    private fun setInternalGpuEnhancement(enabled: Boolean): Boolean {
+        if (enabled && !isLocalClearVideoSession()) return false
+        val previousUpscaling = videoUpscalingEnabled
+        val previousDenoise = videoNoiseReductionEnabled
+        if (enabled && !hasAnyVideoEnhancementEnabled()) VideoEnhancementMetrics.reset()
+        videoUpscalingEnabled = enabled
+        videoNoiseReductionEnabled = enabled
+        if (applyVideoEnhancements()) return true
+        videoUpscalingEnabled = previousUpscaling
+        videoNoiseReductionEnabled = previousDenoise
         applyVideoEnhancements()
         return false
     }
@@ -600,6 +639,7 @@ class PlaybackService : MediaSessionService() {
     private fun disableAllVideoEnhancements() {
         videoUpscalingEnabled = false
         videoNoiseReductionEnabled = false
+        lastAppliedEnhancementSignature = null
         videoEnhancementPipeline?.update(VideoEnhancementPipelineConfig())
         videoEffectsBridgeAttached = false
         videoLanczosSubmitted = false
@@ -613,8 +653,10 @@ class PlaybackService : MediaSessionService() {
             videoEffectsBridgeAttached = applyEffectChain(
                 player,
                 listOfNotNull(videoEnhancementPipeline),
-                hasLanczos = false
+                hasLanczos = false,
+                lanczosTarget = null
             )
+            lastAppliedEnhancementSignature = if (videoEffectsBridgeAttached) "disabled" else null
             return videoEffectsBridgeAttached
         }
         if (!isLocalClearVideoSession()) {
@@ -653,6 +695,7 @@ class PlaybackService : MediaSessionService() {
             )
         )
         val effects = ArrayList<Effect>(4)
+        var lanczosTarget: VideoUpscaleTarget? = null
         videoLanczosSubmitted = false
         if (videoUpscalingEnabled) {
             val videoSize = player.videoSize
