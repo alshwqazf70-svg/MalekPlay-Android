@@ -1081,7 +1081,15 @@ class LegacyUltraShareViewModel @Inject constructor(
         }
 
     fun connectInvitation(pairing: UltraShareQrCode.PairingDetails, onReady: (String) -> Unit) {
-        if (!pairing.hotspotSsid.isNullOrBlank() && !pairing.hotspotPassword.isNullOrBlank()) {
+        // P2P invitations must negotiate Wi-Fi Direct first, even when the QR also
+        // carries optional hotspot credentials for a separate fallback transport.
+        // The active Ultra Share screen uses this LegacyUltraShareViewModel; keeping
+        // this priority here is essential because the newer ViewModel is not wired
+        // to the current navigation destination.
+        if (pairing.invitationId.isNullOrBlank() &&
+            !pairing.hotspotSsid.isNullOrBlank() &&
+            !pairing.hotspotPassword.isNullOrBlank()
+        ) {
             pendingInvitation = pairing
             pendingInvitationReady = onReady
             connectThroughLocalHotspot(pairing, onReady)
