@@ -13,6 +13,9 @@ class OpenSubtitlesMovieHashTest {
             assertEquals(16, first.length)
             assertEquals("bf7b30eba75ef876", first)
             assertEquals(first, OpenSubtitlesMovieHash.calculate(file))
+            file.inputStream().use { input ->
+                assertEquals(first, OpenSubtitlesMovieHash.calculate(input, file.length()))
+            }
         } finally { file.delete() }
     }
 }
