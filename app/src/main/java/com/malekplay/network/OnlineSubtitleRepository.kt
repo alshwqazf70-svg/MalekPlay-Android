@@ -90,6 +90,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val queryKey = buildString {
             append(providerTitle.trim().lowercase(Locale.ROOT))
             append("|s").append(resolvedSeason ?: 0).append("e").append(resolvedEpisode ?: 0)
+            append("|").append(mediaUri?.toString().orEmpty())
         }
         automaticSearchCache.get(queryKey)?.let { cached ->
             return SubtitleResultPolicy.rankAndFilter(cached, language).take(40)
