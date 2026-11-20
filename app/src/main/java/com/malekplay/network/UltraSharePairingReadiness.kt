@@ -153,8 +153,10 @@ internal fun matchesExpectedUltraSharePeerIdentity(
 ): Boolean {
     // A legacy invitation may omit the expected ID. Once discovery supplied
     // an expected identity, the authenticated handshake must present it too.
-    if (expectedPeerId.isNullOrBlank()) return true
-    if (authenticatedPeerId.isNullOrBlank()) return false
+    // Only a genuinely absent ID denotes a legacy discovery record. A blank
+    // value is malformed metadata and must not silently bypass identity binding.
+    if (expectedPeerId == null) return true
+    if (expectedPeerId.isBlank() || authenticatedPeerId.isNullOrBlank()) return false
     return expectedPeerId.replace("-", "").equals(
         authenticatedPeerId.replace("-", ""),
         ignoreCase = true
