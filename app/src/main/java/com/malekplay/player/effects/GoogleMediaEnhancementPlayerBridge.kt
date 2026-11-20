@@ -219,8 +219,8 @@ class GoogleMediaEnhancementPlayerBridge(
         }
         val sourceScheme = uri.scheme?.lowercase()
         if (sourceScheme != "file" && sourceScheme != "content") {
-            // Network sources (HTTP/HTTPS/SMB/DLNA-backed URIs) stay on the
-            // local ExoPlayer output and are handed to the internal GPU fallback.
+            // Network URI sources (HTTP/HTTPS/SMB or local DLNA streams) that
+            // still decode on this device use the internal GPU fallback.
             retryBlocked = true
             publish(
                 GoogleMediaEnhancementState.UNSUPPORTED,
