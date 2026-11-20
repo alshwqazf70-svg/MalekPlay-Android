@@ -15,4 +15,30 @@ internal object SubtitleProviderResultParser {
         primary.trim().takeIf { it.isNotBlank() } ?: fallback.trim().ifBlank { "Subtitle" }
 
     fun downloadCount(value: Int): Int = value.coerceAtLeast(0)
+
+    fun subDlSubtitle(
+        url: String,
+        releaseName: String,
+        languageCode: String,
+        formatName: String,
+        downloads: Int,
+        fallbackTitle: String
+    ): OnlineSubtitle? {
+        val source = url.trim()
+        val language = language(languageCode)
+        if (source.isBlank() || language !in setOf("ar", "en")) return null
+        val release = release(releaseName, fallbackTitle)
+        val extension = format(formatName)
+            ?: format(release.substringAfterLast('.', "srt"))
+            ?: "srt"
+        return OnlineSubtitle(
+            fileId = 0L,
+            language = language,
+            release = release,
+            downloads = downloadCount(downloads),
+            format = extension,
+            sourceId = source,
+            provider = "subdl"
+        )
+    }
 }
