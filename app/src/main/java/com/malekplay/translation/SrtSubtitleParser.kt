@@ -147,7 +147,7 @@ internal object SrtSubtitleParser {
             val end = assTimeToSrt(values[endIndex]) ?: return@forEach
             val dialogue = values[textIndex]
                 .replace(assOverridePattern, "")
-                .replace(Regex("""\\[Nn]"""), "\\n")
+                .replace(Regex("""\\[Nn]"""), "\n")
                 .replace(Regex("""\\h"""), " ")
                 .replace(Regex("""<[^>]*>"""), "")
                 .trim()
