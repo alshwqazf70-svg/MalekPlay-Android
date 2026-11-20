@@ -103,6 +103,7 @@ class PlaybackService : MediaSessionService() {
     private var appliedLanczosEffect = false
     private var appliedLanczosTarget: Pair<Int, Int>? = null
     private var lastAppliedEnhancementSignature: String? = null
+    private var lastObservedVideoTrackSignature: String? = null
     @Volatile private var lastRendererFrameCount = 0L
     @Volatile private var lastAverageProcessingOffsetUs = 0L
     @Volatile private var droppedVideoFramesTotal = 0L
@@ -515,6 +516,7 @@ class PlaybackService : MediaSessionService() {
     private val localVideoEffectListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             performanceQualityCap = null
+            lastObservedVideoTrackSignature = null
             VideoEnhancementMetrics.reset()
             lastRendererFrameCount = 0L
             lastAverageProcessingOffsetUs = 0L
@@ -537,6 +539,19 @@ class PlaybackService : MediaSessionService() {
             if (videoGroups.isEmpty()) return
             val hasSelectedVideo = videoGroups.any { it.isSelected }
             if (!hasSelectedVideo) return
+            val player = localExoPlayer ?: return
+            val videoSize = player.videoSize
+            val requestSignature = listOf(
+                videoSize.width,
+                videoSize.height,
+                videoGroups.joinToString(",") { "${it.isSelected}:${it.length}" },
+                videoUpscalingEnabled,
+                videoNoiseReductionEnabled,
+                videoEnhancementProfile.wireValue,
+                performanceQualityCap?.wireValue.orEmpty()
+            ).joinToString("|")
+            if (requestSignature == lastObservedVideoTrackSignature) return
+            lastObservedVideoTrackSignature = requestSignature
             if (hasAnyVideoEnhancementEnabled()) applyVideoEnhancements()
         }
 
@@ -547,6 +562,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+            lastObservedVideoTrackSignature = null
             if (hasAnyVideoEnhancementEnabled()) applyVideoEnhancements()
         }
     }
