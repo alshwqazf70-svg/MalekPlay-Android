@@ -72,14 +72,13 @@ internal object SrtSubtitleParser {
      * WebVTT timestamps use dots, while SRT requires comma milliseconds.
      */
     fun splitBlocks(text: String, formatHint: String? = null): List<String> {
-        val normalized = text.removePrefix("\\uFEFF")
+        val normalized = text.removePrefix("\uFEFF")
         val hint = formatHint?.lowercase(java.util.Locale.ROOT)
         if (hint == "ass" || hint == "ssa" ||
             normalized.contains("[Events]", ignoreCase = true) &&
             normalized.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
         ) return splitAssBlocks(normalized)
-        text = normalized
-        val blocks = text.replace("\r\n", "\n").replace('\r', '\n')
+        val blocks = normalized.replace("\r\n", "\n").replace('\r', '\n')
             .split(Regex("\n[\t ]*\n"))
             .filter { it.isNotBlank() }
         val isWebVtt = blocks.firstOrNull()?.lineSequence()?.firstOrNull()
