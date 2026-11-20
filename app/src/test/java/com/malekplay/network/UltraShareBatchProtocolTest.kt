@@ -76,12 +76,27 @@ class UltraShareBatchProtocolTest {
             "drawing.svg" to "image/png",
             "drawing.png" to "image/svg+xml"
         ).forEach { (name, mime) ->
-            val item = UltraShareBatchProtocol.newEntry(
-                name, mime, 1L, MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
+            val digest = MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
+
+            // The public factory must reject blocked formats before they enter a queue.
+            assertThrows(IllegalArgumentException::class.java) {
+                UltraShareBatchProtocol.newEntry(name, mime, 1L, digest)
+            }
+
+            // Also validate a hand-crafted manifest entry: never trust a peer to use our factory.
+            val untrustedEntry = UltraShareBatchProtocol.FileEntry(
+                UUID.randomUUID().toString(),
+                name,
+                mime,
+                1L,
+                digest
             )
             assertThrows(IllegalArgumentException::class.java) {
                 UltraShareBatchProtocol.validate(
-                    UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(item))
+                    UltraShareBatchProtocol.Manifest(
+                        UUID.randomUUID().toString(),
+                        listOf(untrustedEntry)
+                    )
                 )
             }
         }
