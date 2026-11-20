@@ -2,12 +2,23 @@ package com.malekplay.network
 
 /** Pure provider-result policy, kept independent from Android and HTTP for JVM tests. */
 internal object SubtitleResultPolicy {
-    fun rankAndFilter(results: List<OnlineSubtitle>, languageFilter: String): List<OnlineSubtitle> {
+    fun rankAndFilter(
+        results: List<OnlineSubtitle>,
+        languageFilter: String,
+        season: Int? = null,
+        episode: Int? = null
+    ): List<OnlineSubtitle> {
         val wanted = languageFilter.split(',').map(SubtitleQueryCleaner::normalizeLanguage)
             .filter { it == "ar" || it == "en" }.toSet().ifEmpty { setOf("ar", "en") }
+        val episodePattern = if (season != null && episode != null) {
+            Regex(
+                """(?i)(?:\\bS0?${season}E0?${episode}\\b|\\b${season}x0?${episode}\\b)"""
+            )
+        } else null
         return results.filter { SubtitleQueryCleaner.normalizeLanguage(it.language) in wanted }
             .sortedWith(compareBy<OnlineSubtitle>(
                 { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 },
+                { if (episodePattern == null || episodePattern.containsMatchIn(it.release)) 0 else 1 },
                 { -it.downloads }
             ))
     }
