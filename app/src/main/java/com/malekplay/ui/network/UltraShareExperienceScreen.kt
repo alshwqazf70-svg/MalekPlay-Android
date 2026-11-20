@@ -714,8 +714,8 @@ fun UltraShareExperienceScreen(
             ) {
                 ZapyaPrimaryAction(
                     modifier = Modifier.weight(1f),
-                    title = "إنشاء غرفة (إرسال واستقبال)",
-                    subtitle = "اعرض رمز QR وابدأ المشاركة فوراً",
+                    title = "إنشاء غرفة",
+                    subtitle = "إرسال واستقبال • اعرض رمز QR",
                     icon = { Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(58.dp)) }
                 ) {
                     startReceivingGroup()
@@ -723,8 +723,8 @@ fun UltraShareExperienceScreen(
                 }
                 ZapyaPrimaryAction(
                     modifier = Modifier.weight(1f),
-                    title = "انضمام لغرفة (مسح QR)",
-                    subtitle = "امسح رمز QR للاتصال التلقائي",
+                    title = "انضمام لغرفة",
+                    subtitle = "مسح QR والاتصال التلقائي",
                     icon = { Icon(Icons.Filled.Send, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(58.dp)) }
                 ) {
                     page = UltraSharePage.JOIN
