@@ -1283,11 +1283,12 @@ object UltraShareBatchTransport {
     internal fun closeSocketOnJobCancellation(job: Job, socket: Socket): DisposableHandle =
         job.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { cause ->
             if (cause != null) {
-                // Half-close first so the peer observes EOF rather than a reset,
-                // then close both directions to release any locally blocked read.
+                // Send FIN first so the peer observes a clean EOF. Half-closing the
+                // input side releases a locally blocked read; the owning coroutine's
+                // finally block performs the actual close after it unwinds. Closing
+                // here races the read thread and can turn a graceful FIN into an RST.
                 runCatching { if (!socket.isOutputShutdown) socket.shutdownOutput() }
                 runCatching { if (!socket.isInputShutdown) socket.shutdownInput() }
-                runCatching { socket.close() }
             }
         }
 
