@@ -218,7 +218,7 @@ fun OnlineSubtitleSearchSheet(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Spacer(Modifier.weight(1f))
                                     Button(onClick = { downloadingKey = key; onDownload(subtitle) },
-                                        enabled = !loading || isDownloading,
+                                        enabled = !loading,
                                         shape = RoundedCornerShape(12.dp)) {
                                         if (isDownloading) {
                                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
