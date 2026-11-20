@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -142,7 +143,8 @@ fun OnlineSubtitleSearchSheet(
                     OutlinedTextField(username, { username = it }, Modifier.fillMaxWidth(),
                         singleLine = true, label = { Text("اسم مستخدم OpenSubtitles") })
                     OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(),
-                        singleLine = true, label = { Text("كلمة مرور OpenSubtitles") })
+                        singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                        label = { Text("كلمة مرور OpenSubtitles") })
                     Button(onClick = { onSaveCredentials(apiKey.trim(), username.trim(), password) },
                         enabled = apiKey.isNotBlank() && username.isNotBlank() && password.isNotBlank(),
                         modifier = Modifier.fillMaxWidth()) { Text("حفظ بيانات OpenSubtitles") }
