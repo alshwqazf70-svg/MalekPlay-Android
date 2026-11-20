@@ -96,7 +96,8 @@ private enum class UltraSharePage { HOME, SEND, RECEIVE, JOIN, NEARBY, TRANSFERS
 fun UltraShareExperienceScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
-    initialUris: List<Uri> = emptyList()
+    initialUris: List<Uri> = emptyList(),
+    onInitialUrisConsumed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val sensorManager = remember(context) { context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager }
@@ -120,6 +121,7 @@ fun UltraShareExperienceScreen(
     var pendingReceiverStart by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
     var pendingReceivedExport by remember { mutableStateOf<com.malekplay.network.UltraShareReceivedEntry?>(null) }
+    var advancedOptionsExpanded by remember { mutableStateOf(false) }
     var selectedUris by remember(initialUris) {
         mutableStateOf(initialUris.distinct().filter { isUltraShareAllowedFile(context, it) })
     }
@@ -169,6 +171,20 @@ fun UltraShareExperienceScreen(
     }
     val qrScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let(::handleQr)
+    }
+    fun launchQrScanner() {
+        qrScanner.launch(ScanOptions().apply {
+            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            setPrompt("امسح رمز QR الخاص بجهاز MalekPlayer")
+            setBeepEnabled(false)
+            setOrientationLocked(false)
+        })
+    }
+    val cameraPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) launchQrScanner()
+        else Toast.makeText(context, "يلزم إذن الكاميرا لمسح رمز QR. يمكنك استخدام صورة محفوظة بدلاً من ذلك.", Toast.LENGTH_LONG).show()
     }
     val qrImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -298,12 +314,11 @@ fun UltraShareExperienceScreen(
     }
 
     fun scanQr() {
-        qrScanner.launch(ScanOptions().apply {
-            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt("امسح رمز QR الخاص بجهاز MalekPlayer")
-            setBeepEnabled(false)
-            setOrientationLocked(false)
-        })
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            launchQrScanner()
+        } else {
+            cameraPermission.launch(Manifest.permission.CAMERA)
+        }
     }
     fun scanWifiDirect() {
         val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT).toTypedArray()
@@ -527,6 +542,11 @@ fun UltraShareExperienceScreen(
             page = UltraSharePage.TRANSFERS
         }
     }
+    LaunchedEffect(state.activePeers, state.approvedSenderPeerHosts) {
+        if (state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty()) {
+            page = UltraSharePage.TRANSFERS
+        }
+    }
     LaunchedEffect(state.wifiDirectHost) {
         state.wifiDirectHost?.let { connectedHost ->
             host = connectedHost
@@ -629,6 +649,14 @@ fun UltraShareExperienceScreen(
     val visiblePeers = state.discoveredPeers.filter {
         it.name.contains(search, true) || it.host.contains(search, true)
     }
+    val hasConnectedPeer = state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty()
+    fun sendSelectedUrisToRoom() {
+        if (selectedUris.isEmpty()) return
+        if (viewModel.sendBatchToApprovedPeers(selectedUris)) {
+            selectedUris = emptyList()
+            onInitialUrisConsumed()
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -638,6 +666,30 @@ fun UltraShareExperienceScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        if (selectedUris.isNotEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF251535))
+            ) {
+                Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (hasConnectedPeer) "الغرفة جاهزة — ${selectedUris.size} ملفات بانتظار الإرسال"
+                        else "جاهز للإرسال فور الاقتران (${selectedUris.size} ملفات)",
+                        color = MalekPlayColors.TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (hasConnectedPeer) {
+                        Button(onClick = ::sendSelectedUrisToRoom, enabled = !state.sending, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Filled.Send, null)
+                            Text("إرسال المختار الآن", modifier = Modifier.padding(start = 8.dp))
+                        }
+                    } else {
+                        Text("أنشئ غرفة أو امسح رمز QR؛ ستبقى الملفات محددة هنا حتى يصبح الجهاز الآخر متصلاً.", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
         if (page == UltraSharePage.HOME) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
@@ -650,7 +702,7 @@ fun UltraShareExperienceScreen(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
-                IconButton(onClick = { page = UltraSharePage.JOIN }) {
+                IconButton(onClick = { page = UltraSharePage.JOIN; scanQr() }) {
                     Icon(Icons.Filled.QrCode, contentDescription = "مسح رمز QR", tint = Color(0xFF75E8F4))
                 }
             }
@@ -675,8 +727,8 @@ fun UltraShareExperienceScreen(
                     subtitle = "اكتشف الأجهزة أو امسح QR",
                     icon = { Icon(Icons.Filled.Send, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(58.dp)) }
                 ) {
-                    scanAllNearby()
-                    page = UltraSharePage.NEARBY
+                    page = UltraSharePage.JOIN
+                    scanQr()
                 }
             }
             Row(
@@ -701,63 +753,29 @@ fun UltraShareExperienceScreen(
                     strokeWidth = 1.dp.toPx()
                 )
             }
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ZapyaShortcut(
-                        modifier = Modifier.weight(1f),
-                        title = if (shakeToConnectArmed) "حرّك الآن..." else "تحريك الهاتف",
-                        icon = { Icon(Icons.Filled.Send, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
-                        onClick = {
-                            if (sensorManager == null || accelerometer == null) {
-                                beginNearbySearchFromShake()
-                                Toast.makeText(context, "مستشعر الحركة غير متاح؛ تم فتح البحث القريب.", Toast.LENGTH_LONG).show()
-                            } else {
-                                shakeToConnectArmed = !shakeToConnectArmed
-                                Toast.makeText(
-                                    context,
-                                    if (shakeToConnectArmed) "حرّك الهاتف مرة واحدة لبدء اكتشاف الأجهزة." else "تم إلغاء انتظار الحركة.",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF21192D))
+            ) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { advancedOptionsExpanded = !advancedOptionsExpanded }) {
+                        Text(if (advancedOptionsExpanded) "إخفاء الخيارات المتقدمة" else "الخيارات المتقدمة والاتصال اليدوي")
+                    }
+                    if (advancedOptionsExpanded) {
+                        OutlinedButton(onClick = { page = UltraSharePage.NEARBY; scanAllNearby() }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Filled.Wifi, null)
+                            Text("الأجهزة القريبة", modifier = Modifier.padding(start = 8.dp))
                         }
-                    )
-                    ZapyaShortcut(
-                        modifier = Modifier.weight(1f),
-                        title = "المشاركة عبر QR",
-                        icon = { Icon(Icons.Filled.QrCode, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
-                        onClick = { page = UltraSharePage.JOIN }
-                    )
-                    ZapyaShortcut(
-                        modifier = Modifier.weight(1f),
-                        title = "نسخ إلى هاتف آخر",
-                        icon = { Icon(Icons.Filled.CheckCircle, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
-                        onClick = { page = UltraSharePage.SEND }
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ZapyaShortcut(
-                        modifier = Modifier.weight(1f),
-                        title = "ادعُ الأصدقاء",
-                        icon = { Icon(Icons.Filled.Send, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
-                        onClick = {
-                            val share = Intent(Intent.ACTION_SEND).setType("text/plain")
-                                .putExtra(Intent.EXTRA_TEXT, "انضم إليّ عبر MalekPlayer لمشاركة الملفات محلياً.")
-                            runCatching { context.startActivity(Intent.createChooser(share, "دعوة الأصدقاء")) }
-                                .onFailure { Toast.makeText(context, "تعذر فتح قائمة المشاركة.", Toast.LENGTH_SHORT).show() }
+                        OutlinedButton(onClick = { qrImagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Filled.QrCode, null)
+                            Text("مسح QR من صورة محفوظة", modifier = Modifier.padding(start = 8.dp))
                         }
-                    )
-                    ZapyaShortcut(
-                        modifier = Modifier.weight(1f),
-                        title = "إعدادات Wi-Fi",
-                        icon = { Icon(Icons.Filled.Wifi, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
-                        onClick = { scanWifiDirect(); page = UltraSharePage.NEARBY }
-                    )
-                    ZapyaShortcut(
-                        modifier = Modifier.weight(1f),
-                        title = "مساعدة",
-                        icon = { Icon(Icons.Filled.History, null, tint = Color.White, modifier = Modifier.size(27.dp)) },
-                        onClick = { page = UltraSharePage.HISTORY }
-                    )
+                        OutlinedButton(onClick = { page = UltraSharePage.SEND }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Filled.Send, null)
+                            Text("الإدخال اليدوي / اختيار الملفات", modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
                 }
             }
             StatusPanel(
@@ -857,10 +875,16 @@ fun UltraShareExperienceScreen(
                         },
                         onRequestConnection = { viewModel.requestConnection(host, secret) },
                         onSendBatch = { targetHost ->
-                            if (viewModel.sendBatch(selectedUris, targetHost)) selectedUris = emptyList()
+                            if (viewModel.sendBatch(selectedUris, targetHost)) {
+                                selectedUris = emptyList()
+                                onInitialUrisConsumed()
+                            }
                         },
                         onSendToAllPeers = {
-                            if (viewModel.sendBatchToApprovedPeers(selectedUris)) selectedUris = emptyList()
+                            if (viewModel.sendBatchToApprovedPeers(selectedUris)) {
+                                selectedUris = emptyList()
+                                onInitialUrisConsumed()
+                            }
                         },
                         onResumeAllPeers = viewModel::resumePendingForAllPeers,
                         onOpenTransfers = { page = UltraSharePage.TRANSFERS }
@@ -1131,7 +1155,12 @@ fun UltraShareExperienceScreen(
                             if (!state.receiving) startReceivingGroup()
                             page = UltraSharePage.RECEIVE
                         },
-                        onBackHome = { page = UltraSharePage.HOME }
+                        onLeaveRoom = {
+                            (state.activePeers.map { it.host } + state.approvedSenderPeerHosts).distinct()
+                                .forEach(viewModel::forgetPeer)
+                            stopReceivingGroup()
+                            page = UltraSharePage.HOME
+                        }
                     )
                     val connectedHosts = (
                         state.activePeers.map { it.host } + state.approvedSenderPeerHosts
