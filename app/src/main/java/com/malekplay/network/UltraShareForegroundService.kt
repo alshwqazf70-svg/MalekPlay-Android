@@ -135,6 +135,7 @@ class UltraShareForegroundService : Service() {
     @Volatile private var receiveJob: Job? = null
     @Volatile private var batchReceiveJob: Job? = null
     @Volatile private var activeBatchTransferPort: Int = 0
+    @Volatile private var activeControlPort: Int = UltraShareControlChannel.DEFAULT_PORT
     @Volatile private var addressMonitorJob: Job? = null
     @Volatile private var pauseRequested = false
     private val pendingReplacementCount = java.util.concurrent.atomic.AtomicInteger(0)
@@ -307,11 +308,17 @@ class UltraShareForegroundService : Service() {
             }
             ACTION_RECEIVE -> {
                 val secret = intent.getStringExtra(EXTRA_SECRET).orEmpty()
-                if (!UltraShareCore.isValidPairingSecret(secret)) {
-                    updateState { current -> current.copy(error = getString(R.string.ultra_share_transfer_failed)) }
+                val requestedControlPort = intent.getIntExtra(EXTRA_CONTROL_PORT, UltraShareControlChannel.DEFAULT_PORT)
+                if (requestedControlPort !in 1024..65535 || !UltraShareCore.isValidPairingSecret(secret)) {
+                    updateState { current -> current.copy(
+                        error = if (requestedControlPort !in 1024..65535)
+                            "منفذ قناة التحكم غير صالح؛ يجب أن يكون بين 1024 و65535."
+                        else getString(R.string.ultra_share_transfer_failed)
+                    ) }
                     finishService()
                     return START_NOT_STICKY
                 }
+                activeControlPort = requestedControlPort
                 val retiringReceive = receiveJob
                 val retiringBatch = batchReceiveJob
                 if (retiringReceive?.isCancelled == true || retiringBatch?.isCancelled == true) {
@@ -616,14 +623,15 @@ class UltraShareForegroundService : Service() {
                         try {
                             UltraShareControlChannel.serveOnce(
                                 pairingSecret = secret,
+                                port = activeControlPort,
                                 localPeerName = Build.MODEL?.take(96)?.ifBlank { "MalekPlayer Android" } ?: "MalekPlayer Android",
                                 localPeerId = UltraShareDiscovery.localPeerId(this@UltraShareForegroundService),
                                 onListening = { actualPort ->
-                                    val ready = actualPort == UltraShareControlChannel.DEFAULT_PORT
+                                    val ready = actualPort == activeControlPort
                                     UltraShareDiagnostics.event(
                                         "CONTROL_CHANNEL",
                                         if (ready) "LISTENING" else "UNEXPECTED_LISTENING_PORT",
-                                        mapOf("port" to actualPort, "expectedPort" to UltraShareControlChannel.DEFAULT_PORT)
+                                        mapOf("port" to actualPort, "expectedPort" to activeControlPort)
                                     )
                                     if (ready) {
                                         updateState { current -> current.copy(
@@ -685,7 +693,7 @@ class UltraShareForegroundService : Service() {
                             UltraShareDiagnostics.failure(
                                 "CONTROL_CHANNEL_SERVER",
                                 failure,
-                                "port=" + UltraShareControlChannel.DEFAULT_PORT
+                                "port=" + activeControlPort
                             )
                             updateState { current -> current.copy(
                                 controlChannelReady = false,
@@ -2840,6 +2848,7 @@ class UltraShareForegroundService : Service() {
         private const val MESH_DIRECT_CONTROL_PORT = 38_746
         private const val MESH_DIRECT_DIAL_ATTEMPTS = 3
         private const val EXTRA_SECRET = "secret"
+        private const val EXTRA_CONTROL_PORT = "control_port"
         private const val EXTRA_HOST = "host"
         private const val EXTRA_URI = "uri"
         private const val EXTRA_URIS = "uris"
@@ -2994,8 +3003,10 @@ class UltraShareForegroundService : Service() {
         fun startReceiving(
             context: Context,
             secret: String,
-            createHotspot: Boolean = true
+            createHotspot: Boolean = true,
+            controlPort: Int = UltraShareControlChannel.DEFAULT_PORT
         ) {
+            require(controlPort in 1024..65535) { "Control port must be between 1024 and 65535." }
             // Clear a previous session's readiness before the asynchronous service
             // start, so a newly generated QR can never reuse stale "ready" state.
             mutableState.update { current -> current.copy(
@@ -3005,6 +3016,7 @@ class UltraShareForegroundService : Service() {
             val intent = Intent(context, UltraShareForegroundService::class.java)
                 .setAction(ACTION_RECEIVE)
                 .putExtra(EXTRA_SECRET, secret)
+                .putExtra(EXTRA_CONTROL_PORT, controlPort)
             start(context, intent)
             // The QR creator owns the LocalOnlyHotspot. The joining peer must not
             // start a second hotspot while connected as a Wi-Fi client; it only
