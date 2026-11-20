@@ -746,6 +746,16 @@ object UltraShareBatchTransport {
             val checkpointTemp = File(stateDirectory, ".ultrashare-v2-$identity.resume.tmp")
             val digestHex = entry.sha256.joinToString("") { "%02x".format(it) }
             var transferred = offset
+            val streamedReceiveDigest = if (completedFiles[entry.id] == null) {
+                MessageDigest.getInstance("SHA-256").also { digest ->
+                    // A resumed prefix must seed the digest; newly received bytes are
+                    // hashed below as they are written, so completed files are never
+                    // read back from storage solely for SHA-256 verification.
+                    if (offset > 0L) FileInputStream(partial).use { existing ->
+                        skipAndDigest(existing, offset, digest)
+                    }
+                }
+            } else null
             if (completedFiles[entry.id] == null) {
                 UltraShareDiagnostics.event(
                     "DATA_RECEIVE",
@@ -788,6 +798,7 @@ object UltraShareBatchTransport {
                                 (reusablePlainChunk[6].toInt() and 0xff)
                             require(length in 1..(CHUNK_BYTES - 8) && length + 7 == payloadLength)
                             require(transferred + length <= entry.sizeBytes)
+                            streamedReceiveDigest?.update(reusablePlainChunk, 7, length)
                             file.write(reusablePlainChunk, 7, length)
                             transferred += length
                             if (transferred - lastCheckpointOffset >= RESUME_CHECKPOINT_INTERVAL_BYTES ||
@@ -882,17 +893,7 @@ object UltraShareBatchTransport {
                         "partialBytes" to partial.length()
                     )
                 )
-                val actualDigest = FileInputStream(partial).use { stream ->
-                    val digest = MessageDigest.getInstance("SHA-256")
-                    val buffer = ByteArray(BUFFER_BYTES)
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        val count = readAtMost(stream, buffer, buffer.size)
-                        if (count == 0) break
-                        digest.update(buffer, 0, count)
-                    }
-                    digest.digest()
-                }
+                val actualDigest = checkNotNull(streamedReceiveDigest).digest()
                 if (!MessageDigest.isEqual(entry.sha256, actualDigest)) {
                     UltraShareDiagnostics.event(
                         "DATA_RECEIVE",
