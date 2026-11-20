@@ -257,10 +257,10 @@ object UltraShareQrCode {
             "رمز QR ليس رمز اقتران MalekPlayer Ultra Share."
         }
         val version = uri.getQueryParameter("v")
-        require(version == VERSION || version == MULTI_HOST_VERSION || version == INVITATION_VERSION || version == HOTSPOT_VERSION || version == UNIFIED_VERSION || version == ROOM_VERSION || version == ROOM_VERSION) {
+        require(version == VERSION || version == MULTI_HOST_VERSION || version == INVITATION_VERSION || version == HOTSPOT_VERSION || version == UNIFIED_VERSION || version == ROOM_VERSION) {
             "إصدار رمز الاقتران غير مدعوم."
         }
-        val hosts = (if (version == MULTI_HOST_VERSION || version == INVITATION_VERSION || version == HOTSPOT_VERSION || version == UNIFIED_VERSION) {
+        val hosts = (if (version == MULTI_HOST_VERSION || version == INVITATION_VERSION || version == HOTSPOT_VERSION || version == UNIFIED_VERSION || version == ROOM_VERSION) {
             uri.getQueryParameters("host")
         } else {
             listOfNotNull(uri.getQueryParameter("host"))
