@@ -27,6 +27,9 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +60,7 @@ fun OnlineSubtitleSearchSheet(
     var password by remember { mutableStateOf("") }
     var subdlKey by remember { mutableStateOf("") }
     var websiteKey by remember { mutableStateOf("") }
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -149,5 +153,6 @@ fun OnlineSubtitleSearchSheet(
             }
             if (loading) Text("جارٍ البحث أو تنزيل الترجمة…", style = MaterialTheme.typography.bodySmall)
         }
+    }
     }
 }
