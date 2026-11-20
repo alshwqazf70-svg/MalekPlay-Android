@@ -33,7 +33,9 @@ internal fun isSafeSubtitleDownloadUrl(rawUrl: String, allowedDomain: String? = 
     runCatching {
         val uri = java.net.URI(rawUrl)
         val host = uri.host?.lowercase(Locale.ROOT) ?: return@runCatching false
-        if (uri.scheme != "https" || uri.rawUserInfo != null || uri.port !in listOf(-1, 443)) {
+        if (!uri.scheme.equals("https", ignoreCase = true) ||
+            uri.rawUserInfo != null || uri.port !in listOf(-1, 443)
+        ) {
             return@runCatching false
         }
         val domain = allowedDomain?.lowercase(Locale.ROOT) ?: return@runCatching true
