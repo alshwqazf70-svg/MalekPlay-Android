@@ -1,6 +1,8 @@
 package com.malekplay.player.effects
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VideoEnhancementPolicyTest {
@@ -131,6 +133,26 @@ class VideoEnhancementPolicyTest {
 
     @Test fun invalidVideoOrDisplaySizeDisablesUpscalingSafely() {
         assertEquals(null, VideoUpscaleTargetPolicy.resolve(0, 360, 2960, 1440, 1920))
+    }
+
+    @Test fun gpuPipelineUsesPassthroughUntilAStageIsEnabledAndAcceptsLiveConfigUpdates() {
+        val passthrough = VideoEnhancementPipelineConfig()
+        assertFalse(passthrough.hasActiveStage)
+
+        val active = VideoEnhancementPipelineConfig(
+            denoiseEnabled = true,
+            detailEnabled = true,
+            aiBoostEnabled = true,
+            denoiseStrength = 0.38f,
+            detailStrength = 0.78f,
+            contrastBoost = 0.12f,
+            clarityStrength = 0.16f
+        )
+        assertTrue(active.hasActiveStage)
+
+        val effect = VideoEnhancementPipelineEffect()
+        effect.update(active)
+        assertEquals(active, effect.currentConfig())
     }
 
     @Test fun profileUpscaleBudgetsMatchSupportedDisplayClasses() {
