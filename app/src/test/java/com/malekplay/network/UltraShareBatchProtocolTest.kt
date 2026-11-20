@@ -61,9 +61,10 @@ class UltraShareBatchProtocolTest {
             val item = UltraShareBatchProtocol.newEntry(
                 name, mime, 1L, MessageDigest.getInstance("SHA-256").digest(byteArrayOf(1))
             )
-            assertEquals(mime, UltraShareBatchProtocol.validate(
+            val validatedMime = UltraShareBatchProtocol.validate(
                 UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(item))
-            ).entries.single().mimeType)
+            ).entries.single().mimeType
+            assertEquals("$name MIME must be preserved across manifest validation", mime, validatedMime)
         }
 
         listOf(
