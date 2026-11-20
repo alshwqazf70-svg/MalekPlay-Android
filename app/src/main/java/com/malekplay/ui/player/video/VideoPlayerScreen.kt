@@ -1248,58 +1248,27 @@ fun VideoPlayerScreen(
         }
 
         if (showOnlineSubtitles) {
-            AlertDialog(
-                onDismissRequest = { if (!onlineSubtitleLoading) showOnlineSubtitles = false },
-                title = { Text(stringResource(R.string.player_search_subtitle_online)) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(onlineQuery, { onlineQuery = it },
-                            label = { Text(stringResource(R.string.subtitle_search_title)) },
-                            singleLine = true, modifier = Modifier.fillMaxWidth())
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            TextButton(onClick = { onlineLanguage = "ar,en" }) { Text("العربية + English") }
-                            TextButton(onClick = { onlineLanguage = "ar" }) { Text("العربية") }
-                            TextButton(onClick = { onlineLanguage = "en" }) { Text("English") }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(onlineSeason, { onlineSeason = it.filter(Char::isDigit).take(2) },
-                                label = { Text(stringResource(R.string.subtitle_season)) },
-                                modifier = Modifier.weight(1f), singleLine = true)
-                            OutlinedTextField(onlineEpisode, { onlineEpisode = it.filter(Char::isDigit).take(2) },
-                                label = { Text(stringResource(R.string.subtitle_episode)) },
-                                modifier = Modifier.weight(1f), singleLine = true)
-                        }
-                        Text(stringResource(R.string.subtitle_service_setup), style = MaterialTheme.typography.bodySmall)
-                        Button(
-                            onClick = { viewModel.searchOnlineSubtitles(onlineQuery, onlineLanguage, onlineSeason.toIntOrNull(), onlineEpisode.toIntOrNull()) },
-                            enabled = onlineQuery.isNotBlank() && !onlineSubtitleLoading,
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text(stringResource(R.string.subtitle_search)) }
-                        if (onlineSubtitleLoading) CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                        onlineSubtitleError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                        LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
-                            items(onlineSubtitleResults, key = { it.provider + ":" + it.sourceId }) { item ->
-                                TextButton(
-                                    onClick = { viewModel.downloadOnlineSubtitle(item) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    enabled = !onlineSubtitleLoading
-                                ) {
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        Text(item.release.ifBlank { item.format.uppercase() }, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Text(item.language.uppercase() + " · " + item.format.uppercase() + " · " +
-                                            item.downloads + " " + context.getString(R.string.subtitle_downloads),
-                                            style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
-                            }
-                        }
-                    }
+            OnlineSubtitleSearchSheet(
+                query = onlineQuery,
+                onQueryChange = { onlineQuery = it },
+                language = onlineLanguage,
+                onLanguageChange = { onlineLanguage = it },
+                season = onlineSeason,
+                onSeasonChange = { onlineSeason = it },
+                episode = onlineEpisode,
+                onEpisodeChange = { onlineEpisode = it },
+                results = onlineSubtitleResults,
+                loading = onlineSubtitleLoading,
+                error = onlineSubtitleError,
+                onSearch = {
+                    viewModel.searchOnlineSubtitles(
+                        onlineQuery, onlineLanguage,
+                        onlineSeason.toIntOrNull(), onlineEpisode.toIntOrNull()
+                    )
                 },
-                confirmButton = {
-                    TextButton(onClick = { showOnlineSubtitles = false }) {
-                        Text(stringResource(R.string.common_close))
-                    }
-                }
+                onDownload = viewModel::downloadOnlineSubtitle,
+                onSaveCredentials = viewModel::saveOnlineSubtitleCredentials,
+                onDismiss = { if (!onlineSubtitleLoading) showOnlineSubtitles = false }
             )
         }
 
