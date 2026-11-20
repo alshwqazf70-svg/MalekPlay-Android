@@ -1111,6 +1111,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                     host = targetHost,
                     secret = pairing.pairingSecret,
                     alternateHosts = hosts.dropWhile { it != targetHost }.drop(1),
+                    port = pairing.port,
                     onConnectionFailed = { rejected, reason ->
                         releaseLegacyWifiNetwork()
                         if (!rejected) fallbackToWifiDirectInvitation(
