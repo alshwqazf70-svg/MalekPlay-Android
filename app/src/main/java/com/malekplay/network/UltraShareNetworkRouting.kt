@@ -42,6 +42,18 @@ internal object UltraShareNetworkRouting {
         pinnedNetworksByHost.clear()
     }
 
+    /** Combines verified LAN and Wi-Fi Direct addresses without duplicates or non-private hosts. */
+    internal fun meshPeerLocalAddresses(
+        lanAddresses: List<String>,
+        wifiDirectAddress: String?
+    ): List<String> =
+        (lanAddresses + listOfNotNull(wifiDirectAddress))
+            .asSequence()
+            .map { it.trim() }
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
+            .distinct()
+            .toList()
+
     /** Returns IPv4 addresses owned by an active Wi-Fi Direct P2P interface. */
     fun wifiDirectLocalIpv4Addresses(): List<String> = runCatching {
         java.util.Collections.list(NetworkInterface.getNetworkInterfaces())
