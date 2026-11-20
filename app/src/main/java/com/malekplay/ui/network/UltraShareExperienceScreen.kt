@@ -1124,7 +1124,13 @@ fun UltraShareExperienceScreen(
                             page = UltraSharePage.SEND
                             mediaPicker.launch(arrayOf("*/*"))
                         },
-                        onShowGroupQr = { page = UltraSharePage.RECEIVE },
+                        onShowGroupQr = {
+                            // The QR invitation is only advertised while the local receiver
+                            // is running. Start it before opening Receive so this action also
+                            // works when the room was entered from an outbound-only session.
+                            if (!state.receiving) startReceivingGroup()
+                            page = UltraSharePage.RECEIVE
+                        },
                         onBackHome = { page = UltraSharePage.HOME }
                     )
                     val connectedHosts = (
