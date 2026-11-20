@@ -45,7 +45,11 @@ class AssOverlayManager(
      * Media3 had actually accepted the effect list.
      */
     fun setAdditionalEffects(effects: List<Effect>): Boolean {
-        if (Looper.myLooper() != player.applicationLooper) return false
+        if (Looper.myLooper() != player.applicationLooper) {
+            lastApplyFailure =
+                "IllegalStateException: setAdditionalEffects must run on ExoPlayer applicationLooper"
+            return false
+        }
         val previous = additionalEffects
         additionalEffects = effects.toList()
         if (applyEffects()) return true
