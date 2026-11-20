@@ -288,7 +288,7 @@ object UltraShareBatchTransport {
         maxConcurrency: Int = MAX_PARALLEL_SOURCE_PREPARATION,
         transform: suspend (T) -> R
     ): List<R> {
-        require(maxConcurrency in 1..MAX_PARALLEL_PEERS) {
+        require(maxConcurrency in 1..MAX_CONCURRENT_PEERS) {
             "حد التوازي لتجهيز الملفات غير صالح."
         }
         if (sources.isEmpty()) return emptyList()
