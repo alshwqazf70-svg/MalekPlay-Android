@@ -87,25 +87,22 @@ object UltraShareBatchTransport {
     private const val TYPE_FILE_END = 2
     private const val TYPE_BATCH_END = 3
     private val peerMutexRegistry = UltraSharePeerMutexRegistry()
-    private val failedPairingAttempts = HashMap<String, Pair<Int, Long>>()
+    // Bound per-peer history and apply a shared failure budget so changing source
+    // addresses cannot grow this process-wide table or bypass the expensive PIN KDF.
+    // Keep the original first cooldown duration while allowing bounded escalation.
+    private val pairingAttemptLimiter = UltraSharePairingAttemptLimiter(
+        baseCooldownMillis = 60_000L
+    )
 
     private fun enforcePairingCooldown(peerHost: String) {
-        synchronized(failedPairingAttempts) {
-            val state = failedPairingAttempts[peerHost] ?: return
-            val now = System.nanoTime()
-            if (state.second > now) throw IOException("تم إيقاف محاولات الاقتران مؤقتاً لهذا الجهاز.")
-            if (state.second != 0L) failedPairingAttempts.remove(peerHost)
+        if (!pairingAttemptLimiter.isAllowed(peerHost)) {
+            throw IOException("تم إيقاف محاولات الاقتران مؤقتاً لهذا الجهاز.")
         }
     }
 
     private fun recordPairingResult(peerHost: String, authenticated: Boolean) {
-        synchronized(failedPairingAttempts) {
-            if (authenticated) failedPairingAttempts.remove(peerHost) else {
-                val attempts = (failedPairingAttempts[peerHost]?.first ?: 0) + 1
-                val cooldownUntil = if (attempts >= 5) System.nanoTime() + 60_000_000_000L else 0L
-                failedPairingAttempts[peerHost] = (if (attempts >= 5) 0 else attempts) to cooldownUntil
-            }
-        }
+        if (authenticated) pairingAttemptLimiter.recordSuccess(peerHost)
+        else pairingAttemptLimiter.recordFailure(peerHost)
     }
 
     data class Source(
