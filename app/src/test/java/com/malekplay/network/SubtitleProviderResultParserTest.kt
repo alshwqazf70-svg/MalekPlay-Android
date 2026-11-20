@@ -19,6 +19,29 @@ class SubtitleProviderResultParserTest {
         assertNull(SubtitleProviderResultParser.format("zip"))
     }
 
+    @Test fun parsesSubDlUnpackedFileMetadataAndRejectsUnknownLanguage() {
+        val subtitle = SubtitleProviderResultParser.subDlSubtitle(
+            url = "/subtitle/parent/file123",
+            releaseName = "Breaking Bad S05E14",
+            languageCode = "EN",
+            formatName = "srt",
+            downloads = -1,
+            fallbackTitle = "Breaking Bad"
+        )
+        assertEquals("subdl", subtitle?.provider)
+        assertEquals("en", subtitle?.language)
+        assertEquals("srt", subtitle?.format)
+        assertEquals(0, subtitle?.downloads)
+        assertNull(SubtitleProviderResultParser.subDlSubtitle(
+            url = "/subtitle/parent/file124",
+            releaseName = "Unknown language",
+            languageCode = "",
+            formatName = "srt",
+            downloads = 0,
+            fallbackTitle = "Fallback"
+        ))
+    }
+
     @Test fun usesSafeReleaseFallbackAndNonNegativeDownloadCounts() {
         assertEquals("WEB-DL release", SubtitleProviderResultParser.release("", "WEB-DL release"))
         assertEquals("Subtitle", SubtitleProviderResultParser.release(" ", ""))
