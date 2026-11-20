@@ -5,6 +5,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.Effect
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.OverlayEffect
+import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.exoplayer.ExoPlayer
 import io.github.peerless2012.ass.AssRender
 import io.github.peerless2012.ass.media.AssHandler
@@ -17,6 +18,11 @@ class AssOverlayManager(
 ) {
     private var currentRenderer: AssRender? = null
     private var subtitleEffect: OverlayEffect? = null
+    // Media3 creates PlaybackVideoGraphWrapper/VideoSink only when a non-empty
+    // video-effect chain is present before prepare(). Keep an identity GL effect
+    // installed for the lifetime of the player so runtime effect updates never
+    // have to create the video graph from an empty initial chain.
+    private val alwaysReadyVideoEffect: Effect = ScaleAndRotateTransformation.Builder().build()
     private var additionalEffects: List<Effect> = emptyList()
 
     /** True only after setVideoEffects completed successfully on the player looper. */
@@ -76,7 +82,7 @@ class AssOverlayManager(
         // Keep image-processing effects first and ASS subtitles last so subtitle
         // glyphs stay crisp and are not blurred or resampled by video filters.
         return try {
-            player.setVideoEffects(additionalEffects + listOfNotNull(subtitleEffect))
+            player.setVideoEffects(listOf(alwaysReadyVideoEffect) + additionalEffects + listOfNotNull(subtitleEffect))
             isOperational = true
             lastApplyFailure = null
             true
