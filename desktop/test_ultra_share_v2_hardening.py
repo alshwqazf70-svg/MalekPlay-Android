@@ -20,7 +20,7 @@ class UltraShareV2HardeningTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_manifest(Manifest(str(uuid.uuid4()), entries))
         self.assertEqual(100 * 1024**3, MAX_BATCH_BYTES)
-        self.assertEqual(512 * 1024, FRAME_BYTES)
+        self.assertEqual(1024 * 1024, FRAME_BYTES)
 
     def test_content_signature_rejects_mislabeled_payload(self):
         with tempfile.TemporaryDirectory() as folder:
