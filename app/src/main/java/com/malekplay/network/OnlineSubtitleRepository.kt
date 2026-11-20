@@ -186,7 +186,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val request = Request.Builder().url(endpoint)
             .header("User-Agent", AGENT)
             .header("Accept", "application/json")
-            .get().build()
+            .apply {
+                val bearer = vault.load(WEBSITE_KEY_SLOT)?.first
+                if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer")
+            }.get().build()
         val downloadPath = execute(request).optString("download_url")
             .takeIf { it.isNotBlank() } ?: error("لم توفر الخدمة رابط تنزيل للترجمة")
         val downloadUri = when {
@@ -197,7 +200,12 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         require(downloadUri.scheme == "https" && downloadUri.host == PUBLIC_HOST) {
             "رابط تنزيل الترجمة غير آمن"
         }
-        val response = client.newCall(Request.Builder().url(downloadUri.toString()).get().build()).execute()
+        val downloadRequest = Request.Builder().url(downloadUri.toString())
+            .apply {
+                val bearer = vault.load(WEBSITE_KEY_SLOT)?.first
+                if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer")
+            }.get().build()
+        val response = client.newCall(downloadRequest).execute()
         response.use {
             if (!it.isSuccessful) error("تعذر تنزيل الترجمة (HTTP ${it.code})")
             val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
