@@ -427,7 +427,9 @@ class PlaybackService : MediaSessionService() {
         // Read the live registry state instead of exposing a stale service-side flag.
         videoEffectsBridgeAttached = localExoPlayer?.let(AssVideoEffectRegistry::isAttached) == true
         val bridgeFailure = localExoPlayer?.let(AssVideoEffectRegistry::lastFailure)
-        if (bridgeFailure != null && VideoEnhancementMetrics.snapshot().lastFailure != bridgeFailure) {
+        if (bridgeFailure != null &&
+            VideoEnhancementMetrics.snapshot().lastFailure?.contains(bridgeFailure) != true
+        ) {
             VideoEnhancementMetrics.recordFailure("ass_overlay_manager", IllegalStateException(bridgeFailure))
         }
         val metrics = VideoEnhancementMetrics.snapshot()
@@ -703,20 +705,21 @@ class PlaybackService : MediaSessionService() {
             // Keep older GPUs within a predictable texture budget rather than
             // allocating a native-resolution intermediate surface unconditionally.
             val maxLongEdge = profile.upscaleMaxLongEdge
-            lanczosTarget = VideoUpscaleTargetPolicy.resolve(
+            val target = VideoUpscaleTargetPolicy.resolve(
                 sourceWidth = videoSize.width,
                 sourceHeight = videoSize.height,
                 displayWidth = metrics.widthPixels,
                 displayHeight = metrics.heightPixels,
                 maxLongEdge = maxLongEdge
             )
-            if (lanczosTarget != null) {
+            lanczosTarget = target
+            if (target != null) {
                 effects += LanczosResample.scaleToFitWithFlexibleOrientation(
-                    lanczosTarget!!.longEdge,
-                    lanczosTarget!!.shortEdge
+                    target.longEdge,
+                    target.shortEdge
                 )
                 videoLanczosSubmitted = true
-                Log.i(TAG, "Lanczos upscale target=" + lanczosTarget!!.longEdge + "x" + lanczosTarget!!.shortEdge +
+                Log.i(TAG, "Lanczos upscale target=" + target.longEdge + "x" + target.shortEdge +
                     "; source=" + videoSize.width + "x" + videoSize.height)
             } else {
                 Log.i(TAG, "Lanczos upscale skipped: source already meets the capped display target")
