@@ -18,6 +18,12 @@ class SubtitleQueryCleanerTest {
         assertEquals(2024, result.year)
     }
 
+    @Test fun keepsNumericMovieTitlesThatAreNotPlausibleReleaseYears() {
+        val result = SubtitleQueryCleaner.clean("Blade.Runner.2049.1080p.BluRay.x265.mkv")
+        assertEquals("Blade Runner 2049", result.title)
+        assertNull(result.year)
+    }
+
     @Test fun supportsAlternateEpisodeNotationAndUnderscores() {
         val result = SubtitleQueryCleaner.clean("The_Office_2x03_720p_H264_WEBRip.mkv")
         assertEquals("The Office", result.title)
