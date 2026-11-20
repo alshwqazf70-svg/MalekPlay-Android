@@ -87,6 +87,21 @@ class VideoEnhancementPolicyTest {
         assertEquals(true, VideoEnhancementProfile.ULTRA.contrastBoost > VideoEnhancementProfile.BALANCED.contrastBoost)
     }
 
+    @Test fun economyBalancedAndUltraHaveDistinctIncreasingDetailProfiles() {
+        val economy = VideoEnhancementProfile.ECONOMY
+        val balanced = VideoEnhancementProfile.BALANCED
+        val ultra = VideoEnhancementProfile.ULTRA
+
+        assertTrue(economy.detailStrength < balanced.detailStrength)
+        assertTrue(balanced.detailStrength < ultra.detailStrength)
+        assertTrue(economy.clarityStrength < balanced.clarityStrength)
+        assertTrue(balanced.clarityStrength < ultra.clarityStrength)
+        assertTrue(economy.contrastBoost < balanced.contrastBoost)
+        assertTrue(balanced.contrastBoost < ultra.contrastBoost)
+        assertTrue(economy.denoiseStrength < balanced.denoiseStrength)
+        assertTrue(balanced.denoiseStrength < ultra.denoiseStrength)
+    }
+
     @Test fun lowResolutionVideoUpscalesToCappedFullHdTarget() {
         val target = VideoUpscaleTargetPolicy.resolve(640, 360, 2960, 1440, 1920)
         assertEquals(1920, target?.longEdge)
