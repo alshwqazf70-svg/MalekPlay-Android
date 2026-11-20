@@ -7,6 +7,7 @@ import com.malekplay.data.preferences.SettingsRepository
 import com.malekplay.data.repository.PlaylistRepository
 import com.malekplay.data.repository.PlaylistRestoreEntry
 import com.malekplay.data.repository.UserDataRepository
+import com.malekplay.data.local.entity.HistoryEntity
 import com.malekplay.domain.model.GestureAction
 import com.malekplay.domain.model.PlayerSettings
 import com.malekplay.domain.model.SortMode
@@ -64,7 +65,9 @@ internal suspend fun readBoundedBackupBytes(
 internal data class ValidatedBackupCollections(
     val favourites: JSONArray,
     val playlists: JSONArray,
-    val settings: JSONObject
+    val settings: JSONObject,
+    // Optional for version-2 compatibility: old backups must not erase current history.
+    val history: JSONArray?
 )
 
 internal fun validateBackupCollections(root: JSONObject): ValidatedBackupCollections {
@@ -74,9 +77,14 @@ internal fun validateBackupCollections(root: JSONObject): ValidatedBackupCollect
         ?: throw IllegalArgumentException("Backup playlists section is missing or invalid")
     val settings = root.optJSONObject("settings")
         ?: throw IllegalArgumentException("Backup settings section is missing or invalid")
+    val history = if (root.has("history")) {
+        root.optJSONArray("history")
+            ?: throw IllegalArgumentException("Backup history section is invalid")
+    } else null
 
     require(favourites.length() <= 20_000) { "Too many favourites" }
     require(playlists.length() <= 500) { "Too many playlists" }
+    require((history?.length() ?: 0) <= 200) { "Too many history entries" }
 
     for (i in 0 until favourites.length()) {
         val value = favourites.get(i)
@@ -113,7 +121,30 @@ internal fun validateBackupCollections(root: JSONObject): ValidatedBackupCollect
             }
         }
     }
-    return ValidatedBackupCollections(favourites, playlists, settings)
+    if (history != null) {
+        val seenHistoryMediaIds = HashSet<String>()
+        for (i in 0 until history.length()) {
+            val item = history.optJSONObject(i)
+                ?: throw IllegalArgumentException("History entry at index $i is invalid")
+            val mediaId = item.opt("mediaId") as? String
+            val playedAt = item.opt("lastPlayedAtMs") as? Number
+            val playCount = item.opt("playCount") as? Number
+            require(!mediaId.isNullOrBlank() && mediaId.length <= 4096) {
+                "History media id at index $i is invalid"
+            }
+            require(seenHistoryMediaIds.add(mediaId)) {
+                "Duplicate media id in backup history"
+            }
+            require(playedAt != null && playedAt.toDouble().isFinite() &&
+                playedAt.toDouble() >= 0.0 && playedAt.toDouble() <= Long.MAX_VALUE.toDouble()
+            ) { "History timestamp at index $i is invalid" }
+            require(playCount != null && playCount.toDouble().isFinite() &&
+                playCount.toDouble() % 1.0 == 0.0 &&
+                playCount.toDouble() in 1.0..Int.MAX_VALUE.toDouble()
+            ) { "History play count at index $i is invalid" }
+        }
+    }
+    return ValidatedBackupCollections(favourites, playlists, settings, history)
 }
 
 
@@ -137,6 +168,8 @@ class MalekPlayBackupManager @Inject constructor(
         require(favourites.size <= MAX_FAVOURITES) { "Too many favourites to export" }
         val playlistSnapshot = playlistRepository.snapshotPlaylists()
         require(playlistSnapshot.size <= MAX_PLAYLISTS) { "Too many playlists to export" }
+        val historySnapshot = userDataRepository.historySnapshot()
+        require(historySnapshot.size <= MAX_HISTORY_ENTRIES) { "Too many history entries to export" }
         val totalPlaylistItems = playlistSnapshot.sumOf { it.items.size }
         require(totalPlaylistItems <= MAX_TOTAL_PLAYLIST_ITEMS) {
             "Too many playlist entries to export"
@@ -163,6 +196,16 @@ class MalekPlayBackupManager @Inject constructor(
                 favourites.sorted().forEach { put(it) }
             })
             .put("playlists", playlistsArray)
+            .put("history", JSONArray().apply {
+                historySnapshot.sortedByDescending { it.lastPlayedAtMs }.forEach { entry ->
+                    put(
+                        JSONObject()
+                            .put("mediaId", entry.mediaId)
+                            .put("lastPlayedAtMs", entry.lastPlayedAtMs)
+                            .put("playCount", entry.playCount)
+                    )
+                }
+            })
             .put("settings", settingsToJson(settings))
 
         val bytes = root.toString(2).toByteArray(StandardCharsets.UTF_8)
@@ -217,6 +260,20 @@ class MalekPlayBackupManager @Inject constructor(
                 add(PlaylistRestoreEntry(playlistId, name, mediaIds))
             }
         }
+        val restoredHistory = validated.history?.let { historyArray ->
+            buildList {
+                for (i in 0 until historyArray.length()) {
+                    val item = historyArray.getJSONObject(i)
+                    add(
+                        HistoryEntity(
+                            mediaId = item.getString("mediaId"),
+                            lastPlayedAtMs = item.getLong("lastPlayedAtMs"),
+                            playCount = item.getInt("playCount")
+                        )
+                    )
+                }
+            }
+        }
         val restoredSettings = settingsFromJson(validated.settings)
 
         // Snapshot all stores before writing. Each store commits atomically locally;
@@ -230,15 +287,23 @@ class MalekPlayBackupManager @Inject constructor(
             )
         }
         val previousSettings = settingsRepository.currentSettings()
+        val previousHistory = if (restoredHistory != null) {
+            userDataRepository.historySnapshot()
+        } else emptyList()
 
         try {
             userDataRepository.replaceFavourites(favourites)
             playlistRepository.restoreAll(restoredPlaylists)
+            if (restoredHistory != null) userDataRepository.replaceHistory(restoredHistory)
             if (restoredSettings != null) settingsRepository.restore(restoredSettings)
         } catch (failure: Throwable) {
             withContext(NonCancellable) {
                 runCatching { settingsRepository.restore(previousSettings) }
                     .onFailure(failure::addSuppressed)
+                if (restoredHistory != null) {
+                    runCatching { userDataRepository.replaceHistory(previousHistory) }
+                        .onFailure(failure::addSuppressed)
+                }
                 runCatching { playlistRepository.restoreAll(previousPlaylists) }
                     .onFailure(failure::addSuppressed)
                 runCatching { userDataRepository.replaceFavourites(previousFavourites) }
@@ -331,6 +396,7 @@ class MalekPlayBackupManager @Inject constructor(
         const val MAX_PLAYLISTS = 500
         const val MAX_PLAYLIST_ITEMS = 5_000
         const val MAX_TOTAL_PLAYLIST_ITEMS = 50_000
+        const val MAX_HISTORY_ENTRIES = 200
         const val MAX_URI_LENGTH = 4096
     }
 }
