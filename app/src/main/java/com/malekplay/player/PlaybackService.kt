@@ -42,6 +42,8 @@ import com.malekplay.player.effects.VideoDetailEnhancementEffect
 import com.malekplay.player.effects.VideoEnhancementProfile
 import com.malekplay.player.effects.VideoEnhancementPolicy
 import com.malekplay.player.effects.VideoEnhancementMetrics
+import com.malekplay.player.effects.VideoEnhancementPipelineEffect
+import com.malekplay.player.effects.VideoEnhancementPipelineConfig
 import com.malekplay.player.effects.VideoUpscaleTargetPolicy
 import com.malekplay.player.effects.GoogleMediaEnhancementCapability
 import io.github.peerless2012.ass.media.AssHandler
@@ -95,6 +97,7 @@ class PlaybackService : MediaSessionService() {
     private var assHandler: AssHandler? = null
     private var videoUpscalingEnabled = false
     private var videoNoiseReductionEnabled = false
+    private var videoEnhancementPipeline: VideoEnhancementPipelineEffect? = null
     @Volatile private var videoEffectsBridgeAttached = false
     @Volatile private var videoLanczosSubmitted = false
     private var appliedLanczosEffect = false
@@ -189,6 +192,14 @@ class PlaybackService : MediaSessionService() {
         // The bridge starts lazily only when a local file is handed to a Cast receiver.
         // It exposes tokenized, seekable LAN URLs rather than leaking content:// URIs.
         localExoPlayer = player
+        // Install the mutable GPU stage before any media item can be prepared.
+        // All later profile/toggle changes update its atomic shader config rather
+        // than replacing the GlEffect and recreating Media3's frame processor.
+        val pipeline = VideoEnhancementPipelineEffect()
+        videoEnhancementPipeline = pipeline
+        if (!AssVideoEffectRegistry.setAdditionalEffects(player, listOf(pipeline))) {
+            Log.e(TAG, "Could not attach the always-ready GPU enhancement pipeline")
+        }
 
         // Probe Google AI capability without touching the active decoder or surface.
         // The opt-in UI bridge owns the short-lived surface session and restores this
@@ -583,6 +594,7 @@ class PlaybackService : MediaSessionService() {
     private fun disableAllVideoEnhancements() {
         videoUpscalingEnabled = false
         videoNoiseReductionEnabled = false
+        videoEnhancementPipeline?.update(VideoEnhancementPipelineConfig())
         videoEffectsBridgeAttached = false
         videoLanczosSubmitted = false
     }
@@ -591,7 +603,12 @@ class PlaybackService : MediaSessionService() {
         val player = localExoPlayer ?: return false
         if (!hasAnyVideoEnhancementEnabled()) {
             videoLanczosSubmitted = false
-            videoEffectsBridgeAttached = applyEffectChain(player, emptyList(), hasLanczos = false)
+            videoEnhancementPipeline?.update(VideoEnhancementPipelineConfig())
+            videoEffectsBridgeAttached = applyEffectChain(
+                player,
+                listOfNotNull(videoEnhancementPipeline),
+                hasLanczos = false
+            )
             return videoEffectsBridgeAttached
         }
         if (!isLocalClearVideoSession()) {
@@ -614,6 +631,17 @@ class PlaybackService : MediaSessionService() {
         if (tuning.downgradeReason != null) {
             Log.w(TAG, "Video enhancement profile capped: ${tuning.downgradeReason}")
         }
+        videoEnhancementPipeline?.update(
+            VideoEnhancementPipelineConfig(
+                denoiseEnabled = videoNoiseReductionEnabled,
+                detailEnabled = videoUpscalingEnabled || videoNoiseReductionEnabled,
+                aiBoostEnabled = videoUpscalingEnabled && videoNoiseReductionEnabled,
+                denoiseStrength = profile.denoiseStrength,
+                detailStrength = profile.detailStrength,
+                contrastBoost = profile.contrastBoost,
+                clarityStrength = profile.clarityStrength
+            )
+        )
         val effects = ArrayList<Effect>(4)
         videoLanczosSubmitted = false
         if (videoUpscalingEnabled) {
@@ -641,14 +669,9 @@ class PlaybackService : MediaSessionService() {
                 Log.i(TAG, "Lanczos upscale skipped: source already meets the capped display target")
             }
         }
-        if (videoNoiseReductionEnabled) effects += SpatialNoiseReductionEffect(profile.denoiseStrength)
-        if (videoUpscalingEnabled || videoNoiseReductionEnabled) {
-            effects += VideoDetailEnhancementEffect(
-                strength = profile.detailStrength,
-                contrastBoost = profile.contrastBoost,
-                clarityStrength = profile.clarityStrength
-            )
-        }
+        // The same GlEffect instance remains in the graph; only its atomic
+        // parameters change, so toggles and profile changes affect the next frame.
+        videoEnhancementPipeline?.let(effects::add)
         val applied = runCatching {
             applyEffectChain(player, effects, hasLanczos = videoLanczosSubmitted)
         }.onFailure { error ->
@@ -668,7 +691,11 @@ class PlaybackService : MediaSessionService() {
             }
             disableAllVideoEnhancements()
             val cleared = runCatching {
-                applyEffectChain(player, emptyList(), hasLanczos = false)
+                applyEffectChain(
+                    player,
+                    listOfNotNull(videoEnhancementPipeline),
+                    hasLanczos = false
+                )
             }.getOrDefault(false)
             videoEffectsBridgeAttached = cleared
             if (!cleared) {
