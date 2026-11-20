@@ -692,9 +692,20 @@ object UltraShareBatchTransport {
                 "totalBytes" to manifest.entries.sumOf { it.sizeBytes }
             )
         )
+        val duplicateTransferIdentities = manifest.entries
+            .groupingBy { UltraShareCore.buildTransferId(it.name, it.sizeBytes, it.sha256) }
+            .eachCount()
+            .filterValues { it > 1 }
+            .keys
+        fun transferStorageIdentity(entry: UltraShareBatchProtocol.FileEntry): String {
+            val contentIdentity = UltraShareCore.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
+            return if (contentIdentity in duplicateTransferIdentities) {
+                contentIdentity + "-" + entry.id.replace("-", "")
+            } else contentIdentity
+        }
         val completedFiles = HashMap<String, File>()
         val partials = manifest.entries.map { entry ->
-            val identity = UltraShareCore.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
+            val identity = transferStorageIdentity(entry)
             val partial = File(stateDirectory, ".ultrashare-v2-$identity.part")
             val checkpoint = File(stateDirectory, ".ultrashare-v2-$identity.resume")
             val checkpointTemp = File(stateDirectory, ".ultrashare-v2-$identity.resume.tmp")
@@ -765,7 +776,7 @@ object UltraShareBatchTransport {
         val outcomes = ArrayList<FileOutcome>(manifest.entries.size)
         for ((index, entry) in manifest.entries.withIndex()) {
             val (partial, offset) = partials.getValue(entry.id)
-            val identity = UltraShareCore.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
+            val identity = transferStorageIdentity(entry)
             val checkpoint = File(stateDirectory, ".ultrashare-v2-$identity.resume")
             val checkpointTemp = File(stateDirectory, ".ultrashare-v2-$identity.resume.tmp")
             val digestHex = entry.sha256.joinToString("") { "%02x".format(it) }
@@ -968,7 +979,7 @@ object UltraShareBatchTransport {
                 )
                 UltraShareCore.withDestinationPublicationLock(destinationDirectory) {
                     val target = uniqueDestination(destinationDirectory, entry.name)
-                    val identity = UltraShareCore.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
+                    val identity = transferStorageIdentity(entry)
                     val marker = File(stateDirectory, ".ultrashare-v2-$identity.received")
                     val markerTemp = File(stateDirectory, ".ultrashare-v2-$identity.received.tmp")
                     val receiptContent =
