@@ -47,6 +47,8 @@ private class SpatialNoiseReductionProgram(
             program.setFloatsUniform("uTransformationMatrix", identity)
             program.setFloatsUniform("uTexTransformationMatrix", identity)
             program.setFloatUniform("uStrength", strength)
+            program.setFloatUniform("uContrastBoost", contrastBoost)
+            program.setFloatUniform("uClarityStrength", clarityStrength)
         } catch (error: Exception) {
             // A partially initialized GL program is not reachable through
             // BaseGlShaderProgram.release(), so dispose it before failing.
@@ -168,11 +170,19 @@ private class SpatialNoiseReductionProgram(
  */
 @UnstableApi
 class VideoDetailEnhancementEffect(
-    private val strength: Float = 0.78f
+    private val strength: Float = 0.78f,
+    private val contrastBoost: Float = 0.12f,
+    private val clarityStrength: Float = 0.16f
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
         try {
-            VideoDetailEnhancementProgram(context, useHdr, strength.coerceIn(0.25f, 1.15f))
+            VideoDetailEnhancementProgram(
+                context,
+                useHdr,
+                strength.coerceIn(0.25f, 1.15f),
+                contrastBoost.coerceIn(0f, 0.22f),
+                clarityStrength.coerceIn(0f, 0.30f)
+            )
         } catch (error: Exception) {
             VideoEnhancementMetrics.recordFailure("detail_sharpen_init", error)
             throw error
@@ -183,7 +193,9 @@ class VideoDetailEnhancementEffect(
 private class VideoDetailEnhancementProgram(
     context: Context,
     useHdr: Boolean,
-    strength: Float
+    strength: Float,
+    contrastBoost: Float,
+    clarityStrength: Float
 ) : BaseGlShaderProgram(useHdr, 1) {
     private val program = GlProgram(VERTEX_SHADER, SHARPEN_FRAGMENT_SHADER)
     private var inputWidthForShader = 1
@@ -268,6 +280,8 @@ private class VideoDetailEnhancementProgram(
             uniform sampler2D uTexSampler;
             uniform vec2 uTexelSize;
             uniform float uStrength;
+            uniform float uContrastBoost;
+            uniform float uClarityStrength;
             varying vec2 vTexSamplingCoord;
             void main() {
                 vec4 center = texture2D(uTexSampler, vTexSamplingCoord);
@@ -279,7 +293,16 @@ private class VideoDetailEnhancementProgram(
                 vec3 detail = center.rgb - localAverage;
                 float edgeMagnitude = length(detail);
                 float edgeGate = smoothstep(0.006, 0.055, edgeMagnitude);
-                vec3 sharpened = center.rgb + detail * uStrength * edgeGate;
+                float sourceLuma = dot(center.rgb, vec3(0.2126, 0.7152, 0.0722));
+                float localLuma = dot(localAverage, vec3(0.2126, 0.7152, 0.0722));
+                float midtoneMask = smoothstep(0.025, 0.18, sourceLuma) *
+                    (1.0 - smoothstep(0.78, 0.98, sourceLuma));
+                float localContrast = clamp(sourceLuma - localLuma, -0.18, 0.18);
+                float contrastFactor = 1.0 + localContrast * uContrastBoost * midtoneMask;
+                vec3 contrastAdjusted = center.rgb * contrastFactor;
+                vec3 clarity = detail * uClarityStrength * edgeGate;
+                vec3 sharpened = contrastAdjusted +
+                    detail * uStrength * edgeGate + clarity;
                 // Bound the unsharp-mask delta around the source pixel. Clamping
                 // to the neighborhood min/max would cancel sharpening whenever the
                 // center is already a local extremum (the common case at edges).
