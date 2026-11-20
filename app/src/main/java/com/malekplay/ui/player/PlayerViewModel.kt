@@ -214,6 +214,7 @@ class PlayerViewModel @Inject constructor(
     private val _subtitleTranslationTotalCues = MutableStateFlow(0)
     val subtitleTranslationTotalCues: StateFlow<Int> = _subtitleTranslationTotalCues.asStateFlow()
     private var subtitleTranslationJob: Job? = null
+    private var subtitleTranslationGeneration: Long = 0L
     private var translationSourceSubtitleUri: Uri? = null
     private var playbackGeneration: Long = 0L
 
@@ -1077,8 +1078,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun clearSubtitleTranslationSource() {
-        subtitleTranslationJob?.cancel()
-        subtitleTranslationJob = null
+        cancelSubtitleTranslation()
         translationSourceSubtitleUri = null
         _subtitleTranslationAvailable.value = false
         _subtitleTranslationError.value = null
@@ -1097,6 +1097,7 @@ class PlayerViewModel @Inject constructor(
             _subtitleTranslationError.value = "لا يوجد ملف نشط لإضافة الترجمة"
             return
         }
+        val generation = ++subtitleTranslationGeneration
         subtitleTranslationJob = viewModelScope.launch {
             _subtitleTranslationLoading.value = true
             _subtitleTranslationError.value = null
@@ -1124,14 +1125,20 @@ class PlayerViewModel @Inject constructor(
             } catch (error: Exception) {
                 _subtitleTranslationError.value = error.message ?: "تعذرت ترجمة ملف الترجمة"
             } finally {
-                _subtitleTranslationLoading.value = false
-                subtitleTranslationJob = null
+                if (generation == subtitleTranslationGeneration) {
+                    _subtitleTranslationLoading.value = false
+                    subtitleTranslationJob = null
+                }
             }
         }
     }
 
     fun cancelSubtitleTranslation() {
+        subtitleTranslationGeneration++
         subtitleTranslationJob?.cancel()
+        subtitleTranslationJob = null
+        _subtitleTranslationLoading.value = false
+        _onlineSubtitleLoading.value = false
     }
 
     // --------------------------------------------------------------- tracks
@@ -1596,6 +1603,7 @@ class PlayerViewModel @Inject constructor(
             _onlineSubtitleError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
             return
         }
+        val generation = ++subtitleTranslationGeneration
         subtitleTranslationJob = viewModelScope.launch {
             _onlineSubtitleLoading.value = true
             _subtitleTranslationLoading.value = true
@@ -1637,9 +1645,11 @@ class PlayerViewModel @Inject constructor(
             } catch (error: Exception) {
                 _subtitleTranslationError.value = error.message ?: "تعذر تنزيل الترجمة وترجمتها"
             } finally {
-                _onlineSubtitleLoading.value = false
-                _subtitleTranslationLoading.value = false
-                subtitleTranslationJob = null
+                if (generation == subtitleTranslationGeneration) {
+                    _onlineSubtitleLoading.value = false
+                    _subtitleTranslationLoading.value = false
+                    subtitleTranslationJob = null
+                }
             }
         }
     }
