@@ -169,16 +169,22 @@ object UltraShareQrCode {
      * deployed as the multi-host legacy format and must never be reinterpreted.
      */
     fun createRoomPayload(
-        host: String,
+        hosts: List<String>,
         port: Int = UltraShareControlChannel.DEFAULT_PORT,
         pairingSecret: String,
         deviceName: String,
         mode: String = "lan",
         ssid: String? = null,
-        psk: String? = null
+        psk: String? = null,
+        invitationId: String? = null
     ): String {
-        val safeHost = host.trim()
-        require(UltraShareCore.isValidPrivateLanHost(safeHost)) {
+        val safeHosts = hosts.asSequence()
+            .map { it.trim() }
+            .filter { UltraShareCore.isValidPrivateLanHost(it) }
+            .distinct()
+            .take(MAX_QR_HOSTS)
+            .toList()
+        require(safeHosts.isNotEmpty()) {
             "عنوان QR يجب أن يكون IPv4 خاصاً بالشبكة المحلية."
         }
         require(port in 1024..65535) { "منفذ الاقتران يجب أن يكون بين 1024 و65535." }
@@ -190,11 +196,17 @@ object UltraShareQrCode {
             require(ssid.isNotBlank() && ssid.length <= 32) { "اسم شبكة Wi-Fi غير صالح." }
             require(psk.length in 8..63) { "كلمة مرور Wi-Fi غير صالحة." }
         }
+        invitationId?.let {
+            require(it.matches(Regex("[A-Za-z0-9_-]{1,64}"))) { "هوية دعوة الجهاز غير صالحة." }
+        }
         return Uri.Builder()
             .scheme(SCHEMA)
             .authority(AUTHORITY)
             .appendQueryParameter("v", ROOM_VERSION)
-            .appendQueryParameter("host", safeHost)
+            .apply {
+                safeHosts.forEach { appendQueryParameter("host", it) }
+                invitationId?.let { appendQueryParameter("peer", it) }
+            }
             .appendQueryParameter("port", port.toString())
             .appendQueryParameter("secret", pairingSecret)
             .appendQueryParameter("name", safeName)
@@ -282,7 +294,7 @@ object UltraShareQrCode {
             requireNotNull(uri.getQueryParameter("wifi_password")) { "كلمة مرور Wi-Fi غير موجودة في QR." }
                 .also { require(it.length in 8..63) { "كلمة مرور Wi-Fi غير صالحة." } }
         } else null
-        val invitationId = if (version == INVITATION_VERSION || version == UNIFIED_VERSION && uri.getQueryParameter("peer") != null) {
+        val invitationId = if (version == INVITATION_VERSION || version == UNIFIED_VERSION && uri.getQueryParameter("peer") != null || version == ROOM_VERSION && uri.getQueryParameter("peer") != null) {
             requireNotNull(uri.getQueryParameter("peer")) { "هوية الجهاز غير موجودة في رمز QR." }
                 .also {
                     require(it.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
