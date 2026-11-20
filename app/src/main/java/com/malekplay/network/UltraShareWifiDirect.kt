@@ -224,12 +224,16 @@ object UltraShareWifiDirect {
         }
 
         private fun recordAdvertisementFailure(message: String) {
-            // DNS-SD is a fallback path only. A v5 QR already carries direct Wi-Fi
-            // credentials, so advertisement failure must not tear down a ready group.
+            // The active Android receiver flow publishes its QR only after this
+            // DNS-SD advertisement succeeds. Silently recording the failure leaves
+            // LegacyUltraShareViewModel waiting forever with no usable QR. Propagate
+            // the failure through the session callback so the receiver can perform
+            // its verified LAN/Hotspot fallback, matching the working main behavior.
             UltraShareDiagnostics.event(
                 "WIFI_DIRECT", "DNS_SD_ADVERTISEMENT_FAILED",
                 mapOf("message" to message.take(180))
             )
+            reportError(message)
         }
 
         /**
