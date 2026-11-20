@@ -97,10 +97,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             append("|").append(mediaUri?.toString().orEmpty())
         }
 
+        // Share one network fan-out for simultaneous identical searches.
+        // Each caller applies its own language filter to the combined results.
         val task = automaticSearchInFlight.computeIfAbsent(queryKey) {
-            FutureTask {
-                searchAutomaticUncached(title, season, episode, mediaUri)
-            }
+            FutureTask { searchAutomaticUncached(queryKey, cleaned, providerTitle, resolvedSeason, resolvedEpisode, mediaUri) }
         }
         task.run()
         try {
@@ -118,33 +118,32 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     }
 
     private fun searchAutomaticUncached(
-        title: String,
+        queryKey: String,
+        cleaned: CleanSubtitleQuery,
+        providerTitle: String,
         season: Int?,
         episode: Int?,
         mediaUri: Uri?
     ): List<OnlineSubtitle> {
-        automaticSearchCache.get(queryKey)?.let { cached ->
-            return cached
-        }
-        // Fetch both supported languages once so the in-memory combined cache can
-        // serve subsequent Arabic-only/English-only filter changes without HTTP.
+        automaticSearchCache.get(queryKey)?.let { return it }
+
+        // Fetch both supported languages once so language-filter changes stay local.
         val providerLanguages = "ar,en"
-        val publicAttempt = runCatching { searchPublic(providerTitle, resolvedSeason, resolvedEpisode) }
+        val publicAttempt = runCatching { searchPublic(providerTitle, season, episode) }
         val accountAttempt = if (hasCredentials()) {
-            runCatching { search(providerTitle, providerLanguages, resolvedSeason, resolvedEpisode, mediaUri) }
+            runCatching { search(providerTitle, providerLanguages, season, episode, mediaUri) }
         } else null
         val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
         val subdlAttempt = if (!subdlKey.isNullOrBlank()) runCatching {
-            searchSubDl(cleaned.title, providerLanguages, resolvedSeason, resolvedEpisode, cleaned.year, subdlKey)
+            searchSubDl(cleaned.title, providerLanguages, season, episode, cleaned.year, subdlKey)
         } else null
-        val publicResults = publicAttempt.getOrDefault(emptyList())
-        val accountResults = accountAttempt?.getOrDefault(emptyList()).orEmpty()
-        val subdlResults = subdlAttempt?.getOrDefault(emptyList()).orEmpty()
-        val combined = (publicResults + accountResults + subdlResults)
-            .distinctBy { it.provider + ":" + it.sourceId }
+        val combined = (
+            publicAttempt.getOrDefault(emptyList()) +
+                accountAttempt?.getOrDefault(emptyList()).orEmpty() +
+                subdlAttempt?.getOrDefault(emptyList()).orEmpty()
+            ).distinctBy { it.provider + ":" + it.sourceId }
+
         if (combined.isEmpty()) {
-            // Do not hide an actionable guest-quota/connectivity error merely
-            // because another configured provider returned an empty response.
             val failure = publicAttempt.exceptionOrNull()
                 ?: accountAttempt?.exceptionOrNull()
                 ?: subdlAttempt?.exceptionOrNull()
@@ -153,9 +152,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         automaticSearchCache.put(queryKey, combined)
         return combined
     }
-    }
 
-    private fun searchPublicic(
+    private fun searchPublic(
         title: String,
         season: Int?,
         episode: Int?
