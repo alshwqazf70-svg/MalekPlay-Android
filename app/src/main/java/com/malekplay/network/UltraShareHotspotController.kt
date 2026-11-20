@@ -67,13 +67,13 @@ internal class UltraShareHotspotController(
                     // OEMs may publish SoftAP credentials before its IPv4 interface is ready.
                     // Wait up to four seconds rather than publishing an unreachable QR.
                     var addresses = emptyList<String>()
-                    repeat(20) {
+                    for (attempt in 0 until 20) {
                         if (callback !== callbackInstance) return@launch
                         addresses = UltraShareDeviceNetworkInfo.findLocalIpv4Addresses(appContext)
                             .filter { UltraShareCore.isValidPrivateLanHost(it) }
                             .distinct()
-                        if (addresses.isNotEmpty()) return@repeat
-                        delay(200L)
+                        if (addresses.isNotEmpty()) break
+                        if (attempt < 19) delay(200L)
                     }
                     if (callback !== callbackInstance) {
                         reservation = null
