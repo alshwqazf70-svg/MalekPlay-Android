@@ -1158,8 +1158,13 @@ fun VideoPlayerScreen(
             )
         }
 
-        LaunchedEffect(showVideoDiagnostics) {
+        DisposableEffect(showVideoDiagnostics, viewModel) {
             viewModel.setVideoDiagnosticsVisible(showVideoDiagnostics)
+            onDispose {
+                // A retained navigation ViewModel must not keep polling after
+                // the player screen or diagnostics sheet leaves composition.
+                viewModel.setVideoDiagnosticsVisible(false)
+            }
         }
 
         if (showVideoDiagnostics) {
