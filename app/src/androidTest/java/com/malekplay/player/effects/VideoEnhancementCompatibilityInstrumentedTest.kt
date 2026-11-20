@@ -117,6 +117,25 @@ class VideoEnhancementCompatibilityInstrumentedTest {
     }
 
     @Test
+    fun disabledShaderConfigRemainsPassthroughEvenWithRetainedPresetValues() {
+        val effect = VideoEnhancementPipelineEffect(
+            VideoEnhancementPipelineConfig(
+                denoiseEnabled = false,
+                detailEnabled = false,
+                aiBoostEnabled = false,
+                denoiseStrength = 0.50f,
+                detailStrength = 1.02f,
+                contrastBoost = 0.16f,
+                clarityStrength = 0.22f
+            )
+        )
+        assertFalse(effect.currentConfig().hasActiveStage)
+
+        effect.update(effect.currentConfig().copy(denoiseEnabled = true))
+        assertTrue(effect.currentConfig().hasActiveStage)
+    }
+
+    @Test
     fun highResolutionSourcesAreNotResampledToAnUpscaleTarget() {
         assertEquals(
             null,
