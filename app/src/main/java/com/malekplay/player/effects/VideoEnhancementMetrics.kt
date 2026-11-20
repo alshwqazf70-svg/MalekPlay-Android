@@ -29,6 +29,32 @@ object VideoEnhancementMetrics {
         counter.incrementAndGet()
     }
 
+    /** Counts one physical shader draw while attributing its active logical stages. */
+    fun recordPipelineProcessed(
+        denoise: Boolean,
+        detail: Boolean,
+        presentationTimeUs: Long
+    ) {
+        lastEffectName = when {
+            denoise && detail -> "enhancement_pipeline_denoise_detail"
+            denoise -> "enhancement_pipeline_denoise"
+            detail -> "enhancement_pipeline_detail"
+            else -> "enhancement_pipeline"
+        }
+        lastPresentationTimeUs = presentationTimeUs
+        processedDraws.incrementAndGet()
+        if (denoise) incrementEffectCounter("spatial_denoise")
+        if (detail) incrementEffectCounter("detail_sharpen")
+    }
+
+    private fun incrementEffectCounter(effectName: String) {
+        val counter = drawsByEffect[effectName] ?: run {
+            val candidate = AtomicLong(0L)
+            drawsByEffect.putIfAbsent(effectName, candidate) ?: candidate
+        }
+        counter.incrementAndGet()
+    }
+
     fun recordFailure(effectName: String, error: Throwable) {
         lastEffectName = effectName
         lastFailure = "${error.javaClass.simpleName}: ${error.message.orEmpty().take(160)}"
