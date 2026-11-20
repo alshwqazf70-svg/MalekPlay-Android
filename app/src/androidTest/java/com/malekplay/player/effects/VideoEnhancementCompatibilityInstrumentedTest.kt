@@ -69,6 +69,29 @@ class VideoEnhancementCompatibilityInstrumentedTest {
     }
 
     @Test
+    fun profileTextureBudgetsStayWithinTheRequestedDeviceClasses() {
+        assertEquals(1920, VideoEnhancementProfile.ECONOMY.upscaleMaxLongEdge)
+        assertEquals(2560, VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge)
+        assertEquals(2960, VideoEnhancementProfile.ULTRA.upscaleMaxLongEdge)
+
+        listOf(
+            VideoEnhancementProfile.ECONOMY,
+            VideoEnhancementProfile.BALANCED,
+            VideoEnhancementProfile.ULTRA
+        ).forEach { profile ->
+            val target = VideoUpscaleTargetPolicy.resolve(
+                sourceWidth = 640,
+                sourceHeight = 360,
+                displayWidth = 1440,
+                displayHeight = 2960,
+                maxLongEdge = profile.upscaleMaxLongEdge
+            )
+            assertNotNull(target)
+            assertTrue(requireNotNull(target).longEdge <= profile.upscaleMaxLongEdge)
+        }
+    }
+
+    @Test
     fun highResolutionSourcesAreNotResampledToAnUpscaleTarget() {
         assertEquals(
             null,
