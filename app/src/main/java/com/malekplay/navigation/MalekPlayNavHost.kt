@@ -258,6 +258,7 @@ fun MalekPlayNavHost(
                 UltraShareExperienceScreen(
                     contentPadding = padding,
                     initialUris = pendingTransferUris,
+                    onInitialUrisConsumed = { pendingTransferUris = emptyList() },
                     onBack = { 
                         pendingTransferUris = emptyList()
                         navController.popBackStack() 
