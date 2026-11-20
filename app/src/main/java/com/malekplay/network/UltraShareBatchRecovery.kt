@@ -30,6 +30,12 @@ internal object UltraShareBatchRecovery {
         } catch (batchFailure: Exception) {
             // Diagnostics must never prevent recovery of the remaining queue.
             runCatching { onBatchFailure(batchFailure) }
+            // The caller's batch transport already applied its bounded retry policy.
+            // Repeating the exact same one-file session adds latency but cannot isolate
+            // any sibling, so surface its failure directly.
+            if (items.size == 1) {
+                return listOf(onItemFailure(items.single(), batchFailure))
+            }
         }
 
         val recovered = ArrayList<R>(items.size)
