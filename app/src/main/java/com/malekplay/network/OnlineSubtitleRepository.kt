@@ -101,7 +101,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         } else null
         val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
         val subdlAttempt = if (!subdlKey.isNullOrBlank()) runCatching {
-            searchSubDl(providerTitle, language, resolvedSeason, resolvedEpisode, subdlKey)
+            searchSubDl(cleaned.title, language, resolvedSeason, resolvedEpisode, cleaned.year, subdlKey)
         } else null
         val publicResults = publicAttempt.getOrDefault(emptyList())
         val accountResults = accountAttempt?.getOrDefault(emptyList()).orEmpty()
@@ -228,18 +228,19 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     }
 
     private fun searchSubDl(
-        title: String, language: String, season: Int?, episode: Int?, apiKey: String
+        title: String, language: String, season: Int?, episode: Int?, year: Int?, apiKey: String
     ): List<OnlineSubtitle> {
         val languages = language.split(',').map(SubtitleQueryCleaner::normalizeLanguage)
             .filter { it in setOf("ar", "en") }.joinToString(",") { it.uppercase(Locale.ROOT) }
         val url = Uri.parse(SUBDL_API).buildUpon()
             .appendQueryParameter("api_key", apiKey)
             .appendQueryParameter("film_name", title.take(150))
+            .appendQueryParameter("type", if (season != null && episode != null) "tv" else "movie")
+            .apply { if (year != null) appendQueryParameter("year", year.toString()) }
             .appendQueryParameter("languages", languages.ifBlank { "AR,EN" })
             .appendQueryParameter("subs_per_page", "30")
             .appendQueryParameter("unpack", "1")
             .apply {
-                if (season != null && episode != null) appendQueryParameter("type", "tv")
                 if (season != null && episode != null) {
                     appendQueryParameter("season_number", season.toString())
                     appendQueryParameter("episode_number", episode.toString())
