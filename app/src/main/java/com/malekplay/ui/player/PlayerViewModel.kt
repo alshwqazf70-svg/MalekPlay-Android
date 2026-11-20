@@ -42,6 +42,7 @@ import com.malekplay.player.audio.AudioEffectsController
 import com.malekplay.player.toMedia3Item
 import com.malekplay.safety.ParentalControlManager
 import com.malekplay.translation.SubtitleTranslationEngine
+import com.malekplay.translation.SrtSubtitleParser
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -1056,9 +1057,14 @@ class PlayerViewModel @Inject constructor(
             app.contentResolver.openInputStream(uri)?.use { input ->
                 val bytes = ByteArray(8192)
                 val count = input.read(bytes)
-                if (count > 0) String(bytes, 0, count, Charsets.UTF_8)
-                    .trimStart('\uFEFF', ' ', '\t', '\r', '\n')
-                else ""
+                if (count > 0) {
+                    val decoded = runCatching {
+                        SrtSubtitleParser.decode(bytes.copyOf(count))
+                    }.getOrElse {
+                        String(bytes, 0, count, Charsets.UTF_8)
+                    }
+                    decoded.trimStart('\uFEFF', ' ', '\t', '\r', '\n')
+                } else ""
             }
         }.getOrNull().orEmpty()
         return when {
