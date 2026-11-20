@@ -78,6 +78,9 @@ class VideoEnhancementPolicyTest {
         assertEquals(0f, VideoEnhancementProfile.ULTRA.previousFrameWeight)
         assertEquals(true, VideoEnhancementProfile.BALANCED.denoiseStrength > 0.30f)
         assertEquals(true, VideoEnhancementProfile.BALANCED.detailStrength > 0.70f)
+        assertEquals(true, VideoEnhancementProfile.ECONOMY.contrastBoost > 0f)
+        assertEquals(true, VideoEnhancementProfile.BALANCED.clarityStrength > VideoEnhancementProfile.ECONOMY.clarityStrength)
+        assertEquals(true, VideoEnhancementProfile.ULTRA.contrastBoost > VideoEnhancementProfile.BALANCED.contrastBoost)
     }
 
     @Test fun lowResolutionVideoUpscalesToCappedFullHdTarget() {
