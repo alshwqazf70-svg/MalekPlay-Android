@@ -23,7 +23,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * Downloads language models on demand and translates SRT subtitle cues locally.
+ * Downloads language models on demand and translates SRT, WebVTT, ASS and SSA cues locally.
  * The first model download requires an internet connection; translation thereafter is on-device.
  */
 /** Validates a source language against the language models supported by ML Kit. */
