@@ -10,6 +10,8 @@ internal object SrtSubtitleParser {
     private val timingPattern = Regex("""^\s*(?:\d{1,}:)?\d{2}:\d{2}[,.]\d{3}\s*-->\s*(?:\d{1,}:)?\d{2}:\d{2}[,.]\d{3}(?:\s+.*)?\s*$""")
     private val vttTimestampPattern = Regex("""((?:\d{1,}:)?\d{2}:\d{2})\.(\d{3})""")
     private val markupPattern = Regex("""<[^>]+>""")
+    private val assOverridePattern = Regex("""\\{\\\\[^}]*}""")
+    private val assTimestampPattern = Regex("""^(\\d+):(\\d{2}):(\\d{2})[.](\\d{1,2})$""")
 
     fun decode(bytes: ByteArray): String {
         require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
@@ -69,7 +71,14 @@ internal object SrtSubtitleParser {
      * WebVTT file headers and NOTE/STYLE/REGION metadata are not subtitle cues;
      * WebVTT timestamps use dots, while SRT requires comma milliseconds.
      */
-    fun splitBlocks(text: String): List<String> {
+    fun splitBlocks(text: String, formatHint: String? = null): List<String> {
+        val normalized = text.removePrefix("\\uFEFF")
+        val hint = formatHint?.lowercase(java.util.Locale.ROOT)
+        if (hint == "ass" || hint == "ssa" ||
+            normalized.contains("[Events]", ignoreCase = true) &&
+            normalized.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
+        ) return splitAssBlocks(normalized)
+        text = normalized
         val blocks = text.replace("\r\n", "\n").replace('\r', '\n')
             .split(Regex("\n[\t ]*\n"))
             .filter { it.isNotBlank() }
@@ -98,6 +107,86 @@ internal object SrtSubtitleParser {
                 }
             }.joinToString("\n")
         }
+    }
+
+
+    /**
+     * Converts ASS/SSA Dialogue events to timestamp-preserving SRT cue blocks.
+     * The Text field is allowed to contain commas, so it is split only after
+     * all preceding columns described by the [Events] Format line.
+     */
+    private fun splitAssBlocks(text: String): List<String> {
+        var eventFields = listOf("layer", "start", "end", "style", "name",
+            "marginl", "marginr", "marginv", "effect", "text")
+        val cues = mutableListOf<String>()
+        var inEvents = false
+        text.lineSequence().forEach { rawLine ->
+            val line = rawLine.trimEnd()
+            if (line.trim().startsWith("[", ignoreCase = true) &&
+                line.trim().endsWith("]", ignoreCase = true)
+            ) {
+                inEvents = line.trim().equals("[Events]", ignoreCase = true)
+                return@forEach
+            }
+            if (!inEvents) return@forEach
+            val trimmed = line.trim()
+            if (trimmed.startsWith("Format:", ignoreCase = true)) {
+                eventFields = trimmed.substringAfter(':')
+                    .split(',').map { it.trim().lowercase(java.util.Locale.ROOT) }
+                return@forEach
+            }
+            if (!trimmed.startsWith("Dialogue:", ignoreCase = true)) return@forEach
+            val values = splitAssDialogue(trimmed.substringAfter(':').trim(), eventFields.size)
+                ?: return@forEach
+            val startIndex = eventFields.indexOf("start")
+            val endIndex = eventFields.indexOf("end")
+            val textIndex = eventFields.indexOf("text")
+            if (startIndex < 0 || endIndex < 0 || textIndex < 0 ||
+                maxOf(startIndex, endIndex, textIndex) >= values.size
+            ) return@forEach
+            val start = assTimeToSrt(values[startIndex]) ?: return@forEach
+            val end = assTimeToSrt(values[endIndex]) ?: return@forEach
+            val dialogue = values[textIndex]
+                .replace(assOverridePattern, "")
+                .replace(Regex("""\\[Nn]"""), "\\n")
+                .replace(Regex("""\\h"""), " ")
+                .replace(Regex("""<[^>]*>"""), "")
+                .trim()
+            if (dialogue.isBlank()) return@forEach
+            cues += "${cues.size + 1}\\n$start --> $end\\n$dialogue"
+        }
+        return cues
+    }
+
+    private fun splitAssDialogue(raw: String, fieldCount: Int): List<String>? {
+        if (fieldCount < 3) return null
+        val result = ArrayList<String>(fieldCount)
+        var offset = 0
+        repeat(fieldCount - 1) {
+            val comma = raw.indexOf(',', offset)
+            if (comma < 0) return null
+            result += raw.substring(offset, comma).trim()
+            offset = comma + 1
+        }
+        result += raw.substring(offset).trim()
+        return result.takeIf { it.size == fieldCount }
+    }
+
+    private fun assTimeToSrt(raw: String): String? {
+        val match = assTimestampPattern.matchEntire(raw.trim()) ?: return null
+        val hours = match.groupValues[1].toLongOrNull() ?: return null
+        val minutes = match.groupValues[2].toLongOrNull() ?: return null
+        val seconds = match.groupValues[3].toLongOrNull() ?: return null
+        val centiseconds = match.groupValues[4].padEnd(2, '0').take(2).toLongOrNull() ?: return null
+        if (minutes > 59 || seconds > 59) return null
+        val millis = hours * 3_600_000L + minutes * 60_000L + seconds * 1_000L + centiseconds * 10L
+        val totalHours = millis / 3_600_000L
+        val totalMinutes = (millis / 60_000L) % 60L
+        val totalSeconds = (millis / 1_000L) % 60L
+        val remainder = millis % 1_000L
+        return "%02d:%02d:%02d,%03d".format(
+            java.util.Locale.ROOT, totalHours, totalMinutes, totalSeconds, remainder
+        )
     }
 
     fun timingLineIndex(lines: List<String>): Int =
