@@ -14,7 +14,8 @@ internal object UltraSharePairingReadiness {
         hotspotFallbackStarted: Boolean,
         invitationIdBlank: Boolean,
         wifiDirectAlreadyAttempted: Boolean,
-        hasActivePeers: Boolean
+        hasActivePeers: Boolean,
+        hasActiveLanRoute: Boolean
     ): Boolean =
         receiving &&
             !lanProbeInProgress &&
@@ -22,7 +23,8 @@ internal object UltraSharePairingReadiness {
             !hotspotFallbackStarted &&
             invitationIdBlank &&
             !wifiDirectAlreadyAttempted &&
-            !hasActivePeers
+            !hasActivePeers &&
+            !hasActiveLanRoute
     /** Reuses stored route hints only for the exact same ephemeral invitation. */
     fun stableInvitationHosts(
         storedInvitationId: String?,
