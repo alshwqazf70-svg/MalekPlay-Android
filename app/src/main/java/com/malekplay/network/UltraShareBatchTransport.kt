@@ -61,10 +61,10 @@ object UltraShareBatchTransport {
     const val DEFAULT_PORT = 38_742
     const val COPY_BUFFER_BYTES = 1024 * 1024
     private const val BUFFER_BYTES = 1024 * 1024
-    private const val SOCKET_BUFFER_BYTES = 2 * 1024 * 1024
+    internal const val SOCKET_BUFFER_BYTES = 2 * 1024 * 1024
     // 1 MiB encrypted payloads amortize frame headers and AES-GCM setup on Wi-Fi.
     // Buffers are allocated once per session and reused for every chunk.
-    private const val FRAME_BYTES = 1024 * 1024
+    internal const val CHUNK_BYTES = 1024 * 1024
     private const val PROGRESS_UPDATE_INTERVAL_BYTES = 1024L * 1024L
     private const val PROGRESS_UPDATE_INTERVAL_NANOS = 80_000_000L
     // A checkpoint is committed only after the corresponding partial bytes are fsynced.
@@ -418,8 +418,8 @@ object UltraShareBatchTransport {
             val receiveCipher = Cipher.getInstance("AES/GCM/NoPadding")
             val sendKeySpec = SecretKeySpec(sendKey, "AES")
             val receiveKeySpec = SecretKeySpec(receiveKey, "AES")
-            val encryptedFrameBuffer = ByteArray(FRAME_BYTES + 7 + TAG_BYTES)
-            val plainChunkFrame = ByteArray(FRAME_BYTES + 7)
+            val encryptedFrameBuffer = ByteArray(CHUNK_BYTES + 7 + TAG_BYTES)
+            val plainChunkFrame = ByteArray(CHUNK_BYTES + 7)
             var sendSequence = 0L
             var receiveSequence = 0L
 
@@ -465,7 +465,7 @@ object UltraShareBatchTransport {
                 resolver.openInputStream(source.uri)?.use { raw ->
                     BufferedInputStream(raw, BUFFER_BYTES).use { stream ->
                         skipAndDigest(stream, offset, streamedDigest)
-                        val buffer = ByteArray(FRAME_BYTES - 8)
+                        val buffer = ByteArray(CHUNK_BYTES - 8)
                         while (transferred < entry.sizeBytes) {
                             currentCoroutineContext().ensureActive()
                             val wanted = minOf(buffer.size.toLong(), entry.sizeBytes - transferred).toInt()
@@ -650,8 +650,8 @@ object UltraShareBatchTransport {
         val sendCipher = Cipher.getInstance("AES/GCM/NoPadding")
         val receiveKeySpec = SecretKeySpec(receiveKey, "AES")
         val sendKeySpec = SecretKeySpec(sendKey, "AES")
-        val reusableEncryptedChunk = ByteArray(FRAME_BYTES + 7 + TAG_BYTES)
-        val reusablePlainChunk = ByteArray(FRAME_BYTES + 7)
+        val reusableEncryptedChunk = ByteArray(CHUNK_BYTES + 7 + TAG_BYTES)
+        val reusablePlainChunk = ByteArray(CHUNK_BYTES + 7)
         var receiveSequence = 0L
         var sendSequence = 0L
 
@@ -769,7 +769,7 @@ object UltraShareBatchTransport {
                         while (transferred < entry.sizeBytes) {
                             currentCoroutineContext().ensureActive()
                             val remaining = entry.sizeBytes - transferred
-                            val maximumPayload = minOf(FRAME_BYTES.toLong(), remaining + 7L).toInt()
+                            val maximumPayload = minOf(CHUNK_BYTES.toLong(), remaining + 7L).toInt()
                             if (transferred == offset && offset > 0L) {
                                 socket.soTimeout = maxOf(SESSION_TIMEOUT_MS, verificationTimeoutMillis(offset))
                             }
@@ -786,7 +786,7 @@ object UltraShareBatchTransport {
                                 ((reusablePlainChunk[4].toInt() and 0xff) shl 16) or
                                 ((reusablePlainChunk[5].toInt() and 0xff) shl 8) or
                                 (reusablePlainChunk[6].toInt() and 0xff)
-                            require(length in 1..(FRAME_BYTES - 8) && length + 7 == payloadLength)
+                            require(length in 1..(CHUNK_BYTES - 8) && length + 7 == payloadLength)
                             require(transferred + length <= entry.sizeBytes)
                             file.write(reusablePlainChunk, 7, length)
                             transferred += length
