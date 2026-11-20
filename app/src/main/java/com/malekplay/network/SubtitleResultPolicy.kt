@@ -17,8 +17,8 @@ internal object SubtitleResultPolicy {
         } else null
         return results.filter { SubtitleQueryCleaner.normalizeLanguage(it.language) in wanted }
             .sortedWith(compareBy<OnlineSubtitle>(
-                { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 },
                 { if (episodePattern == null || episodePattern.containsMatchIn(it.release)) 0 else 1 },
+                { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 },
                 { -it.downloads }
             ))
     }
