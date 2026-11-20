@@ -112,6 +112,85 @@ class UltraShareBatchEndToEndTest {
         }
     }
     @Test
+    fun slowMediaStorePublicationDoesNotBlockTheNextQueuedReceiveSocket() = runBlocking {
+        val host = NetworkInterface.getNetworkInterfaces().toList()
+            .asSequence().filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList().asSequence() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .firstOrNull { it.isSiteLocalAddress && !it.isLoopbackAddress }
+            ?.hostAddress ?: error("No private IPv4 interface available for the receive queue test.")
+        fun freePort(): Int = ServerSocket(0).use { it.localPort }
+        val secret = "765432109"
+        val controlPort = freePort()
+        val sourceDirectory = kotlin.io.path.createTempDirectory("ultrashare-queue-source").toFile()
+        val receivedDirectory = kotlin.io.path.createTempDirectory("ultrashare-queue-received").toFile()
+        val dataReady = CompletableDeferred<Int>()
+        val controlReady = CompletableDeferred<Unit>()
+        val publicationStarted = CompletableDeferred<Unit>()
+        val releasePublication = CompletableDeferred<Unit>()
+        val publicationCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val receiver = launch(Dispatchers.IO) {
+            UltraShareBatchTransport.serveMany(
+                port = 0,
+                pairingSecret = secret,
+                destinationDirectory = receivedDirectory,
+                maxPeers = 1,
+                onListening = { if (!dataReady.isCompleted) dataReady.complete(it) },
+                onBatchFinished = { _, _ ->
+                    if (publicationCount.incrementAndGet() == 1) {
+                        publicationStarted.complete(Unit)
+                        releasePublication.await()
+                    }
+                }
+            )
+        }
+        val control = launch(Dispatchers.IO) {
+            UltraShareControlChannel.serveOnce(
+                pairingSecret = secret,
+                port = controlPort,
+                onListening = { if (!controlReady.isCompleted) controlReady.complete(Unit) },
+                onRequest = { UltraShareControlChannel.Decision.ACCEPTED }
+            )
+        }
+        try {
+            withTimeout(5_000) { dataReady.await(); controlReady.await() }
+            assertEquals(
+                UltraShareControlChannel.Decision.ACCEPTED,
+                UltraShareControlChannel.request(host, secret, "Queue concurrency test", controlPort)
+            )
+            val resolver = RuntimeEnvironment.getApplication().contentResolver
+            suspend fun send(name: String, seed: Int) {
+                val payload = ByteArray(256 * 1024 + seed) { ((it * 31 + seed) and 0xff).toByte() }
+                val file = File(sourceDirectory, name).apply { writeBytes(payload) }
+                val outcome = UltraShareBatchTransport.sendBatch(
+                    resolver = resolver,
+                    sources = listOf(UltraShareBatchTransport.Source(
+                        Uri.fromFile(file), name, "application/octet-stream", file.length()
+                    )),
+                    host = host,
+                    port = dataReady.await(),
+                    pairingSecret = secret
+                )
+                assertEquals(UltraShareBatchProtocol.FileStatus.COMPLETED, outcome.files.single().status)
+            }
+            send("queued-first.bin", 1)
+            withTimeout(5_000) { publicationStarted.await() }
+            // The first publication deliberately remains blocked. With a single receive
+            // permit, the next batch must still be accepted instead of being refused.
+            withTimeout(15_000) { send("queued-second.bin", 2) }
+            assertTrue(File(receivedDirectory, "queued-first.bin").isFile)
+            assertTrue(File(receivedDirectory, "queued-second.bin").isFile)
+        } finally {
+            releasePublication.complete(Unit)
+            UltraShareControlChannel.closeSession(host)
+            control.cancelAndJoin()
+            receiver.cancelAndJoin()
+            sourceDirectory.deleteRecursively()
+            receivedDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun kotlinSenderInteroperatesWithPythonV2ReceiverOverRealTcp() = runBlocking {
         assumeTrue("Enable cross-language socket test in CI", System.getenv("ULTRASHARE_CROSS_LANG") == "1")
         val host = NetworkInterface.getNetworkInterfaces().toList()
