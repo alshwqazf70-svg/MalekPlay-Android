@@ -157,6 +157,21 @@ class VideoEnhancementPolicyTest {
         assertEquals(active, effect.currentConfig())
     }
 
+    @Test fun pipelineDiagnosticsCountOnePhysicalDrawAndItsActiveStages() {
+        VideoEnhancementMetrics.reset()
+        VideoEnhancementMetrics.recordPipelineProcessed(
+            denoise = true,
+            detail = true,
+            presentationTimeUs = 42_000L
+        )
+        val metrics = VideoEnhancementMetrics.snapshot()
+        assertEquals(1L, metrics.processedDraws)
+        assertEquals(1L, metrics.denoiseDraws)
+        assertEquals(1L, metrics.detailDraws)
+        assertEquals(42_000L, metrics.lastPresentationTimeUs)
+        VideoEnhancementMetrics.reset()
+    }
+
     @Test fun profileUpscaleBudgetsMatchSupportedDisplayClasses() {
         assertEquals(1920, VideoEnhancementProfile.ECONOMY.upscaleMaxLongEdge)
         assertEquals(2560, VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge)
