@@ -93,6 +93,23 @@ class UltraShareBatchProtocolTest {
         }
     }
 
+    @Test fun acceptsDifferentQueuedFilesWithIdenticalNamesAndContent() {
+        val bytes = "same media payload".toByteArray()
+        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+        val first = UltraShareBatchProtocol.newEntry(
+            "same.mp4", "video/mp4", bytes.size.toLong(), digest, UUID.randomUUID().toString()
+        )
+        val second = UltraShareBatchProtocol.newEntry(
+            "same.mp4", "video/mp4", bytes.size.toLong(), digest, UUID.randomUUID().toString()
+        )
+        val manifest = UltraShareBatchProtocol.Manifest(UUID.randomUUID().toString(), listOf(first, second))
+        val decoded = UltraShareBatchProtocol.decode(UltraShareBatchProtocol.encode(manifest))
+        assertEquals(2, decoded.entries.size)
+        assertEquals(first.name, decoded.entries[0].name)
+        assertEquals(second.name, decoded.entries[1].name)
+        assertFalse(decoded.entries[0].id == decoded.entries[1].id)
+    }
+
     @Test fun rejectsDuplicateFileIds() {
         val item = entry("one.bin", "alpha")
         val duplicate = item.copy(name = "two.bin")
