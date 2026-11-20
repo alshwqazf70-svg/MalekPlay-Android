@@ -2,6 +2,7 @@ package com.malekplay.translation
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import com.google.android.gms.tasks.Task
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.translate.TranslateLanguage
@@ -16,6 +17,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import java.io.File
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -61,13 +64,9 @@ class SubtitleTranslationEngine @Inject constructor(
 ) {
     suspend fun translateSrtToArabic(
         source: Uri,
-        sourceLanguageCode: String = TranslateLanguage.ENGLISH
+        sourceLanguageCode: String = TranslateLanguage.ENGLISH,
+        onProgress: (completedCues: Int, totalCues: Int) -> Unit = { _, _ -> }
     ): Uri {
-        val extension = source.lastPathSegment.orEmpty()
-            .substringAfterLast('.', "").lowercase()
-        require(extension == "srt" || extension == "vtt") {
-            "الترجمة المحلية تدعم ملفات SRT وVTT فقط حالياً"
-        }
         val sourceBytes = withContext(Dispatchers.IO) {
             val input = context.contentResolver.openInputStream(source)
                 ?: error("تعذر فتح ملف الترجمة")
@@ -95,6 +94,8 @@ class SubtitleTranslationEngine @Inject constructor(
             }
         }
         val sourceText = SrtSubtitleParser.decode(sourceBytes)
+        val extension = resolveSubtitleFormat(source, sourceBytes, sourceText)
+            ?: error("صيغة ملف الترجمة غير معروفة. استخدم SRT أو VTT أو ASS أو SSA")
         val sourceLanguage = validateTranslationSourceLanguage(
             sourceLanguageCode,
             TranslateLanguage.getAllLanguages()
@@ -102,13 +103,33 @@ class SubtitleTranslationEngine @Inject constructor(
         require(sourceLanguage != TranslateLanguage.ARABIC) {
             "لغة المصدر هي العربية بالفعل"
         }
+        val cacheDigest = MessageDigest.getInstance("SHA-256").run {
+            update(sourceLanguage.toByteArray(StandardCharsets.UTF_8))
+            update(byteArrayOf(0))
+            digest(sourceBytes).joinToString("") { "%02x".format(Locale.ROOT, it) }
+        }
+        val cacheFile = File(context.cacheDir, "malekplay-ar-$cacheDigest.srt")
+        if (cacheFile.isFile && cacheFile.length() > 0L) {
+            cacheFile.setLastModified(System.currentTimeMillis())
+            onProgress(1, 1)
+            return Uri.fromFile(cacheFile)
+        }
         val options = TranslatorOptions.Builder()
             .setSourceLanguage(sourceLanguage)
             .setTargetLanguage(TranslateLanguage.ARABIC)
             .build()
         val translator = Translation.getClient(options)
         return try {
-            translator.downloadModelIfNeeded(DownloadConditions.Builder().build()).awaitResult()
+            try {
+                translator.downloadModelIfNeeded(DownloadConditions.Builder().build()).awaitResult()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                throw IllegalStateException(
+                    "تعذر تنزيل نموذج اللغة. يلزم اتصال بالإنترنت لتنزيل نموذج اللغة لأول مرة.",
+                    error
+                )
+            }
             data class CueToTranslate(
                 val originalIndex: Int,
                 val lines: List<String>,
@@ -116,7 +137,7 @@ class SubtitleTranslationEngine @Inject constructor(
                 val maskedText: String,
                 val markup: List<String>
             )
-            val translatedCues = SrtSubtitleParser.splitBlocks(sourceText).toMutableList()
+            val translatedCues = SrtSubtitleParser.splitBlocks(sourceText, extension).toMutableList()
             val pending = translatedCues.mapIndexedNotNull { index, cue ->
                 val lines = cue.split('\n')
                 val timeIndex = SrtSubtitleParser.timingLineIndex(lines)
@@ -128,6 +149,9 @@ class SubtitleTranslationEngine @Inject constructor(
                 CueToTranslate(index, lines, textStart, maskedText, markup)
             }
 
+            require(pending.isNotEmpty()) { "لم يتم العثور على حوارات قابلة للترجمة في ملف الترجمة" }
+            onProgress(0, pending.size)
+            var completedCues = 0
             // Translate neighbouring cues together for dialogue context. If ML Kit changes
             // a boundary token, fall back to independent cue translation without losing timing.
             for (chunk in SubtitleTranslationPolicy.chunkCueTexts(pending.map { it.maskedText })) {
@@ -158,13 +182,23 @@ class SubtitleTranslationEngine @Inject constructor(
                     translatedCues[cue.originalIndex] =
                         (cue.lines.take(cue.textStart) + restoredText.split('\n')).joinToString("\n")
                 }
+                completedCues += batch.size
+                onProgress(completedCues.coerceAtMost(pending.size), pending.size)
             }
             val translated = translatedCues.joinToString("\n\n")
             val output = withContext(Dispatchers.IO) {
                 currentCoroutineContext().ensureActive()
                 TranslatedSubtitleCache.pruneExpired(context.cacheDir)
-                File.createTempFile("malekplay-ar-", ".srt", context.cacheDir).also {
-                    it.writeText(translated, StandardCharsets.UTF_8)
+                val temporary = File.createTempFile("malekplay-ar-", ".part", context.cacheDir)
+                try {
+                    temporary.writeText(translated, StandardCharsets.UTF_8)
+                    if (cacheFile.exists() && !cacheFile.delete()) {
+                        error("تعذر استبدال ملف الترجمة المؤقت")
+                    }
+                    check(temporary.renameTo(cacheFile)) { "تعذر حفظ الترجمة في الذاكرة المؤقتة" }
+                    cacheFile
+                } finally {
+                    if (temporary.exists()) temporary.delete()
                 }
             }
             Uri.fromFile(output)
@@ -173,7 +207,53 @@ class SubtitleTranslationEngine @Inject constructor(
         }
     }
 
+
+    private fun resolveSubtitleFormat(source: Uri, bytes: ByteArray, text: String): String? {
+        val displayName = runCatching {
+            context.contentResolver.query(
+                source,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0) cursor.getString(index) else null
+                } else null
+            }
+        }.getOrNull()
+        val namedExtension = displayName.orEmpty()
+            .substringAfterLast('.', "")
+            .lowercase(Locale.ROOT)
+            .takeIf { it in SUPPORTED_FORMATS }
+            ?: source.lastPathSegment.orEmpty()
+                .substringAfterLast('.', "")
+                .lowercase(Locale.ROOT)
+                .takeIf { it in SUPPORTED_FORMATS }
+        if (namedExtension != null) return namedExtension
+
+        val mimeExtension = when (runCatching { context.contentResolver.getType(source) }.getOrNull()
+            ?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT)) {
+            "text/vtt" -> "vtt"
+            "application/x-subrip", "application/srt" -> "srt"
+            "text/x-ssa", "application/x-ass", "text/x-ass" -> "ass"
+            else -> null
+        }
+        if (mimeExtension != null) return mimeExtension
+
+        val normalized = text.trimStart('\uFEFF', ' ', '\t', '\r', '\n')
+        return when {
+            normalized.startsWith("WEBVTT", ignoreCase = true) -> "vtt"
+            normalized.contains("[Events]", ignoreCase = true) &&
+                normalized.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) } -> "ass"
+            normalized.contains("-->") -> "srt"
+            else -> null
+        }
+    }
+
     private companion object {
+        val SUPPORTED_FORMATS = setOf("srt", "vtt", "ass", "ssa")
         const val MAX_SUBTITLE_BYTES = 5_000_000
     }
 
