@@ -78,7 +78,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     fun searchAutomatic(title: String, language: String, season: Int?, episode: Int?, mediaUri: Uri? = null): List<OnlineSubtitle> {
         val publicAttempt = runCatching { searchPublic(title, language, season, episode) }
         val accountAttempt = if (hasCredentials()) {
-            runCatching { search(title, language, season, episode) }
+            runCatching { search(title, language, season, episode, mediaUri) }
         } else null
         val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
         val subdlAttempt = if (!subdlKey.isNullOrBlank()) runCatching {
@@ -104,7 +104,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         episode: Int?
     ): List<OnlineSubtitle> {
         require(title.isNotBlank()) { "أدخل اسم الفيلم أو المسلسل" }
-        val hasEpisodeInTitle = Regex("""(?i)(?:^|\\b)S\\d{1,2}E\\d{1,3}(?:\\b|$)|\\b\\d{1,2}x\\d{1,3}\\b""").containsMatchIn(title)
+        val hasEpisodeInTitle = Regex("""(?i)(?:^|\b)S\d{1,2}E\d{1,3}(?:\b|$)|\b\d{1,2}x\d{1,3}\b""").containsMatchIn(title)
         val episodeSuffix = if (!hasEpisodeInTitle && season != null && episode != null) {
             " S%02dE%02d".format(Locale.ROOT, season, episode)
         } else ""
