@@ -519,7 +519,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     val buffer = ByteArray(8192)
                     var total = 0
                     while (true) {
-                        val n = zip.read(buffer)
+                        val n = readStreamWithProgress(zip, buffer)
                         if (n < 0) break
                         total += n
                         require(total <= MAX_BYTES) { "ملف الترجمة كبير جدًا" }
