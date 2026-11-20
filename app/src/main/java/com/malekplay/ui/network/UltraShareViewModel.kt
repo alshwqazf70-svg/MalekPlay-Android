@@ -358,7 +358,7 @@ class UltraShareViewModel @Inject constructor(
         UltraShareDiagnostics.beginSession("RECEIVER", "start_receiving")
         UltraShareDiagnostics.event("PAIRING", "RECEIVER_WAITING_FOR_PEER")
         val secret = UltraShareCore.createPairingSecret()
-        wifiDirectPrimaryAttempt = true
+        wifiDirectPrimaryAttempt = false
         hotspotFallbackStarted = false
         wifiDirectGroupSsid = null
         wifiDirectGroupPassword = null
@@ -382,23 +382,90 @@ class UltraShareViewModel @Inject constructor(
             wifiDirectLocalAddress = null,
             progress = null,
             error = null,
-            status = "جارٍ تجهيز Wi-Fi Direct كمسار استقبال أساسي..."
+            status = "جارٍ تشغيل مستقبل النقل وفحص الشبكة المحلية أولاً..."
         )
         runCatching {
-            // Start the authenticated control/data listeners only. Wi-Fi Direct
-            // group ownership is established first; LocalOnlyHotspot is fallback-only.
+            // Keep the authenticated listeners independent of radio setup. A shared
+            // WLAN is the least disruptive route and must be preferred over P2P.
             UltraShareForegroundService.startReceiving(context, secret, createHotspot = false)
-            UltraShareForegroundService.updateWifiDirectLocalAddress(
-                context,
-                _state.value.wifiDirectLocalAddress
-            )
-            // Publish current WLAN/LAN candidates immediately while P2P group setup
-            // proceeds independently; this asynchronous refresh never gates pairing.
             UltraShareForegroundService.refreshLocalAddresses(context)
-            advertiseCurrentWifiDirectInvitation()
+            viewModelScope.launch {
+                var lanHosts: List<String> = emptyList()
+                repeat(20) {
+                    if (!_state.value.receiving) return@launch
+                    UltraShareForegroundService.refreshLocalAddresses(context)
+                    val serviceState = UltraShareForegroundService.state.value
+                    lanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+                        context,
+                        _state.value.localAddresses + serviceState.localAddresses
+                    )
+                    if (serviceState.controlChannelReady && lanHosts.isNotEmpty()) {
+                        _state.value = _state.value.copy(
+                            localAddresses = lanHosts,
+                            lanFallbackReady = true,
+                            error = null,
+                            status = "الشبكة المحلية جاهزة؛ امسح رمز QR للاتصال عبر Wi-Fi الحالي."
+                        )
+                        publishUnifiedReceiverQrIfReady()
+                        return@launch
+                    }
+                    delay(200L)
+                }
+
+                if (!_state.value.receiving) return@launch
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    // No shared LAN was ready: try Android's temporary local-only
+                    // hotspot before creating a Wi-Fi Direct group.
+                    startHotspotFallback("لا توجد شبكة LAN مشتركة جاهزة؛ نجرب نقطة الاتصال المحلية.")
+                    repeat(100) {
+                        if (!_state.value.receiving) return@launch
+                        val serviceState = UltraShareForegroundService.state.value
+                        if (serviceState.hotspotActive || _state.value.hotspotActive ||
+                            _state.value.receiverQrPayload != null
+                        ) return@launch
+                        if (!serviceState.hotspotStarting && !_state.value.hotspotStarting) {
+                            val fallbackHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+                                context,
+                                _state.value.localAddresses + serviceState.localAddresses
+                            )
+                            if (serviceState.controlChannelReady && fallbackHosts.isNotEmpty()) {
+                                _state.value = _state.value.copy(
+                                    localAddresses = fallbackHosts,
+                                    lanFallbackReady = true,
+                                    error = null,
+                                    status = "تعذر تشغيل نقطة الاتصال؛ نستخدم شبكة LAN المتاحة."
+                                )
+                                publishUnifiedReceiverQrIfReady()
+                                return@launch
+                            }
+                            // A confirmed hotspot failure makes P2P the final radio fallback.
+                            wifiDirectPrimaryAttempt = true
+                            advertiseCurrentWifiDirectInvitation()
+                            return@launch
+                        }
+                        delay(200L)
+                    }
+                    // Do not start P2P while Android still reports a hotspot startup:
+                    // that can leave two competing Wi-Fi group operations in flight.
+                    if (_state.value.receiving &&
+                        (UltraShareForegroundService.state.value.hotspotStarting ||
+                            _state.value.hotspotStarting)
+                    ) {
+                        _state.value = _state.value.copy(
+                            error = "ما زال Android يجهز نقطة الاتصال المحلية؛ لم نشغل Wi-Fi Direct بالتزامن لتجنب تعارض الشبكات."
+                        )
+                    }
+                } else {
+                    // Android 6–7 has no LocalOnlyHotspot API; use P2P only after
+                    // confirming that no usable shared LAN route exists.
+                    wifiDirectPrimaryAttempt = true
+                    advertiseCurrentWifiDirectInvitation()
+                }
+            }
         }.onFailure {
-            UltraShareDiagnostics.failure("RECEIVER_P2P_START", it)
-            startHotspotFallback(it.localizedMessage ?: "تعذر بدء Wi-Fi Direct.")
+            UltraShareDiagnostics.failure("RECEIVER_LAN_FIRST_START", it)
+            wifiDirectPrimaryAttempt = true
+            advertiseCurrentWifiDirectInvitation()
         }
     }
 
