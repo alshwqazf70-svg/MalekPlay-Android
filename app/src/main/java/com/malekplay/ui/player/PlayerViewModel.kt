@@ -5,6 +5,7 @@ import android.util.Log
 import android.content.Context
 import android.os.Bundle
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -207,6 +208,11 @@ class PlayerViewModel @Inject constructor(
     val subtitleTranslationLoading: StateFlow<Boolean> = _subtitleTranslationLoading.asStateFlow()
     private val _subtitleTranslationError = MutableStateFlow<String?>(null)
     val subtitleTranslationError: StateFlow<String?> = _subtitleTranslationError.asStateFlow()
+    private val _subtitleTranslationCompletedCues = MutableStateFlow(0)
+    val subtitleTranslationCompletedCues: StateFlow<Int> = _subtitleTranslationCompletedCues.asStateFlow()
+    private val _subtitleTranslationTotalCues = MutableStateFlow(0)
+    val subtitleTranslationTotalCues: StateFlow<Int> = _subtitleTranslationTotalCues.asStateFlow()
+    private var subtitleTranslationJob: Job? = null
     private var translationSourceSubtitleUri: Uri? = null
     private var playbackGeneration: Long = 0L
 
@@ -650,6 +656,11 @@ class PlayerViewModel @Inject constructor(
                 } else null
             }
             if (requestGeneration != playbackGeneration || _controller.value !== player) return@launch
+            if (selectedSubtitle != null && selectedSubtitle.language != "ar") {
+                translationSourceSubtitleUri = selectedSubtitle.uri
+                _subtitleTranslationAvailable.value = true
+                _subtitleTranslationError.value = null
+            }
             val mediaItems = safeItems.mapIndexed { index, media ->
                 if (index == safeIndex) media.toMedia3Item(selectedSubtitle)
                 else media.toMedia3Item(null)
@@ -961,64 +972,115 @@ class PlayerViewModel @Inject constructor(
 
     /** Adds an external subtitle without discarding the current playback queue. */
     fun addExternalSubtitle(uri: Uri, rememberAsTranslationSource: Boolean = true) {
-        val player = _controller.value ?: run {
-            _playerError.value = "مشغل الفيديو غير جاهز"
-            return
+        val targetMediaId = currentMediaId
+        viewModelScope.launch {
+            val extension = withContext(Dispatchers.IO) { resolveSubtitleExtension(uri) }
+            val mimeType = when (extension) {
+                "ass", "ssa" -> MimeTypes.TEXT_SSA
+                "srt" -> MimeTypes.APPLICATION_SUBRIP
+                "vtt" -> MimeTypes.TEXT_VTT
+                else -> null
+            }
+            if (mimeType == null) {
+                _playerError.value = "صيغة الترجمة غير مدعومة. استخدم ASS أو SSA أو SRT أو VTT"
+                return@launch
+            }
+            val player = _controller.value ?: run {
+                _playerError.value = "مشغل الفيديو غير جاهز"
+                return@launch
+            }
+            if (targetMediaId != currentMediaId) return@launch
+            val index = player.currentMediaItemIndex
+            val current = player.currentMediaItem
+            if (current == null || index !in 0 until player.mediaItemCount) {
+                _playerError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+                return@launch
+            }
+            if (rememberAsTranslationSource) {
+                translationSourceSubtitleUri = uri
+                _subtitleTranslationAvailable.value = true
+                _subtitleTranslationError.value = null
+            }
+            val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
+            if (existing.any { it.uri == uri }) return@launch
+
+            val configuration = MediaItem.SubtitleConfiguration.Builder(uri)
+                .setMimeType(mimeType)
+                .setLanguage("und")
+                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                .build()
+            val updated = current.buildUpon()
+                .setSubtitleConfigurations(existing + configuration)
+                .build()
+            val queue = (0 until player.mediaItemCount).map { itemIndex ->
+                if (itemIndex == index) updated else player.getMediaItemAt(itemIndex)
+            }
+            val position = player.currentPosition.coerceAtLeast(0L)
+            val playWhenReady = player.playWhenReady
+            player.setMediaItems(queue, index, position)
+            player.prepare()
+            player.playWhenReady = playWhenReady
+            _playerError.value = null
         }
-        val extension = uri.lastPathSegment.orEmpty().substringAfterLast('.', "").lowercase()
-        val mimeType = when (extension) {
-            "ass", "ssa" -> MimeTypes.TEXT_SSA
-            "srt" -> MimeTypes.APPLICATION_SUBRIP
-            "vtt" -> MimeTypes.TEXT_VTT
+    }
+
+    /** Resolves provider URIs using display name, MIME type, then a bounded content sniff. */
+    private fun resolveSubtitleExtension(uri: Uri): String? {
+        val supported = setOf("ass", "ssa", "srt", "vtt")
+        val displayName = runCatching {
+            app.contentResolver.query(
+                uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (column >= 0) cursor.getString(column) else null
+                } else null
+            }
+        }.getOrNull()
+        val nameExtension = displayName.orEmpty().substringAfterLast('.', "")
+            .lowercase(java.util.Locale.ROOT).takeIf { it in supported }
+            ?: uri.lastPathSegment.orEmpty().substringAfterLast('.', "")
+                .lowercase(java.util.Locale.ROOT).takeIf { it in supported }
+        if (nameExtension != null) return nameExtension
+
+        val mimeExtension = when (runCatching { app.contentResolver.getType(uri) }.getOrNull()
+            ?.substringBefore(';')?.trim()?.lowercase(java.util.Locale.ROOT)) {
+            "text/vtt" -> "vtt"
+            "application/x-subrip", "application/srt", "text/srt" -> "srt"
+            "text/x-ssa", "application/x-ass", "text/x-ass" -> "ass"
             else -> null
         }
-        if (mimeType == null) {
-            _playerError.value = "صيغة الترجمة غير مدعومة. استخدم ASS أو SSA أو SRT أو VTT"
-            return
-        }
-        val index = player.currentMediaItemIndex
-        val current = player.currentMediaItem
-        if (current == null || index !in 0 until player.mediaItemCount) {
-            _playerError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
-            return
-        }
-        if (rememberAsTranslationSource) {
-            val subtitleExtension = uri.lastPathSegment.orEmpty()
-                .substringAfterLast('.', "").lowercase()
-            val canTranslate = subtitleExtension == "srt" || subtitleExtension == "vtt"
-            translationSourceSubtitleUri = uri.takeIf { canTranslate }
-            _subtitleTranslationAvailable.value = canTranslate
-            _subtitleTranslationError.value = null
-        }
-        val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
-        if (existing.any { it.uri == uri }) return
+        if (mimeExtension != null) return mimeExtension
 
-        val configuration = MediaItem.SubtitleConfiguration.Builder(uri)
-            .setMimeType(mimeType)
-            .setLanguage("und")
-            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-            .build()
-        val updated = current.buildUpon()
-            .setSubtitleConfigurations(existing + configuration)
-            .build()
-        val queue = (0 until player.mediaItemCount).map { itemIndex ->
-            if (itemIndex == index) updated else player.getMediaItemAt(itemIndex)
+        val prefix = runCatching {
+            app.contentResolver.openInputStream(uri)?.use { input ->
+                val bytes = ByteArray(8192)
+                val count = input.read(bytes)
+                if (count > 0) String(bytes, 0, count, Charsets.UTF_8)
+                    .trimStart('\uFEFF', ' ', '\t', '\r', '\n')
+                else ""
+            }
+        }.getOrNull().orEmpty()
+        return when {
+            prefix.startsWith("WEBVTT", ignoreCase = true) -> "vtt"
+            prefix.contains("[Events]", ignoreCase = true) &&
+                prefix.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) } -> "ass"
+            prefix.contains("-->") -> "srt"
+            else -> null
         }
-        val position = player.currentPosition.coerceAtLeast(0L)
-        val playWhenReady = player.playWhenReady
-        player.setMediaItems(queue, index, position)
-        player.prepare()
-        player.playWhenReady = playWhenReady
-        _playerError.value = null
     }
 
     private fun clearSubtitleTranslationSource() {
+        subtitleTranslationJob?.cancel()
+        subtitleTranslationJob = null
         translationSourceSubtitleUri = null
         _subtitleTranslationAvailable.value = false
         _subtitleTranslationError.value = null
+        _subtitleTranslationCompletedCues.value = 0
+        _subtitleTranslationTotalCues.value = 0
     }
 
-    /** Translates the currently added external SRT subtitle to Arabic on-device. */
+    /** Translates the currently added external subtitle to Arabic on-device. */
     fun translateCurrentSubtitleToArabic(sourceLanguageCode: String = "en") {
         val source = translationSourceSubtitleUri ?: run {
             _subtitleTranslationError.value = "أضف ملف ترجمة خارجي أولاً"
@@ -1029,12 +1091,20 @@ class PlayerViewModel @Inject constructor(
             _subtitleTranslationError.value = "لا يوجد ملف نشط لإضافة الترجمة"
             return
         }
-        viewModelScope.launch {
+        subtitleTranslationJob = viewModelScope.launch {
             _subtitleTranslationLoading.value = true
             _subtitleTranslationError.value = null
+            _subtitleTranslationCompletedCues.value = 0
+            _subtitleTranslationTotalCues.value = 0
             try {
                 val translated = withContext(Dispatchers.IO) {
-                    subtitleTranslationEngine.translateSrtToArabic(source, sourceLanguageCode)
+                    subtitleTranslationEngine.translateSrtToArabic(
+                        source,
+                        sourceLanguageCode
+                    ) { completed, total ->
+                        _subtitleTranslationCompletedCues.value = completed
+                        _subtitleTranslationTotalCues.value = total
+                    }
                 }
                 // Translation can take several seconds. Never attach its result
                 // to a different item if the viewer changed the queue meanwhile.
@@ -1049,8 +1119,13 @@ class PlayerViewModel @Inject constructor(
                 _subtitleTranslationError.value = error.message ?: "تعذرت ترجمة ملف الترجمة"
             } finally {
                 _subtitleTranslationLoading.value = false
+                subtitleTranslationJob = null
             }
         }
+    }
+
+    fun cancelSubtitleTranslation() {
+        subtitleTranslationJob?.cancel()
     }
 
     // --------------------------------------------------------------- tracks
