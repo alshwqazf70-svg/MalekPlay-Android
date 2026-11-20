@@ -586,6 +586,7 @@ fun VideoPlayerScreen(
     // ------------------------------------------------------------ screenshot
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     var googleAiEnabled by remember { mutableStateOf(false) }
+    var internalAiFallback by remember { mutableStateOf(false) }
     var googleAiState by remember {
         mutableStateOf(GoogleMediaEnhancementState.DISABLED)
     }
@@ -608,8 +609,22 @@ fun VideoPlayerScreen(
         }
     }
 
+    fun activateInternalAiFallback() {
+        internalAiFallback = true
+        viewModel.setVideoUpscalingEnabled(true)
+        viewModel.setVideoNoiseReductionEnabled(true)
+        googleAiState = GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE
+        googleAiProgress = 0
+        googleAiMessage = "يعمل محرك الذكاء البصري الداخلي عبر GPU (الوضع الذكي)"
+    }
+
     LaunchedEffect(googleAiEnabled, controller, playerView, videoUpscalingEnabled, videoNoiseReductionEnabled) {
         if (!googleAiEnabled) {
+            if (internalAiFallback) {
+                viewModel.setVideoUpscalingEnabled(false)
+                viewModel.setVideoNoiseReductionEnabled(false)
+            }
+            internalAiFallback = false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) googleAiBridge?.close()
             googleAiBridge = null
             googleAiState = GoogleMediaEnhancementState.DISABLED
@@ -618,6 +633,8 @@ fun VideoPlayerScreen(
             showGoogleAiInstallDialog = false
             return@LaunchedEffect
         }
+
+        if (internalAiFallback) return@LaunchedEffect
 
         // Wait until the service confirms both OpenGL effects are off before routing
         // decoded frames into the separate Google AI surface chain.
@@ -628,8 +645,7 @@ fun VideoPlayerScreen(
         }
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            googleAiState = GoogleMediaEnhancementState.UNSUPPORTED
-            googleAiMessage = context.getString(R.string.player_google_ai_unsupported)
+            activateInternalAiFallback()
             return@LaunchedEffect
         }
 
@@ -656,9 +672,15 @@ fun VideoPlayerScreen(
                         progress: Int,
                         message: String?
                     ) {
-                        googleAiState = state
-                        googleAiProgress = progress
-                        googleAiMessage = message
+                        if (state == GoogleMediaEnhancementState.UNSUPPORTED ||
+                            state == GoogleMediaEnhancementState.FAILED
+                        ) {
+                            activateInternalAiFallback()
+                        } else {
+                            googleAiState = state
+                            googleAiProgress = progress
+                            googleAiMessage = message
+                        }
                         if (state == GoogleMediaEnhancementState.INSTALL_REQUIRED) {
                             showGoogleAiInstallDialog = true
                         }
@@ -666,8 +688,7 @@ fun VideoPlayerScreen(
                 }
             )
         }.getOrElse { error ->
-            googleAiState = GoogleMediaEnhancementState.FAILED
-            googleAiMessage = error.message ?: context.getString(R.string.player_google_ai_failed)
+            activateInternalAiFallback()
             return@LaunchedEffect
         }
         googleAiBridge = bridge
@@ -1090,7 +1111,7 @@ fun VideoPlayerScreen(
                             GoogleMediaEnhancementState.INSTALL_REQUIRED -> R.string.player_google_ai_install_required
                             GoogleMediaEnhancementState.INSTALLING -> R.string.player_google_ai_installing
                             GoogleMediaEnhancementState.WAITING_FOR_FIRST_FRAME -> R.string.player_google_ai_first_frame
-                            GoogleMediaEnhancementState.ACTIVE -> R.string.player_google_ai_active
+                            GoogleMediaEnhancementState.ACTIVE, GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE -> R.string.player_google_ai_active
                             GoogleMediaEnhancementState.UNSUPPORTED -> R.string.player_google_ai_unsupported
                             GoogleMediaEnhancementState.FAILED -> R.string.player_google_ai_failed
                         }
@@ -1098,7 +1119,13 @@ fun VideoPlayerScreen(
                         if (googleAiState == GoogleMediaEnhancementState.INSTALLING) {
                             Text(stringResource(R.string.player_google_ai_progress, googleAiProgress))
                         }
-                        googleAiMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        googleAiMessage?.let { message ->
+                            Text(
+                                message,
+                                color = if (googleAiState == GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE)
+                                    MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            )
+                        }
                         Text(stringResource(if (diagnostics.bridgeAttached) R.string.player_diag_bridge_ready else R.string.player_diag_bridge_missing))
                         Text(stringResource(if (diagnostics.upscalingSubmitted) R.string.player_diag_lanczos_submitted else R.string.player_diag_lanczos_not_submitted))
                         Text(stringResource(R.string.player_diag_denoise_draws, diagnostics.denoiseDraws))
