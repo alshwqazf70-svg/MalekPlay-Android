@@ -94,7 +94,7 @@ class SubtitleTranslationEngine @Inject constructor(
             }
         }
         val sourceText = SrtSubtitleParser.decode(sourceBytes)
-        val extension = resolveSubtitleFormat(source, sourceBytes, sourceText)
+        val extension = resolveSubtitleFormat(source, sourceText)
             ?: error("صيغة ملف الترجمة غير معروفة. استخدم SRT أو VTT أو ASS أو SSA")
         val sourceLanguage = validateTranslationSourceLanguage(
             sourceLanguageCode,
@@ -106,7 +106,7 @@ class SubtitleTranslationEngine @Inject constructor(
         val cacheDigest = MessageDigest.getInstance("SHA-256").run {
             update(sourceLanguage.toByteArray(StandardCharsets.UTF_8))
             update(byteArrayOf(0))
-            digest(sourceBytes).joinToString("") { "%02x".format(Locale.ROOT, it) }
+            digest(sourceBytes).joinToString("") { "%02x".format(Locale.ROOT, it.toInt() and 0xff) }
         }
         val cacheFile = File(context.cacheDir, "malekplay-ar-$cacheDigest.srt")
         if (cacheFile.isFile && cacheFile.length() > 0L) {
@@ -145,7 +145,8 @@ class SubtitleTranslationEngine @Inject constructor(
                 val textStart = timeIndex + 1
                 val subtitleText = lines.drop(textStart).joinToString("\n")
                 if (subtitleText.isBlank()) return@mapIndexedNotNull null
-                val (maskedText, markup) = SrtSubtitleParser.maskMarkup(subtitleText)
+                val mergedDialogue = SubtitleTranslationPolicy.mergeWrappedDialogueLines(subtitleText)
+                val (maskedText, markup) = SrtSubtitleParser.maskMarkup(mergedDialogue)
                 CueToTranslate(index, lines, textStart, maskedText, markup)
             }
 
@@ -208,7 +209,7 @@ class SubtitleTranslationEngine @Inject constructor(
     }
 
 
-    private fun resolveSubtitleFormat(source: Uri, bytes: ByteArray, text: String): String? {
+    private fun resolveSubtitleFormat(source: Uri, text: String): String? {
         val displayName = runCatching {
             context.contentResolver.query(
                 source,
