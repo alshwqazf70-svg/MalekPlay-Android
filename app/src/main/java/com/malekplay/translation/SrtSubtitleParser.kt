@@ -196,7 +196,7 @@ internal object SrtSubtitleParser {
         val masked = markupPattern.replace(text) { match ->
             val index = tags.size
             tags += match.value
-            "MALekPLAYTAG" + index + "TOKEN"
+            "§T$index§"
         }
         return masked to tags
     }
@@ -204,7 +204,7 @@ internal object SrtSubtitleParser {
     fun restoreMarkup(text: String, tags: List<String>): String {
         var restored = text
         tags.forEachIndexed { index, tag ->
-            restored = restored.replace("MALekPLAYTAG" + index + "TOKEN", tag, ignoreCase = true)
+            restored = Regex("""§\\s*T\\s*$index\\s*§""", RegexOption.IGNORE_CASE).replace(restored, tag)
         }
         return restored
     }
