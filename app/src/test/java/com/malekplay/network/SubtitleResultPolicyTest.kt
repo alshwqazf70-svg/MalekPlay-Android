@@ -38,4 +38,18 @@ class SubtitleResultPolicyTest {
         assertNotNull(cache.get("one"))
         assertNull(cache.get("two"))
     }
+
+    @Test
+    fun ranksMatchingSeasonAndEpisodeBeforeGenericReleases() {
+        val results = listOf(
+            item("ar", "Show S01E03 Arabic", 900),
+            item("en", "Show S01E02 English", 100),
+            item("ar", "Show S01E02 Arabic", 10)
+        )
+        assertEquals(
+            listOf("Show S01E02 Arabic", "Show S01E02 English", "Show S01E03 Arabic"),
+            SubtitleResultPolicy.rankAndFilter(results, "ar,en", 1, 2).map { it.release }
+        )
+    }
+
 }
