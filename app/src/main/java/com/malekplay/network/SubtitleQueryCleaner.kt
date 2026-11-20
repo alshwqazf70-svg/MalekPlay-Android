@@ -56,6 +56,17 @@ object SubtitleQueryCleaner {
         return CleanSubtitleQuery(input, year, season, episode)
     }
 
+    /** Appends one episode suffix only when the title does not already contain it. */
+    fun appendEpisodeIfMissing(title: String, season: Int?, episode: Int?): String {
+        val base = title.trim()
+        if (season == null || episode == null) return base
+        val containsEpisode = Regex(
+            """(?i)(?:^|\\b)S\\d{1,2}E\\d{1,3}(?:\\b|$)|\\b\\d{1,2}x\\d{1,3}\\b"""
+        ).containsMatchIn(base)
+        return if (containsEpisode) base
+        else base + " S%02dE%02d".format(Locale.ROOT, season, episode)
+    }
+
     fun normalizeLanguage(code: String): String = when (code.trim().lowercase(Locale.ROOT)) {
         "ar", "ara", "arabic" -> "ar"
         "en", "eng", "english" -> "en"
