@@ -1578,6 +1578,66 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    /** Downloads a foreign subtitle and translates it locally in one guarded operation. */
+    fun downloadAndTranslateOnlineSubtitleToArabic(subtitle: OnlineSubtitle) {
+        if (_onlineSubtitleLoading.value || _subtitleTranslationLoading.value) return
+        val sourceLanguage = com.malekplay.network.SubtitleQueryCleaner.normalizeLanguage(subtitle.language)
+        if (sourceLanguage == "ar") {
+            _onlineSubtitleError.value = "هذه الترجمة عربية بالفعل"
+            return
+        }
+        val targetMediaId = currentMediaId ?: run {
+            _onlineSubtitleError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            return
+        }
+        subtitleTranslationJob = viewModelScope.launch {
+            _onlineSubtitleLoading.value = true
+            _subtitleTranslationLoading.value = true
+            _onlineSubtitleError.value = null
+            _subtitleTranslationError.value = null
+            _subtitleTranslationCompletedCues.value = 0
+            _subtitleTranslationTotalCues.value = 0
+            try {
+                val downloaded = withContext(Dispatchers.IO) {
+                    onlineSubtitleRepository.download(subtitle)
+                }
+                if (currentMediaId != targetMediaId) {
+                    _onlineSubtitleError.value = "تغير الفيديو أثناء تنزيل الترجمة؛ أعد المحاولة على الفيديو الحالي"
+                    return@launch
+                }
+                val translated = withContext(Dispatchers.IO) {
+                    subtitleTranslationEngine.translateSrtToArabic(
+                        downloaded,
+                        sourceLanguage
+                    ) { completed, total ->
+                        _subtitleTranslationCompletedCues.value = completed
+                        _subtitleTranslationTotalCues.value = total
+                    }
+                }
+                if (currentMediaId != targetMediaId) {
+                    _subtitleTranslationError.value = "تغير الفيديو أثناء الترجمة؛ لم نطبق النتيجة على الفيديو الجديد"
+                    return@launch
+                }
+                translationSourceSubtitleUri = downloaded
+                _subtitleTranslationAvailable.value = true
+                addExternalSubtitle(translated, rememberAsTranslationSource = false)
+                android.widget.Toast.makeText(
+                    app,
+                    "تم تنزيل الترجمة الأجنبية وترجمتها إلى العربية",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _subtitleTranslationError.value = error.message ?: "تعذر تنزيل الترجمة وترجمتها"
+            } finally {
+                _onlineSubtitleLoading.value = false
+                _subtitleTranslationLoading.value = false
+                subtitleTranslationJob = null
+            }
+        }
+    }
+
     override fun onCleared() {
         tickerJob?.cancel()
         videoDiagnosticsPollingJob?.cancel()
