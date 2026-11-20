@@ -236,17 +236,10 @@ fun UltraShareExperienceScreen(
             val pairing = pendingQrPairing
             if (pairing != null) {
                 pendingQrPairing = null
-                if (!pairing.hotspotSsid.isNullOrBlank() && !pairing.hotspotPassword.isNullOrBlank()) {
-                    viewModel.connectHotspotInvitation(pairing)
-                } else if (!pairing.invitationId.isNullOrBlank()) {
-                    viewModel.joinWifiDirectInvitation(
-                        pairing.invitationId,
-                        pairing.pairingSecret,
-                        pairing.hosts
-                    )
-                } else if (pairing.host.isNotBlank()) {
-                    viewModel.requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
-                }
+                // Route every QR through the single policy owner. In particular, a
+                // P2P room may also carry its group SSID/PSK; those credentials are
+                // fallback data and must not bypass WifiP2pManager negotiation.
+                viewModel.joinUnifiedInvitation(pairing)
             } else if (pendingReceiverStart) {
                 pendingReceiverStart = false
                 viewModel.startReceiving()
@@ -476,28 +469,15 @@ fun UltraShareExperienceScreen(
     LaunchedEffect(pendingQrPairing) {
         val pairing = pendingQrPairing ?: return@LaunchedEffect
         viewModel.rememberInvitationPeer(pairing.invitationId, pairing.pairingSecret)
-        // Probe the QR's current-LAN and P2P host hints before asking Android
-        // to switch Wi-Fi or requesting any Wi-Fi Direct permission.
-        val reachableHosts = kotlinx.coroutines.withTimeoutOrNull(500L) {
-            com.malekplay.network.UltraShareDiscovery.probeControlHostsFast(
-                pairing.hosts,
-                timeoutMs = 400
-            )
-        }.orEmpty()
-        if (reachableHosts.isNotEmpty()) {
-            pendingQrPairing = null
-            viewModel.requestConnection(
-                host = reachableHosts.first(),
-                secret = pairing.pairingSecret,
-                alternateHosts = reachableHosts.drop(1) + pairing.hosts.filterNot { it in reachableHosts }
-            )
-            return@LaunchedEffect
-        }
 
         val hasWifiCredentials = !pairing.hotspotSsid.isNullOrBlank() &&
             !pairing.hotspotPassword.isNullOrBlank()
+        // Wi-Fi Direct discovery requires the runtime permission on API 23–32,
+        // even when a P2P room also carries SSID/PSK credentials for fallback.
+        // WifiNetworkSpecifier additionally requires the nearby-Wi-Fi permission
+        // on API 29+ when joining a hotspot invitation.
         val needsRuntimePermission =
-            (!hasWifiCredentials && pairing.invitationId?.isNotBlank() == true) ||
+            !pairing.invitationId.isNullOrBlank() ||
                 (hasWifiCredentials && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
         if (needsRuntimePermission) {
             val required = UltraSharePlatformCompatibility.wifiDirectRuntimePermissions(Build.VERSION.SDK_INT)
@@ -511,19 +491,10 @@ fun UltraShareExperienceScreen(
         }
 
         pendingQrPairing = null
-        when {
-            hasWifiCredentials -> viewModel.connectHotspotInvitation(pairing)
-            !pairing.invitationId.isNullOrBlank() -> viewModel.joinWifiDirectInvitation(
-                pairing.invitationId,
-                pairing.pairingSecret,
-                pairing.hosts
-            )
-            pairing.host.isNotBlank() -> viewModel.requestConnection(
-                pairing.host,
-                pairing.pairingSecret,
-                alternateHosts = pairing.hosts.drop(1)
-            )
-        }
+        // The ViewModel owns QR route selection: P2P invitations are negotiated
+        // through DNS-SD/WifiP2pManager first; only LAN/hotspot invitations use
+        // their fast host probe or WifiNetworkSpecifier path.
+        viewModel.joinUnifiedInvitation(pairing)
     }
 
     // Discovery is deliberately user-initiated. Opening UltraShare must not
