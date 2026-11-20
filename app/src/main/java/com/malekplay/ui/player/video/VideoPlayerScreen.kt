@@ -610,6 +610,7 @@ fun VideoPlayerScreen(
     }
 
     fun activateInternalAiFallback() {
+        if (internalAiFallback) return
         internalAiFallback = true
         viewModel.setVideoUpscalingEnabled(true)
         viewModel.setVideoNoiseReductionEnabled(true)
