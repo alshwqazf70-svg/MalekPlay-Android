@@ -87,7 +87,6 @@ object UltraShareBatchProtocol {
             "عدد ملفات الدفعة خارج الحد المسموح."
         }
         val ids = HashSet<String>(manifest.entries.size)
-        val transferIds = HashSet<String>(manifest.entries.size)
         manifest.entries.forEach { entry ->
             require(runCatching { UUID.fromString(entry.id) }.isSuccess)
             require(ids.add(entry.id)) { "يوجد معرّف ملف مكرر داخل الدفعة." }
@@ -100,9 +99,9 @@ object UltraShareBatchProtocol {
             require(entry.mimeType.toByteArray(Charsets.UTF_8).size <= MAX_MIME_BYTES)
             require(entry.sizeBytes in 1..MAX_FILE_BYTES)
             require(entry.sha256.size == DIGEST_BYTES)
-            require(transferIds.add(UltraShareCore.buildTransferId(entry.name, entry.sizeBytes, entry.sha256))) {
-                "يوجد ملف مكرر بالمحتوى نفسه داخل الدفعة."
-            }
+            // Different source URIs may legitimately contain identical bytes and
+            // names. File IDs, not content hashes, distinguish queue entries. The
+            // receiver assigns isolated resume/receipt paths to such duplicates.
         }
         require(manifest.totalBytes <= MAX_BATCH_BYTES) {
             "إجمالي حجم الدفعة يتجاوز الحد الأقصى البالغ 100 جيجابايت."
