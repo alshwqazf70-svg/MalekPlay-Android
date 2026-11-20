@@ -42,6 +42,8 @@ class SubtitleQueryCleanerTest {
     @Test fun stripsReleaseGroupWithoutDamagingHyphenatedTitles() {
         assertEquals("Spider-Man", SubtitleQueryCleaner.clean("Spider-Man-GROUP.mkv").title)
         assertEquals("The Batman", SubtitleQueryCleaner.clean("The.Batman.2022-RARBG.mkv").title)
+        assertEquals("Movie Name", SubtitleQueryCleaner.clean("Movie.Name.Pahe.mkv").title)
+        assertEquals("Series Name", SubtitleQueryCleaner.clean("Series.Name.GalaxyRG.mkv").title)
     }
 
     @Test fun supportsMoreAudioAndDynamicRangeTags() {
