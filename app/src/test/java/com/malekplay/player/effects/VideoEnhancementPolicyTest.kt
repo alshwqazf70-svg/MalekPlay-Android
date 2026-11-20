@@ -190,6 +190,24 @@ class VideoEnhancementPolicyTest {
         VideoEnhancementMetrics.reset()
     }
 
+    @Test fun 720pAnd1080pSourcesKeepSpatialStagesEnabledAndCanUpscale() {
+        val config = VideoEnhancementPipelineConfig(
+            denoiseEnabled = true,
+            detailEnabled = true,
+            aiBoostEnabled = false,
+            denoiseStrength = VideoEnhancementProfile.BALANCED.denoiseStrength,
+            detailStrength = VideoEnhancementProfile.BALANCED.detailStrength,
+            contrastBoost = VideoEnhancementProfile.BALANCED.contrastBoost,
+            clarityStrength = VideoEnhancementProfile.BALANCED.clarityStrength
+        )
+        assertTrue(config.hasActiveStage)
+
+        val target720p = VideoUpscaleTargetPolicy.resolve(1280, 720, 2960, 1440, 2560)
+        val target1080p = VideoUpscaleTargetPolicy.resolve(1920, 1080, 2960, 1440, 2560)
+        assertEquals(VideoUpscaleTarget(2560, 1440), target720p)
+        assertEquals(VideoUpscaleTarget(2560, 1440), target1080p)
+    }
+
     @Test fun profileUpscaleBudgetsMatchSupportedDisplayClasses() {
         assertEquals(1920, VideoEnhancementProfile.ECONOMY.upscaleMaxLongEdge)
         assertEquals(2560, VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge)
