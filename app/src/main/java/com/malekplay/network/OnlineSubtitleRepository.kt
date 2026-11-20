@@ -52,11 +52,14 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS).callTimeout(45, TimeUnit.SECONDS).build()
     private val publicSearchCache = SubtitleSearchResultCache(12)
+    private val automaticSearchCache = SubtitleSearchResultCache(12)
 
     fun saveCredentials(apiKey: String, username: String, password: String) {
         require(apiKey.isNotBlank() && username.isNotBlank() && password.isNotBlank())
         vault.save(KEY_SLOT, apiKey.trim(), "")
         vault.save(USER_SLOT, username.trim(), password)
+        automaticSearchCache.clear()
+        publicSearchCache.clear()
     }
 
     fun hasCredentials(): Boolean = runCatching {
@@ -68,6 +71,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     fun saveProviderApiKeys(subdlKey: String, websiteKey: String) {
         if (subdlKey.isNotBlank()) vault.save(SUBDL_KEY_SLOT, subdlKey.trim(), "api-key")
         if (websiteKey.isNotBlank()) vault.save(WEBSITE_KEY_SLOT, websiteKey.trim(), "api-key")
+        automaticSearchCache.clear()
+        publicSearchCache.clear()
     }
 
     /**
@@ -82,6 +87,13 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val resolvedEpisode = episode ?: cleaned.episode
         // Preserve the year extracted from a filename in every provider query.
         val providerTitle = cleaned.title + (cleaned.year?.let { " $it" } ?: "")
+        val queryKey = buildString {
+            append(providerTitle.trim().lowercase(Locale.ROOT))
+            append("|s").append(resolvedSeason ?: 0).append("e").append(resolvedEpisode ?: 0)
+        }
+        automaticSearchCache.get(queryKey)?.let { cached ->
+            return SubtitleResultPolicy.rankAndFilter(cached, language).take(40)
+        }
         val publicAttempt = runCatching { searchPublic(providerTitle, language, resolvedSeason, resolvedEpisode) }
         val accountAttempt = if (hasCredentials()) {
             runCatching { search(providerTitle, language, resolvedSeason, resolvedEpisode, mediaUri) }
@@ -97,11 +109,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             throw publicAttempt.exceptionOrNull() ?: subdlAttempt?.exceptionOrNull()
                 ?: IllegalStateException("تعذر البحث عن الترجمة")
         }
-        return SubtitleResultPolicy.rankAndFilter(
-            (publicResults + accountResults + subdlResults)
-                .distinctBy { it.provider + ":" + it.sourceId },
-            language
-        ).take(40)
+        val combined = (publicResults + accountResults + subdlResults)
+            .distinctBy { it.provider + ":" + it.sourceId }
+        automaticSearchCache.put(queryKey, combined)
+        return SubtitleResultPolicy.rankAndFilter(combined, language).take(40)
     }
 
     private fun searchPublic(
