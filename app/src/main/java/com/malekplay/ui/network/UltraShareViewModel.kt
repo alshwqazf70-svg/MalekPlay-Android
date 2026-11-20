@@ -296,9 +296,13 @@ class UltraShareViewModel @Inject constructor(
             existingDetails.invitationId == candidateDetails.invitationId &&
             (existingVersion != "6" ||
                 (existingDetails.deviceName == candidateDetails.deviceName &&
-                    existingDetails.mode == candidateDetails.mode &&
-                    existingDetails.hotspotSsid == candidateDetails.hotspotSsid &&
-                    existingDetails.hotspotPassword == candidateDetails.hotspotPassword))
+                    (existingDetails.invitationId.isNullOrBlank() ||
+                        existingDetails.invitationId == candidateDetails.invitationId) &&
+                    (existingDetails.hotspotSsid.isNullOrBlank() ||
+                        existingDetails.hotspotSsid == candidateDetails.hotspotSsid) &&
+                    (existingDetails.hotspotPassword.isNullOrBlank() ||
+                        existingDetails.hotspotPassword == candidateDetails.hotspotPassword) &&
+                    existingDetails.hosts.all { it in candidateDetails.hosts }))
         val mayEnrichV5Routes = existingPayload != null && existingDetails != null &&
             readiness.shouldEnrichUnifiedV5Qr(
                 existingVersion = existingVersion,
@@ -1781,8 +1785,12 @@ private fun forgetApprovedSenderTarget(host: String) {
         if (!current.receiving && !service.receiving) return
         if (!service.controlChannelReady) return
 
-        val ssid = wifiDirectGroupSsid ?: service.hotspotSsid
-        val password = wifiDirectGroupPassword ?: service.hotspotPassword
+        val rawSsid = wifiDirectGroupSsid ?: service.hotspotSsid
+        val rawPassword = wifiDirectGroupPassword ?: service.hotspotPassword
+        val hasWifiCredentials = !rawSsid.isNullOrBlank() &&
+            !rawPassword.isNullOrBlank() && rawPassword.length in 8..63
+        val ssid = rawSsid.takeIf { hasWifiCredentials }
+        val password = rawPassword.takeIf { hasWifiCredentials }
         val hasLanRoute = (current.localAddresses + service.localAddresses)
             .any { UltraShareCore.isValidPrivateLanHost(it) }
         val dnsSdReady = dnsSdQrFallbackScheduledFor == current.invitationId
