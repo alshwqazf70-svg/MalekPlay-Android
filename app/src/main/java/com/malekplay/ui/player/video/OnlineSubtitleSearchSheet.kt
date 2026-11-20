@@ -23,6 +23,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -55,8 +56,9 @@ fun OnlineSubtitleSearchSheet(
     season: String, onSeasonChange: (String) -> Unit,
     episode: String, onEpisodeChange: (String) -> Unit,
     results: List<OnlineSubtitle>, loading: Boolean, error: String?,
+    translationLoading: Boolean, translationCompletedCues: Int, translationTotalCues: Int,
     onSearch: () -> Unit, onDownload: (OnlineSubtitle) -> Unit,
-    onDownloadAndTranslate: (OnlineSubtitle) -> Unit,
+    onDownloadAndTranslate: (OnlineSubtitle) -> Unit, onCancelTranslation: () -> Unit,
     onSaveCredentials: (String, String, String) -> Unit,
     onSaveProviderKeys: (String, String) -> Unit, onDismiss: () -> Unit
 ) {
@@ -163,6 +165,47 @@ fun OnlineSubtitleSearchSheet(
                     Button(onClick = { onSaveProviderKeys(subdlKey.trim(), websiteKey.trim()) },
                         enabled = subdlKey.isNotBlank() || websiteKey.isNotBlank(),
                         modifier = Modifier.fillMaxWidth()) { Text("حفظ مفاتيح المزودين") }
+                }
+                if (translationLoading) {
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        colors = androidx.compose.material3.CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Column(
+                            Modifier.fillMaxWidth().padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "تنزيل الترجمة وتحويلها إلى العربية",
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                TextButton(onClick = onCancelTranslation) {
+                                    Text("إلغاء")
+                                }
+                            }
+                            val fraction = if (translationTotalCues > 0) {
+                                translationCompletedCues.toFloat() / translationTotalCues
+                            } else 0f
+                            LinearProgressIndicator(
+                                progress = fraction.coerceIn(0f, 1f),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text(
+                                if (translationTotalCues > 0) {
+                                    "$translationCompletedCues / $translationTotalCues مقطع"
+                                } else {
+                                    "جارٍ تنزيل الملف أو تجهيز نموذج اللغة…"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
                 }
                 if (error != null) {
                     Card(shape = RoundedCornerShape(14.dp),
