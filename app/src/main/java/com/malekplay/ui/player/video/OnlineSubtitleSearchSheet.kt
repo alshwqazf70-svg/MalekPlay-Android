@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -112,7 +113,10 @@ fun OnlineSubtitleSearchSheet(
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("لغة الترجمة", style = MaterialTheme.typography.labelLarge)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         FilterChip(language == "ar,en", { onLanguageChange("ar,en") },
                             label = { Text("العربية + English") })
                         FilterChip(language == "ar", { onLanguageChange("ar") },
