@@ -52,5 +52,6 @@ class SubtitleQueryCleanerTest {
     @Test fun handlesEmptyAndUriLikeNames() {
         assertEquals("", SubtitleQueryCleaner.clean("").title)
         assertEquals("My Film", SubtitleQueryCleaner.clean("content://media/external/video/My_Film.mkv").title)
+        assertEquals("Release Name", SubtitleQueryCleaner.clean("Release.Name.srt").title)
     }
 }
