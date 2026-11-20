@@ -6,6 +6,7 @@ import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -89,6 +90,28 @@ class VideoEnhancementCompatibilityInstrumentedTest {
             assertNotNull(target)
             assertTrue(requireNotNull(target).longEdge <= profile.upscaleMaxLongEdge)
         }
+    }
+
+    @Test
+    fun gpuShaderConfigurationSwitchesBetweenPassthroughAndInternalAiStages() {
+        val effect = VideoEnhancementPipelineEffect()
+        assertFalse(effect.currentConfig().hasActiveStage)
+
+        val aiConfig = VideoEnhancementPipelineConfig(
+            denoiseEnabled = true,
+            detailEnabled = true,
+            aiBoostEnabled = true,
+            denoiseStrength = 0.50f,
+            detailStrength = 1.02f,
+            contrastBoost = 0.16f,
+            clarityStrength = 0.22f
+        )
+        effect.update(aiConfig)
+        assertEquals(aiConfig, effect.currentConfig())
+        assertTrue(effect.currentConfig().hasActiveStage)
+
+        effect.update(VideoEnhancementPipelineConfig())
+        assertFalse(effect.currentConfig().hasActiveStage)
     }
 
     @Test
