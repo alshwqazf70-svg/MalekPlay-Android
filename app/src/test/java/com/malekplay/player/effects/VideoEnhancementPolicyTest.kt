@@ -205,6 +205,19 @@ class VideoEnhancementPolicyTest {
         VideoEnhancementMetrics.reset()
     }
 
+    @Test fun shaderAndBridgeFailuresExposeTheExactDiagnosticStageAndCause() {
+        VideoEnhancementMetrics.reset()
+        VideoEnhancementMetrics.recordFailure(
+            "shader_compile",
+            IllegalStateException("GLSL compile failed at line 42")
+        )
+
+        val metrics = VideoEnhancementMetrics.snapshot()
+        assertEquals("shader_compile", metrics.lastEffectName)
+        assertTrue(metrics.lastFailure.orEmpty().contains("GLSL compile failed at line 42"))
+        VideoEnhancementMetrics.reset()
+    }
+
     @Test fun lowResolution720pAnd1080pSourcesKeepSpatialStagesEnabledAndCanUpscale() {
         val config = VideoEnhancementPipelineConfig(
             denoiseEnabled = true,
