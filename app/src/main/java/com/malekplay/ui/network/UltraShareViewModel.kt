@@ -1249,11 +1249,32 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     /**
-     * QR join order: probe existing LAN/P2P routes first, then join the advertised
-     * WPA2 group directly, and use DNS-SD only when the QR has no Wi-Fi credentials.
+     * QR join order follows the proven main-branch P2P sequence for P2P invitations:
+     * discover the advertised peer, stop discovery, negotiate Wi-Fi Direct, then
+     * authenticate the control channel. The existing verified-LAN fallback remains
+     * inside joinWifiDirectInvitation. Hotspot/LAN invitations retain their own paths.
      */
     fun joinUnifiedInvitation(pairing: com.malekplay.network.UltraShareQrCode.PairingDetails) {
         if (controlPairingInProgress || pendingQrPairing != null) return
+
+        // A P2P room must use the Wi-Fi Direct framework negotiation first.
+        // Do not treat the group's SSID/PSK as an ordinary hotspot and bypass the
+        // peer-discovery + connect sequence: this was the behavioral difference
+        // from the known-working main-branch QR invitation flow.
+        if (pairing.mode == "p2p" && !pairing.invitationId.isNullOrBlank()) {
+            UltraShareDiagnostics.event(
+                "PAIRING",
+                "QR_P2P_MAIN_FLOW_SELECTED",
+                mapOf("sdkInt" to Build.VERSION.SDK_INT)
+            )
+            joinWifiDirectInvitation(
+                pairing.invitationId,
+                pairing.pairingSecret,
+                pairing.hosts
+            )
+            return
+        }
+
         viewModelScope.launch {
             val reachableHosts = withTimeoutOrNull(500L) {
                 UltraShareDiscovery.probeControlHostsFast(pairing.hosts, timeoutMs = 400)
