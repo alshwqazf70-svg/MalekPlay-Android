@@ -11,12 +11,15 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.FutureTask
 import java.util.zip.ZipInputStream
+
+private class SubtitleHttpException(val statusCode: Int, message: String) : IOException(message)
 
 data class OnlineSubtitle(
     val fileId: Long,
@@ -74,11 +77,15 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     private val automaticSearchCache = SubtitleSearchResultCache(12)
     // Coalesce simultaneous identical searches so guest-provider quotas are not wasted.
     private val automaticSearchInFlight = ConcurrentHashMap<String, FutureTask<List<OnlineSubtitle>>>()
+    private data class CachedOpenSubtitlesToken(val value: String, val expiresAtMs: Long)
+    private val tokenLock = Any()
+    @Volatile private var cachedOpenSubtitlesToken: CachedOpenSubtitlesToken? = null
 
     fun saveCredentials(apiKey: String, username: String, password: String) {
         require(apiKey.isNotBlank() && username.isNotBlank() && password.isNotBlank())
         vault.save(KEY_SLOT, apiKey.trim(), "")
         vault.save(USER_SLOT, username.trim(), password)
+        cachedOpenSubtitlesToken = null
         automaticSearchCache.clear()
         publicSearchCache.clear()
     }
@@ -277,7 +284,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             downloadPath.startsWith("/strapi/") -> Uri.parse("https://$PUBLIC_HOST$downloadPath")
             else -> Uri.parse("$PUBLIC_BASE/${downloadPath.trimStart('/')}")
         }
-        require(downloadUri.scheme == "https" && downloadUri.host == PUBLIC_HOST) {
+        require(isTrustedHttpsHost(downloadUri, PUBLIC_HOST)) {
             "رابط تنزيل الترجمة غير آمن"
         }
         val downloadRequest = Request.Builder().url(downloadUri.toString())
@@ -287,6 +294,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             }.get().build()
         val response = client.newCall(downloadRequest).execute()
         response.use {
+            require(isTrustedHttpsUrl(it.request.url.toString(), PUBLIC_HOST)) {
+                "حوّل مزود الترجمة التنزيل إلى نطاق غير موثوق"
+            }
             if (!it.isSuccessful) error("تعذر تنزيل الترجمة (HTTP ${it.code})")
             val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
             require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
@@ -368,7 +378,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             path.startsWith("/") -> Uri.parse("https://dl.subdl.com$path")
             else -> Uri.parse("https://dl.subdl.com/$path")
         }
-        require(downloadUri.scheme == "https" && downloadUri.host in setOf("dl.subdl.com", "subdl.com")) {
+        require(isTrustedHttpsHost(downloadUri, "subdl.com")) {
             "رابط تنزيل ترجمة SubDL غير آمن"
         }
         val directory = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
@@ -384,6 +394,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             }.get().build()
         val response = client.newCall(downloadRequest).execute()
         response.use {
+            require(isTrustedHttpsUrl(it.request.url.toString(), "subdl.com")) {
+                "حوّل SubDL التنزيل إلى نطاق غير موثوق"
+            }
             if (!it.isSuccessful) error("تعذر تنزيل ترجمة SubDL (HTTP ${it.code})")
             val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
             val target = if (bytes.isZip()) extract(bytes, directory, 0L, prefix)
@@ -446,20 +459,30 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             it.name.startsWith("subtitle-$fileId.") && isValidCachedSubtitle(it)
         }?.let { return Uri.fromFile(it) }
         val (key, account) = credentials()
-        val loginBody = JSONObject().put("username", account.first).put("password", account.second)
-            .toString().toRequestBody(JSON)
-        val login = Request.Builder().url("$BASE/login").header("Api-Key", key)
-            .header("User-Agent", AGENT).post(loginBody).build()
-        val token = execute(login).optString("token").takeIf { it.isNotBlank() }
-            ?: error("تعذر تسجيل الدخول إلى OpenSubtitles")
-        val body = JSONObject().put("file_id", fileId).toString().toRequestBody(JSON)
-        val req = Request.Builder().url("$BASE/download").header("Api-Key", key)
-            .header("Authorization", "Bearer $token").header("User-Agent", AGENT)
-            .post(body).build()
-        val link = execute(req).optString("link")
-        require(link.startsWith("https://")) { "رابط الترجمة غير صالح" }
-        val response = client.newCall(Request.Builder().url(link).get().build()).execute()
+        fun downloadLink(token: String): String {
+            val body = JSONObject().put("file_id", fileId).toString().toRequestBody(JSON)
+            val request = Request.Builder().url("$BASE/download").header("Api-Key", key)
+                .header("Authorization", "Bearer $token").header("User-Agent", AGENT)
+                .post(body).build()
+            return execute(request).optString("link")
+                .takeIf { it.isNotBlank() } ?: error("لم توفر OpenSubtitles رابط تنزيل للترجمة")
+        }
+        val link = try {
+            downloadLink(openSubtitlesToken(key, account))
+        } catch (expired: SubtitleHttpException) {
+            if (expired.statusCode != 401 && expired.statusCode != 403) throw expired
+            cachedOpenSubtitlesToken = null
+            downloadLink(openSubtitlesToken(key, account, forceRefresh = true))
+        }
+        val linkUri = Uri.parse(link)
+        require(linkUri.scheme == "https" && !linkUri.host.isNullOrBlank() &&
+            linkUri.userInfo == null && linkUri.port in listOf(-1, 443)
+        ) { "رابط الترجمة غير آمن" }
+        val response = client.newCall(Request.Builder().url(linkUri.toString()).get().build()).execute()
         response.use {
+            if (it.request.url.isHttps.not() || it.request.url.username.isNotEmpty() ||
+                it.request.url.password.isNotEmpty()
+            ) error("حوّل OpenSubtitles التنزيل إلى رابط غير آمن")
             if (!it.isSuccessful) error("تعذر تنزيل الترجمة (HTTP " + it.code + ")")
             val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
             require(bytes.isNotEmpty() && bytes.size <= MAX_BYTES) { "حجم ملف الترجمة غير صالح" }
@@ -498,6 +521,50 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         error("الأرشيف لا يحتوي على ملف ترجمة مدعوم")
     }
 
+
+    private fun openSubtitlesToken(
+        apiKey: String,
+        account: Pair<String, String>,
+        forceRefresh: Boolean = false
+    ): String {
+        val now = System.currentTimeMillis()
+        if (!forceRefresh) {
+            cachedOpenSubtitlesToken?.takeIf { it.expiresAtMs > now + TOKEN_REFRESH_SKEW_MS }
+                ?.let { return it.value }
+        }
+        synchronized(tokenLock) {
+            val checkedAt = System.currentTimeMillis()
+            if (!forceRefresh) {
+                cachedOpenSubtitlesToken
+                    ?.takeIf { it.expiresAtMs > checkedAt + TOKEN_REFRESH_SKEW_MS }
+                    ?.let { return it.value }
+            }
+            val body = JSONObject().put("username", account.first).put("password", account.second)
+                .toString().toRequestBody(JSON)
+            val request = Request.Builder().url("$BASE/login").header("Api-Key", apiKey)
+                .header("User-Agent", AGENT).post(body).build()
+            val response = execute(request)
+            val token = response.optString("token").takeIf { it.isNotBlank() }
+                ?: error("تعذر تسجيل الدخول إلى OpenSubtitles")
+            val ttlSeconds = response.optLong("expires_in", DEFAULT_TOKEN_TTL_SECONDS)
+                .coerceIn(60L, MAX_TOKEN_TTL_SECONDS)
+            cachedOpenSubtitlesToken = CachedOpenSubtitlesToken(
+                token,
+                checkedAt + ttlSeconds * 1_000L
+            )
+            return token
+        }
+    }
+
+    private fun isTrustedHttpsHost(uri: Uri, baseDomain: String): Boolean {
+        val host = uri.host?.lowercase(Locale.ROOT) ?: return false
+        return uri.scheme == "https" && uri.userInfo == null && uri.port in listOf(-1, 443) &&
+            (host == baseDomain || host.endsWith(".$baseDomain"))
+    }
+
+    private fun isTrustedHttpsUrl(url: String, baseDomain: String): Boolean =
+        runCatching { isTrustedHttpsHost(Uri.parse(url), baseDomain) }.getOrDefault(false)
+
     private fun credentials(): Pair<String, Pair<String, String>> {
         val key = vault.load(KEY_SLOT)?.first ?: error("أدخل مفتاح API في نافذة البحث")
         val account = vault.load(USER_SLOT) ?: error("أدخل حساب OpenSubtitles")
@@ -517,9 +584,14 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                         error("أوقف مزود الترجمة الطلبات مؤقتًا (HTTP 429). انتظر قليلًا ثم أعد المحاولة.")
                     }
                 }
-                if (it.code == 401 || it.code == 403) error("مفتاح خدمة الترجمة غير صالح أو لا يملك صلاحية البحث.")
+                if (it.code == 401 || it.code == 403) {
+                    throw SubtitleHttpException(it.code, "مفتاح خدمة الترجمة غير صالح أو انتهت صلاحية جلسة الدخول.")
+                }
                 val message = runCatching { JSONObject(text).optString("message") }.getOrNull()
-                error(message?.takeIf(String::isNotBlank) ?: "خدمة الترجمة أعادت خطأ (HTTP " + it.code + ")")
+                throw SubtitleHttpException(
+                    it.code,
+                    message?.takeIf(String::isNotBlank) ?: "خدمة الترجمة أعادت خطأ (HTTP " + it.code + ")"
+                )
             }
             return JSONObject(text)
         }
@@ -591,6 +663,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         const val KEY_SLOT = "opensubtitles_api_key"
         const val USER_SLOT = "opensubtitles_account"
         const val MAX_BYTES = 8 * 1024 * 1024
+        const val DEFAULT_TOKEN_TTL_SECONDS = 900L
+        const val MAX_TOKEN_TTL_SECONDS = 3_600L
+        const val TOKEN_REFRESH_SKEW_MS = 30_000L
         val JSON = "application/json; charset=utf-8".toMediaType()
         val FORMATS = setOf("srt", "ass", "ssa", "vtt")
     }
