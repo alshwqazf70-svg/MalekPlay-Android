@@ -1405,7 +1405,9 @@ class PlayerViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                _onlineSubtitleError.value = error.message ?: "تعذر تنزيل الترجمة"
+                _onlineSubtitleError.value = if (error is java.io.IOException) {
+                    "تعذر الاتصال بخدمة تنزيل الترجمة. تحقق من الإنترنت ثم أعد المحاولة."
+                } else error.message ?: "تعذر تنزيل الترجمة"
             } finally {
                 _onlineSubtitleLoading.value = false
             }
