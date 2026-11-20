@@ -324,7 +324,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 val bearer = vault.load(WEBSITE_KEY_SLOT)?.first
                 if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer")
             }.get().build()
-        val downloadPath = execute(request).optString("download_url")
+        val downloadPath = executeDownloadApi(request).optString("download_url")
             .takeIf { it.isNotBlank() } ?: error("لم توفر الخدمة رابط تنزيل للترجمة")
         val downloadUri = when {
             downloadPath.startsWith("https://") -> Uri.parse(downloadPath)
@@ -510,7 +510,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             val request = Request.Builder().url("$BASE/download").header("Api-Key", key)
                 .header("Authorization", "Bearer $token").header("User-Agent", AGENT)
                 .post(body).build()
-            return execute(request).optString("link")
+            return executeDownloadApi(request).optString("link")
                 .takeIf { it.isNotBlank() } ?: error("لم توفر OpenSubtitles رابط تنزيل للترجمة")
         }
         val link = try {
@@ -677,6 +677,39 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         require(key.isNotBlank() && account.first.isNotBlank() && account.second.isNotBlank())
         return key to account
     }
+
+    /** Cancellable JSON request used by the download flow, including its API-key headers. */
+    private suspend fun executeDownloadApi(request: Request): JSONObject =
+        withDownloadResponse(request) { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                if (response.code == 429) {
+                    if (request.url.host == PUBLIC_HOST) {
+                        throw SubtitleHttpException(
+                            429,
+                            "تم بلوغ الحد اليومي للبحث المجاني في subtitles.website. أضف مفتاح API مجانيًا من الإعدادات الاختيارية في نافذة البحث."
+                        )
+                    }
+                    throw SubtitleHttpException(
+                        429,
+                        "أوقف مزود الترجمة الطلبات مؤقتًا (HTTP 429). انتظر قليلًا ثم أعد المحاولة."
+                    )
+                }
+                if (response.code == 401 || response.code == 403) {
+                    throw SubtitleHttpException(
+                        response.code,
+                        "مفتاح خدمة الترجمة غير صالح أو انتهت صلاحية جلسة الدخول."
+                    )
+                }
+                val message = runCatching { JSONObject(body).optString("message") }
+                    .getOrNull()?.takeIf(String::isNotBlank)
+                throw SubtitleHttpException(
+                    response.code,
+                    message ?: "خدمة الترجمة أعادت خطأ (HTTP ${response.code})"
+                )
+            }
+            JSONObject(body)
+        }
 
     private fun execute(request: Request): JSONObject {
         val response = client.newCall(request).execute()
