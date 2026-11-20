@@ -235,8 +235,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val url = Uri.parse(SUBDL_API).buildUpon()
             .appendQueryParameter("api_key", apiKey)
             .appendQueryParameter("film_name", title.take(150))
-            .appendQueryParameter("type", if (season != null || episode != null) "tv" else "movie")
-            .apply { if (year != null) appendQueryParameter("year", year.toString()) }
+            .apply {
+                if (season != null || episode != null) appendQueryParameter("type", "tv")
+                if (year != null) appendQueryParameter("year", year.toString())
+            }
             .appendQueryParameter("languages", languages.ifBlank { "AR,EN" })
             .appendQueryParameter("subs_per_page", "30")
             .appendQueryParameter("unpack", "1")
