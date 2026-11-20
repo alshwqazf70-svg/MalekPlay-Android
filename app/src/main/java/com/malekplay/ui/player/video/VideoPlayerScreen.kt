@@ -1374,6 +1374,7 @@ fun VideoPlayerScreen(
                     )
                 },
                 onDownload = viewModel::downloadOnlineSubtitle,
+                onDownloadAndTranslate = viewModel::downloadAndTranslateOnlineSubtitleToArabic,
                 onSaveCredentials = viewModel::saveOnlineSubtitleCredentials,
                 onSaveProviderKeys = viewModel::saveOnlineSubtitleProviderKeys,
                 onDismiss = { if (!onlineSubtitleLoading) showOnlineSubtitles = false }
