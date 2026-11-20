@@ -1987,7 +1987,11 @@ class UltraShareForegroundService : Service() {
                     }
                     val claimed = UltraShareQueueStore.claimForSending(this@UltraShareForegroundService, uri, metadata.first)
                     if (!claimed) return@forEach
-                    val fileId = java.util.UUID.randomUUID().toString()
+                    // Stable per queue URI so a retry after interruption can address
+                    // the same per-file resume checkpoint, including duplicate-content
+                    // files selected from different document-provider locations.
+                    val fileIdentity = uri.toString() + "|" + metadata.first + "|" + metadata.third
+                    val fileId = java.util.UUID.nameUUIDFromBytes(fileIdentity.toByteArray(Charsets.UTF_8)).toString()
                     v2Candidates += uri to UltraShareBatchTransport.Source(
                         uri = uri,
                         name = metadata.first,
