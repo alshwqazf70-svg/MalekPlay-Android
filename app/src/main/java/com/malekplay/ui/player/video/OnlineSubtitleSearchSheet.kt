@@ -56,6 +56,7 @@ fun OnlineSubtitleSearchSheet(
     episode: String, onEpisodeChange: (String) -> Unit,
     results: List<OnlineSubtitle>, loading: Boolean, error: String?,
     onSearch: () -> Unit, onDownload: (OnlineSubtitle) -> Unit,
+    onDownloadAndTranslate: (OnlineSubtitle) -> Unit,
     onSaveCredentials: (String, String, String) -> Unit,
     onSaveProviderKeys: (String, String) -> Unit, onDismiss: () -> Unit
 ) {
@@ -69,6 +70,9 @@ fun OnlineSubtitleSearchSheet(
     var downloadingKey by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(loading) { if (!loading) downloadingKey = null }
+    LaunchedEffect(Unit) {
+        if (query.isNotBlank() && results.isEmpty() && !loading) onSearch()
+    }
 
     androidx.compose.runtime.CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
@@ -190,6 +194,8 @@ fun OnlineSubtitleSearchSheet(
                     results.forEach { subtitle ->
                         val key = subtitle.provider + ":" + subtitle.sourceId
                         val isDownloading = loading && downloadingKey == key
+                        val isAiTranslating = loading && downloadingKey == "$key:ai"
+                        val isArabic = SubtitleQueryCleaner.normalizeLanguage(subtitle.language) == "ar"
                         Card(shape = RoundedCornerShape(17.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.fillMaxWidth().padding(14.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -225,6 +231,25 @@ fun OnlineSubtitleSearchSheet(
                                             Spacer(Modifier.size(7.dp))
                                         }
                                         Text(if (isDownloading) "جارٍ التطبيق…" else "تحميل وتطبيق")
+                                    }
+                                }
+                                if (!isArabic) {
+                                    TextButton(
+                                        onClick = {
+                                            downloadingKey = "$key:ai"
+                                            onDownloadAndTranslate(subtitle)
+                                        },
+                                        enabled = !loading,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        if (isAiTranslating) {
+                                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                            Spacer(Modifier.size(7.dp))
+                                        }
+                                        Text(
+                                            if (isAiTranslating) "جارٍ التنزيل والترجمة…" 
+                                            else "تنزيل وترجمة للعربية (AI)"
+                                        )
                                     }
                                 }
                             }
