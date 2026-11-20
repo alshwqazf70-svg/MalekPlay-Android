@@ -160,12 +160,15 @@ class UltraShareBatchEndToEndTest {
             )
             val resolver = RuntimeEnvironment.getApplication().contentResolver
             suspend fun send(name: String, seed: Int) {
-                val payload = ByteArray(256 * 1024 + seed) { ((it * 31 + seed) and 0xff).toByte() }
+                val payload = ByteArray(256 * 1024 + seed) { ((it * 31 + seed) and 0xff).toByte() }.also {
+                    byteArrayOf(0, 0, 0, 24).copyInto(it, 0)
+                    "ftypisom".toByteArray().copyInto(it, 4)
+                }
                 val file = File(sourceDirectory, name).apply { writeBytes(payload) }
                 val outcome = UltraShareBatchTransport.sendBatch(
                     resolver = resolver,
                     sources = listOf(UltraShareBatchTransport.Source(
-                        Uri.fromFile(file), name, "application/octet-stream", file.length()
+                        Uri.fromFile(file), name, "video/mp4", file.length()
                     )),
                     host = host,
                     port = dataReady.await(),
@@ -173,13 +176,13 @@ class UltraShareBatchEndToEndTest {
                 )
                 assertEquals(UltraShareBatchProtocol.FileStatus.COMPLETED, outcome.files.single().status)
             }
-            send("queued-first.bin", 1)
+            send("queued-first.mp4", 1)
             withTimeout(5_000) { publicationStarted.await() }
             // The first publication deliberately remains blocked. With a single receive
             // permit, the next batch must still be accepted instead of being refused.
-            withTimeout(15_000) { send("queued-second.bin", 2) }
-            assertTrue(File(receivedDirectory, "queued-first.bin").isFile)
-            assertTrue(File(receivedDirectory, "queued-second.bin").isFile)
+            withTimeout(15_000) { send("queued-second.mp4", 2) }
+            assertTrue(File(receivedDirectory, "queued-first.mp4").isFile)
+            assertTrue(File(receivedDirectory, "queued-second.mp4").isFile)
         } finally {
             releasePublication.complete(Unit)
             UltraShareControlChannel.closeSession(host)
