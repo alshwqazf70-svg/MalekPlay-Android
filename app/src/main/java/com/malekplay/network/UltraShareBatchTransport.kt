@@ -1282,7 +1282,13 @@ object UltraShareBatchTransport {
     @OptIn(InternalCoroutinesApi::class)
     internal fun closeSocketOnJobCancellation(job: Job, socket: Socket): DisposableHandle =
         job.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { cause ->
-            if (cause != null) runCatching { socket.close() }
+            if (cause != null) {
+                // Half-close first so the peer observes EOF rather than a reset,
+                // then close both directions to release any locally blocked read.
+                runCatching { if (!socket.isOutputShutdown) socket.shutdownOutput() }
+                runCatching { if (!socket.isInputShutdown) socket.shutdownInput() }
+                runCatching { socket.close() }
+            }
         }
 
     private fun configure(socket: Socket) {
