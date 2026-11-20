@@ -105,12 +105,16 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val publicResults = publicAttempt.getOrDefault(emptyList())
         val accountResults = accountAttempt?.getOrDefault(emptyList()).orEmpty()
         val subdlResults = subdlAttempt?.getOrDefault(emptyList()).orEmpty()
-        if (publicAttempt.isFailure && accountAttempt?.isFailure != false && subdlAttempt?.isFailure != false) {
-            throw publicAttempt.exceptionOrNull() ?: subdlAttempt?.exceptionOrNull()
-                ?: IllegalStateException("تعذر البحث عن الترجمة")
-        }
         val combined = (publicResults + accountResults + subdlResults)
             .distinctBy { it.provider + ":" + it.sourceId }
+        if (combined.isEmpty()) {
+            // Do not hide an actionable guest-quota/connectivity error merely
+            // because another configured provider returned an empty response.
+            val failure = publicAttempt.exceptionOrNull()
+                ?: accountAttempt?.exceptionOrNull()
+                ?: subdlAttempt?.exceptionOrNull()
+            if (failure != null) throw failure
+        }
         automaticSearchCache.put(queryKey, combined)
         return SubtitleResultPolicy.rankAndFilter(combined, language).take(40)
     }
