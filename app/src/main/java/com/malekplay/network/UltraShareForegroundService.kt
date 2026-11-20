@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.delay
 import java.io.IOException
 
 data class UltraShareServiceState(
@@ -134,6 +135,7 @@ class UltraShareForegroundService : Service() {
     @Volatile private var receiveJob: Job? = null
     @Volatile private var batchReceiveJob: Job? = null
     @Volatile private var activeBatchTransferPort: Int = 0
+    @Volatile private var addressMonitorJob: Job? = null
     @Volatile private var pauseRequested = false
     private val pendingReplacementCount = java.util.concurrent.atomic.AtomicInteger(0)
     private var advertisementJob: Job? = null
@@ -342,8 +344,29 @@ class UltraShareForegroundService : Service() {
                         } ?: getString(R.string.ultra_share_waiting)
                     ) }
                 val job = serviceScope.launch(start = CoroutineStart.LAZY) {
-                    val addresses = withContext(Dispatchers.IO) { findLocalIpv4Addresses() }
+                    var addresses = withContext(Dispatchers.IO) { findLocalIpv4Addresses() }
                     updateState { current -> current.copy(localAddresses = addresses) }
+                    // Network interfaces can appear after the receiver starts (SoftAP,
+                    // WLAN association, or P2P formation). Refresh automatically so the
+                    // ViewModel can republish the same room invitation with newly-ready routes.
+                    addressMonitorJob?.cancel()
+                    addressMonitorJob = launch {
+                        var poll = 0
+                        while (true) {
+                            delay(if (poll < 20) 200L else 1_500L)
+                            val latest = withContext(Dispatchers.IO) { findLocalIpv4Addresses() }
+                            if (latest != addresses) {
+                                addresses = latest
+                                updateState { current -> current.copy(localAddresses = latest) }
+                                UltraShareDiagnostics.event(
+                                    "NETWORK_ROUTING",
+                                    "RECEIVER_LOCAL_ADDRESSES_REFRESHED",
+                                    mapOf("addressCount" to latest.size, "poll" to poll)
+                                )
+                            }
+                            poll++
+                        }
+                    }
                     advertisementJob = launch {
                         try {
                             UltraShareDiscovery.advertiseWhileReceiving(
@@ -371,6 +394,8 @@ class UltraShareForegroundService : Service() {
                         UltraShareDiagnostics.failure("RECEIVER_LOOP", failure)
                         updateState { current -> current.copy(receiving = false, error = failure.localizedMessage ?: getString(R.string.ultra_share_transfer_failed)) }
                     } finally {
+                        addressMonitorJob?.cancel()
+                        addressMonitorJob = null
                         advertisementJob?.cancel()
                         advertisementJob = null
                         controlJob?.cancel()
