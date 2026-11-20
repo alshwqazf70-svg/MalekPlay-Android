@@ -184,17 +184,20 @@ class UltraShareQrCodeTest {
     fun roomV6QrRoundTripsAlternatePortNameModeAndWifiCredentials() {
         val secret = UltraShareCore.createPairingSecret()
         val payload = UltraShareQrCode.createRoomPayload(
-            host = "192.168.49.1",
+            hosts = listOf("192.168.49.1", "192.168.1.20"),
             port = 41234,
             pairingSecret = secret,
             deviceName = "Malek Phone",
             mode = "p2p",
             ssid = "DIRECT-Malek",
-            psk = "share12345"
+            psk = "share12345",
+            invitationId = "p2p-room-123"
         )
         val decoded = UltraShareQrCode.parsePayload(payload)
         assertTrue(payload.contains("v=6"))
         assertEquals("192.168.49.1", decoded.host)
+        assertEquals(listOf("192.168.49.1", "192.168.1.20"), decoded.hosts)
+        assertEquals("p2p-room-123", decoded.invitationId)
         assertEquals(41234, decoded.port)
         assertEquals(secret, decoded.pairingSecret)
         assertEquals("Malek Phone", decoded.deviceName)
@@ -208,7 +211,7 @@ class UltraShareQrCodeTest {
         val secret = UltraShareCore.createPairingSecret()
         val decoded = UltraShareQrCode.parsePayload(
             UltraShareQrCode.createRoomPayload(
-                host = "192.168.1.25",
+                hosts = listOf("192.168.1.25"),
                 pairingSecret = secret,
                 deviceName = "Receiver"
             )
@@ -223,7 +226,7 @@ class UltraShareQrCodeTest {
     @Test(expected = IllegalArgumentException::class)
     fun roomV6QrRejectsPrivilegedOrInvalidPorts() {
         UltraShareQrCode.createRoomPayload(
-            host = "192.168.1.25",
+            hosts = listOf("192.168.1.25"),
             port = 1023,
             pairingSecret = UltraShareCore.createPairingSecret(),
             deviceName = "Receiver"
@@ -233,7 +236,7 @@ class UltraShareQrCodeTest {
     @Test(expected = IllegalArgumentException::class)
     fun roomV6QrRejectsNonPrivateHosts() {
         UltraShareQrCode.createRoomPayload(
-            host = "8.8.8.8",
+            hosts = listOf("8.8.8.8"),
             pairingSecret = UltraShareCore.createPairingSecret(),
             deviceName = "Receiver"
         )
