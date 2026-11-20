@@ -622,11 +622,7 @@ class PlaybackService : MediaSessionService() {
             val metrics = resources.displayMetrics
             // Keep older GPUs within a predictable texture budget rather than
             // allocating a native-resolution intermediate surface unconditionally.
-            val maxLongEdge = when (profile) {
-                VideoEnhancementProfile.ECONOMY -> 1280
-                VideoEnhancementProfile.BALANCED -> 1920
-                VideoEnhancementProfile.ULTRA -> 2560
-            }
+            val maxLongEdge = profile.upscaleMaxLongEdge
             val target = VideoUpscaleTargetPolicy.resolve(
                 sourceWidth = videoSize.width,
                 sourceHeight = videoSize.height,
