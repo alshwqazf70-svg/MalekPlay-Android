@@ -175,6 +175,10 @@ class MalekPlayBackupManager @Inject constructor(
         require(playlistSnapshot.size <= MAX_PLAYLISTS) { "Too many playlists to export" }
         val historySnapshot = userDataRepository.historySnapshot()
         require(historySnapshot.size <= MAX_HISTORY_ENTRIES) { "Too many history entries to export" }
+        require(historySnapshot.all {
+            it.mediaId.isNotBlank() && it.mediaId.length <= MAX_URI_LENGTH &&
+                it.lastPlayedAtMs >= 0L && it.playCount > 0
+        }) { "Playback history contains invalid entries and cannot be exported safely" }
         val totalPlaylistItems = playlistSnapshot.sumOf { it.items.size }
         require(totalPlaylistItems <= MAX_TOTAL_PLAYLIST_ITEMS) {
             "Too many playlist entries to export"
