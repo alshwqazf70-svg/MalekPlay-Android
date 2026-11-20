@@ -155,4 +155,21 @@ Dialogue: 0,0:00:04.00,0:00:05.25,Default,,0,0,0,,Another cue
         assertEquals(1, SrtSubtitleParser.timingLineIndex(cues[0].lines()))
     }
 
+
+    @Test
+    fun detectsSubtitleFormatFromContentBeforeFilenameHints() {
+        assertEquals(
+            "vtt",
+            SrtSubtitleParser.detectFormat("00:01.250 --> 00:02.500\\nHello")
+        )
+        assertEquals(
+            "srt",
+            SrtSubtitleParser.detectFormat("1\\n00:00:01,000 --> 00:00:02,000\\nHello")
+        )
+        assertEquals(
+            "ass",
+            SrtSubtitleParser.detectFormat("[Script Info]\\n[Events]\\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Hello")
+        )
+    }
+
 }
