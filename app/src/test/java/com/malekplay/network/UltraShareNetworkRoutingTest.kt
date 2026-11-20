@@ -35,6 +35,23 @@ class UltraShareNetworkRoutingTest {
     }
 
     @Test
+    fun qrLanHostsMustStillBelongToAnActiveInterface() {
+        assertEquals(
+            listOf("172.22.54.6", "192.168.1.20"),
+            UltraShareNetworkRouting.activeNonP2pHosts(
+                candidates = listOf(
+                    "172.22.54.6",
+                    "192.168.1.20",
+                    "192.168.1.99", // stale address from a previous network
+                    "8.8.8.8",
+                    "172.22.54.6"
+                ),
+                activeInterfaceAddresses = setOf("172.22.54.6", "192.168.1.20", "8.8.8.8")
+            )
+        )
+    }
+
+    @Test
     fun rejectsThisDevicesOwnAddressAsARemotePeer() {
         val localAddresses = setOf("192.168.43.163", "10.0.20.48")
         assertTrue(UltraShareNetworkRouting.isLocalIpv4Address("192.168.43.163", localAddresses))
