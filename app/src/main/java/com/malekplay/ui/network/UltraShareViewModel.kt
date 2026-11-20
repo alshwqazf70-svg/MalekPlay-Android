@@ -290,6 +290,15 @@ class UltraShareViewModel @Inject constructor(
                 existingPairingSecret = existingDetails?.pairingSecret,
                 candidatePairingSecret = candidateDetails.pairingSecret
             )
+        val mayUpgradeOrRefreshRoomV6 = existingPayload != null && existingDetails != null &&
+            candidateVersion == "6" &&
+            existingDetails.pairingSecret == candidateDetails.pairingSecret &&
+            existingDetails.invitationId == candidateDetails.invitationId &&
+            (existingVersion != "6" ||
+                (existingDetails.deviceName == candidateDetails.deviceName &&
+                    existingDetails.mode == candidateDetails.mode &&
+                    existingDetails.hotspotSsid == candidateDetails.hotspotSsid &&
+                    existingDetails.hotspotPassword == candidateDetails.hotspotPassword))
         val mayEnrichV5Routes = existingPayload != null && existingDetails != null &&
             readiness.shouldEnrichUnifiedV5Qr(
                 existingVersion = existingVersion,
@@ -310,7 +319,7 @@ class UltraShareViewModel @Inject constructor(
         // Upgrade a fallback QR when P2P credentials arrive; if a LAN-only v5
         // was shown first, enrich that same invitation with late SoftAP credentials
         // and newly enumerated LAN routes without rotating its pairing secret.
-        val stablePayload = if (mayUpgradeToUnifiedV5 || mayEnrichV5Routes) payload else
+        val stablePayload = if (mayUpgradeToUnifiedV5 || mayEnrichV5Routes || mayUpgradeOrRefreshRoomV6) payload else
             com.malekplay.network.UltraSharePairingReadiness.stableQrPayload(
                 existingPayload, payload
             ) ?: return
@@ -1790,16 +1799,23 @@ private fun forgetApprovedSenderTarget(host: String) {
 
         val invitationId = current.invitationId.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }
         val payload = runCatching {
-            UltraShareQrCode.createUnifiedReceiverPayload(
+            UltraShareQrCode.createRoomPayload(
                 hosts = hosts,
+                port = UltraShareControlChannel.DEFAULT_PORT,
                 pairingSecret = secret,
+                deviceName = Build.MODEL?.take(48)?.ifBlank { "MalekPlayer Android" }
+                    ?: "MalekPlayer Android",
+                mode = when {
+                    invitationId != null -> "p2p"
+                    !ssid.isNullOrBlank() -> "hotspot"
+                    else -> "lan"
+                },
                 ssid = ssid,
-                wifiPassword = password,
-                invitationId = invitationId,
-                wifiSecurity = wifiDirectGroupSecurity
+                psk = password,
+                invitationId = invitationId
             )
         }.getOrElse { failure ->
-            UltraShareDiagnostics.failure("UNIFIED_QR_CREATE", failure)
+            UltraShareDiagnostics.failure("ROOM_V6_QR_CREATE", failure)
             return
         }
         latchReceiverQrPayload(payload)
