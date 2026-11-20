@@ -60,7 +60,7 @@ fun UltraShareSessionRoom(
     onCancelSending: () -> Unit,
     onPickAndSendFiles: () -> Unit,
     onShowGroupQr: () -> Unit,
-    onBackHome: () -> Unit
+    onLeaveRoom: () -> Unit
 ) {
     val isSendingRoom = activeMode == "send"
     // Receiver-side approvals live in activePeers; sender-side approvals are
@@ -98,7 +98,7 @@ fun UltraShareSessionRoom(
         state.sending -> if (activePeerCount > 1) "يتم إرسال الملفات إلى $activePeerCount أجهزة" else "يتم إرسال الملفات إلى الجهاز الآخر"
         state.receiveProgress != null -> if (activePeerCount > 1) "يتم استقبال الملفات من $activePeerCount أجهزة" else "يتم استقبال الملفات من الجهاز الآخر"
         state.sendProgress != null -> "جارٍ نقل العنصر الحالي"
-        state.pendingConnection != null -> "طلب اتصال وارد — بانتظار موافقتك"
+        state.pendingConnection != null -> "جارٍ التحقق من دعوة الاتصال تلقائياً"
         state.requestingConnection -> "جارٍ التحقق من الاقتران — ننتظر رد الجهاز الآخر"
         connected -> if (activePeerCount > 1) "اتصال موثّق — $activePeerCount أجهزة جاهزة للنقل" else "اتصال موثّق — الجهازان جاهزان للنقل"
         !isSendingRoom && state.receiving -> "هذا الهاتف ظاهر وجاهز لاستقبال الملفات"
@@ -194,7 +194,7 @@ fun UltraShareSessionRoom(
             ) {
                 Button(onClick = onPickAndSendFiles, modifier = Modifier.weight(1f)) { Text("إرسال ملفات") }
                 OutlinedButton(onClick = onShowGroupQr, modifier = Modifier.weight(1f)) { Text("رمز المجموعة") }
-                OutlinedButton(onClick = onBackHome, modifier = Modifier.weight(1f)) { Text("الرئيسية") }
+                OutlinedButton(onClick = onLeaveRoom, modifier = Modifier.weight(1f)) { Text("مغادرة الغرفة") }
             }
             if (isSendingRoom && (state.sending || sendingPaused)) {
                 Row(
