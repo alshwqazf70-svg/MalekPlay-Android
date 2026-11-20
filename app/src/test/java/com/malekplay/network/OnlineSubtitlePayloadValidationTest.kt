@@ -9,43 +9,43 @@ class OnlineSubtitlePayloadValidationTest {
     @Test
     fun acceptsValidSrtAndRejectsWrongExtension() {
         val bytes = "1\n00:00:01,000 --> 00:00:02,000\nHello".toByteArray()
-        assertTrue(isValidSubtitlePayload(bytes, "srt"))
-        assertFalse(isValidSubtitlePayload(bytes, "vtt"))
+        assertTrue(isValidSubtitlePayload(bytes, "srt")
+        assertFalse(isValidSubtitlePayload(bytes, "vtt")
     }
 
     @Test
     fun acceptsVttAndAssSsaContent() {
-        assertTrue(isValidSubtitlePayload("WEBVTT\n\n00:00:01.000 --> 00:00:02.000".toByteArray(), "vtt"))
+        assertTrue(isValidSubtitlePayload("WEBVTT\n\n00:00:01.000 --> 00:00:02.000".toByteArray(), "vtt")
         val ass = "[Script Info]\nTitle: test\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Fontname\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Hello".toByteArray()
-        assertTrue(isValidSubtitlePayload(ass, "ass"))
-        assertTrue(isValidSubtitlePayload(ass, "ssa"))
+        assertTrue(isValidSubtitlePayload(ass, "ass")
+        assertTrue(isValidSubtitlePayload(ass, "ssa")
     }
 
     @Test
     fun rejectsEmptyUnknownAndOversizedPayloads() {
-        assertFalse(isValidSubtitlePayload(byteArrayOf(), "srt"))
-        assertFalse(isValidSubtitlePayload("not a subtitle".toByteArray(), "srt"))
-        assertFalse(isValidSubtitlePayload("WEBVTT".toByteArray(), "exe"))
-        assertFalse(isValidSubtitlePayload(ByteArray(8 * 1024 * 1024 + 1), "srt"))
+        assertFalse(isValidSubtitlePayload(byteArrayOf(), "srt")
+        assertFalse(isValidSubtitlePayload("not a subtitle".toByteArray(), "srt")
+        assertFalse(isValidSubtitlePayload("WEBVTT".toByteArray(), "exe")
+        assertFalse(isValidSubtitlePayload(ByteArray(8 * 1024 * 1024 + 1), "srt")
     }
     @Test
     fun subtitleDownloadRedirectPolicyRejectsDowngradesAndUntrustedHosts() {
-        assertTrue(isSafeSubtitleDownloadUri(android.net.Uri.parse("https://subtitles.website/file.srt"), "subtitles.website"))
-        assertTrue(isSafeSubtitleDownloadUri(android.net.Uri.parse("https://cdn.subtitles.website/file.srt"), "subtitles.website"))
-        assertFalse(isSafeSubtitleDownloadUri(android.net.Uri.parse("https://evil-subtitles.website/file.srt"), "subtitles.website"))
-        assertFalse(isSafeSubtitleDownloadUri(android.net.Uri.parse("http://subtitles.website/file.srt"), "subtitles.website"))
-        assertFalse(isSafeSubtitleDownloadUri(android.net.Uri.parse("https://user@subtitles.website/file.srt"), "subtitles.website"))
-        assertFalse(isSafeSubtitleDownloadUri(android.net.Uri.parse("https://subtitles.website:8443/file.srt"), "subtitles.website"))
-        assertTrue(isSafeSubtitleDownloadUri(android.net.Uri.parse("https://cdn.provider.example/file.srt")))
-        assertFalse(isSafeSubtitleDownloadUri(android.net.Uri.parse("http://cdn.provider.example/file.srt")))
+        assertTrue(isSafeSubtitleDownloadUrl("https://subtitles.website/file.srt", "subtitles.website")
+        assertTrue(isSafeSubtitleDownloadUrl("https://cdn.subtitles.website/file.srt", "subtitles.website")
+        assertFalse(isSafeSubtitleDownloadUrl("https://evil-subtitles.website/file.srt", "subtitles.website")
+        assertFalse(isSafeSubtitleDownloadUrl("http://subtitles.website/file.srt", "subtitles.website")
+        assertFalse(isSafeSubtitleDownloadUrl("https://user@subtitles.website/file.srt", "subtitles.website")
+        assertFalse(isSafeSubtitleDownloadUrl("https://subtitles.website:8443/file.srt", "subtitles.website")
+        assertTrue(isSafeSubtitleDownloadUrl("https://cdn.provider.example/file.srt"))
+        assertFalse(isSafeSubtitleDownloadUrl("http://cdn.provider.example/file.srt"))
     }
 
     @Test
     fun providerCacheTokensDoNotReuseJavaHashCollisions() {
         // "Aa" and "BB" intentionally share String.hashCode() but must not share files.
         assertTrue("Aa".hashCode() == "BB".hashCode())
-        assertFalse(subtitleCacheToken("Aa") == subtitleCacheToken("BB"))
-        assertTrue(subtitleCacheToken("provider-id").matches(Regex("[a-f0-9]{64}")))
+        assertFalse(subtitleCacheToken("Aa") == subtitleCacheToken("BB")
+        assertTrue(subtitleCacheToken("provider-id").matches(Regex("[a-f0-9]{64}"))
     }
 
 
@@ -53,16 +53,16 @@ class OnlineSubtitlePayloadValidationTest {
     fun acceptsShortWebVttAndSingleDigitHourSrtTimestamps() {
         val shortVtt = "WEBVTT\n\n00:01.250 --> 00:03.500\nHello".toByteArray()
         val oneDigitHourSrt = "1\n1:02:03,000 --> 1:02:05,000\nHello".toByteArray()
-        assertTrue(isValidSubtitlePayload(shortVtt, "vtt"))
-        assertTrue(isValidSubtitlePayload(oneDigitHourSrt, "srt"))
+        assertTrue(isValidSubtitlePayload(shortVtt, "vtt")
+        assertTrue(isValidSubtitlePayload(oneDigitHourSrt, "srt")
     }
 
 
     @Test
     fun acceptsUtf16EncodedSrtPayloads() {
         val text = "1\n00:00:01,000 --> 00:00:02,000\nمرحبا"
-        assertTrue(isValidSubtitlePayload(text.toByteArray(Charsets.UTF_16LE), "srt"))
-        assertTrue(isValidSubtitlePayload(text.toByteArray(Charsets.UTF_16BE), "srt"))
+        assertTrue(isValidSubtitlePayload(text.toByteArray(Charsets.UTF_16LE), "srt")
+        assertTrue(isValidSubtitlePayload(text.toByteArray(Charsets.UTF_16BE), "srt")
     }
 
 }
