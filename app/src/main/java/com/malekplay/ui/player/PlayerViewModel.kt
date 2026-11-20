@@ -1008,7 +1008,14 @@ class PlayerViewModel @Inject constructor(
             _playerError.value = "مشغل الفيديو غير جاهز"
             return false
         }
-        if (targetMediaId == null || targetMediaId != currentMediaId) return false
+        if (targetMediaId == null) {
+            _playerError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            return false
+        }
+        if (targetMediaId != currentMediaId) {
+            _playerError.value = "تغير الفيديو قبل إرفاق الترجمة؛ أعد المحاولة على الفيديو الحالي"
+            return false
+        }
         val index = player.currentMediaItemIndex
         val current = player.currentMediaItem
         if (current == null || index !in 0 until player.mediaItemCount) {
