@@ -420,15 +420,22 @@ fun VideoPlayerScreen(
             Toast.makeText(context, "تم إرسال أمر التشغيل إلى ${device.name}", Toast.LENGTH_LONG).show()
         }
     }
-    val subtitleQuery = remember(title) {
-        com.malekplay.network.SubtitleQueryCleaner.clean(title)
+    val subtitleQuery = remember(currentVideoId, currentVideoTitle) {
+        com.malekplay.network.SubtitleQueryCleaner.clean(currentVideoTitle)
     }
-    var onlineQuery by remember(title) { mutableStateOf(subtitleQuery.title) }
+    // Include a parsed release year in the editable query, but never include
+    // resolution/codec/release-group noise or the SxxExx suffix.
+    val initialSubtitleQuery = remember(subtitleQuery) {
+        subtitleQuery.title + (subtitleQuery.year?.let { " $it" } ?: "")
+    }
+    var onlineQuery by remember(currentVideoId, currentVideoTitle) {
+        mutableStateOf(initialSubtitleQuery)
+    }
     var onlineLanguage by remember { mutableStateOf("ar,en") }
-    var onlineSeason by remember(title) {
+    var onlineSeason by remember(currentVideoId, currentVideoTitle) {
         mutableStateOf(subtitleQuery.season?.toString().orEmpty())
     }
-    var onlineEpisode by remember(title) {
+    var onlineEpisode by remember(currentVideoId, currentVideoTitle) {
         mutableStateOf(subtitleQuery.episode?.toString().orEmpty())
     }
 
