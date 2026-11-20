@@ -1879,27 +1879,49 @@ private fun forgetApprovedSenderTarget(host: String) {
             !rawPassword.isNullOrBlank() && rawPassword.length in 8..63
         val ssid = rawSsid.takeIf { hasWifiCredentials }
         val password = rawPassword.takeIf { hasWifiCredentials }
-        val hasLanRoute = (current.localAddresses + service.localAddresses)
-            .any { UltraShareCore.isValidPrivateLanHost(it) }
+        val invitationId = current.invitationId.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }
+        val advertisedAddresses = current.localAddresses + service.localAddresses
+        val verifiedLanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+            context, advertisedAddresses
+        )
+        val hasLanRoute = verifiedLanHosts.isNotEmpty()
         val dnsSdReady = dnsSdQrFallbackScheduledFor == current.invitationId
-        if ((ssid.isNullOrBlank() || password.isNullOrBlank()) && !hasLanRoute && !dnsSdReady) return
+        if ((ssid.isNullOrBlank() || password.isNullOrBlank()) && !hasLanRoute &&
+            !dnsSdReady && invitationId == null
+        ) return
         val ownerAddress = wifiDirectOwnerAddress
             ?: "192.168.49.1".takeIf { wifiDirectGroupSsid != null }
-        // Keep the P2P owner address first; otherwise a busy multi-interface
-        // phone could fill the QR's host limit before 192.168.49.1 is included.
-        val hosts = (
+        // A LAN-only QR must contain only addresses still owned by a live non-P2P
+        // interface. Never publish an old wlan/SoftAP address retained in UI state.
+        val candidateHosts = (
             listOfNotNull(ownerAddress, current.wifiDirectLocalAddress) +
-                current.localAddresses +
-                service.localAddresses
+                advertisedAddresses
             ).asSequence()
             .map { it.trim() }
             .filter { UltraShareCore.isValidPrivateLanHost(it) }
             .distinct()
-            .take(8)
             .toList()
-        if (hosts.isEmpty()) return
-
-        val invitationId = current.invitationId.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }
+        val hosts = when {
+            invitationId != null -> candidateHosts
+            else -> UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(context, candidateHosts)
+        }.take(8)
+        if (hosts.isEmpty()) {
+            UltraShareDiagnostics.event(
+                "PAIRING_QR", "QR_WITHHELD_NO_ACTIVE_ROUTE",
+                mapOf(
+                    "candidateCount" to candidateHosts.size,
+                    "verifiedLanCount" to verifiedLanHosts.size,
+                    "mode" to if (!ssid.isNullOrBlank()) "hotspot" else "lan"
+                )
+            )
+            return
+        }
+        if (hosts.size < candidateHosts.size) {
+            UltraShareDiagnostics.event(
+                "PAIRING_QR", "STALE_ROUTE_HINTS_EXCLUDED",
+                mapOf("candidateCount" to candidateHosts.size, "publishedCount" to hosts.size)
+            )
+        }
         val payload = runCatching {
             UltraShareQrCode.createRoomPayload(
                 hosts = hosts,
