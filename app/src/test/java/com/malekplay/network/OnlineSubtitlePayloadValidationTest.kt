@@ -16,7 +16,7 @@ class OnlineSubtitlePayloadValidationTest {
     @Test
     fun acceptsVttAndAssSsaContent() {
         assertTrue(isValidSubtitlePayload("WEBVTT\n\n00:00:01.000 --> 00:00:02.000".toByteArray(), "vtt"))
-        val ass = "[Script Info]\nTitle: test\n[Events]".toByteArray()
+        val ass = "[Script Info]\nTitle: test\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Fontname\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Hello".toByteArray()
         assertTrue(isValidSubtitlePayload(ass, "ass"))
         assertTrue(isValidSubtitlePayload(ass, "ssa"))
     }
@@ -34,6 +34,15 @@ class OnlineSubtitlePayloadValidationTest {
         assertTrue("Aa".hashCode() == "BB".hashCode())
         assertFalse(subtitleCacheToken("Aa") == subtitleCacheToken("BB"))
         assertTrue(subtitleCacheToken("provider-id").matches(Regex("[a-f0-9]{64}")))
+    }
+
+
+    @Test
+    fun acceptsShortWebVttAndSingleDigitHourSrtTimestamps() {
+        val shortVtt = "WEBVTT\\n\\n00:01.250 --> 00:03.500\\nHello".toByteArray()
+        val oneDigitHourSrt = "1\\n1:02:03,000 --> 1:02:05,000\\nHello".toByteArray()
+        assertTrue(isValidSubtitlePayload(shortVtt, "vtt"))
+        assertTrue(isValidSubtitlePayload(oneDigitHourSrt, "srt"))
     }
 
 }
