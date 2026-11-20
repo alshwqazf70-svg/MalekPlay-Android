@@ -20,7 +20,7 @@ object SubtitleQueryCleaner {
         """(?i)(?:^|[ ._\-])(?:480p|576p|720p|1080p|1440p|2160p|4k|8k|x264|x265|h\.?264|h\.?265|hevc|avc|10bit|8bit|av1|web[ ._-]?dl|web[ ._-]?rip|blu[ ._-]?ray|brrip|bdrip|hdrip|hdtv|dvdrip|aac(?:\d(?:\.\d)?(?:ch)?)?|ddp?(?:\d(?:\.\d)?)?(?:ch)?|eac3|ac3|atmos|dts(?:-hd)?|truehd|proper|repack|limited|internal|extended|remux|hdr10\+?|dolby[ ._-]?vision|\[.*?\])(?=$|[ ._\-])"""
     )
     private val knownExtension = Regex("""(?i)\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|mpeg|mpg|3gp|ogv)$""")
-    private val trailingReleaseGroup = Regex("""\s+-\s*[A-Z0-9]{2,14}$""")
+    private val trailingReleaseGroup = Regex("""-\s*[A-Z0-9]{2,14}$""")
 
     fun clean(raw: String): CleanSubtitleQuery {
         val segment = raw.substringAfterLast('/').substringAfterLast('\\').trim()
