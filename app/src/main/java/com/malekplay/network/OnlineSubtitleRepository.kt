@@ -13,6 +13,9 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.FutureTask
 import java.util.zip.ZipInputStream
 
 data class OnlineSubtitle(
@@ -53,6 +56,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         .readTimeout(30, TimeUnit.SECONDS).callTimeout(45, TimeUnit.SECONDS).build()
     private val publicSearchCache = SubtitleSearchResultCache(12)
     private val automaticSearchCache = SubtitleSearchResultCache(12)
+    // Coalesce simultaneous identical searches so guest-provider quotas are not wasted.
+    private val automaticSearchInFlight = ConcurrentHashMap<String, FutureTask<List<OnlineSubtitle>>>()
 
     fun saveCredentials(apiKey: String, username: String, password: String) {
         require(apiKey.isNotBlank() && username.isNotBlank() && password.isNotBlank())
@@ -85,15 +90,41 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         require(cleaned.title.isNotBlank()) { "أدخل اسم الفيلم أو المسلسل" }
         val resolvedSeason = season ?: cleaned.season
         val resolvedEpisode = episode ?: cleaned.episode
-        // Preserve the year extracted from a filename in every provider query.
         val providerTitle = cleaned.title + (cleaned.year?.let { " $it" } ?: "")
         val queryKey = buildString {
             append(providerTitle.trim().lowercase(Locale.ROOT))
             append("|s").append(resolvedSeason ?: 0).append("e").append(resolvedEpisode ?: 0)
             append("|").append(mediaUri?.toString().orEmpty())
         }
+
+        val task = automaticSearchInFlight.computeIfAbsent(queryKey) {
+            FutureTask {
+                searchAutomaticUncached(title, season, episode, mediaUri)
+            }
+        }
+        task.run()
+        try {
+            return SubtitleResultPolicy.rankAndFilter(task.get(), language).take(40)
+        } catch (interrupted: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw java.io.IOException("تم إيقاف البحث عن الترجمة", interrupted)
+        } catch (failed: ExecutionException) {
+            val cause = failed.cause
+            if (cause is Exception) throw cause
+            throw IllegalStateException("تعذر البحث عن الترجمة", cause)
+        } finally {
+            automaticSearchInFlight.remove(queryKey, task)
+        }
+    }
+
+    private fun searchAutomaticUncached(
+        title: String,
+        season: Int?,
+        episode: Int?,
+        mediaUri: Uri?
+    ): List<OnlineSubtitle> {
         automaticSearchCache.get(queryKey)?.let { cached ->
-            return SubtitleResultPolicy.rankAndFilter(cached, language).take(40)
+            return cached
         }
         // Fetch both supported languages once so the in-memory combined cache can
         // serve subsequent Arabic-only/English-only filter changes without HTTP.
@@ -120,10 +151,11 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             if (failure != null) throw failure
         }
         automaticSearchCache.put(queryKey, combined)
-        return SubtitleResultPolicy.rankAndFilter(combined, language).take(40)
+        return combined
+    }
     }
 
-    private fun searchPublic(
+    private fun searchPublicic(
         title: String,
         season: Int?,
         episode: Int?
