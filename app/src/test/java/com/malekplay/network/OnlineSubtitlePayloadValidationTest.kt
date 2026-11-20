@@ -29,6 +29,18 @@ class OnlineSubtitlePayloadValidationTest {
         assertFalse(isValidSubtitlePayload(ByteArray(8 * 1024 * 1024 + 1), "srt"))
     }
     @Test
+    fun subtitleDownloadRedirectPolicyRejectsDowngradesAndUntrustedHosts() {
+        assertTrue(isSafeSubtitleDownloadUri(android.net.Uri.parse("https://subtitles.website/file.srt"), "subtitles.website"))
+        assertTrue(isSafeSubtitleDownloadUri(android.net.Uri.parse("https://cdn.subtitles.website/file.srt"), "subtitles.website"))
+        assertFalse(isSafeSubtitleDownloadUri(android.net.Uri.parse("https://evil-subtitles.website/file.srt"), "subtitles.website"))
+        assertFalse(isSafeSubtitleDownloadUri(android.net.Uri.parse("http://subtitles.website/file.srt"), "subtitles.website"))
+        assertFalse(isSafeSubtitleDownloadUri(android.net.Uri.parse("https://user@subtitles.website/file.srt"), "subtitles.website"))
+        assertFalse(isSafeSubtitleDownloadUri(android.net.Uri.parse("https://subtitles.website:8443/file.srt"), "subtitles.website"))
+        assertTrue(isSafeSubtitleDownloadUri(android.net.Uri.parse("https://cdn.provider.example/file.srt")))
+        assertFalse(isSafeSubtitleDownloadUri(android.net.Uri.parse("http://cdn.provider.example/file.srt")))
+    }
+
+    @Test
     fun providerCacheTokensDoNotReuseJavaHashCollisions() {
         // "Aa" and "BB" intentionally share String.hashCode() but must not share files.
         assertTrue("Aa".hashCode() == "BB".hashCode())
