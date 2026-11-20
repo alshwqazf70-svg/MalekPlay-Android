@@ -491,6 +491,50 @@ class PlayerViewModel @Inject constructor(
     fun setVideoNoiseReductionEnabled(enabled: Boolean) =
         setVideoEffectEnabled(PlaybackVideoEffects.ACTION_NOISE_REDUCTION, enabled) { _videoNoiseReductionEnabled.value = it }
 
+    /**
+     * Atomically switch the internal GPU detail and denoise stages. This avoids
+     * two separate Media3 effect-graph rebuilds when Google AI falls back to GPU.
+     */
+    fun setInternalGpuEnhancementEnabled(
+        enabled: Boolean,
+        onResult: (Boolean) -> Unit = {}
+    ) {
+        val player = _controller.value ?: run {
+            onResult(false)
+            return
+        }
+        val command = androidx.media3.session.SessionCommand(
+            PlaybackVideoEffects.ACTION_INTERNAL_GPU_ENHANCEMENT,
+            Bundle.EMPTY
+        )
+        val args = Bundle().apply {
+            putBoolean(PlaybackVideoEffects.KEY_ENABLED, enabled)
+        }
+        val future = runCatching { player.sendCustomCommand(command, args) }.getOrNull() ?: run {
+            onResult(false)
+            return
+        }
+        future.addListener(
+            {
+                val result = runCatching { future.get() }.getOrNull()
+                val success = result?.resultCode == SessionResult.RESULT_SUCCESS
+                if (success) {
+                    val state = result.extras
+                    _videoUpscalingEnabled.value =
+                        state.getBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, enabled)
+                    _videoNoiseReductionEnabled.value =
+                        state.getBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, enabled)
+                    refreshVideoEffectState()
+                } else {
+                    _videoUpscalingError.value =
+                        app.getString(com.malekplay.R.string.player_video_effect_unavailable)
+                }
+                onResult(success)
+            },
+            ContextCompat.getMainExecutor(app)
+        )
+    }
+
 
     /** Applies a requested quality preset; the service may cap it for device safety. */
     fun setVideoEnhancementProfile(profile: VideoEnhancementProfile) {
