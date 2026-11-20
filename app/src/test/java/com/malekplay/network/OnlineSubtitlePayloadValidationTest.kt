@@ -45,4 +45,12 @@ class OnlineSubtitlePayloadValidationTest {
         assertTrue(isValidSubtitlePayload(oneDigitHourSrt, "srt"))
     }
 
+
+    @Test
+    fun acceptsUtf16EncodedSrtPayloads() {
+        val text = "1\\n00:00:01,000 --> 00:00:02,000\\nمرحبا"
+        assertTrue(isValidSubtitlePayload(text.toByteArray(Charsets.UTF_16LE), "srt"))
+        assertTrue(isValidSubtitlePayload(text.toByteArray(Charsets.UTF_16BE), "srt"))
+    }
+
 }
