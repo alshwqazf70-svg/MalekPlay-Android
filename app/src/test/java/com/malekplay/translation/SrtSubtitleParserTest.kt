@@ -133,4 +133,26 @@ Second cue
         assertEquals(text, SrtSubtitleParser.decode(utf16Be))
     }
 
+
+    @Test
+    fun parsesAssAndSsaDialogueWithCommaTextAndFormattingOverrides() {
+        val ass = """[Script Info]
+Title: ASS parser test
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.25,0:00:03.50,Default,,0,0,0,,{\i1}Hello, world\Nsecond line
+Dialogue: 0,0:00:04.00,0:00:05.25,Default,,0,0,0,,Another cue
+"""
+        val cues = SrtSubtitleParser.splitBlocks(ass, "ass")
+        assertEquals(2, cues.size)
+        assertEquals("00:00:01,250 --> 00:00:03,500", cues[0].lines()[1])
+        assertEquals("Hello, world\nsecond line", cues[0].lines().drop(2).joinToString("\n"))
+        assertEquals("00:00:04,000 --> 00:00:05,250", cues[1].lines()[1])
+        assertEquals(1, SrtSubtitleParser.timingLineIndex(cues[0].lines()))
+    }
+
 }
