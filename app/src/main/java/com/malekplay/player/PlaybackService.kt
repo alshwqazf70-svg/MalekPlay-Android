@@ -643,7 +643,11 @@ class PlaybackService : MediaSessionService() {
         }
         if (videoNoiseReductionEnabled) effects += SpatialNoiseReductionEffect(profile.denoiseStrength)
         if (videoUpscalingEnabled || videoNoiseReductionEnabled) {
-            effects += VideoDetailEnhancementEffect(profile.detailStrength)
+            effects += VideoDetailEnhancementEffect(
+                strength = profile.detailStrength,
+                contrastBoost = profile.contrastBoost,
+                clarityStrength = profile.clarityStrength
+            )
         }
         val applied = runCatching {
             applyEffectChain(player, effects, hasLanczos = videoLanczosSubmitted)
