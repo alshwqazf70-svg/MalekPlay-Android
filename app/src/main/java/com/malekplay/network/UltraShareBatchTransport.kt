@@ -61,11 +61,12 @@ object UltraShareBatchTransport {
     const val DEFAULT_PORT = 38_742
     const val COPY_BUFFER_BYTES = 1024 * 1024
     private const val BUFFER_BYTES = 1024 * 1024
-    // 512 KiB halves per-frame crypto/framing overhead versus the previous 256 KiB.
-    // It remains below the protocol's bounded frame limit on low-memory devices.
-    private const val FRAME_BYTES = 512 * 1024
+    private const val SOCKET_BUFFER_BYTES = 2 * 1024 * 1024
+    // 1 MiB encrypted payloads amortize frame headers and AES-GCM setup on Wi-Fi.
+    // Buffers are allocated once per session and reused for every chunk.
+    private const val FRAME_BYTES = 1024 * 1024
     private const val PROGRESS_UPDATE_INTERVAL_BYTES = 1024L * 1024L
-    private const val PROGRESS_UPDATE_INTERVAL_NANOS = 100_000_000L
+    private const val PROGRESS_UPDATE_INTERVAL_NANOS = 80_000_000L
     // A checkpoint is committed only after the corresponding partial bytes are fsynced.
     private const val RESUME_CHECKPOINT_INTERVAL_BYTES = 4L * 1024L * 1024L
     private const val HANDSHAKE_TIMEOUT_MS = 8_000
@@ -1112,8 +1113,8 @@ object UltraShareBatchTransport {
         }
 
     private fun configure(socket: Socket) {
-        socket.sendBufferSize = BUFFER_BYTES
-        socket.receiveBufferSize = BUFFER_BYTES
+        socket.sendBufferSize = SOCKET_BUFFER_BYTES
+        socket.receiveBufferSize = SOCKET_BUFFER_BYTES
         socket.tcpNoDelay = true
         socket.keepAlive = true
     }
