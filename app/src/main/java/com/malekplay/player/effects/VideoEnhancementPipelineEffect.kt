@@ -111,8 +111,7 @@ private class VideoEnhancementPipelineProgram(
             if (settings.hasActiveStage) {
                 VideoEnhancementMetrics.recordPipelineProcessed(
                     denoise = settings.denoiseEnabled || settings.aiBoostEnabled,
-                    detail = settings.detailEnabled || settings.aiBoostEnabled ||
-                        settings.contrastBoost > 0f || settings.clarityStrength > 0f,
+                    detail = settings.detailEnabled || settings.aiBoostEnabled,
                     presentationTimeUs = presentationTimeUs
                 )
             }
