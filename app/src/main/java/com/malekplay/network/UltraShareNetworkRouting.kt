@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.NetworkInterface
 
 /**
  * Resolves the Android Network whose local link or explicit route reaches a peer.
@@ -40,6 +41,23 @@ internal object UltraShareNetworkRouting {
     internal fun clearPinnedNetworks() {
         pinnedNetworksByHost.clear()
     }
+
+    /** Returns IPv4 addresses owned by an active Wi-Fi Direct P2P interface. */
+    fun wifiDirectLocalIpv4Addresses(): List<String> = runCatching {
+        java.util.Collections.list(NetworkInterface.getNetworkInterfaces())
+            .asSequence()
+            .filter { network ->
+                network.isUp && !network.isLoopback && isWifiDirectInterfaceName(network.name)
+            }
+            .flatMap { network ->
+                java.util.Collections.list(network.inetAddresses).asSequence()
+                    .filterIsInstance<Inet4Address>()
+                    .filter { !it.isLoopbackAddress && it.isSiteLocalAddress }
+                    .mapNotNull { it.hostAddress }
+            }
+            .distinct()
+            .toList()
+    }.getOrDefault(emptyList())
     /** Executes route attempts in order and stops only after the first successful connection. */
     internal fun <T> firstSuccessfulRoute(
         routes: List<T>,
