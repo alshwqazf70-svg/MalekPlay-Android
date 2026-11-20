@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.media3.common.util.UnstableApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -20,6 +21,7 @@ import org.junit.runner.RunWith
  * device playback with representative SDR/HDR clips.
  */
 @RunWith(AndroidJUnit4::class)
+@OptIn(UnstableApi::class)
 class VideoEnhancementCompatibilityInstrumentedTest {
     private val context: Context
         get() = InstrumentationRegistry.getInstrumentation().targetContext
