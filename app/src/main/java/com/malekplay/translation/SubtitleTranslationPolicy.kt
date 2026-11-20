@@ -39,7 +39,7 @@ internal object SubtitleTranslationPolicy {
         return buildString {
             lines.forEachIndexed { index, line ->
                 if (index > 0) {
-                    if (line.startsWith("-") || lines[index - 1].startsWith("-")) append('\n')
+                    if (line.startsWith("-")) append('\n')
                     else append(' ')
                 }
                 append(line)
