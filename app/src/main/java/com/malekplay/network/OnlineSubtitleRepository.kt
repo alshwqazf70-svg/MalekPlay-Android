@@ -244,6 +244,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val path = subtitle.sourceId
         val downloadUri = when {
             path.startsWith("https://") -> Uri.parse(path)
+            path.startsWith("//") -> Uri.parse("https:$path")
             path.startsWith("/") -> Uri.parse("https://dl.subdl.com$path")
             else -> Uri.parse("https://dl.subdl.com/$path")
         }
