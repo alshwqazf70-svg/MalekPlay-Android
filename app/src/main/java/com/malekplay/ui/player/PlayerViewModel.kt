@@ -59,6 +59,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -1135,6 +1137,7 @@ class PlayerViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
+                currentCoroutineContext().ensureActive()
                 _subtitleTranslationError.value = error.message ?: "تعذرت ترجمة ملف الترجمة"
             } finally {
                 if (generation == subtitleTranslationGeneration) {
@@ -1596,6 +1599,7 @@ class PlayerViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
+                currentCoroutineContext().ensureActive()
                 _onlineSubtitleError.value = if (error is java.io.IOException) {
                     "تعذر الاتصال بخدمة تنزيل الترجمة. تحقق من الإنترنت ثم أعد المحاولة."
                 } else error.message ?: "تعذر تنزيل الترجمة"
@@ -1663,6 +1667,7 @@ class PlayerViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
+                currentCoroutineContext().ensureActive()
                 _subtitleTranslationError.value = error.message ?: "تعذر تنزيل الترجمة وترجمتها"
             } finally {
                 if (generation == subtitleTranslationGeneration) {
