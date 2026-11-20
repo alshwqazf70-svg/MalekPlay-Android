@@ -44,7 +44,7 @@ object SubtitleQueryCleaner {
         val release = releaseBoundary.find(title)
         if (release != null) title = title.substring(0, release.range.first).trim()
         title = title.replace(Regex("""\s*[-–—]\s*$"""), "")
-            .replace(Regex("""\s+"""), " ").trim(' ', '.', '_', '-', '[', ']')
+            .replace(Regex("""\s+"""), " ").trim(' ', '.', '_', '-', '[', ']', '(', ')')
         return CleanSubtitleQuery(title, year, season, episode)
     }
 
