@@ -166,59 +166,100 @@ private class VideoEnhancementPipelineProgram(
                 return dot(c, vec3(0.2126, 0.7152, 0.0722));
             }
 
+            float bilateralWeight(vec3 sampleColor, vec3 centerColor, float rangeScale) {
+                float yDelta = abs(luma(sampleColor) - luma(centerColor));
+                float colorDelta = length(sampleColor - centerColor);
+                return exp(-(yDelta * 0.62 + colorDelta * 0.38) * rangeScale);
+            }
+
             void main() {
                 vec4 center = texture2D(uTexSampler, vTexSamplingCoord);
-                // A true one-sample passthrough is used while all enhancement stages
-                // are disabled, including while Google's surface bridge owns output.
+
+                // One texture fetch only while all user-controlled stages are off.
                 if (uDenoiseEnabled < 0.5 && uDetailEnabled < 0.5) {
                     gl_FragColor = center;
                     return;
                 }
 
                 vec2 d = uTexelSize;
+                vec3 source = center.rgb;
+                // Four axial samples serve both the bilateral filter and the
+                // local-contrast/sharpening stage; diagonals are fetched only for denoise.
                 vec3 n = texture2D(uTexSampler, vTexSamplingCoord + vec2(0.0, d.y)).rgb;
                 vec3 s = texture2D(uTexSampler, vTexSamplingCoord - vec2(0.0, d.y)).rgb;
                 vec3 e = texture2D(uTexSampler, vTexSamplingCoord + vec2(d.x, 0.0)).rgb;
                 vec3 w = texture2D(uTexSampler, vTexSamplingCoord - vec2(d.x, 0.0)).rgb;
-                vec3 ne = texture2D(uTexSampler, vTexSamplingCoord + d).rgb;
-                vec3 nw = texture2D(uTexSampler, vTexSamplingCoord + vec2(-d.x, d.y)).rgb;
-                vec3 se = texture2D(uTexSampler, vTexSamplingCoord + vec2(d.x, -d.y)).rgb;
-                vec3 sw = texture2D(uTexSampler, vTexSamplingCoord - d).rgb;
+                vec3 base = source;
 
-                vec3 source = center.rgb;
-                float centerLuma = luma(source);
-                float rangeScale = mix(14.0, 27.0, clamp(uDenoiseStrength + uAiBoost * 0.12, 0.0, 1.0));
-                float wn = exp(-(abs(luma(n) - centerLuma) * 0.60 + length(n - source) * 0.40) * rangeScale);
-                float ws = exp(-(abs(luma(s) - centerLuma) * 0.60 + length(s - source) * 0.40) * rangeScale);
-                float we = exp(-(abs(luma(e) - centerLuma) * 0.60 + length(e - source) * 0.40) * rangeScale);
-                float ww = exp(-(abs(luma(w) - centerLuma) * 0.60 + length(w - source) * 0.40) * rangeScale);
-                float wne = exp(-(abs(luma(ne) - centerLuma) * 0.60 + length(ne - source) * 0.40) * rangeScale) * 0.7071;
-                float wnw = exp(-(abs(luma(nw) - centerLuma) * 0.60 + length(nw - source) * 0.40) * rangeScale) * 0.7071;
-                float wse = exp(-(abs(luma(se) - centerLuma) * 0.60 + length(se - source) * 0.40) * rangeScale) * 0.7071;
-                float wsw = exp(-(abs(luma(sw) - centerLuma) * 0.60 + length(sw - source) * 0.40) * rangeScale) * 0.7071;
-                vec3 sum = source + n*wn + s*ws + e*we + w*ww +
-                    ne*wne + nw*wnw + se*wse + sw*wsw;
-                float weight = 1.0 + wn + ws + we + ww + wne + wnw + wse + wsw;
-                vec3 filtered = sum / max(weight, 0.0001);
-                float edgeProtection = smoothstep(0.035, 0.18, length(source - filtered));
-                float denoiseAmount = uDenoiseEnabled * clamp(uDenoiseStrength + uAiBoost * 0.10, 0.0, 0.58);
-                vec3 base = mix(source, filtered, denoiseAmount * (1.0 - edgeProtection * 0.58));
+                if (uDenoiseEnabled > 0.5) {
+                    vec3 ne = texture2D(uTexSampler, vTexSamplingCoord + d).rgb;
+                    vec3 nw = texture2D(uTexSampler, vTexSamplingCoord + vec2(-d.x, d.y)).rgb;
+                    vec3 se = texture2D(uTexSampler, vTexSamplingCoord + vec2(d.x, -d.y)).rgb;
+                    vec3 sw = texture2D(uTexSampler, vTexSamplingCoord - d).rgb;
 
-                float localLuma = luma((n + s + e + w) * 0.25);
-                float baseLuma = luma(base);
-                float midtoneMask = smoothstep(0.025, 0.18, baseLuma) *
-                    (1.0 - smoothstep(0.78, 0.98, baseLuma));
-                float localContrast = clamp(baseLuma - localLuma, -0.16, 0.16);
-                float contrastFactor = 1.0 + localContrast * uContrastBoost * midtoneMask;
-                vec3 detailVector = base - (n + s + e + w) * 0.25;
-                float edgeGate = smoothstep(0.006, 0.055, length(detailVector));
-                float detailAmount = uDetailEnabled * (uDetailStrength + uAiBoost * 0.16);
-                vec3 clarity = detailVector * uClarityStrength * edgeGate;
-                vec3 sharpened = base * contrastFactor +
-                    detailVector * detailAmount * edgeGate + clarity;
-                vec3 haloLimit = max(abs(base) * 0.12, vec3(0.025));
-                vec3 result = clamp(sharpened, base - haloLimit, base + haloLimit);
-                gl_FragColor = vec4(max(result, vec3(0.0)), center.a);
+                    float rangeScale = mix(12.0, 26.0,
+                        clamp(uDenoiseStrength + uAiBoost * 0.12, 0.0, 1.0));
+                    float wn = bilateralWeight(n, source, rangeScale);
+                    float ws = bilateralWeight(s, source, rangeScale);
+                    float we = bilateralWeight(e, source, rangeScale);
+                    float ww = bilateralWeight(w, source, rangeScale);
+                    float wne = bilateralWeight(ne, source, rangeScale) * 0.7071;
+                    float wnw = bilateralWeight(nw, source, rangeScale) * 0.7071;
+                    float wse = bilateralWeight(se, source, rangeScale) * 0.7071;
+                    float wsw = bilateralWeight(sw, source, rangeScale) * 0.7071;
+
+                    vec3 sum = source + n*wn + s*ws + e*we + w*ww +
+                        ne*wne + nw*wnw + se*wse + sw*wsw;
+                    float totalWeight = 1.0 + wn + ws + we + ww + wne + wnw + wse + wsw;
+                    vec3 bilateral = sum / max(totalWeight, 0.0001);
+
+                    // Detect low-frequency block boundaries in otherwise flat regions.
+                    // This lightly de-blocks 8x8/16x16 compression structure without
+                    // averaging across real edges or erasing fine image texture.
+                    float gx = abs(luma(e) - luma(w));
+                    float gy = abs(luma(n) - luma(s));
+                    float flatArea = 1.0 - smoothstep(0.018, 0.11, max(gx, gy));
+                    float directionalBlock = smoothstep(0.008, 0.050, abs(gx - gy)) * flatArea;
+                    vec3 crossAverage = (n + s + e + w) * 0.25;
+                    bilateral = mix(bilateral, (bilateral + crossAverage) * 0.5,
+                        directionalBlock * clamp(uDenoiseStrength * 0.22, 0.0, 0.12));
+
+                    float edgeProtection = smoothstep(0.030, 0.17, length(source - bilateral));
+                    float amount = clamp(uDenoiseStrength + uAiBoost * 0.10, 0.0, 0.58);
+                    base = mix(source, bilateral, amount * (1.0 - edgeProtection * 0.58));
+                }
+
+                if (uDetailEnabled > 0.5) {
+                    vec3 localAverage = (n + s + e + w) * 0.25;
+                    float y = luma(base);
+                    float localY = luma(localAverage);
+                    float midtoneMask = smoothstep(0.025, 0.18, y) *
+                        (1.0 - smoothstep(0.78, 0.985, y));
+                    float shadowMask = 1.0 - smoothstep(0.025, 0.34, y);
+                    float localContrast = clamp(y - localY, -0.16, 0.16);
+                    float contrastFactor = 1.0 + localContrast * uContrastBoost * midtoneMask;
+
+                    vec3 detail = base - localAverage;
+                    float edgeMagnitude = length(detail);
+                    float edgeGate = smoothstep(0.004, 0.052, edgeMagnitude);
+                    float ai = uAiBoost;
+                    float sharpness = uDetailStrength * (1.0 + ai * 0.18);
+                    float clarity = uClarityStrength * (1.0 + ai * 0.35);
+                    vec3 recovered = base * contrastFactor +
+                        vec3(shadowMask * 0.018 * (1.0 + ai * 0.35));
+                    vec3 sharpened = recovered + detail * (sharpness + clarity) * edgeGate;
+
+                    // CAS-inspired adaptive sharpening with a relative halo ceiling.
+                    // The luminance-weighted chroma guard protects natural skin colors.
+                    vec3 haloLimit = max(abs(base) * 0.115, vec3(0.018));
+                    vec3 delta = clamp(sharpened - base, -haloLimit, haloLimit);
+                    vec3 result = max(base + delta, vec3(0.0));
+                    float resultY = luma(result);
+                    result = mix(vec3(resultY), result, 0.96);
+                    base = result;
+                }
+
+                gl_FragColor = vec4(max(base, vec3(0.0)), center.a);
             }
         """
     }
