@@ -16,7 +16,8 @@ class UltraSharePairingReadinessTest {
             receiving: Boolean = true,
             invitationBlank: Boolean = true,
             p2pAttempted: Boolean = false,
-            peers: Boolean = false
+            peers: Boolean = false,
+            lanRoute: Boolean = false
         ) = UltraSharePairingReadiness.shouldStartWifiDirectFallback(
             receiving = receiving,
             lanProbeInProgress = lanProbe,
@@ -24,7 +25,8 @@ class UltraSharePairingReadinessTest {
             hotspotFallbackStarted = fallbackStarted,
             invitationIdBlank = invitationBlank,
             wifiDirectAlreadyAttempted = p2pAttempted,
-            hasActivePeers = peers
+            hasActivePeers = peers,
+            hasActiveLanRoute = lanRoute
         )
 
         assertTrue(allowed())
@@ -35,6 +37,7 @@ class UltraSharePairingReadinessTest {
         assertFalse(allowed(invitationBlank = false))
         assertFalse(allowed(p2pAttempted = true))
         assertFalse(allowed(peers = true))
+        assertFalse(allowed(lanRoute = true))
     }
 
     @Test fun authenticatedPeerIdentityMustMatchTheDiscoveredDeviceButAllowsLegacyIdentityAbsence() {
