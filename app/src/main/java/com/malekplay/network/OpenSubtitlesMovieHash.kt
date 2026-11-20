@@ -2,6 +2,7 @@ package com.malekplay.network
 
 import android.content.Context
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
@@ -29,14 +30,14 @@ object OpenSubtitlesMovieHash {
         if (uri.scheme == "file") return calculate(File(requireNotNull(uri.path)))
         val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
             ?: error("تعذر فتح ملف الفيديو لحساب البصمة")
-        descriptor.use { pfd ->
-            val size = pfd.statSize
-            require(size >= CHUNK_SIZE * 2L) {
-                "ملف الفيديو صغير جدًا لحساب بصمة OpenSubtitles"
-            }
-            // Some content providers expose pipe-backed descriptors which cannot seek.
-            // Sequential first/last chunk reads work for both regular files and pipes.
-            FileInputStream(pfd.fileDescriptor).use { input -> return calculate(input, size) }
+        val size = descriptor.statSize
+        require(size >= CHUNK_SIZE * 2L) {
+            "ملف الفيديو صغير جدًا لحساب بصمة OpenSubtitles"
+        }
+        // Some content providers expose pipe-backed descriptors which cannot seek.
+        // AutoCloseInputStream also owns and closes the ParcelFileDescriptor exactly once.
+        ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
+            return calculate(input, size)
         }
     }
 
