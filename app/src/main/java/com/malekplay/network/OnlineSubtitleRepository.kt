@@ -237,7 +237,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             .appendQueryParameter("film_name", title.take(150))
             .appendQueryParameter("languages", languages.ifBlank { "AR,EN" })
             .appendQueryParameter("subs_per_page", "30")
+            .appendQueryParameter("unpack", "1")
             .apply {
+                if (season != null && episode != null) appendQueryParameter("type", "tv")
                 if (season != null && episode != null) {
                     appendQueryParameter("season_number", season.toString())
                     appendQueryParameter("episode_number", episode.toString())
@@ -248,18 +250,32 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             ?: return emptyList()
         return buildList {
             for (index in 0 until data.length()) {
-                val item = data.optJSONObject(index) ?: continue
-                val downloadPath = item.optString("url").takeIf { it.isNotBlank() } ?: continue
-                val release = SubtitleProviderResultParser.release(item.optString("release_name"), title)
-                val extension = SubtitleProviderResultParser.format(release.substringAfterLast('.', "srt")) ?: "srt"
-                val lang = SubtitleProviderResultParser.language(
-                    item.optString("lang").ifBlank { item.optString("language") }
-                )
-                add(OnlineSubtitle(
-                    fileId = 0L, language = lang, release = release,
-                    downloads = SubtitleProviderResultParser.downloadCount(item.optInt("downloads")), format = extension,
-                    sourceId = downloadPath, provider = SUBDL_PROVIDER
-                ))
+                val parent = data.optJSONObject(index) ?: continue
+                val unpacked = parent.optJSONArray("unpack_files")
+                if (unpacked != null && unpacked.length() > 0) {
+                    for (fileIndex in 0 until unpacked.length()) {
+                        val file = unpacked.optJSONObject(fileIndex) ?: continue
+                        val parsed = SubtitleProviderResultParser.subDlSubtitle(
+                            url = file.optString("url"),
+                            releaseName = file.optString("release_name").ifBlank { file.optString("name") },
+                            languageCode = file.optString("language").ifBlank { file.optString("lang") },
+                            formatName = file.optString("format"),
+                            downloads = file.optInt("downloads"),
+                            fallbackTitle = title
+                        ) ?: continue
+                        add(parsed)
+                    }
+                } else {
+                    val parsed = SubtitleProviderResultParser.subDlSubtitle(
+                        url = parent.optString("url"),
+                        releaseName = parent.optString("release_name").ifBlank { parent.optString("name") },
+                        languageCode = parent.optString("language").ifBlank { parent.optString("lang") },
+                        formatName = parent.optString("format"),
+                        downloads = parent.optInt("downloads"),
+                        fallbackTitle = title
+                    ) ?: continue
+                    add(parsed)
+                }
             }
         }.distinctBy { it.sourceId }.take(40)
     }
