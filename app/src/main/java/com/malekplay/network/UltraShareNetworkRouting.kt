@@ -274,12 +274,19 @@ internal object UltraShareNetworkRouting {
                     }
                 }
             }.toSet()
-            candidates.asSequence()
-                .map { it.trim() }
-                .filter { it in localAddresses && UltraShareCore.isValidPrivateLanHost(it) }
-                .distinct()
-                .toList()
+            activeNonP2pHosts(candidates, localAddresses)
         }.getOrDefault(emptyList())
+
+    /** Keep only currently assigned private IPv4 addresses; stale QR hints are discarded. */
+    internal fun activeNonP2pHosts(
+        candidates: List<String>,
+        activeInterfaceAddresses: Set<String>
+    ): List<String> =
+        candidates.asSequence()
+            .map { it.trim() }
+            .filter { it in activeInterfaceAddresses && UltraShareCore.isValidPrivateLanHost(it) }
+            .distinct()
+            .toList()
 
     private fun hasNonP2pLanRoute(context: Context, host: String): Boolean = runCatching {
         val remote = InetAddress.getByName(host) as? Inet4Address ?: return@runCatching false
