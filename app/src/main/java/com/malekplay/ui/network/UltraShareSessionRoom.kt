@@ -187,7 +187,12 @@ fun UltraShareSessionRoom(
                     detail = if (isSendingRoom) remoteAddress.takeIf { it.isNotBlank() } else "هذا الهاتف"
                 )
             }
-            Text(status, color = statusColor, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (connected) "$status • القبول التلقائي مفعل" else status,
+                color = statusColor,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(7.dp)
