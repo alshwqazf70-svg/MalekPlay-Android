@@ -548,7 +548,7 @@ fun UltraShareExperienceScreen(
         }
     }
     LaunchedEffect(state.wifiDirectHost) {
-        state.wifiDirectHost?.let { connectedHost ->
+        state.wifiDirectHost?.takeIf { it.isNotBlank() }?.let { connectedHost ->
             host = connectedHost
             secret = ""
             page = UltraSharePage.SEND
