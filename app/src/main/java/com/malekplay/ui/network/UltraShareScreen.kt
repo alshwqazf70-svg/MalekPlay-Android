@@ -1707,7 +1707,7 @@ fun UltraShareScreen(
         }
     }
     LaunchedEffect(state.wifiDirectHost) {
-        host = state.wifiDirectHost.orEmpty()
+        state.wifiDirectHost?.takeIf { it.isNotBlank() }?.let { host = it }
     }
     fun scanQrWithCamera() {
         val options = ScanOptions().apply {
