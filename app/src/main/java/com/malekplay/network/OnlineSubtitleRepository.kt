@@ -196,7 +196,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 add(SubtitleQueryCleaner.appendEpisodeIfMissing(cleanTitle, season, episode))
             }
             if (season != null || episode != null) add(cleanTitle)
-        }.map(String::trim).filter(String::isNotBlank).distinctBy { it.lowercase(Locale.ROOT) }
+        }.map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase(Locale.ROOT) }
 
         val failures = mutableListOf<Exception>()
         candidates.forEach { query ->
