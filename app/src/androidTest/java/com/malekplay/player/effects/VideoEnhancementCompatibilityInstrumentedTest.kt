@@ -117,6 +117,28 @@ class VideoEnhancementCompatibilityInstrumentedTest {
     }
 
     @Test
+    fun hdAnd720pSourcesRetainDenoiseDetailAndAdaptiveClarityStages() {
+        val config = VideoEnhancementPipelineConfig(
+            denoiseEnabled = true,
+            detailEnabled = true,
+            aiBoostEnabled = false,
+            denoiseStrength = VideoEnhancementProfile.BALANCED.denoiseStrength,
+            detailStrength = VideoEnhancementProfile.BALANCED.detailStrength,
+            contrastBoost = VideoEnhancementProfile.BALANCED.contrastBoost,
+            clarityStrength = VideoEnhancementProfile.BALANCED.clarityStrength
+        )
+        assertTrue(config.hasActiveStage)
+        val target = VideoUpscaleTargetPolicy.resolve(
+            sourceWidth = 1280,
+            sourceHeight = 720,
+            displayWidth = 2960,
+            displayHeight = 1440,
+            maxLongEdge = VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge
+        )
+        assertEquals(VideoUpscaleTarget(2560, 1440), target)
+    }
+
+    @Test
     fun disabledShaderConfigRemainsPassthroughEvenWithRetainedPresetValues() {
         val effect = VideoEnhancementPipelineEffect(
             VideoEnhancementPipelineConfig(
