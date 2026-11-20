@@ -2006,7 +2006,7 @@ class UltraShareForegroundService : Service() {
                         var activeV2Host = host
                         v2Candidates.chunked(UltraShareBatchProtocol.MAX_FILES).forEach { candidateChunk ->
                             try {
-                                val batch = sendBatchWithRetry(
+                                val batch = sendBatchWithFileIsolation(
                                     sources = candidateChunk.map { it.second },
                                     host = activeV2Host,
                                     secret = secret,
@@ -2292,7 +2292,7 @@ class UltraShareForegroundService : Service() {
                     try {
                         var activePeerHost = auth.host
                         sources.chunked(UltraShareBatchProtocol.MAX_FILES).forEach { chunk ->
-                            val outcome = sendBatchWithRetry(
+                            val outcome = sendBatchWithFileIsolation(
                                 sources = chunk,
                                 host = activePeerHost,
                                 secret = auth.secret,
@@ -2507,6 +2507,101 @@ class UltraShareForegroundService : Service() {
                 coordinator.deriveDirectLinkCredential(localId, remoteId)
             } else null
         }.getOrNull()
+    }
+
+    /**
+     * Keep the efficient V2 multi-file session as the fast path. If any source or
+     * socket fails mid-batch, retry each file in its own existing V2 session:
+     * durable receiver receipts make already-published files idempotent, while a
+     * bad URI can no longer prevent later healthy files from being attempted.
+     */
+    private suspend fun sendBatchWithFileIsolation(
+        sources: List<UltraShareBatchTransport.Source>,
+        host: String,
+        secret: String,
+        candidates: List<UltraShareNegotiation.Candidate> = emptyList(),
+        expectedPeerId: String? = null,
+        onHostChanged: (String) -> Unit = {},
+        onProgress: (UltraShareBatchTransport.FileProgress) -> Unit
+    ): UltraShareBatchTransport.BatchOutcome {
+        require(sources.isNotEmpty())
+        require(sources.map { it.fileId }.distinct().size == sources.size) {
+            "تحتوي قائمة الإرسال على معرّف ملف مكرر."
+        }
+        var activeHost = host
+        var successfulBatch: UltraShareBatchTransport.BatchOutcome? = null
+        val outcomes = UltraShareBatchRecovery.execute(
+            items = sources,
+            sendBatch = { batchSources ->
+                val outcome = sendBatchWithRetry(
+                    sources = batchSources,
+                    host = activeHost,
+                    secret = secret,
+                    candidates = candidates,
+                    expectedPeerId = expectedPeerId,
+                    onHostChanged = { newHost ->
+                        activeHost = newHost
+                        onHostChanged(newHost)
+                    },
+                    onProgress = onProgress
+                )
+                successfulBatch = outcome
+                outcome.files
+            },
+            sendSingle = { source ->
+                val outcome = sendBatchWithRetry(
+                    sources = listOf(source),
+                    host = activeHost,
+                    secret = secret,
+                    candidates = candidates,
+                    expectedPeerId = expectedPeerId,
+                    onHostChanged = { newHost ->
+                        activeHost = newHost
+                        onHostChanged(newHost)
+                    },
+                    onProgress = onProgress
+                )
+                outcome.files.singleOrNull()
+                    ?: throw IOException("لم يُرجع الجهاز المستقبل نتيجة للملف ${source.name}.")
+            },
+            onItemFailure = { source, failure ->
+                UltraShareDiagnostics.failure(
+                    "SEND_V2_FILE_RECOVERY",
+                    failure,
+                    "host=$activeHost;fileId=${source.fileId}"
+                )
+                val safeName = runCatching {
+                    UltraShareCore.sanitizeFileName(source.name)
+                }.getOrDefault(source.name.take(180).ifBlank { "ملف غير صالح" })
+                UltraShareBatchTransport.FileOutcome(
+                    fileId = source.fileId,
+                    fileName = safeName,
+                    receivedFile = null,
+                    status = UltraShareBatchProtocol.FileStatus.FAILED,
+                    transferredBytes = 0L,
+                    error = failure.localizedMessage?.take(240)
+                        ?: "تعذر إرسال الملف."
+                )
+            },
+            onBatchFailure = { failure ->
+                successfulBatch = null
+                UltraShareDiagnostics.failure(
+                    "SEND_V2_BATCH_FILE_RECOVERY",
+                    failure,
+                    "host=$activeHost;files=${sources.size};fallback=per_file"
+                )
+                updateState { current ->
+                    current.copy(
+                        status = "تعثر إرسال الدفعة؛ نعيد محاولة كل ملف منفرداً للحفاظ على بقية الطابور..."
+                    )
+                }
+            }
+        )
+        return successfulBatch
+            ?: UltraShareBatchTransport.BatchOutcome(
+                java.util.UUID.randomUUID().toString(),
+                outcomes
+            )
     }
 
     private suspend fun sendBatchWithRetry(
