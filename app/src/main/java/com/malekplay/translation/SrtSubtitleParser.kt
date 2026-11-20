@@ -80,7 +80,7 @@ internal object SrtSubtitleParser {
         ) return "ass"
         val hasArrow = normalized.contains("-->")
         if (!hasArrow) return null
-        val vttTiming = Regex("""(?m)^\\s*(?:\\d{1,2}:)?\\d{1,2}:\\d{2}\\.\\d{3}\\s+-->""")
+        val vttTiming = Regex("""(?m)^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}\.\d{3}\s+-->""")
         return if (vttTiming.containsMatchIn(normalized)) "vtt" else "srt"
     }
 
