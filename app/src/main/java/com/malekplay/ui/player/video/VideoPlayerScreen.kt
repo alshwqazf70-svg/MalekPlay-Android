@@ -1268,6 +1268,7 @@ fun VideoPlayerScreen(
                 },
                 onDownload = viewModel::downloadOnlineSubtitle,
                 onSaveCredentials = viewModel::saveOnlineSubtitleCredentials,
+                onSaveProviderKeys = viewModel::saveOnlineSubtitleProviderKeys,
                 onDismiss = { if (!onlineSubtitleLoading) showOnlineSubtitles = false }
             )
         }
