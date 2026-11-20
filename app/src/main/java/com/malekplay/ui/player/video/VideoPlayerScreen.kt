@@ -591,6 +591,7 @@ fun VideoPlayerScreen(
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     var googleAiEnabled by remember { mutableStateOf(false) }
     var internalAiFallback by remember { mutableStateOf(false) }
+    var internalAiFallbackPending by remember { mutableStateOf(false) }
     var googleAiState by remember {
         mutableStateOf(GoogleMediaEnhancementState.DISABLED)
     }
@@ -614,22 +615,30 @@ fun VideoPlayerScreen(
     }
 
     fun activateInternalAiFallback() {
-        if (internalAiFallback) return
-        internalAiFallback = true
-        viewModel.setVideoUpscalingEnabled(true)
-        viewModel.setVideoNoiseReductionEnabled(true)
-        googleAiState = GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE
-        googleAiProgress = 0
-        googleAiMessage = "يعمل محرك الذكاء البصري الداخلي عبر GPU (الوضع الذكي)"
+        if (internalAiFallback || internalAiFallbackPending) return
+        internalAiFallbackPending = true
+        viewModel.setInternalGpuEnhancementEnabled(true) { applied ->
+            internalAiFallbackPending = false
+            if (applied) {
+                internalAiFallback = true
+                googleAiState = GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE
+                googleAiProgress = 0
+                googleAiMessage = "يعمل محرك GPU الداخلي مع تحسين التفاصيل وتقليل الضوضاء"
+            } else {
+                internalAiFallback = false
+                googleAiState = GoogleMediaEnhancementState.UNSUPPORTED
+                googleAiMessage = "تعذر تشغيل محرك GPU على مسار الإخراج الحالي؛ لم يتم تغيير سطح الفيديو."
+            }
+        }
     }
 
     LaunchedEffect(googleAiEnabled, controller, playerView, videoUpscalingEnabled, videoNoiseReductionEnabled) {
         if (!googleAiEnabled) {
-            if (internalAiFallback) {
-                viewModel.setVideoUpscalingEnabled(false)
-                viewModel.setVideoNoiseReductionEnabled(false)
+            if (internalAiFallback || internalAiFallbackPending) {
+                viewModel.setInternalGpuEnhancementEnabled(false)
             }
             internalAiFallback = false
+            internalAiFallbackPending = false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) googleAiBridge?.close()
             googleAiBridge = null
             googleAiState = GoogleMediaEnhancementState.DISABLED
@@ -644,8 +653,7 @@ fun VideoPlayerScreen(
         // Wait until the service confirms both OpenGL effects are off before routing
         // decoded frames into the separate Google AI surface chain.
         if (videoUpscalingEnabled || videoNoiseReductionEnabled) {
-            viewModel.setVideoUpscalingEnabled(false)
-            viewModel.setVideoNoiseReductionEnabled(false)
+            viewModel.setInternalGpuEnhancementEnabled(false)
             return@LaunchedEffect
         }
 
@@ -1012,10 +1020,26 @@ fun VideoPlayerScreen(
                 DropdownMenuItem(
                     text = {
                         Text(
+                            "تحسين جودة الفيديو: " +
+                                if (videoUpscalingEnabled || videoNoiseReductionEnabled) "مفعّل" else "متوقف"
+                        )
+                    },
+                    enabled = !googleAiEnabled,
+                    onClick = {
+                        showMenu = false
+                        viewModel.setInternalGpuEnhancementEnabled(
+                            !(videoUpscalingEnabled || videoNoiseReductionEnabled)
+                        )
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
                             (if (videoEnhancementProfile == VideoEnhancementProfile.ECONOMY) "✓ " else "") +
                                 stringResource(R.string.player_video_quality_economy)
                         )
                     },
+                    enabled = !googleAiEnabled,
                     onClick = {
                         showMenu = false
                         viewModel.setVideoEnhancementProfile(VideoEnhancementProfile.ECONOMY)
@@ -1028,6 +1052,7 @@ fun VideoPlayerScreen(
                                 stringResource(R.string.player_video_quality_balanced)
                         )
                     },
+                    enabled = !googleAiEnabled,
                     onClick = {
                         showMenu = false
                         viewModel.setVideoEnhancementProfile(VideoEnhancementProfile.BALANCED)
@@ -1040,6 +1065,7 @@ fun VideoPlayerScreen(
                                 stringResource(R.string.player_video_quality_ultra)
                         )
                     },
+                    enabled = !googleAiEnabled,
                     onClick = {
                         showMenu = false
                         viewModel.setVideoEnhancementProfile(VideoEnhancementProfile.ULTRA)
@@ -1086,11 +1112,6 @@ fun VideoPlayerScreen(
                     },
                     onClick = {
                         showMenu = false
-                        if (!googleAiEnabled) {
-                            // Avoid stacking the existing OpenGL effects with the Google AI surface chain.
-                            viewModel.setVideoUpscalingEnabled(false)
-                            viewModel.setVideoNoiseReductionEnabled(false)
-                        }
                         googleAiEnabled = !googleAiEnabled
                     }
                 )
@@ -1122,6 +1143,10 @@ fun VideoPlayerScreen(
             )
         }
 
+        LaunchedEffect(showVideoDiagnostics) {
+            viewModel.setVideoDiagnosticsVisible(showVideoDiagnostics)
+        }
+
         if (showVideoDiagnostics) {
             val diagnostics = videoEnhancementDiagnostics
             AlertDialog(
@@ -1151,6 +1176,10 @@ fun VideoPlayerScreen(
                                     MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                             )
                         }
+                        Text(
+                            "تحسين GPU: " +
+                                if (diagnostics.upscalingEnabled || diagnostics.noiseReductionEnabled) "مفعّل" else "متوقف"
+                        )
                         Text(stringResource(if (diagnostics.bridgeAttached) R.string.player_diag_bridge_ready else R.string.player_diag_bridge_missing))
                         Text(stringResource(if (diagnostics.upscalingSubmitted) R.string.player_diag_lanczos_submitted else R.string.player_diag_lanczos_not_submitted))
                         Text(stringResource(R.string.player_diag_denoise_draws, diagnostics.denoiseDraws))
