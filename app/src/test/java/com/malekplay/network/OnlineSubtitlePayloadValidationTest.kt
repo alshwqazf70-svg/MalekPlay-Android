@@ -28,4 +28,12 @@ class OnlineSubtitlePayloadValidationTest {
         assertFalse(isValidSubtitlePayload("WEBVTT".toByteArray(), "exe"))
         assertFalse(isValidSubtitlePayload(ByteArray(8 * 1024 * 1024 + 1), "srt"))
     }
+    @Test
+    fun providerCacheTokensDoNotReuseJavaHashCollisions() {
+        // "Aa" and "BB" intentionally share String.hashCode() but must not share files.
+        assertTrue("Aa".hashCode() == "BB".hashCode())
+        assertFalse(subtitleCacheToken("Aa") == subtitleCacheToken("BB"))
+        assertTrue(subtitleCacheToken("provider-id").matches(Regex("[a-f0-9]{64}")))
+    }
+
 }
