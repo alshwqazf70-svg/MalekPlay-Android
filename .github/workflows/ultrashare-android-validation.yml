@@ -29,12 +29,20 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
+      - name: Locate SDK manager and accept Android SDK licenses
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager_path="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          test -n "$sdkmanager_path"
+          echo "SDKMANAGER_PATH=$sdkmanager_path" >> "$GITHUB_ENV"
+          echo "$(dirname "$sdkmanager_path")" >> "$GITHUB_PATH"
+          set +o pipefail
+          yes | "$sdkmanager_path" --licenses
       - name: Install Android SDK platform and build tools
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        run: "$SDKMANAGER_PATH" "platforms;android-36" "build-tools;36.0.0"
       - name: Compile Android app and run JVM tests
         run: ./gradlew --no-daemon --stacktrace --max-workers=2 :app:compileDebugKotlin :app:testDebugUnitTest
       - name: Upload JVM test reports
