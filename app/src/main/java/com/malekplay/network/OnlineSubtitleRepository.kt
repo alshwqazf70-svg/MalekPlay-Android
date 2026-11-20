@@ -28,6 +28,20 @@ data class OnlineSubtitle(
     val provider: String = "opensubtitles"
 )
 
+/** Collision-resistant, filesystem-safe cache token for untrusted provider identifiers. */
+internal fun subtitleCacheToken(sourceId: String): String {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(sourceId.toByteArray(Charsets.UTF_8))
+    val hex = "0123456789abcdef"
+    return buildString(digest.size * 2) {
+        digest.forEach { byte ->
+            val value = byte.toInt() and 0xff
+            append(hex[value ushr 4])
+            append(hex[value and 0x0f])
+        }
+    }
+}
+
 /** Strict content/extension check shared by the cache writer and unit tests. */
 internal fun isValidSubtitlePayload(bytes: ByteArray, extension: String): Boolean {
     if (extension !in setOf("srt", "ass", "ssa", "vtt") ||
@@ -210,7 +224,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             "معرّف الترجمة غير صالح"
         }
         val dir = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
-        val cachePrefix = "subtitle-public-${subtitle.sourceId.hashCode().toUInt()}"
+        val cachePrefix = "subtitle-public-${subtitleCacheToken(subtitle.sourceId)}"
         dir.listFiles()?.firstOrNull {
             it.name.startsWith("$cachePrefix.") && isValidCachedSubtitle(it)
         }?.let { return Uri.fromFile(it) }
@@ -244,7 +258,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
             require(bytes.isNotEmpty()) { "ملف الترجمة فارغ" }
             val target = if (bytes.isZip()) {
-                extract(bytes, dir, subtitle.sourceId.hashCode().toLong(), cachePrefix)
+                extract(bytes, dir, 0L, cachePrefix)
             } else {
                 val ext = detect(bytes) ?: subtitle.format.takeIf { it in FORMATS }
                     ?: error("صيغة ملف الترجمة غير مدعومة")
@@ -334,8 +348,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         response.use {
             if (!it.isSuccessful) error("تعذر تنزيل ترجمة SubDL (HTTP ${it.code})")
             val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
-            val prefix = "subtitle-subdl-${subtitle.sourceId.hashCode().toUInt()}"
-            val target = if (bytes.isZip()) extract(bytes, directory, subtitle.sourceId.hashCode().toLong(), prefix)
+            val prefix = "subtitle-subdl-${subtitleCacheToken(subtitle.sourceId)}"
+            val target = if (bytes.isZip()) extract(bytes, directory, 0L, prefix)
             else {
                 val ext = detect(bytes) ?: subtitle.format
                 writeSubtitleAtomically(directory, "$prefix.$ext", bytes)
