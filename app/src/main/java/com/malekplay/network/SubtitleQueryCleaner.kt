@@ -15,7 +15,7 @@ object SubtitleQueryCleaner {
         Regex("""(?i)(?:^|[ ._\-])S(\d{1,2})[ ._\-]*E(\d{1,3})(?:\b|$)"""),
         Regex("""(?i)(?:^|[ ._\-])(\d{1,2})x(\d{1,3})(?:\b|$)""")
     )
-    private val yearPattern = Regex("""(?:^|[ ._()\-])(19\d{2}|20\d{2})(?:$|[ ._()\-])""")
+    private val yearPattern = Regex("""(?:^|[ ._()\-])(19\d{2}|20\d{2})(?=$|[ ._()\-])""")
     private val releaseBoundary = Regex(
         """(?i)(?:^|[ ._\-])(?:480p|576p|720p|1080p|1440p|2160p|4k|8k|x264|x265|h\.?264|h\.?265|hevc|avc|10bit|8bit|av1|web[ ._-]?dl|web[ ._-]?rip|blu[ ._-]?ray|brrip|bdrip|hdrip|hdtv|dvdrip|aac(?:\d(?:\.\d)?(?:ch)?)?|ddp?(?:\d(?:\.\d)?)?(?:ch)?|atmos|dts(?:-hd)?|truehd|proper|repack|limited|internal|extended|remux|\[.*?\])(?:$|[ ._\-])"""
     )
