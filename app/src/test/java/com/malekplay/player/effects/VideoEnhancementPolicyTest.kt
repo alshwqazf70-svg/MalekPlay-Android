@@ -1,10 +1,12 @@
 package com.malekplay.player.effects
 
+import androidx.media3.common.util.UnstableApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(UnstableApi::class)
 class VideoEnhancementPolicyTest {
     @Test fun legacyAndroidIsCappedAtEconomy() {
         val result = VideoEnhancementPolicy.resolve(
