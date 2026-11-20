@@ -57,6 +57,9 @@ data class UltraShareServiceState(
     val queueTransferredBytes: Long = 0L,
     val pendingConnection: UltraShareControlChannel.Request? = null,
     val activePeers: List<UltraSharePeerSession> = emptyList(),
+    /** Authenticated peers currently attached to the temporary bidirectional room. */
+    val roomPeers: List<UltraSharePeerSession> = emptyList(),
+    val roomConnected: Boolean = false,
     val reconnectablePeers: List<UltraSharePeerSession> = emptyList(),
     val peerTransfers: List<UltraSharePeerTransfer> = emptyList(),
     /** Authenticated outbound MPC2 peers; distinct from inbound activePeers. */
@@ -1853,12 +1856,20 @@ class UltraShareForegroundService : Service() {
 
     private fun updateState(transform: (UltraShareServiceState) -> UltraShareServiceState) {
         mutableState.update { current ->
-            transform(current).copy(sending = sendJobsByPeer.isNotEmpty())
+            val next = transform(current)
+            next.copy(
+                sending = sendJobsByPeer.isNotEmpty(),
+                roomPeers = next.activePeers,
+                roomConnected = next.activePeers.isNotEmpty()
+            )
         }
     }
 
     private fun publish(state: UltraShareServiceState) {
-        mutableState.value = state
+        mutableState.value = state.copy(
+            roomPeers = state.activePeers,
+            roomConnected = state.activePeers.isNotEmpty()
+        )
     }
 
     private fun currentState(): UltraShareServiceState = mutableState.value
