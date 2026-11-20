@@ -204,7 +204,7 @@ internal object SrtSubtitleParser {
     fun restoreMarkup(text: String, tags: List<String>): String {
         var restored = text
         tags.forEachIndexed { index, tag ->
-            restored = Regex("""§\\s*T\\s*$index\\s*§""", RegexOption.IGNORE_CASE).replace(restored, tag)
+            restored = Regex("""§\s*T\s*$index\s*§""", RegexOption.IGNORE_CASE).replace(restored, tag)
         }
         return restored
     }
