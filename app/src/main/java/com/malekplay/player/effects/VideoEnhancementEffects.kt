@@ -47,8 +47,6 @@ private class SpatialNoiseReductionProgram(
             program.setFloatsUniform("uTransformationMatrix", identity)
             program.setFloatsUniform("uTexTransformationMatrix", identity)
             program.setFloatUniform("uStrength", strength)
-            program.setFloatUniform("uContrastBoost", contrastBoost)
-            program.setFloatUniform("uClarityStrength", clarityStrength)
         } catch (error: Exception) {
             // A partially initialized GL program is not reachable through
             // BaseGlShaderProgram.release(), so dispose it before failing.
@@ -212,6 +210,8 @@ private class VideoDetailEnhancementProgram(
             program.setFloatsUniform("uTransformationMatrix", identity)
             program.setFloatsUniform("uTexTransformationMatrix", identity)
             program.setFloatUniform("uStrength", strength)
+            program.setFloatUniform("uContrastBoost", contrastBoost)
+            program.setFloatUniform("uClarityStrength", clarityStrength)
         } catch (error: Exception) {
             // A partially initialized GL program is not reachable through
             // BaseGlShaderProgram.release(), so dispose it before failing.
