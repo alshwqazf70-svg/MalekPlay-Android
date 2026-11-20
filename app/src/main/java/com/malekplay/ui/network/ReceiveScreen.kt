@@ -26,7 +26,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,7 +57,8 @@ fun ReceiveScreen(
     onSendToGroup: () -> Unit,
     onOpenReceived: (Uri, String) -> Unit,
     onExportReceived: (String) -> Unit
-) {
+ ) {
+    var showAdvancedPairing by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
             when {
@@ -115,20 +121,17 @@ fun ReceiveScreen(
                         Modifier.fillMaxWidth().background(Color(0xFFF1F5FC), RoundedCornerShape(12.dp)).padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("اسم المجموعة", color = Color(0xFF69758B), style = MaterialTheme.typography.labelMedium)
+                        Text("اسم الغرفة", color = Color(0xFF69758B), style = MaterialTheme.typography.labelMedium)
                         Text(
                             android.os.Build.MODEL.orEmpty().ifBlank { "MalekPlayer Android" },
                             color = Color(0xFF30394C),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        Text("كلمة المرور", color = Color(0xFF69758B), style = MaterialTheme.typography.labelMedium)
-                        Text(
-                            state.pairingSecret.ifBlank { "جارٍ إنشاء رمز الاقتران…" },
-                            color = Color(0xFF3568C6),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
+                        state.hotspotSsid?.takeIf { it.isNotBlank() }?.let { ssid ->
+                            Text("اسم شبكة Wi-Fi", color = Color(0xFF69758B), style = MaterialTheme.typography.labelMedium)
+                            Text(ssid, color = Color(0xFF30394C), fontWeight = FontWeight.SemiBold)
+                        }
                     }
                     Box(
                         Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(12.dp)).padding(5.dp),
@@ -156,6 +159,19 @@ fun ReceiveScreen(
                                     textAlign = TextAlign.Center
                                 )
                             }
+                        }
+                    }
+                    TextButton(onClick = { showAdvancedPairing = !showAdvancedPairing }) {
+                        Text(if (showAdvancedPairing) "إخفاء خيارات الاتصال اليدوي" else "خيارات متقدمة / اتصال يدوي")
+                    }
+                    if (showAdvancedPairing) {
+                        Column(
+                            Modifier.fillMaxWidth().background(Color(0xFFF1F5FC), RoundedCornerShape(12.dp)).padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text("رمز الاقتران", color = Color(0xFF69758B), style = MaterialTheme.typography.labelMedium)
+                            Text(state.pairingSecret.ifBlank { "جارٍ إنشاء رمز الاقتران…" }, color = Color(0xFF3568C6), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text("استخدمه فقط عند تعذر مسح رمز QR.", color = Color(0xFF69758B), style = MaterialTheme.typography.labelSmall)
                         }
                     }
                     Text(
