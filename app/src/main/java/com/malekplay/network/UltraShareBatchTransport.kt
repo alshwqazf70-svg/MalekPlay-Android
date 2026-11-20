@@ -1151,7 +1151,7 @@ object UltraShareBatchTransport {
         inputOffset: Int = 0, inputLength: Int = plain.size
     ) {
         require(inputOffset >= 0 && inputLength >= 0 && inputOffset <= plain.size - inputLength)
-        require(inputLength <= UltraShareBatchProtocol.MAX_MANIFEST_BYTES + 64)
+        require(inputLength <= maxOf(UltraShareBatchProtocol.MAX_MANIFEST_BYTES + 64, CHUNK_BYTES + 7))
         val activeCipher = cipher ?: Cipher.getInstance("AES/GCM/NoPadding")
         activeCipher.init(Cipher.ENCRYPT_MODE, keySpec ?: SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce(prefix, sequence)))
         if (encryptedBuffer != null) {
