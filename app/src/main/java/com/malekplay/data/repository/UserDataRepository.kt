@@ -2,6 +2,7 @@ package com.malekplay.data.repository
 
 import com.malekplay.data.local.dao.UserDataDao
 import com.malekplay.data.local.entity.FavouriteEntity
+import com.malekplay.data.local.entity.HistoryEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -47,6 +48,15 @@ class UserDataRepository @Inject constructor(
 
     suspend fun recentHistoryIds(limit: Int): List<String> =
         withContext(Dispatchers.IO) { userDataDao.recentHistoryIds(limit) }
+
+    /** One-shot bounded history snapshot used by backup export and rollback. */
+    suspend fun historySnapshot(): List<HistoryEntity> =
+        withContext(Dispatchers.IO) { userDataDao.historySnapshot() }
+
+    /** Replaces the complete playback history atomically during restore. */
+    suspend fun replaceHistory(entries: List<HistoryEntity>) = withContext(Dispatchers.IO) {
+        userDataDao.replaceHistory(entries)
+    }
 
     suspend fun removeHistory(mediaId: String) =
         withContext(Dispatchers.IO) { userDataDao.removeHistory(mediaId) }
