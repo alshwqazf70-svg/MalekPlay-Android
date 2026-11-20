@@ -11,6 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -46,6 +48,7 @@ import javax.crypto.spec.SecretKeySpec
  */
 object UltraShareBatchTransport {
     const val DEFAULT_MAX_PEERS = 8
+    internal const val MAX_PARALLEL_SOURCE_PREPARATION = 2
     const val MAX_CONCURRENT_PEERS = 16
 
     /** Scale parallel receive workers to the Android app heap rather than risking OOM on old phones. */
@@ -276,6 +279,29 @@ object UltraShareBatchTransport {
         }
     }
 
+    /**
+     * Ordered, fail-fast bounded fan-out used for source preparation. Results keep
+     * input order even when slower content providers finish after later sources.
+     */
+    internal suspend fun <T, R> mapSourcesBounded(
+        sources: List<T>,
+        maxConcurrency: Int = MAX_PARALLEL_SOURCE_PREPARATION,
+        transform: suspend (T) -> R
+    ): List<R> {
+        require(maxConcurrency in 1..MAX_PARALLEL_PEERS) {
+            "حد التوازي لتجهيز الملفات غير صالح."
+        }
+        if (sources.isEmpty()) return emptyList()
+        val permits = Semaphore(maxConcurrency)
+        return coroutineScope {
+            sources.map { source ->
+                async {
+                    permits.withPermit { transform(source) }
+                }
+            }.awaitAll()
+        }
+    }
+
     suspend fun sendBatch(
         resolver: ContentResolver,
         sources: List<Source>,
@@ -297,7 +323,10 @@ object UltraShareBatchTransport {
             "SOURCE_PREPARATION_STARTED",
             mapOf("peerHost" to host, "fileCount" to sources.size)
         )
-        val prepared = sources.map { source ->
+        // Hash independent content-provider streams concurrently, but keep the
+        // fan-out deliberately small for API 23 devices and low-memory OEM builds.
+        // awaitAll preserves the caller's source order in the resulting manifest.
+        val prepared = mapSourcesBounded(sources, MAX_PARALLEL_SOURCE_PREPARATION) { source ->
             require(source.sizeBytes in 1..UltraShareCore.MAX_FILE_BYTES)
             val name = UltraShareCore.sanitizeFileName(source.name)
             val mime = UltraShareCore.sanitizeMimeType(source.mimeType)
