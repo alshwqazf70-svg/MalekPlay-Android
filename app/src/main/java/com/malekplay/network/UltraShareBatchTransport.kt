@@ -699,9 +699,19 @@ object UltraShareBatchTransport {
             .keys
         fun transferStorageIdentity(entry: UltraShareBatchProtocol.FileEntry): String {
             val contentIdentity = UltraShareCore.buildTransferId(entry.name, entry.sizeBytes, entry.sha256)
-            return if (contentIdentity in duplicateTransferIdentities) {
-                contentIdentity + "-" + entry.id.replace("-", "")
-            } else contentIdentity
+            val perFileIdentity = contentIdentity + "-" + entry.id.replace("-", "")
+            val perFilePrefix = ".ultrashare-v2-$perFileIdentity"
+            val legacyPrefix = ".ultrashare-v2-$contentIdentity"
+            val hasPerFileState = listOf(".part", ".resume", ".resume.tmp", ".received")
+                .any { File(stateDirectory, perFilePrefix + it).exists() }
+            if (hasPerFileState) return perFileIdentity
+            val hasLegacyState = listOf(".part", ".resume", ".resume.tmp", ".received")
+                .any { File(stateDirectory, legacyPrefix + it).exists() }
+            // Read old checkpoints/receipts created before file-ID isolation, but
+            // always create new per-entry state so identical files never collide.
+            return if (hasLegacyState && contentIdentity !in duplicateTransferIdentities) {
+                contentIdentity
+            } else perFileIdentity
         }
         val completedFiles = HashMap<String, File>()
         val partials = manifest.entries.map { entry ->
