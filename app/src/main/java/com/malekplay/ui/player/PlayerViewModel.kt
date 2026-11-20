@@ -1151,6 +1151,9 @@ class PlayerViewModel @Inject constructor(
         subtitleTranslationJob = null
         _subtitleTranslationLoading.value = false
         _onlineSubtitleLoading.value = false
+        _subtitleTranslationCompletedCues.value = 0
+        _subtitleTranslationTotalCues.value = 0
+        _subtitleTranslationError.value = null
     }
 
     // --------------------------------------------------------------- tracks
