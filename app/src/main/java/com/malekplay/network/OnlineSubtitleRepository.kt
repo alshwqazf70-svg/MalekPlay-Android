@@ -293,7 +293,12 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             "رابط تنزيل ترجمة SubDL غير آمن"
         }
         val directory = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
-        val response = client.newCall(Request.Builder().url(downloadUri.toString()).get().build()).execute()
+        val downloadRequest = Request.Builder().url(downloadUri.toString())
+            .apply {
+                val key = vault.load(SUBDL_KEY_SLOT)?.first
+                if (!key.isNullOrBlank()) header("x-api-key", key)
+            }.get().build()
+        val response = client.newCall(downloadRequest).execute()
         response.use {
             if (!it.isSuccessful) error("تعذر تنزيل ترجمة SubDL (HTTP ${it.code})")
             val bytes = it.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
