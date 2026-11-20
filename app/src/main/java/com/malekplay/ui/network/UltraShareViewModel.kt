@@ -16,6 +16,7 @@ import com.malekplay.data.repository.MediaRepository
 import com.malekplay.network.UltraShareDiscovery
 import com.malekplay.network.UltraShareNegotiation
 import com.malekplay.network.UltraShareNetworkRouting
+import com.malekplay.network.UltraSharePairingReadiness
 import com.malekplay.network.UltraSharePlatformCompatibility
 import com.malekplay.network.UltraShareQueueEntry
 import com.malekplay.network.UltraShareReceivedEntry
@@ -260,7 +261,10 @@ class UltraShareViewModel @Inject constructor(
                         hotspotFallbackStarted = hotspotFallbackStarted,
                         invitationIdBlank = _state.value.invitationId.isBlank(),
                         wifiDirectAlreadyAttempted = wifiDirectPrimaryAttempt,
-                        hasActivePeers = serviceState.activePeers.isNotEmpty()
+                        hasActivePeers = serviceState.activePeers.isNotEmpty(),
+                        hasActiveLanRoute = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+                            context, serviceState.localAddresses
+                        ).isNotEmpty()
                     )
                 ) {
                     wifiDirectPrimaryAttempt = true
