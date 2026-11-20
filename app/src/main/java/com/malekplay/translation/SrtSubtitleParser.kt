@@ -71,6 +71,19 @@ internal object SrtSubtitleParser {
      * WebVTT file headers and NOTE/STYLE/REGION metadata are not subtitle cues;
      * WebVTT timestamps use dots, while SRT requires comma milliseconds.
      */
+    /** Detects a clear content signature before trusting a provider's filename or MIME hint. */
+    fun detectFormat(text: String): String? {
+        val normalized = text.removePrefix("\uFEFF").trimStart()
+        if (normalized.startsWith("WEBVTT", ignoreCase = true)) return "vtt"
+        if (normalized.contains("[Events]", ignoreCase = true) &&
+            normalized.lineSequence().any { it.trimStart().startsWith("Dialogue:", ignoreCase = true) }
+        ) return "ass"
+        val hasArrow = normalized.contains("-->")
+        if (!hasArrow) return null
+        val vttTiming = Regex("""(?m)^\\s*(?:\\d{1,2}:)?\\d{1,2}:\\d{2}\\.\\d{3}\\s+-->""")
+        return if (vttTiming.containsMatchIn(normalized)) "vtt" else "srt"
+    }
+
     fun splitBlocks(text: String, formatHint: String? = null): List<String> {
         val normalized = text.removePrefix("\uFEFF")
         val hint = formatHint?.lowercase(java.util.Locale.ROOT)
