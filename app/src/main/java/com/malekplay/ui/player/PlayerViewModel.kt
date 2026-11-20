@@ -1361,8 +1361,15 @@ class PlayerViewModel @Inject constructor(
             _onlineSubtitleError.value = null
             _onlineSubtitleResults.value = emptyList()
             try {
+                // The database media id is not necessarily a URI. Prefer the actual
+                // Media3 item's local content/file URI so OpenSubtitles can hash it.
+                val sourceUri = _controller.value?.currentMediaItem?.localConfiguration?.uri
+                    ?.takeIf { it.scheme == "file" || it.scheme == "content" }
+                    ?: currentMediaId?.let { raw ->
+                        runCatching { Uri.parse(raw) }.getOrNull()
+                            ?.takeIf { it.scheme == "file" || it.scheme == "content" }
+                    }
                 val results = withContext(Dispatchers.IO) {
-                    val sourceUri = currentMediaId?.let { runCatching { Uri.parse(it) }.getOrNull() }
                     onlineSubtitleRepository.searchAutomatic(title, language, season, episode, sourceUri)
                 }
                 _onlineSubtitleResults.value = results
