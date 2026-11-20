@@ -699,7 +699,8 @@ fun VideoPlayerScreen(
             return@LaunchedEffect
         }
         googleAiBridge = bridge
-        bridge.setEnabled(true)
+        runCatching { bridge.setEnabled(true) }
+            .onFailure { activateInternalAiFallback() }
     }
 
     // ---------------------------------------------------------------- layout
