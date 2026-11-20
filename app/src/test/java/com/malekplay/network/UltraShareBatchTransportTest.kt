@@ -143,6 +143,13 @@ class UltraShareBatchTransportTest {
     }
 
     @Test
+    fun wifiThroughputUsesOneMiBChunksAndTwoMiBSocketBuffers() {
+        assertEquals(1024 * 1024, UltraShareBatchTransport.CHUNK_BYTES)
+        assertEquals(2 * 1024 * 1024, UltraShareBatchTransport.SOCKET_BUFFER_BYTES)
+        assertEquals(1024 * 1024, UltraShareBatchTransport.COPY_BUFFER_BYTES)
+    }
+
+    @Test
     fun receiverScalesBoundedConcurrencyToTheAvailableAndroidHeap() {
         assertEquals(8, UltraShareBatchTransport.DEFAULT_MAX_PEERS)
         assertEquals(4, UltraShareBatchTransport.recommendedMaxPeers(128))
