@@ -536,6 +536,7 @@ class UltraShareViewModel @Inject constructor(
         candidates: List<com.malekplay.network.UltraShareNegotiation.Candidate> = emptyList(),
         alternateHosts: List<String> = emptyList(),
         preferredNetwork: android.net.Network? = null,
+        port: Int = UltraShareControlChannel.DEFAULT_PORT,
         onConnectionEstablished: ((String) -> Unit)? = null,
         onConnectionFailed: ((rejected: Boolean, reason: String?) -> Unit)? = null
     ) {
@@ -655,6 +656,7 @@ class UltraShareViewModel @Inject constructor(
                                 host = routeHost,
                                 pairingSecret = secret.trim(),
                                 peerName = android.os.Build.MODEL?.take(48)?.ifBlank { "MalekPlay Android" } ?: "MalekPlay Android",
+                                port = port,
                                 network = routeNetwork,
                                 networks = routeNetworks.drop(1),
                                 peerId = UltraShareDiscovery.localPeerId(context),
@@ -1170,7 +1172,8 @@ private fun forgetApprovedSenderTarget(host: String) {
                 requestConnection(
                     host = directHost,
                     secret = pairing.pairingSecret,
-                    alternateHosts = reachableHosts.drop(1) + pairing.hosts.filterNot { it in reachableHosts }
+                    alternateHosts = reachableHosts.drop(1) + pairing.hosts.filterNot { it in reachableHosts },
+                    port = pairing.port
                 )
                 return@launch
             }
@@ -1216,7 +1219,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         rememberInvitationPeer(pairing.invitationId, pairing.pairingSecret)
         rememberInvitationNetwork(pairing)
         if (pairing.hotspotSsid.isNullOrBlank() || pairing.hotspotPassword.isNullOrBlank()) {
-            requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts)
+            requestConnection(pairing.host, pairing.pairingSecret, alternateHosts = pairing.hosts, port = pairing.port)
             return
         }
         // Keep the API-29+ guard explicit for WifiNetworkSpecifier; older
