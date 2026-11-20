@@ -229,6 +229,7 @@ class PlayerViewModel @Inject constructor(
     private val parentalControl by lazy(LazyThreadSafetyMode.NONE) { ParentalControlManager(app) }
     private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
     private var tickerJob: Job? = null
+    private var videoDiagnosticsPollingJob: Job? = null
     private var sleepTimerJob: Job? = null
     private var dlnaPollingJob: Job? = null
     private val dlnaCommandMutex = Mutex()
@@ -298,6 +299,9 @@ class PlayerViewModel @Inject constructor(
             if (playbackState == Player.STATE_READY) {
                 refreshTracks()
                 refreshStats()
+                // Lanczos graph rebuilds call prepare(); pull the service's fresh
+                // renderer/effect counters as soon as the rebuilt graph is ready.
+                refreshVideoEffectState()
             }
         }
 
@@ -416,6 +420,26 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+
+    /**
+     * Diagnostics are sampled only while their sheet is visible. Polling remains
+     * active while paused so counters and delayed first-frame state do not freeze.
+     */
+    fun setVideoDiagnosticsVisible(visible: Boolean) {
+        if (!visible) {
+            videoDiagnosticsPollingJob?.cancel()
+            videoDiagnosticsPollingJob = null
+            return
+        }
+        refreshVideoEffectState()
+        if (videoDiagnosticsPollingJob?.isActive == true) return
+        videoDiagnosticsPollingJob = viewModelScope.launch {
+            while (isActive) {
+                delay(VIDEO_DIAGNOSTICS_POLL_INTERVAL_MS)
+                refreshVideoEffectState()
+            }
+        }
+    }
 
     /**
      * The playback service owns the real effect state. Re-read it after route, track,
@@ -1437,6 +1461,7 @@ class PlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         tickerJob?.cancel()
+        videoDiagnosticsPollingJob?.cancel()
         sleepTimerJob?.cancel()
         dlnaPollingJob?.cancel()
         _dlnaPlayback.value.activeDevice?.let { remoteDevice ->
@@ -1461,6 +1486,7 @@ class PlayerViewModel @Inject constructor(
         const val LOG_TAG = "MalekPlayPlayer"
         // A one-second UI snapshot is sufficient for the seek bar and halves ticker wakeups.
         const val TICK_INTERVAL_MS = 1_000L
+        const val VIDEO_DIAGNOSTICS_POLL_INTERVAL_MS = 500L
         const val DLNA_POLL_INTERVAL_MS = 1_500L
         const val DLNA_RETRY_INTERVAL_MS = 3_000L
         const val DLNA_FAILURES_BEFORE_DISCONNECT = 2
