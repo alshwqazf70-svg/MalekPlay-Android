@@ -420,19 +420,16 @@ fun VideoPlayerScreen(
             Toast.makeText(context, "تم إرسال أمر التشغيل إلى ${device.name}", Toast.LENGTH_LONG).show()
         }
     }
-    val detectedEpisode = remember(title) {
-        Regex("(?i)(?:S(\\d{1,2})[ ._-]*E(\\d{1,2})|(\\d{1,2})x(\\d{1,2}))").find(title)
+    val subtitleQuery = remember(title) {
+        com.malekplay.network.SubtitleQueryCleaner.clean(title)
     }
-    val defaultSubtitleTitle = remember(title, detectedEpisode) {
-        detectedEpisode?.let { title.substring(0, it.range.first).trim(' ', '.', '_', '-') }?.ifBlank { title } ?: title
-    }
-    var onlineQuery by remember(title) { mutableStateOf(defaultSubtitleTitle) }
+    var onlineQuery by remember(title) { mutableStateOf(subtitleQuery.title) }
     var onlineLanguage by remember { mutableStateOf("ar,en") }
     var onlineSeason by remember(title) {
-        mutableStateOf(detectedEpisode?.let { it.groupValues[1].ifBlank { it.groupValues[3] } }.orEmpty())
+        mutableStateOf(subtitleQuery.season?.toString().orEmpty())
     }
     var onlineEpisode by remember(title) {
-        mutableStateOf(detectedEpisode?.let { it.groupValues[2].ifBlank { it.groupValues[4] } }.orEmpty())
+        mutableStateOf(subtitleQuery.episode?.toString().orEmpty())
     }
 
     LaunchedEffect(videoUpscalingError) {
@@ -965,7 +962,7 @@ fun VideoPlayerScreen(
                 )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.player_search_subtitle_online)) },
-                    onClick = { showMenu = false; onlineQuery = title; showOnlineSubtitles = true }
+                    onClick = { showMenu = false; showOnlineSubtitles = true }
                 )
                 DropdownMenuItem(
                     text = {
