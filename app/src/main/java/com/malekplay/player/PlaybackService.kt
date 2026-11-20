@@ -441,7 +441,9 @@ class PlaybackService : MediaSessionService() {
         putString(PlaybackVideoEffects.KEY_DIAG_LAST_EFFECT, metrics.lastEffectName)
         putString(
             PlaybackVideoEffects.KEY_DIAG_LAST_FAILURE,
-            metrics.lastFailure ?: bridgeFailure ?: if (!videoEffectsBridgeAttached) {
+            // A live ASS/effect-manager rejection is more actionable than an
+            // older shader failure retained for intermittent-error diagnostics.
+            bridgeFailure ?: metrics.lastFailure ?: if (!videoEffectsBridgeAttached) {
                 "effects_bridge_not_registered_or_not_operational"
             } else null
         )
