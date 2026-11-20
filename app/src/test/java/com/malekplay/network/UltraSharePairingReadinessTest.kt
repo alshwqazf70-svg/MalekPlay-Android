@@ -8,6 +8,35 @@ import org.junit.Test
 
 class UltraSharePairingReadinessTest {
 
+    @Test fun wifiDirectRecoveryWaitsUntilLanProbeAndHotspotFallbackAreFinished() {
+        fun allowed(
+            lanProbe: Boolean = false,
+            hotspot: Boolean = false,
+            fallbackStarted: Boolean = false,
+            receiving: Boolean = true,
+            invitationBlank: Boolean = true,
+            p2pAttempted: Boolean = false,
+            peers: Boolean = false
+        ) = UltraSharePairingReadiness.shouldStartWifiDirectFallback(
+            receiving = receiving,
+            lanProbeInProgress = lanProbe,
+            hotspotActive = hotspot,
+            hotspotFallbackStarted = fallbackStarted,
+            invitationIdBlank = invitationBlank,
+            wifiDirectAlreadyAttempted = p2pAttempted,
+            hasActivePeers = peers
+        )
+
+        assertTrue(allowed())
+        assertFalse(allowed(lanProbe = true))
+        assertFalse(allowed(hotspot = true))
+        assertFalse(allowed(fallbackStarted = true))
+        assertFalse(allowed(receiving = false))
+        assertFalse(allowed(invitationBlank = false))
+        assertFalse(allowed(p2pAttempted = true))
+        assertFalse(allowed(peers = true))
+    }
+
     @Test fun authenticatedPeerIdentityMustMatchTheDiscoveredDeviceButAllowsLegacyIdentityAbsence() {
         assertTrue(
             matchesExpectedUltraSharePeerIdentity(
