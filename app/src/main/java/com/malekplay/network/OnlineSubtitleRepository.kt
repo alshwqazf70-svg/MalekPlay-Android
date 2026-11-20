@@ -76,13 +76,17 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
      * surfaced cleanly and can be retried later.
      */
     fun searchAutomatic(title: String, language: String, season: Int?, episode: Int?, mediaUri: Uri? = null): List<OnlineSubtitle> {
-        val publicAttempt = runCatching { searchPublic(title, language, season, episode) }
+        val cleaned = SubtitleQueryCleaner.clean(title)
+        require(cleaned.title.isNotBlank()) { "أدخل اسم الفيلم أو المسلسل" }
+        val resolvedSeason = season ?: cleaned.season
+        val resolvedEpisode = episode ?: cleaned.episode
+        val publicAttempt = runCatching { searchPublic(cleaned.title, language, resolvedSeason, resolvedEpisode) }
         val accountAttempt = if (hasCredentials()) {
-            runCatching { search(title, language, season, episode, mediaUri) }
+            runCatching { search(cleaned.title, language, resolvedSeason, resolvedEpisode, mediaUri) }
         } else null
         val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
         val subdlAttempt = if (!subdlKey.isNullOrBlank()) runCatching {
-            searchSubDl(title, language, season, episode, subdlKey)
+            searchSubDl(cleaned.title, language, resolvedSeason, resolvedEpisode, subdlKey)
         } else null
         val publicResults = publicAttempt.getOrDefault(emptyList())
         val accountResults = accountAttempt?.getOrDefault(emptyList()).orEmpty()
