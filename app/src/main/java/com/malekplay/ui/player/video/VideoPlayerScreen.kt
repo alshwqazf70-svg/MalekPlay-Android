@@ -76,6 +76,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -136,6 +137,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -202,6 +204,8 @@ fun VideoPlayerScreen(
     val videoEnhancementProfile by viewModel.videoEnhancementProfile.collectAsStateWithLifecycle()
     val videoUpscalingError by viewModel.videoUpscalingError.collectAsStateWithLifecycle()
     val videoEnhancementDiagnostics by viewModel.videoEnhancementDiagnostics.collectAsStateWithLifecycle()
+    val latestVideoUpscalingEnabled by rememberUpdatedState(videoUpscalingEnabled)
+    val latestVideoNoiseReductionEnabled by rememberUpdatedState(videoNoiseReductionEnabled)
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
     val durationMs by viewModel.durationMs.collectAsStateWithLifecycle()
     val bufferedMs by viewModel.bufferedMs.collectAsStateWithLifecycle()
@@ -592,6 +596,7 @@ fun VideoPlayerScreen(
     var googleAiEnabled by remember { mutableStateOf(false) }
     var internalAiFallback by remember { mutableStateOf(false) }
     var internalAiFallbackPending by remember { mutableStateOf(false) }
+    var googleAiRequestVersion by remember { mutableIntStateOf(0) }
     var googleAiState by remember {
         mutableStateOf(GoogleMediaEnhancementState.DISABLED)
     }
@@ -617,8 +622,13 @@ fun VideoPlayerScreen(
     fun activateInternalAiFallback() {
         if (internalAiFallback || internalAiFallbackPending) return
         internalAiFallbackPending = true
+        val requestVersion = googleAiRequestVersion
         viewModel.setInternalGpuEnhancementEnabled(true) { applied ->
             internalAiFallbackPending = false
+            if (requestVersion != googleAiRequestVersion || !googleAiEnabled) {
+                if (applied) viewModel.setInternalGpuEnhancementEnabled(false)
+                return@setInternalGpuEnhancementEnabled
+            }
             if (applied) {
                 internalAiFallback = true
                 googleAiState = GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE
@@ -632,7 +642,7 @@ fun VideoPlayerScreen(
         }
     }
 
-    LaunchedEffect(googleAiEnabled, controller, playerView, videoUpscalingEnabled, videoNoiseReductionEnabled) {
+    LaunchedEffect(googleAiEnabled, controller, playerView) {
         if (!googleAiEnabled) {
             if (internalAiFallback || internalAiFallbackPending) {
                 viewModel.setInternalGpuEnhancementEnabled(false)
@@ -652,9 +662,13 @@ fun VideoPlayerScreen(
 
         // Wait until the service confirms both OpenGL effects are off before routing
         // decoded frames into the separate Google AI surface chain.
-        if (videoUpscalingEnabled || videoNoiseReductionEnabled) {
+        if (latestVideoUpscalingEnabled || latestVideoNoiseReductionEnabled) {
+            // Switch both GPU stages off once, then wait for the authoritative
+            // service state before attaching Google's alternative output surface.
             viewModel.setInternalGpuEnhancementEnabled(false)
-            return@LaunchedEffect
+            snapshotFlow {
+                latestVideoUpscalingEnabled || latestVideoNoiseReductionEnabled
+            }.first { active -> !active }
         }
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
@@ -1112,6 +1126,7 @@ fun VideoPlayerScreen(
                     },
                     onClick = {
                         showMenu = false
+                        googleAiRequestVersion++
                         googleAiEnabled = !googleAiEnabled
                     }
                 )
