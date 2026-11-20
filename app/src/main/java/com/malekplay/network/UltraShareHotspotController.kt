@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 /**
  * Owns the LocalOnlyHotspot reservation and credential lifecycle.
@@ -63,7 +64,17 @@ internal class UltraShareHotspotController(
                             config?.SSID?.trim('"').orEmpty() to config?.preSharedKey?.trim('"').orEmpty()
                         }
                     }.getOrDefault("" to "")
-                    val addresses = UltraShareDeviceNetworkInfo.findLocalIpv4Addresses(appContext)
+                    // OEMs may publish SoftAP credentials before its IPv4 interface is ready.
+                    // Wait up to four seconds rather than publishing an unreachable QR.
+                    var addresses = emptyList<String>()
+                    repeat(20) {
+                        if (callback !== callbackInstance) return@launch
+                        addresses = UltraShareDeviceNetworkInfo.findLocalIpv4Addresses(appContext)
+                            .filter { UltraShareCore.isValidPrivateLanHost(it) }
+                            .distinct()
+                        if (addresses.isNotEmpty()) return@repeat
+                        delay(200L)
+                    }
                     if (callback !== callbackInstance) {
                         reservation = null
                         runCatching { nextReservation.close() }
