@@ -156,6 +156,10 @@ object UltraShareBatchTransport {
         check(destinationDirectory.exists() || destinationDirectory.mkdirs())
         check(destinationDirectory.isDirectory)
         val permits = Semaphore(maxPeers)
+        // Publication is disk/MediaStore work and must not occupy a receive socket
+        // permit. Bound it independently so slow Downloads copies cannot make the
+        // listener reject the next queued files with a false "connection refused".
+        val publicationPermits = Semaphore(minOf(3, maxPeers).coerceAtLeast(1))
         ServerSocket().use { server ->
             server.reuseAddress = true
             server.bind(InetSocketAddress(port), maxPeers * 2)
@@ -206,7 +210,26 @@ object UltraShareBatchTransport {
                                         onProgress = { progress -> onProgress(peer, progress) }
                                     )
                                 }
-                                onBatchFinished(peer, result)
+                                // receiveSession has already sent the authenticated batch
+                                // receipt. Run slow MediaStore publication independently so
+                                // this accepted socket can close and the receive permit is
+                                // released before the next queue connection arrives.
+                                launch {
+                                    publicationPermits.withPermit {
+                                        try {
+                                            onBatchFinished(peer, result)
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (publicationFailure: Exception) {
+                                            UltraShareDiagnostics.failure(
+                                                "DATA_RECEIVE_PUBLICATION_CALLBACK",
+                                                publicationFailure,
+                                                "peerHost=" + peer + ";batchId=" + result.batchId
+                                            )
+                                            onPeerError(peer, publicationFailure)
+                                        }
+                                    }
+                                }
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (_: DiscoveryProbeConnection) {
