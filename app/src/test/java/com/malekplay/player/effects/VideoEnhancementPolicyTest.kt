@@ -190,7 +190,7 @@ class VideoEnhancementPolicyTest {
         VideoEnhancementMetrics.reset()
     }
 
-    @Test fun 720pAnd1080pSourcesKeepSpatialStagesEnabledAndCanUpscale() {
+    @Test fun lowResolution720pAnd1080pSourcesKeepSpatialStagesEnabledAndCanUpscale() {
         val config = VideoEnhancementPipelineConfig(
             denoiseEnabled = true,
             detailEnabled = true,
