@@ -8,6 +8,7 @@ object PlaybackVideoEffects {
     const val ACTION_UPSCALING = "com.malekplay.action.SET_VIDEO_UPSCALING"
     const val ACTION_NOISE_REDUCTION = "com.malekplay.action.SET_NOISE_REDUCTION"
     const val ACTION_QUALITY_PROFILE = "com.malekplay.action.SET_VIDEO_QUALITY_PROFILE"
+    const val ACTION_INTERNAL_GPU_ENHANCEMENT = "com.malekplay.action.SET_INTERNAL_GPU_ENHANCEMENT"
     const val ACTION_GET_STATE = "com.malekplay.action.GET_VIDEO_EFFECT_STATE"
     const val KEY_ENABLED = "enabled"
     const val KEY_PROFILE = "profile"
@@ -31,6 +32,7 @@ object PlaybackVideoEffects {
             ACTION_UPSCALING,
             ACTION_NOISE_REDUCTION,
             ACTION_QUALITY_PROFILE,
+            ACTION_INTERNAL_GPU_ENHANCEMENT,
             ACTION_GET_STATE
         ).map { SessionCommand(it, Bundle.EMPTY) }
 
