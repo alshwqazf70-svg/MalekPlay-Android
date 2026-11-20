@@ -1396,6 +1396,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun downloadOnlineSubtitle(subtitle: OnlineSubtitle) {
+        if (_onlineSubtitleLoading.value) return
         val targetMediaId = currentMediaId ?: run {
             _onlineSubtitleError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
             return
