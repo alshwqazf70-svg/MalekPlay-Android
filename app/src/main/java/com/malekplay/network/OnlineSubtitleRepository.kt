@@ -22,6 +22,16 @@ import java.util.zip.ZipInputStream
 
 private class SubtitleHttpException(val statusCode: Int, message: String) : IOException(message)
 
+/** Validates every subtitle download hop before the client opens its next connection. */
+internal fun isSafeSubtitleDownloadUri(uri: Uri, allowedDomain: String? = null): Boolean {
+    val host = uri.host?.lowercase(Locale.ROOT) ?: return false
+    if (uri.scheme != "https" || uri.userInfo != null || uri.port !in listOf(-1, 443)) {
+        return false
+    }
+    val domain = allowedDomain?.lowercase(Locale.ROOT) ?: return true
+    return host == domain || host.endsWith(".$domain")
+}
+
 data class OnlineSubtitle(
     val fileId: Long,
     val language: String,
@@ -554,16 +564,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             val nextUrl = location?.let { current.url.resolve(it) }
             response.close()
             require(nextUrl != null) { "أعاد مزود الترجمة تحويلاً دون وجهة صالحة" }
-            require(
-                nextUrl.isHttps &&
-                    nextUrl.username.isEmpty() &&
-                    nextUrl.password.isEmpty() &&
-                    nextUrl.port in listOf(-1, 443)
-            ) { "رابط إعادة التوجيه ليس HTTPS آمناً" }
-            if (allowedDomain != null) {
-                require(isTrustedHttpsHost(Uri.parse(nextUrl.toString()), allowedDomain)) {
-                    "حوّل مزود الترجمة التنزيل إلى نطاق غير موثوق"
-                }
+            require(isSafeSubtitleDownloadUri(Uri.parse(nextUrl.toString()), allowedDomain)) {
+                if (allowedDomain == null) "رابط إعادة التوجيه ليس HTTPS آمناً"
+                else "حوّل مزود الترجمة التنزيل إلى نطاق غير موثوق"
             }
             require(hop < MAX_DOWNLOAD_REDIRECTS) {
                 "تجاوز مزود الترجمة الحد المسموح لإعادة التوجيه"
@@ -613,11 +616,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }
     }
 
-    private fun isTrustedHttpsHost(uri: Uri, baseDomain: String): Boolean {
-        val host = uri.host?.lowercase(Locale.ROOT) ?: return false
-        return uri.scheme == "https" && uri.userInfo == null && uri.port in listOf(-1, 443) &&
-            (host == baseDomain || host.endsWith(".$baseDomain"))
-    }
+    private fun isTrustedHttpsHost(uri: Uri, baseDomain: String): Boolean =
+        isSafeSubtitleDownloadUri(uri, baseDomain)
 
     private fun isTrustedHttpsUrl(url: String, baseDomain: String): Boolean =
         runCatching { isTrustedHttpsHost(Uri.parse(url), baseDomain) }.getOrDefault(false)
