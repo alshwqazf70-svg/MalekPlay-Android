@@ -127,21 +127,26 @@ internal fun validateBackupCollections(root: JSONObject): ValidatedBackupCollect
             val item = history.optJSONObject(i)
                 ?: throw IllegalArgumentException("History entry at index $i is invalid")
             val mediaId = item.opt("mediaId") as? String
-            val playedAt = item.opt("lastPlayedAtMs") as? Number
-            val playCount = item.opt("playCount") as? Number
+            val rawPlayedAt = item.opt("lastPlayedAtMs")
+            val playedAt = when (rawPlayedAt) {
+                is Long -> rawPlayedAt
+                is Int -> rawPlayedAt.toLong()
+                else -> -1L
+            }
+            val rawPlayCount = item.opt("playCount")
+            val playCount = when (rawPlayCount) {
+                is Int -> rawPlayCount
+                is Long -> rawPlayCount.takeIf { it in 1L..Int.MAX_VALUE.toLong() }?.toInt() ?: 0
+                else -> 0
+            }
             require(!mediaId.isNullOrBlank() && mediaId.length <= 4096) {
                 "History media id at index $i is invalid"
             }
             require(seenHistoryMediaIds.add(mediaId)) {
                 "Duplicate media id in backup history"
             }
-            require(playedAt != null && playedAt.toDouble().isFinite() &&
-                playedAt.toDouble() >= 0.0 && playedAt.toDouble() <= Long.MAX_VALUE.toDouble()
-            ) { "History timestamp at index $i is invalid" }
-            require(playCount != null && playCount.toDouble().isFinite() &&
-                playCount.toDouble() % 1.0 == 0.0 &&
-                playCount.toDouble() in 1.0..Int.MAX_VALUE.toDouble()
-            ) { "History play count at index $i is invalid" }
+            require(playedAt >= 0L) { "History timestamp at index $i is invalid" }
+            require(playCount > 0) { "History play count at index $i is invalid" }
         }
     }
     return ValidatedBackupCollections(favourites, playlists, settings, history)
