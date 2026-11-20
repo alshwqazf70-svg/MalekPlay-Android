@@ -10,7 +10,7 @@ internal object SrtSubtitleParser {
     private val timingPattern = Regex("""^\s*(?:\d{1,}:)?\d{2}:\d{2}[,.]\d{3}\s*-->\s*(?:\d{1,}:)?\d{2}:\d{2}[,.]\d{3}(?:\s+.*)?\s*$""")
     private val vttTimestampPattern = Regex("""((?:\d{1,}:)?\d{2}:\d{2})\.(\d{3})""")
     private val markupPattern = Regex("""<[^>]+>""")
-    private val assOverridePattern = Regex("""\\{\\[^}]*}""")
+    private val assOverridePattern = Regex("""\{\\[^}]*}""")
     private val assTimestampPattern = Regex("""^(\d+):(\d{2}):(\d{2})[.](\d{1,2})$""")
 
     fun decode(bytes: ByteArray): String {
@@ -152,7 +152,7 @@ internal object SrtSubtitleParser {
                 .replace(Regex("""<[^>]*>"""), "")
                 .trim()
             if (dialogue.isBlank()) return@forEach
-            cues += "\${cues.size + 1}\n$start --> $end\n$dialogue"
+            cues += (cues.size + 1).toString() + "\n" + start + " --> " + end + "\n" + dialogue
         }
         return cues
     }
