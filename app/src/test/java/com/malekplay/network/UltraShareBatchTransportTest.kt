@@ -21,6 +21,42 @@ import org.junit.Test
 
 class UltraShareBatchTransportTest {
 
+    @Test
+    fun sourcePreparationIsBoundedOrderedAndAllowsTwoFilesToPrepareConcurrently() = runBlocking {
+        val active = java.util.concurrent.atomic.AtomicInteger(0)
+        val peak = java.util.concurrent.atomic.AtomicInteger(0)
+        val results = UltraShareBatchTransport.mapSourcesBounded(
+            sources = listOf(0, 1, 2, 3),
+            maxConcurrency = 2
+        ) { value ->
+            val now = active.incrementAndGet()
+            peak.updateAndGet { previous -> maxOf(previous, now) }
+            try {
+                // Make the first source slower to prove result order is not completion order.
+                kotlinx.coroutines.delay(if (value == 0) 80L else 20L)
+                value * 10
+            } finally {
+                active.decrementAndGet()
+            }
+        }
+        assertEquals(listOf(0, 10, 20, 30), results)
+        assertEquals(2, peak.get())
+        assertEquals(0, active.get())
+    }
+
+    @Test
+    fun sourcePreparationRejectsUnsafeConcurrencyAndReturnsEmptyForNoSources() = runBlocking {
+        assertTrue(runCatching {
+            UltraShareBatchTransport.mapSourcesBounded(
+                sources = listOf(1),
+                maxConcurrency = UltraShareBatchTransport.MAX_CONCURRENT_PEERS + 1
+            ) { it }
+        }.isFailure)
+        assertTrue(
+            UltraShareBatchTransport.mapSourcesBounded<Int, Int>(emptyList()) { it }.isEmpty()
+        )
+    }
+
 
     @Test
     fun qrFastProbeCompletesTheMpc2GreetingOnAnAlreadyReachableHost() = runBlocking {
