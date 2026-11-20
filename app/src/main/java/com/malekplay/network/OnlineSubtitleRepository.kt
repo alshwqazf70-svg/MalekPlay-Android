@@ -74,6 +74,12 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     private val app = context.applicationContext
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS).callTimeout(45, TimeUnit.SECONDS).build()
+    // Download redirects are followed manually so every hop is checked before
+    // connecting and credentials are never forwarded to a different host.
+    private val downloadClient = client.newBuilder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
     private val publicSearchCache = SubtitleSearchResultCache(12)
     private val automaticSearchCache = SubtitleSearchResultCache(12)
     // Coalesce simultaneous identical searches so guest-provider quotas are not wasted.
@@ -300,7 +306,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 val bearer = vault.load(WEBSITE_KEY_SLOT)?.first
                 if (!bearer.isNullOrBlank()) header("Authorization", "Bearer $bearer")
             }.get().build()
-        val response = client.newCall(downloadRequest).execute()
+        val response = executeDownload(downloadRequest, PUBLIC_HOST)
         response.use {
             require(isTrustedHttpsUrl(it.request.url.toString(), PUBLIC_HOST)) {
                 "حوّل مزود الترجمة التنزيل إلى نطاق غير موثوق"
@@ -400,7 +406,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 val key = vault.load(SUBDL_KEY_SLOT)?.first
                 if (!key.isNullOrBlank()) header("x-api-key", key)
             }.get().build()
-        val response = client.newCall(downloadRequest).execute()
+        val response = executeDownload(downloadRequest, "subdl.com")
         response.use {
             require(isTrustedHttpsUrl(it.request.url.toString(), "subdl.com")) {
                 "حوّل SubDL التنزيل إلى نطاق غير موثوق"
@@ -486,7 +492,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         require(linkUri.scheme == "https" && !linkUri.host.isNullOrBlank() &&
             linkUri.userInfo == null && linkUri.port in listOf(-1, 443)
         ) { "رابط الترجمة غير آمن" }
-        val response = client.newCall(Request.Builder().url(linkUri.toString()).get().build()).execute()
+        val response = executeDownload(Request.Builder().url(linkUri.toString()).get().build())
         response.use {
             if (it.request.url.isHttps.not() || it.request.url.username.isNotEmpty() ||
                 it.request.url.password.isNotEmpty()
@@ -529,6 +535,49 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         error("الأرشيف لا يحتوي على ملف ترجمة مدعوم")
     }
 
+
+    /**
+     * Follows at most five HTTPS redirects. The destination policy is checked
+     * before the next socket is opened, not after OkHttp has already contacted it.
+     * Sensitive headers are stripped whenever a redirect changes host.
+     */
+    private fun executeDownload(
+        request: Request,
+        allowedDomain: String? = null
+    ): okhttp3.Response {
+        var current = request
+        repeat(MAX_DOWNLOAD_REDIRECTS + 1) { hop ->
+            val response = downloadClient.newCall(current).execute()
+            if (response.code !in 300..399) return response
+
+            val location = response.header("Location")
+            val nextUrl = location?.let { current.url.resolve(it) }
+            response.close()
+            require(nextUrl != null) { "أعاد مزود الترجمة تحويلاً دون وجهة صالحة" }
+            require(
+                nextUrl.isHttps &&
+                    nextUrl.username.isEmpty() &&
+                    nextUrl.password.isEmpty() &&
+                    nextUrl.port in listOf(-1, 443)
+            ) { "رابط إعادة التوجيه ليس HTTPS آمناً" }
+            if (allowedDomain != null) {
+                require(isTrustedHttpsHost(Uri.parse(nextUrl.toString()), allowedDomain)) {
+                    "حوّل مزود الترجمة التنزيل إلى نطاق غير موثوق"
+                }
+            }
+            require(hop < MAX_DOWNLOAD_REDIRECTS) {
+                "تجاوز مزود الترجمة الحد المسموح لإعادة التوجيه"
+            }
+            val builder = current.newBuilder().url(nextUrl).get()
+            if (!nextUrl.host.equals(current.url.host, ignoreCase = true)) {
+                builder.removeHeader("Authorization")
+                    .removeHeader("Api-Key")
+                    .removeHeader("x-api-key")
+            }
+            current = builder.build()
+        }
+        throw IOException("تعذر إكمال إعادة توجيه تنزيل الترجمة")
+    }
 
     private fun openSubtitlesToken(
         apiKey: String,
@@ -678,6 +727,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         const val DEFAULT_TOKEN_TTL_SECONDS = 900L
         const val MAX_TOKEN_TTL_SECONDS = 3_600L
         const val TOKEN_REFRESH_SKEW_MS = 30_000L
+        const val MAX_DOWNLOAD_REDIRECTS = 5
         val JSON = "application/json; charset=utf-8".toMediaType()
         val FORMATS = setOf("srt", "ass", "ssa", "vtt")
     }
