@@ -157,6 +157,24 @@ class VideoEnhancementPolicyTest {
         assertEquals(active, effect.currentConfig())
     }
 
+    @Test fun disabledPipelineIgnoresStaleProfileStrengthsAndRemainsPassthrough() {
+        val disabled = VideoEnhancementPipelineConfig(
+            denoiseEnabled = false,
+            detailEnabled = false,
+            aiBoostEnabled = false,
+            denoiseStrength = 0.50f,
+            detailStrength = 1.02f,
+            contrastBoost = 0.16f,
+            clarityStrength = 0.22f
+        )
+        assertFalse(disabled.hasActiveStage)
+
+        val effect = VideoEnhancementPipelineEffect(disabled)
+        assertFalse(effect.currentConfig().hasActiveStage)
+        effect.update(disabled.copy(aiBoostEnabled = true))
+        assertTrue(effect.currentConfig().hasActiveStage)
+    }
+
     @Test fun pipelineDiagnosticsCountOnePhysicalDrawAndItsActiveStages() {
         VideoEnhancementMetrics.reset()
         VideoEnhancementMetrics.recordPipelineProcessed(
