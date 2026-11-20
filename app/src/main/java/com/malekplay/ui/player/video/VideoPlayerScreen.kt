@@ -644,7 +644,10 @@ fun VideoPlayerScreen(
 
     LaunchedEffect(googleAiEnabled, controller, playerView) {
         if (!googleAiEnabled) {
-            if (internalAiFallback || internalAiFallbackPending) {
+            // If fallback already completed, disable it here. If its enable command
+            // is still pending, its generation-checked callback owns the single
+            // compensating disable; sending one here would race and duplicate it.
+            if (internalAiFallback) {
                 viewModel.setInternalGpuEnhancementEnabled(false)
             }
             internalAiFallback = false
@@ -658,7 +661,10 @@ fun VideoPlayerScreen(
             return@LaunchedEffect
         }
 
-        if (internalAiFallback) return@LaunchedEffect
+        // A pending fallback is already switching the service to its internal
+        // GPU path. Do not start a second Google surface session if playerView or
+        // controller changes while that command is still in flight.
+        if (internalAiFallback || internalAiFallbackPending) return@LaunchedEffect
 
         // Wait until the service confirms both OpenGL effects are off before routing
         // decoded frames into the separate Google AI surface chain.
