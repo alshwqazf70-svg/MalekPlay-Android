@@ -80,13 +80,15 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         require(cleaned.title.isNotBlank()) { "أدخل اسم الفيلم أو المسلسل" }
         val resolvedSeason = season ?: cleaned.season
         val resolvedEpisode = episode ?: cleaned.episode
-        val publicAttempt = runCatching { searchPublic(cleaned.title, language, resolvedSeason, resolvedEpisode) }
+        // Preserve the year extracted from a filename in every provider query.
+        val providerTitle = cleaned.title + (cleaned.year?.let { " $it" } ?: "")
+        val publicAttempt = runCatching { searchPublic(providerTitle, language, resolvedSeason, resolvedEpisode) }
         val accountAttempt = if (hasCredentials()) {
-            runCatching { search(cleaned.title, language, resolvedSeason, resolvedEpisode, mediaUri) }
+            runCatching { search(providerTitle, language, resolvedSeason, resolvedEpisode, mediaUri) }
         } else null
         val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
         val subdlAttempt = if (!subdlKey.isNullOrBlank()) runCatching {
-            searchSubDl(cleaned.title, language, resolvedSeason, resolvedEpisode, subdlKey)
+            searchSubDl(providerTitle, language, resolvedSeason, resolvedEpisode, subdlKey)
         } else null
         val publicResults = publicAttempt.getOrDefault(emptyList())
         val accountResults = accountAttempt?.getOrDefault(emptyList()).orEmpty()
@@ -95,10 +97,11 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             throw publicAttempt.exceptionOrNull() ?: subdlAttempt?.exceptionOrNull()
                 ?: IllegalStateException("تعذر البحث عن الترجمة")
         }
-        return (publicResults + accountResults + subdlResults)
-            .distinctBy { it.provider + ":" + it.sourceId }
-            .sortedBy { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 }
-            .take(40)
+        return SubtitleResultPolicy.rankAndFilter(
+            (publicResults + accountResults + subdlResults)
+                .distinctBy { it.provider + ":" + it.sourceId },
+            language
+        ).take(40)
     }
 
     private fun searchPublic(
