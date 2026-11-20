@@ -1345,12 +1345,20 @@ class PlayerViewModel @Inject constructor(
 
     fun saveOnlineSubtitleCredentials(apiKey: String, username: String, password: String) {
         runCatching { onlineSubtitleRepository.saveCredentials(apiKey, username, password) }
-            .onSuccess { _onlineSubtitleCredentialsReady.value = true; _onlineSubtitleError.value = null }
+            .onSuccess {
+                _onlineSubtitleCredentialsReady.value = true
+                _onlineSubtitleError.value = null
+                android.widget.Toast.makeText(app, "تم حفظ بيانات OpenSubtitles بأمان", android.widget.Toast.LENGTH_SHORT).show()
+            }
             .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ بيانات الخدمة" }
     }
 
     fun saveOnlineSubtitleProviderKeys(subdlKey: String, websiteKey: String) {
         runCatching { onlineSubtitleRepository.saveProviderApiKeys(subdlKey, websiteKey) }
+            .onSuccess {
+                _onlineSubtitleError.value = null
+                android.widget.Toast.makeText(app, "تم حفظ مفاتيح مزودي الترجمة بأمان", android.widget.Toast.LENGTH_SHORT).show()
+            }
             .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ مفاتيح مزودي الترجمة" }
     }
 
