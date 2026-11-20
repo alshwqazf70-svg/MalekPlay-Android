@@ -6,11 +6,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -72,7 +71,7 @@ fun OnlineSubtitleSearchSheet(
     androidx.compose.runtime.CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp),
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(13.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -181,9 +180,8 @@ fun OnlineSubtitleSearchSheet(
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp),
-                    verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    items(results, key = { it.provider + ":" + it.sourceId }) { subtitle ->
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    results.forEach { subtitle ->
                         val key = subtitle.provider + ":" + subtitle.sourceId
                         val isDownloading = loading && downloadingKey == key
                         Card(shape = RoundedCornerShape(17.dp), modifier = Modifier.fillMaxWidth()) {
