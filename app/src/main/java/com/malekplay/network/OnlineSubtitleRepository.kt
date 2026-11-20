@@ -613,6 +613,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 cancellationHandle?.dispose()
             }
             require(nextUrl != null) { "أعاد مزود الترجمة تحويلاً دون وجهة صالحة" }
+            require(current.method == "GET") {
+                "رُفض تحويل طلب POST حفاظاً على سلامة بيانات الدخول"
+            }
             require(isSafeSubtitleDownloadUri(Uri.parse(nextUrl.toString()), allowedDomain)) {
                 if (allowedDomain == null) "رابط إعادة التوجيه ليس HTTPS آمناً"
                 else "حوّل مزود الترجمة التنزيل إلى نطاق غير موثوق"
