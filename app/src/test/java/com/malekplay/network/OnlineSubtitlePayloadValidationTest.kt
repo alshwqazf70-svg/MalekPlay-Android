@@ -39,8 +39,8 @@ class OnlineSubtitlePayloadValidationTest {
 
     @Test
     fun acceptsShortWebVttAndSingleDigitHourSrtTimestamps() {
-        val shortVtt = "WEBVTT\\n\\n00:01.250 --> 00:03.500\\nHello".toByteArray()
-        val oneDigitHourSrt = "1\\n1:02:03,000 --> 1:02:05,000\\nHello".toByteArray()
+        val shortVtt = "WEBVTT\n\n00:01.250 --> 00:03.500\nHello".toByteArray()
+        val oneDigitHourSrt = "1\n1:02:03,000 --> 1:02:05,000\nHello".toByteArray()
         assertTrue(isValidSubtitlePayload(shortVtt, "vtt"))
         assertTrue(isValidSubtitlePayload(oneDigitHourSrt, "srt"))
     }
@@ -48,7 +48,7 @@ class OnlineSubtitlePayloadValidationTest {
 
     @Test
     fun acceptsUtf16EncodedSrtPayloads() {
-        val text = "1\\n00:00:01,000 --> 00:00:02,000\\nمرحبا"
+        val text = "1\n00:00:01,000 --> 00:00:02,000\nمرحبا"
         assertTrue(isValidSubtitlePayload(text.toByteArray(Charsets.UTF_16LE), "srt"))
         assertTrue(isValidSubtitlePayload(text.toByteArray(Charsets.UTF_16BE), "srt"))
     }
