@@ -975,63 +975,73 @@ class PlayerViewModel @Inject constructor(
 
     /** Adds an external subtitle without discarding the current playback queue. */
     fun addExternalSubtitle(uri: Uri, rememberAsTranslationSource: Boolean = true) {
-        addExternalSubtitleForMedia(uri, currentMediaId, rememberAsTranslationSource)
+        val targetMediaId = currentMediaId
+        viewModelScope.launch {
+            addExternalSubtitleForMedia(uri, targetMediaId, rememberAsTranslationSource)
+        }
     }
 
-    private fun addExternalSubtitleForMedia(
+    /**
+     * Attaches a subtitle to the exact media item that initiated the operation.
+     * This is suspendable so download/translation callers can report success only
+     * after Media3 has actually received the updated item.
+     */
+    private suspend fun addExternalSubtitleForMedia(
         uri: Uri,
         targetMediaId: String?,
         rememberAsTranslationSource: Boolean
-    ) {
-        viewModelScope.launch {
-            val extension = withContext(Dispatchers.IO) { resolveSubtitleExtension(uri) }
-            val mimeType = when (extension) {
-                "ass", "ssa" -> MimeTypes.TEXT_SSA
-                "srt" -> MimeTypes.APPLICATION_SUBRIP
-                "vtt" -> MimeTypes.TEXT_VTT
-                else -> null
-            }
-            if (mimeType == null) {
-                _playerError.value = "صيغة الترجمة غير مدعومة. استخدم ASS أو SSA أو SRT أو VTT"
-                return@launch
-            }
-            val player = _controller.value ?: run {
-                _playerError.value = "مشغل الفيديو غير جاهز"
-                return@launch
-            }
-            if (targetMediaId != currentMediaId) return@launch
-            val index = player.currentMediaItemIndex
-            val current = player.currentMediaItem
-            if (current == null || index !in 0 until player.mediaItemCount) {
-                _playerError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
-                return@launch
-            }
-            if (rememberAsTranslationSource) {
-                translationSourceSubtitleUri = uri
-                _subtitleTranslationAvailable.value = true
-                _subtitleTranslationError.value = null
-            }
-            val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
-            if (existing.any { it.uri == uri }) return@launch
-
-            val configuration = MediaItem.SubtitleConfiguration.Builder(uri)
-                .setMimeType(mimeType)
-                .setLanguage("und")
-                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                .build()
-            val updated = current.buildUpon()
-                .setSubtitleConfigurations(existing + configuration)
-                .build()
-            val queue = (0 until player.mediaItemCount).map { itemIndex ->
-                if (itemIndex == index) updated else player.getMediaItemAt(itemIndex)
-            }
-            val position = player.currentPosition.coerceAtLeast(0L)
-            val playWhenReady = player.playWhenReady
-            player.setMediaItems(queue, index, position)
-            player.prepare()
-            player.playWhenReady = playWhenReady
-            _playerError.value = null
+    ): Boolean {
+        val extension = withContext(Dispatchers.IO) { resolveSubtitleExtension(uri) }
+        val mimeType = when (extension) {
+            "ass", "ssa" -> MimeTypes.TEXT_SSA
+            "srt" -> MimeTypes.APPLICATION_SUBRIP
+            "vtt" -> MimeTypes.TEXT_VTT
+            else -> null
         }
+        if (mimeType == null) {
+            _playerError.value = "صيغة الترجمة غير مدعومة. استخدم ASS أو SSA أو SRT أو VTT"
+            return false
+        }
+        val player = _controller.value ?: run {
+            _playerError.value = "مشغل الفيديو غير جاهز"
+            return false
+        }
+        if (targetMediaId == null || targetMediaId != currentMediaId) return false
+        val index = player.currentMediaItemIndex
+        val current = player.currentMediaItem
+        if (current == null || index !in 0 until player.mediaItemCount) {
+            _playerError.value = "لا يوجد فيديو نشط لإضافة الترجمة"
+            return false
+        }
+        if (rememberAsTranslationSource) {
+            translationSourceSubtitleUri = uri
+            _subtitleTranslationAvailable.value = true
+            _subtitleTranslationError.value = null
+        }
+        val existing = current.localConfiguration?.subtitleConfigurations.orEmpty()
+        if (existing.any { it.uri == uri }) {
+            _playerError.value = null
+            return true
+        }
+
+        val configuration = MediaItem.SubtitleConfiguration.Builder(uri)
+            .setMimeType(mimeType)
+            .setLanguage("und")
+            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+            .build()
+        val updated = current.buildUpon()
+            .setSubtitleConfigurations(existing + configuration)
+            .build()
+        val queue = (0 until player.mediaItemCount).map { itemIndex ->
+            if (itemIndex == index) updated else player.getMediaItemAt(itemIndex)
+        }
+        val position = player.currentPosition.coerceAtLeast(0L)
+        val playWhenReady = player.playWhenReady
+        player.setMediaItems(queue, index, position)
+        player.prepare()
+        player.playWhenReady = playWhenReady
+        _playerError.value = null
+        return true
     }
 
     /** Resolves provider URIs using display name, MIME type, then a bounded content sniff. */
@@ -1118,7 +1128,10 @@ class PlayerViewModel @Inject constructor(
                     _subtitleTranslationError.value = "تغير الملف أثناء الترجمة؛ أعد المحاولة على الملف الحالي"
                     return@launch
                 }
-                addExternalSubtitleForMedia(translated, targetMediaId, rememberAsTranslationSource = false)
+                if (!addExternalSubtitleForMedia(translated, targetMediaId, rememberAsTranslationSource = false)) {
+                    _subtitleTranslationError.value = _playerError.value ?: "تعذر إرفاق الترجمة بالفيديو الحالي"
+                    return@launch
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -1572,12 +1585,11 @@ class PlayerViewModel @Inject constructor(
                     _onlineSubtitleError.value = "تغير الفيديو أثناء تنزيل الترجمة؛ أعد المحاولة على الفيديو الحالي"
                     return@launch
                 }
-                addExternalSubtitle(uri)
-                if (_playerError.value == null) {
-                    android.widget.Toast.makeText(app, "تم تنزيل الترجمة وتطبيقها بنجاح", android.widget.Toast.LENGTH_SHORT).show()
-                } else {
-                    _onlineSubtitleError.value = _playerError.value
+                if (!addExternalSubtitleForMedia(uri, targetMediaId, rememberAsTranslationSource = true)) {
+                    _onlineSubtitleError.value = _playerError.value ?: "تغير الفيديو قبل إرفاق الترجمة"
+                    return@launch
                 }
+                android.widget.Toast.makeText(app, "تم تنزيل الترجمة وتطبيقها بنجاح", android.widget.Toast.LENGTH_SHORT).show()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -1631,9 +1643,15 @@ class PlayerViewModel @Inject constructor(
                     _subtitleTranslationError.value = "تغير الفيديو أثناء الترجمة؛ لم نطبق النتيجة على الفيديو الجديد"
                     return@launch
                 }
+                if (!addExternalSubtitleForMedia(translated, targetMediaId, rememberAsTranslationSource = false)) {
+                    _subtitleTranslationError.value = _playerError.value
+                        ?: "تغير الفيديو قبل إرفاق الترجمة المترجمة"
+                    return@launch
+                }
+                // Keep the downloaded foreign subtitle as the source for a later
+                // re-translation only after the Arabic track was attached successfully.
                 translationSourceSubtitleUri = downloaded
                 _subtitleTranslationAvailable.value = true
-                addExternalSubtitle(translated, rememberAsTranslationSource = false)
                 android.widget.Toast.makeText(
                     app,
                     "تم تنزيل الترجمة الأجنبية وترجمتها إلى العربية",
