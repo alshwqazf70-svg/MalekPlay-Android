@@ -121,8 +121,7 @@ class UltraShareCoreTest {
         assertEquals("video/mp4", UltraShareCore.sanitizeMimeType(" video/mp4 "))
         assertEquals(
             "application/octet-stream",
-            UltraShareCore.sanitizeMimeType("video/mp4\r
-X-Evil: yes")
+            UltraShareCore.sanitizeMimeType("video/mp4\\r\\nX-Evil: yes")
         )
         assertEquals("application/octet-stream", UltraShareCore.sanitizeMimeType("not a mime type"))
     }
