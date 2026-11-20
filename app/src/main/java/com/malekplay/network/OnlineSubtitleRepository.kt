@@ -95,13 +95,16 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         automaticSearchCache.get(queryKey)?.let { cached ->
             return SubtitleResultPolicy.rankAndFilter(cached, language).take(40)
         }
-        val publicAttempt = runCatching { searchPublic(providerTitle, language, resolvedSeason, resolvedEpisode) }
+        // Fetch both supported languages once so the in-memory combined cache can
+        // serve subsequent Arabic-only/English-only filter changes without HTTP.
+        val providerLanguages = "ar,en"
+        val publicAttempt = runCatching { searchPublic(providerTitle, resolvedSeason, resolvedEpisode) }
         val accountAttempt = if (hasCredentials()) {
-            runCatching { search(providerTitle, language, resolvedSeason, resolvedEpisode, mediaUri) }
+            runCatching { search(providerTitle, providerLanguages, resolvedSeason, resolvedEpisode, mediaUri) }
         } else null
         val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
         val subdlAttempt = if (!subdlKey.isNullOrBlank()) runCatching {
-            searchSubDl(cleaned.title, language, resolvedSeason, resolvedEpisode, cleaned.year, subdlKey)
+            searchSubDl(cleaned.title, providerLanguages, resolvedSeason, resolvedEpisode, cleaned.year, subdlKey)
         } else null
         val publicResults = publicAttempt.getOrDefault(emptyList())
         val accountResults = accountAttempt?.getOrDefault(emptyList()).orEmpty()
@@ -122,7 +125,6 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
 
     private fun searchPublic(
         title: String,
-        language: String,
         season: Int?,
         episode: Int?
     ): List<OnlineSubtitle> {
@@ -132,11 +134,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             " S%02dE%02d".format(Locale.ROOT, season, episode)
         } else ""
         val query = (title.trim().take(150) + episodeSuffix).trim()
-        val languages = language.split(',').map { SubtitleQueryCleaner.normalizeLanguage(it.trim()) }
-            .filter { it in setOf("ar", "en") }.ifEmpty { listOf("ar", "en") }
         val cacheKey = query.lowercase(Locale.ROOT)
         val cached = publicSearchCache.get(cacheKey)
-        if (cached != null) return SubtitleResultPolicy.rankAndFilter(cached, languages.joinToString(","))
+        if (cached != null) return cached
         val urlBuilder = Uri.parse("$PUBLIC_API/search/subtitles").buildUpon()
             .appendQueryParameter("title", query)
         val request = Request.Builder().url(urlBuilder.build().toString())
@@ -168,7 +168,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             }
         }.distinctBy { it.sourceId }.take(40)
         publicSearchCache.put(cacheKey, parsed)
-        return SubtitleResultPolicy.rankAndFilter(parsed, languages.joinToString(","))
+        return parsed
     }
 
     fun download(subtitle: OnlineSubtitle): Uri {
