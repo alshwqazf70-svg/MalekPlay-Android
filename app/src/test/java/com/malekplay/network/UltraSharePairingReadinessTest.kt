@@ -79,7 +79,7 @@ class UltraSharePairingReadinessTest {
         val stored = listOf("192.168.1.10", "192.168.49.1")
         val refreshed = listOf("192.168.1.11")
         assertEquals(
-            stored,
+            refreshed,
             UltraSharePairingReadiness.stableInvitationHosts(
                 "invite-1", "invite-1", stored, refreshed
             )
@@ -91,9 +91,15 @@ class UltraSharePairingReadinessTest {
             )
         )
         assertEquals(
+            stored,
+            UltraSharePairingReadiness.stableInvitationHosts(
+                "invite-1", "invite-1", stored, emptyList()
+            )
+        )
+        assertEquals(
             emptyList<String>(),
             UltraSharePairingReadiness.stableInvitationHosts(
-                "invite-1", "invite-1", emptyList(), refreshed
+                "invite-1", "invite-1", emptyList(), emptyList()
             )
         )
     }
@@ -222,7 +228,7 @@ class UltraSharePairingReadinessTest {
         )
     }
 
-    @Test fun unifiedV5QrDoesNotDropRoutesOrChangeSessionWhileEnrichingHosts() {
+    @Test fun unifiedV5QrRefreshesRoutesOnlyForTheSameSessionAndCredentials() {
         val unchanged = UltraSharePairingReadiness.shouldEnrichUnifiedV5Qr(
             existingVersion = "5",
             candidateVersion = "5",
@@ -272,7 +278,7 @@ class UltraSharePairingReadinessTest {
             candidateHosts = listOf("192.168.49.1", "192.168.1.20")
         )
         assertFalse(unchanged)
-        assertFalse(dropsOldRoute)
+        assertTrue(dropsOldRoute)
         assertFalse(wrongWifiPassword)
     }
 
