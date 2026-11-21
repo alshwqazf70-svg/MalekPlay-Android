@@ -308,12 +308,21 @@ class UltraShareViewModel @Inject constructor(
             candidateVersion == "6" &&
             existingDetails.pairingSecret == candidateDetails.pairingSecret &&
             existingDetails.invitationId == candidateDetails.invitationId &&
-            (existingVersion != "6" ||
-                (existingDetails.deviceName == candidateDetails.deviceName &&
-                    existingDetails.hotspotSsid == candidateDetails.hotspotSsid &&
-                    existingDetails.hotspotPassword == candidateDetails.hotspotPassword &&
-                    candidateDetails.hosts.isNotEmpty() &&
-                    candidateDetails.hosts.all(UltraShareCore::isValidPrivateLanHost)))
+            (existingVersion != "6" || readiness.shouldRefreshRoomV6Qr(
+                existingVersion = existingVersion,
+                candidateVersion = candidateVersion,
+                existingInvitationId = existingDetails.invitationId,
+                candidateInvitationId = candidateDetails.invitationId,
+                existingPairingSecret = existingDetails.pairingSecret,
+                candidatePairingSecret = candidateDetails.pairingSecret,
+                existingDeviceName = existingDetails.deviceName,
+                candidateDeviceName = candidateDetails.deviceName,
+                existingSsid = existingDetails.hotspotSsid,
+                candidateSsid = candidateDetails.hotspotSsid,
+                existingWifiPassword = existingDetails.hotspotPassword,
+                candidateWifiPassword = candidateDetails.hotspotPassword,
+                candidateHosts = candidateDetails.hosts
+            ))
         val mayEnrichV5Routes = existingPayload != null && existingDetails != null &&
             readiness.shouldEnrichUnifiedV5Qr(
                 existingVersion = existingVersion,
