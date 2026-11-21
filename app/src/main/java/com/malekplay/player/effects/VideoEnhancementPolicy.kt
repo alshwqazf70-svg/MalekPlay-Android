@@ -12,14 +12,16 @@ enum class VideoEnhancementProfile(
     val clarityStrength: Float,
     /** Long-edge GPU texture ceiling used only when Lanczos upscaling is requested. */
     val upscaleMaxLongEdge: Int,
+    /** Maximum intermediate texture area, limiting GPU memory and fragment workload. */
+    val upscaleMaxPixels: Int,
     /** Frame interpolation remains disabled for every preset; no synthetic frames are generated. */
     val previousFrameWeight: Float = 0f
 ) {
     // Presets have deliberately separated spatial-detail strengths while keeping
     // denoise and texture budgets conservative on mobile GPUs.
-    ECONOMY("economy", 0.22f, 0.62f, 0.09f, 0.10f, 1920),
-    BALANCED("balanced", 0.34f, 0.90f, 0.14f, 0.19f, 2560),
-    ULTRA("ultra", 0.44f, 1.12f, 0.19f, 0.27f, 2960);
+    ECONOMY("economy", 0.22f, 0.62f, 0.09f, 0.10f, 1920, 1_500_000),
+    BALANCED("balanced", 0.34f, 0.90f, 0.14f, 0.19f, 2560, 2_500_000),
+    ULTRA("ultra", 0.44f, 1.12f, 0.19f, 0.27f, 2960, 3_500_000);
 
     companion object {
         fun fromWireValue(value: String?): VideoEnhancementProfile =
@@ -91,10 +93,11 @@ object VideoUpscaleTargetPolicy {
         sourceHeight: Int,
         displayWidth: Int,
         displayHeight: Int,
-        maxLongEdge: Int
+        maxLongEdge: Int,
+        maxPixels: Int = 4_194_304
     ): VideoUpscaleTarget? {
         if (sourceWidth <= 0 || sourceHeight <= 0 ||
-            displayWidth <= 0 || displayHeight <= 0 || maxLongEdge <= 0
+            displayWidth <= 0 || displayHeight <= 0 || maxLongEdge <= 0 || maxPixels <= 0
         ) return null
 
         // Treat the display as a bounding box, not as the video's aspect ratio.
@@ -107,7 +110,8 @@ object VideoUpscaleTargetPolicy {
         val scale = minOf(
             displayLong / sourceLong,
             displayShort / sourceShort,
-            maxLongEdge.toDouble() / sourceLong
+            maxLongEdge.toDouble() / sourceLong,
+            kotlin.math.sqrt(maxPixels.toDouble() / (sourceWidth.toDouble() * sourceHeight.toDouble()))
         )
         if (!scale.isFinite() || scale <= 1.0) return null
 
