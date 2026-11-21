@@ -6,7 +6,6 @@ import androidx.media3.common.DebugViewProvider
 import androidx.media3.common.Format
 import androidx.media3.common.VideoFrameProcessingException
 import androidx.media3.common.VideoFrameProcessor
-import androidx.media3.common.util.GlUtil
 import androidx.media3.common.util.TimestampIterator
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.DefaultVideoFrameProcessor
@@ -18,7 +17,6 @@ import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
