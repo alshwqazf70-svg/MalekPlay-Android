@@ -25,9 +25,11 @@ class UltraShareCoreTest {
         assertTrue(UltraShareCore.isAllowedShareFile("document.txt", "text/plain"))
         assertTrue(UltraShareCore.isAllowedShareFile("unknown.bin", "application/octet-stream"))
         assertTrue(UltraShareCore.isAllowedShareFile("report.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-        assertFalse(UltraShareCore.isAllowedShareFile("image.svg", "image/svg+xml"))
-        assertFalse(UltraShareCore.isAllowedShareFile("drawing.svg", "image/png"))
-        assertFalse(UltraShareCore.isAllowedShareFile("drawing.png", "image/svg+xml"))
+        // SVG is transferred as an ordinary opaque file; it is not treated as a
+        // previewable media MIME type, but the transfer policy blocks only APK/PDF.
+        assertTrue(UltraShareCore.isAllowedShareFile("image.svg", "image/svg+xml"))
+        assertTrue(UltraShareCore.isAllowedShareFile("drawing.svg", "image/png"))
+        assertTrue(UltraShareCore.isAllowedShareFile("drawing.png", "image/svg+xml"))
         assertFalse(UltraShareCore.isAllowedShareFile("renamed.apk", "video/mp4"))
         assertFalse(UltraShareCore.isAllowedShareFile("document.pdf", "application/octet-stream"))
         assertFalse(UltraShareCore.isAllowedShareFile("document.pdf ", "application/octet-stream"))
