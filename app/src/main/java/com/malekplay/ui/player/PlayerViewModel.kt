@@ -115,7 +115,14 @@ data class VideoEnhancementDiagnostics(
     val averageProcessingOffsetUs: Long = 0L,
     val droppedFrames: Long = 0L,
     val upscalingEnabled: Boolean = false,
-    val noiseReductionEnabled: Boolean = false
+    val noiseReductionEnabled: Boolean = false,
+    val programCreations: Long = 0L,
+    val configureCalls: Long = 0L,
+    val drawFrameCalls: Long = 0L,
+    val drawFrameSuccesses: Long = 0L,
+    val configuredWidth: Int = 0,
+    val configuredHeight: Int = 0,
+    val pipelineStage: String = "not_started"
 )
 @UnstableApi
 @HiltViewModel
@@ -488,7 +495,14 @@ class PlayerViewModel @Inject constructor(
                     averageProcessingOffsetUs = state.getLong(PlaybackVideoEffects.KEY_DIAG_AVG_OFFSET_US, 0L),
                     droppedFrames = state.getLong(PlaybackVideoEffects.KEY_DIAG_DROPPED_FRAMES, 0L),
                     upscalingEnabled = state.getBoolean(PlaybackVideoEffects.KEY_STATE_UPSCALING, false),
-                    noiseReductionEnabled = state.getBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, false)
+                    noiseReductionEnabled = state.getBoolean(PlaybackVideoEffects.KEY_STATE_NOISE_REDUCTION, false),
+                    programCreations = state.getLong(PlaybackVideoEffects.KEY_DIAG_PROGRAM_CREATIONS, 0L),
+                    configureCalls = state.getLong(PlaybackVideoEffects.KEY_DIAG_CONFIGURE_CALLS, 0L),
+                    drawFrameCalls = state.getLong(PlaybackVideoEffects.KEY_DIAG_DRAW_FRAME_CALLS, 0L),
+                    drawFrameSuccesses = state.getLong(PlaybackVideoEffects.KEY_DIAG_DRAW_FRAME_SUCCESSES, 0L),
+                    configuredWidth = state.getInt(PlaybackVideoEffects.KEY_DIAG_CONFIGURED_WIDTH, 0),
+                    configuredHeight = state.getInt(PlaybackVideoEffects.KEY_DIAG_CONFIGURED_HEIGHT, 0),
+                    pipelineStage = state.getString(PlaybackVideoEffects.KEY_DIAG_PIPELINE_STAGE).orEmpty()
                 )
             },
             ContextCompat.getMainExecutor(app)
