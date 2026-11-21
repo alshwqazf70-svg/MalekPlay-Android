@@ -75,6 +75,15 @@ class UltraSharePairingReadinessTest {
         assertFalse(matchesExpectedUltraSharePeerIdentity(target.peerId, "different-peer"))
     }
 
+    @Test fun legacyUnifiedQrWithPeerIdentityStillUsesWifiDirectBeforeHotspotCredentials() {
+        assertTrue(UltraSharePairingReadiness.shouldUseWifiDirectInvitation(null, "legacy-peer-id"))
+        assertTrue(UltraSharePairingReadiness.shouldUseWifiDirectInvitation("p2p", "room-peer-id"))
+        assertFalse(UltraSharePairingReadiness.shouldUseWifiDirectInvitation("lan", "peer-id"))
+        assertFalse(UltraSharePairingReadiness.shouldUseWifiDirectInvitation("hotspot", "peer-id"))
+        assertFalse(UltraSharePairingReadiness.shouldUseWifiDirectInvitation("p2p", null))
+        assertFalse(UltraSharePairingReadiness.shouldUseWifiDirectInvitation(null, ""))
+    }
+
     @Test fun invitationDiscoveryTimeoutNeverRacesAnActiveWifiDirectConnection() {
         assertTrue(
             UltraSharePairingReadiness.shouldUseLanFallbackAfterInvitationDiscoveryTimeout(
