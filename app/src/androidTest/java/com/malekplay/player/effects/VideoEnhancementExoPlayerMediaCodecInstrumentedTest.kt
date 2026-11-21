@@ -1,6 +1,5 @@
 package com.malekplay.player.effects
 
-import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
@@ -40,7 +39,7 @@ class VideoEnhancementExoPlayerMediaCodecInstrumentedTest {
     fun realMediaCodecPlaybackRendersFramesProcessedByProductionEnhancementEffect() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fixture = File(context.cacheDir, "enhancement-e2e-${System.nanoTime()}.mp4")
-        createAvcFixture(context, fixture)
+        createAvcFixture(fixture)
 
         val decoderInitialized = CountDownLatch(1)
         val playbackFinishedSignal = CountDownLatch(1)
@@ -142,6 +141,10 @@ class VideoEnhancementExoPlayerMediaCodecInstrumentedTest {
                 "No decoded frame was counted as enhancement-processed",
                 metrics.processedDraws > 0
             )
+            assertTrue(
+                "The production enhancement pipeline recorded a GL failure: ${metrics.lastFailure}",
+                metrics.lastFailure == null
+            )
         } finally {
             runCatching {
                 scenario.onActivity { player?.release() }
@@ -151,7 +154,7 @@ class VideoEnhancementExoPlayerMediaCodecInstrumentedTest {
         }
     }
 
-    private fun createAvcFixture(context: Context, outputFile: File) {
+    private fun createAvcFixture(outputFile: File) {
         val mimeType = MediaFormat.MIMETYPE_VIDEO_AVC
         val flexibleYuv = MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
         val encoderInfo = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull { info ->
