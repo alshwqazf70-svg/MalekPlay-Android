@@ -208,8 +208,8 @@ object UltraShareCore {
         }
     }
 
-    private val BLOCKED_EXTENSIONS = setOf("apk", "pdf", "svg")
-    private val BLOCKED_MIME_TYPES = setOf("application/pdf", "application/vnd.android.package-archive", "application/x-android-package-archive", "image/svg+xml")
+    private val BLOCKED_EXTENSIONS = setOf("apk", "pdf")
+    private val BLOCKED_MIME_TYPES = setOf("application/pdf", "application/vnd.android.package-archive", "application/x-android-package-archive")
     private fun isValidShareMimeSyntax(raw: String): Boolean {
         val candidate = raw.trim()
         val token = "[A-Za-z0-9!#$&^_.+-]+"
