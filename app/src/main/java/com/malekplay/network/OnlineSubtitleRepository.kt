@@ -156,10 +156,13 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
 
         // Share one network fan-out for simultaneous identical searches.
         // Each caller applies its own language filter to the combined results.
-        val task = automaticSearchInFlight.computeIfAbsent(queryKey) {
-            FutureTask { searchAutomaticUncached(queryKey, cleaned, providerTitle, resolvedSeason, resolvedEpisode, mediaUri) }
+        val candidate = FutureTask {
+            searchAutomaticUncached(queryKey, cleaned, providerTitle, resolvedSeason, resolvedEpisode, mediaUri)
         }
-        task.run()
+        // putIfAbsent is available on the minimum supported Android API (23), unlike
+        // ConcurrentHashMap.computeIfAbsent, which was added to Android in API 24.
+        val task = automaticSearchInFlight.putIfAbsent(queryKey, candidate) ?: candidate
+        if (task === candidate) candidate.run()
         try {
             return SubtitleResultPolicy.rankAndFilter(task.get(), language, resolvedSeason, resolvedEpisode).take(40)
         } catch (interrupted: InterruptedException) {

@@ -128,8 +128,10 @@ internal class UltraShareHotspotController(
         isStarting = false
         val current = reservation
         reservation = null
-        if (current != null) scope.launch(Dispatchers.IO + NonCancellable) {
-            runCatching { current.close() }
+        if (current != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            scope.launch(Dispatchers.IO + NonCancellable) {
+                runCatching { current.close() }
+            }
         }
     }
 }

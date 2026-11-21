@@ -1212,7 +1212,13 @@ private fun forgetApprovedSenderTarget(host: String) {
             runCatching { wifi.disableNetwork(networkId) }
             val removed = wifi.removeNetwork(networkId)
             val profileStillExists = runCatching {
-                wifi.configuredNetworks?.any { it.networkId == networkId }
+                try {
+                    wifi.configuredNetworks?.any { it.networkId == networkId }
+                } catch (_: SecurityException) {
+                    // Permission can be revoked while the pairing flow is being cleaned up.
+                    // Keep the saved id when Android does not allow us to inspect profiles.
+                    null
+                }
             }.getOrNull()
             if (removed || profileStillExists == false) {
                 runCatching { wifi.saveConfiguration() }

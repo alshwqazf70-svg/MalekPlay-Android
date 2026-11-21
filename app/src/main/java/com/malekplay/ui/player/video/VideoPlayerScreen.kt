@@ -686,7 +686,7 @@ fun VideoPlayerScreen(
             // of leaving the screen's local fallback flag latched to the old item.
             googleAiMediaId = currentVideoId
             googleAiRequestVersion++
-            googleAiBridge?.close()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) googleAiBridge?.close()
             googleAiBridge = null
             internalAiFallback = false
             internalAiFallbackPending = false

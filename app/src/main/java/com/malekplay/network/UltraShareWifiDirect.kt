@@ -834,7 +834,7 @@ object UltraShareWifiDirect {
                             }
                             configResult.getOrThrow()
                         } else null
-                        if (compatibilityConfig != null) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && compatibilityConfig != null) {
                             // Never silently retry with an unconstrained Android 16
                             // group: that could become WPA3-SAE-only and strand
                             // Android 6–15 joiners. Framework failure triggers the

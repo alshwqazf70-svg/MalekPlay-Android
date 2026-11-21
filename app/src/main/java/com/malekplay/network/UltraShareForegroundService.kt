@@ -826,7 +826,13 @@ class UltraShareForegroundService : Service() {
             runCatching { wifi.disableNetwork(networkId) }
             val removed = wifi.removeNetwork(networkId)
             val profileStillExists = runCatching {
-                wifi.configuredNetworks?.any { it.networkId == networkId }
+                try {
+                    wifi.configuredNetworks?.any { it.networkId == networkId }
+                } catch (_: SecurityException) {
+                    // Android may revoke location access while the service is stopping.
+                    // Unknown profile state must retain the preference for a later retry.
+                    null
+                }
             }.getOrNull()
             if (removed || profileStillExists == false) {
                 runCatching { wifi.saveConfiguration() }
