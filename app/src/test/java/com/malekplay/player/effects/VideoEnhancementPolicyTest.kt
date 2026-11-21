@@ -8,6 +8,37 @@ import org.junit.Test
 
 @OptIn(UnstableApi::class)
 class VideoEnhancementPolicyTest {
+    @Test fun pendingEnhancementRequiresCreatedAttachedAndOperationalGpuGraph() {
+        assertTrue(
+            VideoEnhancementPolicy.canAcceptPendingEnhancementRequest(
+                pipelineCreated = true,
+                pipelineAttached = true,
+                registryOperational = true
+            )
+        )
+        assertFalse(
+            VideoEnhancementPolicy.canAcceptPendingEnhancementRequest(
+                pipelineCreated = false,
+                pipelineAttached = true,
+                registryOperational = true
+            )
+        )
+        assertFalse(
+            VideoEnhancementPolicy.canAcceptPendingEnhancementRequest(
+                pipelineCreated = true,
+                pipelineAttached = false,
+                registryOperational = true
+            )
+        )
+        assertFalse(
+            VideoEnhancementPolicy.canAcceptPendingEnhancementRequest(
+                pipelineCreated = true,
+                pipelineAttached = true,
+                registryOperational = false
+            )
+        )
+    }
+
     @Test fun legacyAndroidIsCappedAtEconomy() {
         val result = VideoEnhancementPolicy.resolve(
             VideoEnhancementProfile.ULTRA, 23, false, 512
