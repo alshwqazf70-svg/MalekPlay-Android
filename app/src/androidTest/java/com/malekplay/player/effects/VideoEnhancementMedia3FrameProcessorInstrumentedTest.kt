@@ -37,6 +37,9 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
     fun media3ProcessesFramesThroughEnhancementEffectAcrossInputSizeChange() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val outputFrames = CountDownLatch(2)
+        val firstOutputFrame = CountDownLatch(1)
+        val firstStreamRegistered = CountDownLatch(1)
+        val secondStreamRegistered = CountDownLatch(1)
         val ended = CountDownLatch(1)
         val failure = AtomicReference<Throwable?>(null)
         val outputTimes = java.util.Collections.synchronizedList(mutableListOf<Long>())
@@ -51,10 +54,24 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
             ) {
                 outputTimes += presentationTimeUs
                 textureProducer.releaseOutputTexture(presentationTimeUs)
+                firstOutputFrame.countDown()
                 outputFrames.countDown()
             }
         }
+        val registrationCount = java.util.concurrent.atomic.AtomicInteger(0)
         val processorListener = object : VideoFrameProcessor.Listener {
+            override fun onInputStreamRegistered(
+                inputType: Int,
+                format: Format,
+                effects: List<androidx.media3.common.Effect>
+            ) {
+                if (registrationCount.incrementAndGet() == 1) {
+                    firstStreamRegistered.countDown()
+                } else {
+                    secondStreamRegistered.countDown()
+                }
+            }
+
             override fun onError(exception: VideoFrameProcessingException) {
                 failure.compareAndSet(null, exception)
                 ended.countDown()
@@ -99,11 +116,20 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
                 /* offsetToAddUs = */ 0L
             )
             assertTrue(
+                "Media3 did not finish registering the first bitmap stream",
+                firstStreamRegistered.await(10, TimeUnit.SECONDS)
+            )
+            assertTrue(
                 "Media3 rejected first bitmap frame",
                 processor.queueInputBitmap(
                     testBitmap(32, 24),
                     SingleTimestampIterator(10_000L)
                 )
+            )
+
+            assertTrue(
+                "Media3 did not deliver the first output before stream transition",
+                firstOutputFrame.await(10, TimeUnit.SECONDS)
             )
 
             // A second stream on the same processor models a media-item/format
@@ -114,6 +140,10 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
                 secondFormat,
                 listOf(effect),
                 /* offsetToAddUs = */ 20_000L
+            )
+            assertTrue(
+                "Media3 did not finish registering the second bitmap stream",
+                secondStreamRegistered.await(10, TimeUnit.SECONDS)
             )
             assertTrue(
                 "Media3 rejected second bitmap frame after stream reconfiguration",
