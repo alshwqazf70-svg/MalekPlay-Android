@@ -27,12 +27,13 @@ class VideoEnhancementMetricsTest {
 
     @Test fun pipelineStagesAreCountedIndependently() {
         VideoEnhancementMetrics.reset()
+        val creationsBefore = VideoEnhancementMetrics.snapshot().programCreations
         VideoEnhancementMetrics.recordProgramCreated()
         VideoEnhancementMetrics.recordConfigured(1920, 1080)
         VideoEnhancementMetrics.recordDrawFrameEntered()
         VideoEnhancementMetrics.recordDrawFrameSucceeded()
         val snapshot = VideoEnhancementMetrics.snapshot()
-        assertEquals(1L, snapshot.programCreations)
+        assertEquals(creationsBefore + 1L, snapshot.programCreations)
         assertEquals(1L, snapshot.configureCalls)
         assertEquals(1L, snapshot.drawFrameCalls)
         assertEquals(1L, snapshot.drawFrameSuccesses)
@@ -40,5 +41,7 @@ class VideoEnhancementMetricsTest {
         assertEquals(1080, snapshot.lastConfiguredHeight)
         assertEquals("draw_frame_succeeded", snapshot.lastPipelineStage)
         assertEquals(0L, snapshot.processedDraws)
+        VideoEnhancementMetrics.reset()
+        assertEquals(creationsBefore + 1L, VideoEnhancementMetrics.snapshot().programCreations)
     }
 }
