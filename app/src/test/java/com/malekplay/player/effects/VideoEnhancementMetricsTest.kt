@@ -24,6 +24,23 @@ class VideoEnhancementMetricsTest {
         assertEquals("not_started", reset.lastPipelineStage)
     }
 
+    @Test fun failureDiagnosticsRetainNestedMedia3CauseChain() {
+        VideoEnhancementMetrics.reset()
+        val root = IllegalArgumentException("EGL context creation failed")
+        val wrapped = IllegalStateException("VideoFrameProcessor failed", root)
+
+        VideoEnhancementMetrics.recordFailure("media3_video_frame_processing", wrapped)
+
+        assertEquals(
+            "IllegalStateException: VideoFrameProcessor failed <- IllegalArgumentException: EGL context creation failed",
+            VideoEnhancementMetrics.snapshot().lastFailure
+        )
+        assertEquals(
+            "failed:media3_video_frame_processing",
+            VideoEnhancementMetrics.snapshot().lastPipelineStage
+        )
+    }
+
     @Test fun pipelineStagesAreCountedIndependently() {
         VideoEnhancementMetrics.reset()
         val creationsBefore = VideoEnhancementMetrics.snapshot().programCreations
