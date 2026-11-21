@@ -326,7 +326,7 @@ jobs:
             echo "=== Installed emulator/system image packages ==="
             "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list_installed 2>&1 | grep -E '(^  emulator|system-images;android-|platform-tools)' || true
             echo "=== TCG opt-in ==="
-            printf 'ANDROID_I_WANT_MY_TCG=%s\\n' "$ANDROID_I_WANT_MY_TCG"
+            printf 'ANDROID_I_WANT_MY_TCG=%s\n' "$ANDROID_I_WANT_MY_TCG"
           } 2>&1 | tee "ultrashare-diagnostics/emulator-host-api-${{ matrix.api-level }}.log"
       - name: Restore Android emulator system-image cache
         uses: actions/cache@v4
