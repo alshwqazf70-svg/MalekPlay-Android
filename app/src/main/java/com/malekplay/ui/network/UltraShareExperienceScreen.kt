@@ -42,7 +42,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -653,7 +653,7 @@ fun UltraShareExperienceScreen(
                     )
                     if (hasConnectedPeer) {
                         Button(onClick = ::sendSelectedUrisToRoom, enabled = !state.sending, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Filled.Send, null)
+                            Icon(Icons.AutoMirrored.Filled.Send, null)
                             Text("إرسال المختار الآن", modifier = Modifier.padding(start = 8.dp))
                         }
                     } else {
@@ -697,7 +697,7 @@ fun UltraShareExperienceScreen(
                     modifier = Modifier.weight(1f),
                     title = "انضمام لغرفة",
                     subtitle = "مسح QR والاتصال التلقائي",
-                    icon = { Icon(Icons.Filled.Send, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(58.dp)) }
+                    icon = { Icon(Icons.AutoMirrored.Filled.Send, null, tint = Color(0xFF75E8F4), modifier = Modifier.size(58.dp)) }
                 ) {
                     page = UltraSharePage.JOIN
                     scanQr()
@@ -744,7 +744,7 @@ fun UltraShareExperienceScreen(
                             Text("مسح QR من صورة محفوظة", modifier = Modifier.padding(start = 8.dp))
                         }
                         OutlinedButton(onClick = { page = UltraSharePage.SEND }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Filled.Send, null)
+                            Icon(Icons.AutoMirrored.Filled.Send, null)
                             Text("الإدخال اليدوي / اختيار الملفات", modifier = Modifier.padding(start = 8.dp))
                         }
                     }
