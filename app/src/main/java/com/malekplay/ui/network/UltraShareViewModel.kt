@@ -1246,8 +1246,10 @@ private fun forgetApprovedSenderTarget(host: String) {
                 "QR_P2P_MAIN_FLOW_SELECTED",
                 mapOf("sdkInt" to Build.VERSION.SDK_INT)
             )
+            // The readiness predicate guarantees a non-blank invitation ID;
+            // make that invariant explicit to Kotlin before entering the P2P flow.
             joinWifiDirectInvitation(
-                pairing.invitationId,
+                requireNotNull(pairing.invitationId),
                 pairing.pairingSecret,
                 pairing.hosts
             )
