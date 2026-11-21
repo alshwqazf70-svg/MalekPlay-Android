@@ -33,7 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
@@ -150,7 +150,7 @@ data class LegacyUltraShareUiState(
 
 @HiltViewModel
 class LegacyUltraShareViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val mediaRepository: MediaRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(LegacyUltraShareUiState())
@@ -1097,9 +1097,8 @@ class LegacyUltraShareViewModel @Inject constructor(
     fun connectInvitation(pairing: UltraShareQrCode.PairingDetails, onReady: (String) -> Unit) {
         // P2P invitations must negotiate Wi-Fi Direct first, even when the QR also
         // carries optional hotspot credentials for a separate fallback transport.
-        // The active Ultra Share screen uses this LegacyUltraShareViewModel; keeping
-        // this priority here is essential because the newer ViewModel is not wired
-        // to the current navigation destination.
+        // Legacy QR entry point: keep P2P invitations ahead of optional hotspot
+        // credentials so older navigation paths preserve the same transport priority.
         if (pairing.invitationId.isNullOrBlank() &&
             !pairing.hotspotSsid.isNullOrBlank() &&
             !pairing.hotspotPassword.isNullOrBlank()
@@ -1155,11 +1154,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                             _state.value = _state.value.copy(
                                 scanning = false,
                                 wifiDirectHost = null,
-                                error = if (pairing.invitationId != null) {
-                                    "تعذر إنشاء اتصال Wi-Fi Direct، ولا يوجد حالياً مسار LAN بديل موثوق. اتصل بالشبكة المشتركة ثم أعد المحاولة."
-                                } else {
-                                    connectFailure.localizedMessage ?: "تعذر إنشاء اتصال Wi-Fi Direct."
-                                }
+                                error = "تعذر إنشاء اتصال Wi-Fi Direct، ولا يوجد حالياً مسار LAN بديل موثوق. اتصل بالشبكة المشتركة ثم أعد المحاولة."
                             )
                         }
                     }
@@ -1182,11 +1177,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                         _state.value = _state.value.copy(
                             scanning = false,
                             wifiDirectHost = null,
-                            error = if (pairing.invitationId != null) {
-                                "لم يظهر الجهاز عبر Wi-Fi Direct ولا يوجد مسار LAN بديل متاح حالياً. اتصل بالشبكة نفسها على الهاتفين ثم أعد المحاولة."
-                            } else {
-                                "لم يتم العثور على الجهاز. تأكد من تشغيل الاستقبال وابقاء رمز QR مفتوحاً."
-                            }
+                            error = "لم يظهر الجهاز عبر Wi-Fi Direct ولا يوجد مسار LAN بديل متاح حالياً. اتصل بالشبكة نفسها على الهاتفين ثم أعد المحاولة."
                         )
                     }
                 }
@@ -1979,7 +1970,7 @@ fun UltraShareScreen(
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Send, contentDescription = null, tint = MalekPlayColors.PurpleBright)
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = MalekPlayColors.PurpleBright)
                     Text(stringResource(R.string.ultra_share_send), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
                 }
                 Row(
@@ -2122,7 +2113,7 @@ fun UltraShareScreen(
                                     modifier = Modifier.weight(1f),
                                     enabled = !state.sending && host.isNotBlank() && UltraShareCore.isValidPairingSecret(secret)
                                 ) {
-                                    Icon(Icons.Filled.Send, contentDescription = null)
+                                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
                                     Text("إرسال الآن", modifier = Modifier.padding(start = 6.dp))
                                 }
                             }
@@ -2134,7 +2125,7 @@ fun UltraShareScreen(
                 }
                 if (pendingMediaUris.isEmpty()) {
                     OutlinedButton(onClick = { pickFiles.launch(arrayOf("video/*", "audio/*", "image/*")) }, modifier = Modifier.fillMaxWidth(), enabled = !state.sending) {
-                        Icon(Icons.Filled.Send, contentDescription = null)
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
                         Text("اختيار وسائط للإرسال", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
