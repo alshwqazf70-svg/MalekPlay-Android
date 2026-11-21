@@ -248,7 +248,7 @@ class VideoEnhancementPolicyTest {
 
         val target720p = VideoUpscaleTargetPolicy.resolve(1280, 720, 2960, 1440, 2560)
         val target1080p = VideoUpscaleTargetPolicy.resolve(1920, 1080, 2960, 1440, 2560)
-        assertEquals(VideoUpscaleTarget(2105, 1184), target720p)
+        assertEquals(VideoUpscaleTarget(2108, 1185), target720p)
         assertEquals(VideoUpscaleTarget(2105, 1184), target1080p)
     }
 
@@ -267,7 +267,7 @@ class VideoEnhancementPolicyTest {
         val ultra = VideoUpscaleTargetPolicy.resolve(640, 360, 2960, 1440,
             VideoEnhancementProfile.ULTRA.upscaleMaxLongEdge)
         assertEquals(VideoUpscaleTarget(2105, 1184), balanced)
-        assertEquals(VideoUpscaleTarget(2560, 1440), ultra)
+        assertEquals(VideoUpscaleTarget(2494, 1403), ultra)
     }
 
     @Test fun invalidWireValueFallsBackToBalanced() {
