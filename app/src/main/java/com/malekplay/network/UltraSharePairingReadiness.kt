@@ -25,6 +25,14 @@ internal object UltraSharePairingReadiness {
             !wifiDirectAlreadyAttempted &&
             !hasActivePeers &&
             !hasActiveLanRoute
+    /**
+     * Legacy unified-v5 invitations carry a DNS-SD peer ID but no explicit mode.
+     * Treat that identity as a P2P invitation before considering optional SSID/PSK
+     * credentials, otherwise older P2P QR codes are misrouted into hotspot joining.
+     */
+    fun shouldUseWifiDirectInvitation(mode: String?, invitationId: String?): Boolean =
+        !invitationId.isNullOrBlank() && (mode.isNullOrBlank() || mode == "p2p")
+
     /** A discovery timeout may use LAN only if no P2P connection negotiation has begun. */
     fun shouldUseLanFallbackAfterInvitationDiscoveryTimeout(
         hasPendingInvitation: Boolean,
