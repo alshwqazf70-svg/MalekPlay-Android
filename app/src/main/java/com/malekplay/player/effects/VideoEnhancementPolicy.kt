@@ -41,6 +41,16 @@ data class VideoEnhancementTuning(
  * SEVERE=3, CRITICAL=4, EMERGENCY=5, SHUTDOWN=6).
  */
 object VideoEnhancementPolicy {
+    /**
+     * A pre-track enhancement request is safe to acknowledge only after the GPU
+     * effect exists and the same player has an operational effect registry.
+     */
+    fun canAcceptPendingEnhancementRequest(
+        pipelineCreated: Boolean,
+        pipelineAttached: Boolean,
+        registryOperational: Boolean
+    ): Boolean = pipelineCreated && pipelineAttached && registryOperational
+
     fun resolve(
         requested: VideoEnhancementProfile,
         sdkInt: Int,
