@@ -310,13 +310,10 @@ class UltraShareViewModel @Inject constructor(
             existingDetails.invitationId == candidateDetails.invitationId &&
             (existingVersion != "6" ||
                 (existingDetails.deviceName == candidateDetails.deviceName &&
-                    (existingDetails.invitationId.isNullOrBlank() ||
-                        existingDetails.invitationId == candidateDetails.invitationId) &&
-                    (existingDetails.hotspotSsid.isNullOrBlank() ||
-                        existingDetails.hotspotSsid == candidateDetails.hotspotSsid) &&
-                    (existingDetails.hotspotPassword.isNullOrBlank() ||
-                        existingDetails.hotspotPassword == candidateDetails.hotspotPassword) &&
-                    existingDetails.hosts.all { it in candidateDetails.hosts }))
+                    existingDetails.hotspotSsid == candidateDetails.hotspotSsid &&
+                    existingDetails.hotspotPassword == candidateDetails.hotspotPassword &&
+                    candidateDetails.hosts.isNotEmpty() &&
+                    candidateDetails.hosts.all(UltraShareCore::isValidPrivateLanHost)))
         val mayEnrichV5Routes = existingPayload != null && existingDetails != null &&
             readiness.shouldEnrichUnifiedV5Qr(
                 existingVersion = existingVersion,
@@ -1752,14 +1749,6 @@ private fun forgetApprovedSenderTarget(host: String) {
             },
             onLocalAddress = { address ->
                 val safeAddress = address?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
-                if (safeAddress == null && !wifiDirectCredentialsFromJoinedInvitation &&
-                    wifiDirectGroupSsid != null && UltraShareForegroundService.state.value.hotspotSsid == null
-                ) {
-                    wifiDirectGroupSsid = null
-                    wifiDirectGroupPassword = null
-                    wifiDirectOwnerAddress = null
-                    wifiDirectGroupSecurity = "wpa2"
-                }
                 _state.value = _state.value.copy(
                     wifiDirectLocalAddress = safeAddress,
                     hotspotSsid = if (wifiDirectGroupSsid == null) UltraShareForegroundService.state.value.hotspotSsid else wifiDirectGroupSsid,
@@ -1787,7 +1776,8 @@ private fun forgetApprovedSenderTarget(host: String) {
                     hotspotSsid = ssid,
                     hotspotPassword = passphrase,
                     hotspotSecurity = wifiSecurity,
-                    wifiDirectLocalAddress = ownerAddress?.takeIf { UltraShareCore.isValidPrivateLanHost(it) },
+                    wifiDirectLocalAddress = ownerAddress?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
+                        ?: _state.value.wifiDirectLocalAddress,
                     invitationId = _state.value.invitationId.ifBlank {
                         invitationPreferences.getString("active_invitation_id", "").orEmpty()
                     }
@@ -1915,21 +1905,15 @@ private fun forgetApprovedSenderTarget(host: String) {
             !dnsSdReady && invitationId == null
         ) return
         val ownerAddress = wifiDirectOwnerAddress
-            ?: "192.168.49.1".takeIf { wifiDirectGroupSsid != null }
-        // A LAN-only QR must contain only addresses still owned by a live non-P2P
-        // interface. Never publish an old wlan/SoftAP address retained in UI state.
-        val candidateHosts = (
-            listOfNotNull(ownerAddress, current.wifiDirectLocalAddress) +
-                advertisedAddresses
-            ).asSequence()
-            .map { it.trim() }
-            .filter { UltraShareCore.isValidPrivateLanHost(it) }
+            ?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
+        // Keep the Android-confirmed P2P owner route, but rebuild LAN hints from
+        // interfaces that are still active now; never carry stale WLAN addresses.
+        val p2pHosts = listOfNotNull(ownerAddress, current.wifiDirectLocalAddress)
+            .filter(UltraShareCore::isValidPrivateLanHost)
+        val candidateHosts = (p2pHosts + verifiedLanHosts)
             .distinct()
-            .toList()
-        val hosts = when {
-            invitationId != null -> candidateHosts
-            else -> UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(context, candidateHosts)
-        }.take(8)
+            .take(8)
+        val hosts = candidateHosts
         if (hosts.isEmpty()) {
             UltraShareDiagnostics.event(
                 "PAIRING_QR", "QR_WITHHELD_NO_ACTIVE_ROUTE",
