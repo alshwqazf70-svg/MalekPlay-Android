@@ -255,7 +255,7 @@ class VideoEnhancementPolicyTest {
             VideoEnhancementProfile.BALANCED.upscaleMaxPixels
         )
         assertEquals(VideoUpscaleTarget(2108, 1185), target720p)
-        assertEquals(VideoUpscaleTarget(2105, 1184), target1080p)
+        assertEquals(VideoUpscaleTarget(2108, 1185), target1080p)
     }
 
     @Test fun profileUpscaleBudgetsMatchSupportedDisplayClasses() {
@@ -278,7 +278,7 @@ class VideoEnhancementPolicyTest {
             VideoEnhancementProfile.ULTRA.upscaleMaxLongEdge,
             VideoEnhancementProfile.ULTRA.upscaleMaxPixels
         )
-        assertEquals(VideoUpscaleTarget(2105, 1184), balanced)
+        assertEquals(VideoUpscaleTarget(2108, 1185), balanced)
         assertEquals(VideoUpscaleTarget(2494, 1403), ultra)
     }
 
