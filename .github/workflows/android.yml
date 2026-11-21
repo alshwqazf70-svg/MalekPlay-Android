@@ -86,7 +86,7 @@ jobs:
             dist/README_AR.txt
             dist/SHA256SUMS.txt
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 34
 
   release-apks:
     name: Build one universal Release APK
@@ -273,52 +273,12 @@ jobs:
       - name: Upload prebuilt instrumentation APKs
         uses: actions/upload-artifact@v4
         with:
-          name: android-instrumentation-apks
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-          if-no-files-found: error
-          retention-days: 1
-
-  android-test-apks:
-    name: Build Android test APKs once
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v5
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-      - name: Set up Gradle cache
-        uses: gradle/actions/setup-gradle@v5
-      - name: Accept Android SDK licenses
-        shell: bash
-        run: |
-          set +o pipefail
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-      - name: Install Android SDK packages required by test compilation
-        run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
-      - name: Build x86_64 app and instrumentation APKs once
-        run: |
-          ./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 :app:assembleDebug :app:assembleDebugAndroidTest
-          test -s app/build/outputs/apk/debug/app-debug.apk
-          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-      - name: Upload prebuilt app and instrumentation APKs
-        uses: actions/upload-artifact@v4
-        with:
           name: android-test-apks
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
 
   android-runtime-tests:
     name: Android ${{ matrix.suite }} tests (API ${{ matrix.api-level }})
