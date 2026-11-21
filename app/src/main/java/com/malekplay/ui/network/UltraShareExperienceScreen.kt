@@ -550,17 +550,18 @@ fun UltraShareExperienceScreen(
             // v5 advertises the P2P group as a normal WPA2 SoftAP as well as
             // any live WLAN routes, so Android 6–16 can join without DNS-SD.
             val hosts = (
-                wifiDirectFallbackHosts +
-                    listOfNotNull(state.wifiDirectLocalAddress, "192.168.49.1")
+                wifiDirectFallbackHosts + listOfNotNull(state.wifiDirectLocalAddress)
                 ).distinct().take(8)
-            UltraShareQrCode.createUnifiedReceiverPayload(
-                hosts = hosts,
-                pairingSecret = state.pairingSecret,
-                ssid = state.hotspotSsid,
-                wifiPassword = state.hotspotPassword,
-                invitationId = it,
-                wifiSecurity = state.hotspotSecurity
-            )
+            hosts.takeIf { it.isNotEmpty() }?.let { safeHosts ->
+                UltraShareQrCode.createUnifiedReceiverPayload(
+                    hosts = safeHosts,
+                    pairingSecret = state.pairingSecret,
+                    ssid = state.hotspotSsid,
+                    wifiPassword = state.hotspotPassword,
+                    invitationId = it,
+                    wifiSecurity = state.hotspotSecurity
+                )
+            }
         }
     val hotspotQrPayload = state.localAddresses
         // Hotspot QR is published only after both listeners and hotspot credentials are ready.
