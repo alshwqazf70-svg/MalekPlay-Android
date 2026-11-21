@@ -43,7 +43,7 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
         val ended = CountDownLatch(1)
         val failure = AtomicReference<Throwable?>(null)
         val outputTimes = java.util.Collections.synchronizedList(mutableListOf<Long>())
-        lateinit var processor: VideoFrameProcessor
+        var processor: VideoFrameProcessor? = null
 
         val textureListener = object : GlTextureProducer.Listener {
             override fun onTextureRendered(
@@ -96,7 +96,7 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
         val initialProgramCreations = VideoEnhancementMetrics.snapshot().programCreations
         VideoEnhancementMetrics.reset()
         try {
-            processor = DefaultVideoFrameProcessor.Factory.Builder()
+            val activeProcessor = DefaultVideoFrameProcessor.Factory.Builder()
                 .setTextureOutput(textureListener, /* textureOutputCapacity = */ 2)
                 .build()
                 .create(
@@ -107,9 +107,10 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
                     Executor { command -> command.run() },
                     processorListener
                 )
+            processor = activeProcessor
 
             val firstFormat = videoFormat(32, 24)
-            processor.registerInputStream(
+            activeProcessor.registerInputStream(
                 VideoFrameProcessor.INPUT_TYPE_BITMAP,
                 firstFormat,
                 listOf(effect),
@@ -121,7 +122,7 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
             )
             assertTrue(
                 "Media3 rejected first bitmap frame",
-                processor.queueInputBitmap(
+                activeProcessor.queueInputBitmap(
                     testBitmap(32, 24),
                     SingleTimestampIterator(10_000L)
                 )
@@ -152,7 +153,7 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
                     SingleTimestampIterator(10_000L)
                 )
             )
-            processor.signalEndOfInput()
+            activeProcessor.signalEndOfInput()
 
             assertTrue(
                 "Media3 did not deliver both processed output textures",
@@ -172,8 +173,8 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
             assertTrue("Enabled enhancement did not process any frames", metrics.processedDraws >= 2)
             assertEquals(2, outputTimes.size)
         } finally {
-            if (::processor.isInitialized) {
-                runCatching { processor.release() }
+            processor?.let { activeProcessor ->
+                runCatching { activeProcessor.release() }
             }
         }
     }
