@@ -76,6 +76,9 @@ class VideoEnhancementCompatibilityInstrumentedTest {
         assertEquals(1920, VideoEnhancementProfile.ECONOMY.upscaleMaxLongEdge)
         assertEquals(2560, VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge)
         assertEquals(2960, VideoEnhancementProfile.ULTRA.upscaleMaxLongEdge)
+        assertEquals(1_500_000, VideoEnhancementProfile.ECONOMY.upscaleMaxPixels)
+        assertEquals(2_500_000, VideoEnhancementProfile.BALANCED.upscaleMaxPixels)
+        assertEquals(3_500_000, VideoEnhancementProfile.ULTRA.upscaleMaxPixels)
 
         listOf(
             VideoEnhancementProfile.ECONOMY,
@@ -87,10 +90,14 @@ class VideoEnhancementCompatibilityInstrumentedTest {
                 sourceHeight = 360,
                 displayWidth = 1440,
                 displayHeight = 2960,
-                maxLongEdge = profile.upscaleMaxLongEdge
+                maxLongEdge = profile.upscaleMaxLongEdge,
+                maxPixels = profile.upscaleMaxPixels
             )
             assertNotNull(target)
             assertTrue(requireNotNull(target).longEdge <= profile.upscaleMaxLongEdge)
+            assertTrue(
+                requireNotNull(target).longEdge.toLong() * target.shortEdge <= profile.upscaleMaxPixels.toLong()
+            )
         }
     }
 
