@@ -186,6 +186,60 @@ class UltraSharePairingReadinessTest {
         )
     }
 
+    @Test fun roomV6QrRefreshesChangedRoutesWithoutRotatingSessionOrWifiCredentials() {
+        fun canRefresh(
+            secret: String = "123456789",
+            invitation: String? = "invite-1",
+            name: String = "MalekPlayer",
+            ssid: String? = "DIRECT-MalekPlay",
+            password: String? = "share1234",
+            hosts: List<String> = listOf("192.168.49.1", "192.168.1.21")
+        ) = UltraSharePairingReadiness.shouldRefreshRoomV6Qr(
+            existingVersion = "6",
+            candidateVersion = "6",
+            existingInvitationId = "invite-1",
+            candidateInvitationId = invitation,
+            existingPairingSecret = "123456789",
+            candidatePairingSecret = secret,
+            existingDeviceName = "MalekPlayer",
+            candidateDeviceName = name,
+            existingSsid = "DIRECT-MalekPlay",
+            candidateSsid = ssid,
+            existingWifiPassword = "share1234",
+            candidateWifiPassword = password,
+            candidateHosts = hosts
+        )
+        assertTrue(canRefresh())
+        assertTrue(canRefresh(hosts = listOf("192.168.49.1")))
+        assertFalse(canRefresh(secret = "987654321"))
+        assertFalse(canRefresh(invitation = "invite-2"))
+        assertFalse(canRefresh(name = "Other device"))
+        assertFalse(canRefresh(ssid = "Other network"))
+        assertFalse(canRefresh(password = "different123"))
+        assertFalse(canRefresh(hosts = emptyList()))
+        assertFalse(canRefresh(hosts = listOf("8.8.8.8")))
+    }
+
+    @Test fun roomV6QrMayGainLateWifiCredentialsWithoutChangingSessionIdentity() {
+        assertTrue(
+            UltraSharePairingReadiness.shouldRefreshRoomV6Qr(
+                existingVersion = "6",
+                candidateVersion = "6",
+                existingInvitationId = "invite-1",
+                candidateInvitationId = "invite-1",
+                existingPairingSecret = "123456789",
+                candidatePairingSecret = "123456789",
+                existingDeviceName = "MalekPlayer",
+                candidateDeviceName = "MalekPlayer",
+                existingSsid = null,
+                candidateSsid = "DIRECT-MalekPlay",
+                existingWifiPassword = null,
+                candidateWifiPassword = "share1234",
+                candidateHosts = listOf("192.168.49.1")
+            )
+        )
+    }
+
     @Test fun lanOnlyUnifiedV5QrCanGainSoftApCredentialsWhenGroupInfoArrivesLate() {
         assertTrue(
             UltraSharePairingReadiness.shouldEnrichUnifiedV5Qr(
