@@ -880,9 +880,13 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * Lanczos changes the Media3 effect graph structure. Rebuild only when that
-     * structural stage is added/removed, preserving the active queue item, exact
-     * position and play intent. Parameter-only effect changes remain in-place.
+     * Lanczos changes the Media3 effect-graph structure, but ExoPlayer supports
+     * replacing video effects while prepared and during playback. Let Media3
+     * reconfigure its VideoFrameProcessor instead of stopping the player and
+     * racing prepare/seek against track and surface callbacks.
+     *
+     * Parameter-only enhancement changes continue to update the existing
+     * pipeline's AtomicReference and do not replace the effect list.
      */
     private fun applyEffectChain(
         player: ExoPlayer,
@@ -890,13 +894,9 @@ class PlaybackService : MediaSessionService() {
         hasLanczos: Boolean,
         lanczosTarget: VideoUpscaleTarget? = null
     ): Boolean {
-        val hasCurrentItem = player.currentMediaItem != null
         val targetKey = lanczosTarget?.let { it.longEdge to it.shortEdge }
         val structuralChange = appliedLanczosEffect != hasLanczos ||
             appliedLanczosTarget != targetKey
-        val needsRebind = hasCurrentItem &&
-            player.playbackState != Player.STATE_IDLE &&
-            structuralChange
         // Denoise/detail/profile changes only mutate the already-installed
         // pipeline's AtomicReference. Do not call setVideoEffects again for them.
         val pipelineIncluded = videoEnhancementPipeline != null &&
@@ -906,30 +906,16 @@ class PlaybackService : MediaSessionService() {
             AssVideoEffectRegistry.isAttached(player)
         ) return true
 
-        val itemIndex = player.currentMediaItemIndex
-        val positionMs = player.currentPosition
-        val shouldPlay = player.playWhenReady
-
-        if (needsRebind) player.stop()
-        val accepted = AssVideoEffectRegistry.setAdditionalEffects(player, effects)
-        if (!accepted) {
-            if (needsRebind) {
-                // The registry retains the last known-good effect list on rejection.
-                player.prepare()
-                if (itemIndex != C.INDEX_UNSET) player.seekTo(itemIndex, positionMs)
-                player.playWhenReady = shouldPlay
-            }
+        // setVideoEffects is explicitly supported after prepare(), including
+        // during playback. It is synchronous on the player application looper
+        // through AssOverlayManager, so no stop/prepare/seek cycle is needed.
+        if (!AssVideoEffectRegistry.setAdditionalEffects(player, effects)) {
             return false
         }
 
         appliedLanczosEffect = hasLanczos
         appliedLanczosTarget = targetKey
         videoEnhancementPipelineAttached = pipelineIncluded
-        if (needsRebind) {
-            player.prepare()
-            if (itemIndex != C.INDEX_UNSET) player.seekTo(itemIndex, positionMs)
-            player.playWhenReady = shouldPlay
-        }
         return true
     }
 
