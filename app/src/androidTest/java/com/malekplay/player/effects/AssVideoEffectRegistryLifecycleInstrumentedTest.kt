@@ -4,7 +4,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.malekplay.player.PlaybackService
 import io.github.peerless2012.ass.media.AssHandler
 import io.github.peerless2012.ass.media.render.AssVideoEffectRegistry
 import io.github.peerless2012.ass.media.type.AssRenderType
