@@ -129,8 +129,11 @@ class UltraShareViewModel @Inject constructor(
         val parsedHosts = storedHosts?.split(',')?.map { it.trim() }
             ?.filter { UltraShareCore.isValidPrivateLanHost(it) }
             ?.distinct()?.take(8).orEmpty()
+        val activeStoredHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+            context, parsedHosts
+        )
         return com.malekplay.network.UltraSharePairingReadiness.stableInvitationHosts(
-            storedId, invitationId, parsedHosts, currentHosts
+            storedId, invitationId, activeStoredHosts, currentHosts
         )
     }
     private var bluetoothSession: UltraShareBluetoothDiscovery.Session? = null
