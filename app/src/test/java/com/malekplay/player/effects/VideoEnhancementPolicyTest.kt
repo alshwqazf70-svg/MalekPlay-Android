@@ -246,8 +246,14 @@ class VideoEnhancementPolicyTest {
         )
         assertTrue(config.hasActiveStage)
 
-        val target720p = VideoUpscaleTargetPolicy.resolve(1280, 720, 2960, 1440, 2560)
-        val target1080p = VideoUpscaleTargetPolicy.resolve(1920, 1080, 2960, 1440, 2560)
+        val target720p = VideoUpscaleTargetPolicy.resolve(
+            1280, 720, 2960, 1440, 2560,
+            VideoEnhancementProfile.BALANCED.upscaleMaxPixels
+        )
+        val target1080p = VideoUpscaleTargetPolicy.resolve(
+            1920, 1080, 2960, 1440, 2560,
+            VideoEnhancementProfile.BALANCED.upscaleMaxPixels
+        )
         assertEquals(VideoUpscaleTarget(2108, 1185), target720p)
         assertEquals(VideoUpscaleTarget(2105, 1184), target1080p)
     }
@@ -262,10 +268,16 @@ class VideoEnhancementPolicyTest {
     }
 
     @Test fun balancedAndUltraCanUseNote9ClassDisplayTargetsForLowResolutionVideo() {
-        val balanced = VideoUpscaleTargetPolicy.resolve(640, 360, 2960, 1440,
-            VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge)
-        val ultra = VideoUpscaleTargetPolicy.resolve(640, 360, 2960, 1440,
-            VideoEnhancementProfile.ULTRA.upscaleMaxLongEdge)
+        val balanced = VideoUpscaleTargetPolicy.resolve(
+            640, 360, 2960, 1440,
+            VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge,
+            VideoEnhancementProfile.BALANCED.upscaleMaxPixels
+        )
+        val ultra = VideoUpscaleTargetPolicy.resolve(
+            640, 360, 2960, 1440,
+            VideoEnhancementProfile.ULTRA.upscaleMaxLongEdge,
+            VideoEnhancementProfile.ULTRA.upscaleMaxPixels
+        )
         assertEquals(VideoUpscaleTarget(2105, 1184), balanced)
         assertEquals(VideoUpscaleTarget(2494, 1403), ultra)
     }
