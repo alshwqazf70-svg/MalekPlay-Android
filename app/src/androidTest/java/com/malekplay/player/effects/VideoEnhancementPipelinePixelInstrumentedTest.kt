@@ -111,6 +111,34 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
                 "Runtime disable did not restore identity output",
                 maxChannelDelta(source, disabledAgainOutput) <= 1
             )
+
+            // Exercise real texture allocation and rendering after input-size
+            // changes, not just configure() return values. Portrait and
+            // landscape transitions must preserve all four image quadrants.
+            listOf(16 to 9, 9 to 16, 64 to 36).forEachIndexed { index, (width, height) ->
+                val resizedSource = quadrantPattern(width, height)
+                val resizedInput = createTexture(resizedSource, width, height)
+                val resizedOutput = createEmptyTexture(width, height)
+                val resizedFramebuffer = createFramebuffer(resizedOutput)
+                try {
+                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, resizedFramebuffer)
+                    GLES20.glViewport(0, 0, width, height)
+                    val outputSize = passthrough.configure(width, height)
+                    assertEquals(width, outputSize.width)
+                    assertEquals(height, outputSize.height)
+                    passthrough.drawFrame(resizedInput, 4L + index)
+                    GLES20.glFinish()
+                    assertTrue(
+                        "Resized $width x $height frame changed orientation or pixel values",
+                        maxChannelDelta(resizedSource, readPixels(width, height)) <= 1
+                    )
+                } finally {
+                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+                    GLES20.glDeleteFramebuffers(1, intArrayOf(resizedFramebuffer), 0)
+                    GLES20.glDeleteTextures(1, intArrayOf(resizedInput), 0)
+                    GLES20.glDeleteTextures(1, intArrayOf(resizedOutput), 0)
+                }
+            }
             assertEquals("Unexpected GL error after pixel readback", GLES20.GL_NO_ERROR, GLES20.glGetError())
         } finally {
             runCatching { passthrough?.release() }
@@ -143,24 +171,24 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
         return requireNotNull(configs[0])
     }
 
-    private fun quadrantPattern(): ByteArray {
-        val pixels = ByteArray(SIZE * SIZE * 4)
-        for (y in 0 until SIZE) {
-            for (x in 0 until SIZE) {
+    private fun quadrantPattern(width: Int = SIZE, height: Int = SIZE): ByteArray {
+        val pixels = ByteArray(width * height * 4)
+        for (y in 0 until height) {
+            for (x in 0 until width) {
                 val color = when {
-                    x < SIZE / 2 && y < SIZE / 2 -> intArrayOf(230, 35, 25, 255)
-                    x >= SIZE / 2 && y < SIZE / 2 -> intArrayOf(20, 210, 45, 255)
-                    x < SIZE / 2 -> intArrayOf(30, 55, 225, 255)
+                    x < width / 2 && y < height / 2 -> intArrayOf(230, 35, 25, 255)
+                    x >= width / 2 && y < height / 2 -> intArrayOf(20, 210, 45, 255)
+                    x < width / 2 -> intArrayOf(30, 55, 225, 255)
                     else -> intArrayOf(225, 210, 35, 255)
                 }
-                val offset = (y * SIZE + x) * 4
+                val offset = (y * width + x) * 4
                 for (channel in 0..3) pixels[offset + channel] = color[channel].toByte()
             }
         }
         return pixels
     }
 
-    private fun createTexture(pixels: ByteArray): Int {
+    private fun createTexture(pixels: ByteArray, width: Int = SIZE, height: Int = SIZE): Int {
         val texture = IntArray(1)
         GLES20.glGenTextures(1, texture, 0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture[0])
@@ -168,19 +196,19 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
         val pixelBuffer = ByteBuffer.allocateDirect(pixels.size)
         pixelBuffer.put(pixels).position(0)
         GLES20.glTexImage2D(
-            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, SIZE, SIZE, 0,
+            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
             GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixelBuffer
         )
         return texture[0]
     }
 
-    private fun createEmptyTexture(): Int {
+    private fun createEmptyTexture(width: Int = SIZE, height: Int = SIZE): Int {
         val texture = IntArray(1)
         GLES20.glGenTextures(1, texture, 0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture[0])
         setTextureParameters()
         GLES20.glTexImage2D(
-            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, SIZE, SIZE, 0,
+            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
             GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null
         )
         return texture[0]
@@ -209,12 +237,12 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
         return framebuffer[0]
     }
 
-    private fun readPixels(): ByteArray {
-        val buffer = ByteBuffer.allocateDirect(SIZE * SIZE * 4)
+    private fun readPixels(width: Int = SIZE, height: Int = SIZE): ByteArray {
+        val buffer = ByteBuffer.allocateDirect(width * height * 4)
         GLES20.glReadPixels(
-            0, 0, SIZE, SIZE, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buffer
+            0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buffer
         )
-        val pixels = ByteArray(SIZE * SIZE * 4)
+        val pixels = ByteArray(width * height * 4)
         buffer.position(0)
         buffer.get(pixels)
         return pixels
