@@ -18,6 +18,7 @@ import io.github.peerless2012.ass.AssRender
 import io.github.peerless2012.ass.AssTrack
 import io.github.peerless2012.ass.media.parser.AssHeaderParser
 import io.github.peerless2012.ass.media.render.AssOverlayManager
+import io.github.peerless2012.ass.media.render.AssVideoEffectRegistry
 import io.github.peerless2012.ass.media.type.AssRenderType
 
 /**
