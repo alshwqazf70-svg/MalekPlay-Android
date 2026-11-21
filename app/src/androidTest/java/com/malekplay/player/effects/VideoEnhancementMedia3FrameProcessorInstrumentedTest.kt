@@ -136,7 +136,7 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
             // A second stream on the same processor models a media-item/format
             // transition. The graph must reconfigure the same effect instance.
             val secondFormat = videoFormat(24, 32)
-            processor.registerInputStream(
+            activeProcessor.registerInputStream(
                 VideoFrameProcessor.INPUT_TYPE_BITMAP,
                 secondFormat,
                 listOf(effect),
@@ -148,7 +148,7 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
             )
             assertTrue(
                 "Media3 rejected second bitmap frame after stream reconfiguration",
-                processor.queueInputBitmap(
+                activeProcessor.queueInputBitmap(
                     testBitmap(24, 32),
                     SingleTimestampIterator(10_000L)
                 )
