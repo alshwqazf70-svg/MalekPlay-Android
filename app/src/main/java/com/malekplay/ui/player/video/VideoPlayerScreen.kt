@@ -597,6 +597,9 @@ fun VideoPlayerScreen(
     // ------------------------------------------------------------ screenshot
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     var googleAiEnabled by remember { mutableStateOf(false) }
+    // Keep the enhancement backend lifecycle aligned with the actual queue item.
+    // The internal GPU fallback is service-managed and does not self-restart on transitions.
+    var googleAiMediaId by remember { mutableStateOf(currentVideoId) }
     var internalAiFallback by remember { mutableStateOf(false) }
     var internalAiFallbackPending by remember { mutableStateOf(false) }
     var googleAiRequestVersion by remember { mutableIntStateOf(0) }
@@ -631,8 +634,16 @@ fun VideoPlayerScreen(
         internalAiFallbackPending = true
         val requestVersion = googleAiRequestVersion
         viewModel.setInternalGpuEnhancementEnabled(true) { applied ->
+            // A completion from an older video/toggle must not clear a newer
+            // pending request or disable the GPU chain already enabled for it.
+            if (requestVersion != googleAiRequestVersion) {
+                if (!googleAiEnabled && applied) {
+                    viewModel.setInternalGpuEnhancementEnabled(false)
+                }
+                return@setInternalGpuEnhancementEnabled
+            }
             internalAiFallbackPending = false
-            if (requestVersion != googleAiRequestVersion || !googleAiEnabled) {
+            if (!googleAiEnabled) {
                 if (applied) viewModel.setInternalGpuEnhancementEnabled(false)
                 return@setInternalGpuEnhancementEnabled
             }
@@ -668,7 +679,25 @@ fun VideoPlayerScreen(
         }
     }
 
-    LaunchedEffect(googleAiEnabled, controller, playerView) {
+    LaunchedEffect(googleAiEnabled, controller, playerView, currentVideoId) {
+        if (googleAiMediaId != currentVideoId) {
+            // PlaybackService intentionally clears per-video GPU flags on a queue
+            // transition. Recreate the selected AI backend for the new item instead
+            // of leaving the screen's local fallback flag latched to the old item.
+            googleAiMediaId = currentVideoId
+            googleAiRequestVersion++
+            googleAiBridge?.close()
+            googleAiBridge = null
+            internalAiFallback = false
+            internalAiFallbackPending = false
+            googleAiState = if (googleAiEnabled) {
+                GoogleMediaEnhancementState.WAITING_FOR_VIDEO
+            } else {
+                GoogleMediaEnhancementState.DISABLED
+            }
+            googleAiProgress = 0
+            googleAiMessage = null
+        }
         if (!googleAiEnabled) {
             // If fallback already completed, disable it here. If its enable command
             // is still pending, its generation-checked callback owns the single
