@@ -289,7 +289,7 @@ jobs:
           retention-days: 3
 
   android-runtime-tests:
-    name: Android ${{ matrix.suite }} tests (API ${{ matrix.api-level }})
+    name: Android runtime tests (API ${{ matrix.api-level }})
     needs: android-test-apks
     # Ubuntu 26.04 lacked CPU acceleration in the observed API 23 run.
     # Use the stable Ubuntu 24.04 hosted image for emulator/KVM compatibility.
@@ -299,16 +299,8 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        include:
-          - { api-level: 23, suite: network }
-          - { api-level: 29, suite: network }
-          - { api-level: 36, suite: network }
-          - { api-level: 23, suite: core }
-          - { api-level: 29, suite: core }
-          - { api-level: 36, suite: core }
-          - { api-level: 23, suite: video }
-          - { api-level: 29, suite: video }
-          - { api-level: 36, suite: video }
+        # Exactly one emulator per Android version; all suites run on that same boot.
+        api-level: [23, 29, 36]
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -345,12 +337,12 @@ jobs:
           heap-size: 1024
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: bash scripts/ci/run_android_runtime_tests.sh ${{ matrix.api-level }} ${{ matrix.suite }}
+          script: bash scripts/ci/run_android_runtime_tests.sh ${{ matrix.api-level }}
       - name: Upload Android runtime test diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-${{ matrix.suite }}-diagnostics-api-${{ matrix.api-level }}
+          name: android-runtime-diagnostics-api-${{ matrix.api-level }}
           path: |
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
