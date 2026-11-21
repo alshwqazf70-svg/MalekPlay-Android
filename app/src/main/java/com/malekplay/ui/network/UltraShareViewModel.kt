@@ -1747,6 +1747,9 @@ private fun forgetApprovedSenderTarget(host: String) {
                     UltraShareForegroundService.updateWifiDirectLocalAddress(context, safeAddress)
                 }
                 if (safeAddress != null) {
+                    // The group credentials may arrive before Android exposes the P2P IPv4
+                    // address. Rebuild the QR now that the actual local route is available.
+                    publishUnifiedReceiverQrIfReady()
                     UltraShareDiagnostics.event(
                         "WIFI_DIRECT",
                         "LOCAL_GROUP_OWNER_ADDRESS_AVAILABLE",
