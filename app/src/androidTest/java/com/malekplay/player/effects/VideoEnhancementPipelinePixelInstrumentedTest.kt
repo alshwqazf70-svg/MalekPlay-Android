@@ -44,7 +44,6 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
         var outputTexture = 0
         var framebuffer = 0
         var passthrough: BaseGlShaderProgram? = null
-        var enhanced: BaseGlShaderProgram? = null
         try {
             val config = chooseConfig(display)
             surface = EGL14.eglCreatePbufferSurface(
@@ -66,7 +65,8 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, framebuffer)
             GLES20.glViewport(0, 0, SIZE, SIZE)
 
-            passthrough = VideoEnhancementPipelineEffect()
+            val mutableEffect = VideoEnhancementPipelineEffect()
+            passthrough = mutableEffect
                 .toGlShaderProgram(context, /* useHdr = */ false) as BaseGlShaderProgram
             listOf(8 to 8, 16 to 9, 9 to 16, 640 to 360, 1920 to 1080).forEach { (width, height) ->
                 val configured = passthrough.configure(width, height)
@@ -83,25 +83,36 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
                 maxChannelDelta(source, identityOutput) <= 1
             )
 
-            enhanced = VideoEnhancementPipelineEffect(
+            // Change the AtomicReference after program creation. The very same
+            // GL program must begin changing output pixels without graph rebuild.
+            mutableEffect.update(
                 VideoEnhancementPipelineConfig(
                     detailEnabled = true,
                     detailStrength = 1.20f,
                     contrastBoost = 0.22f,
                     clarityStrength = 0.30f
                 )
-            ).toGlShaderProgram(context, /* useHdr = */ false) as BaseGlShaderProgram
-            enhanced.configure(SIZE, SIZE)
-            enhanced.drawFrame(inputTexture, 2L)
+            )
+            passthrough.drawFrame(inputTexture, 2L)
             GLES20.glFinish()
             val enhancedOutput = readPixels()
             assertTrue(
-                "Enabled detail stage produced byte-identical pixels",
+                "Runtime-enabled detail stage produced byte-identical pixels",
                 maxChannelDelta(source, enhancedOutput) >= MIN_VISIBLE_CHANNEL_DELTA
+            )
+
+            // Turning the stages off on the same program must restore exact
+            // pass-through output; stale preset strengths may not keep filtering.
+            mutableEffect.update(VideoEnhancementPipelineConfig())
+            passthrough.drawFrame(inputTexture, 3L)
+            GLES20.glFinish()
+            val disabledAgainOutput = readPixels()
+            assertTrue(
+                "Runtime disable did not restore identity output",
+                maxChannelDelta(source, disabledAgainOutput) <= 1
             )
             assertEquals("Unexpected GL error after pixel readback", GLES20.GL_NO_ERROR, GLES20.glGetError())
         } finally {
-            runCatching { enhanced?.release() }
             runCatching { passthrough?.release() }
             if (eglContext != EGL14.EGL_NO_CONTEXT) {
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
