@@ -30,7 +30,9 @@ class UltraShareMediaSignatureTest {
             file.writeBytes("opaque but integrity-checked bytes".toByteArray())
             cases.forEach { (name, mime) -> assertTrue("$name should be accepted",
                 UltraShareMediaSignature.isValid(file, name, mime)) }
-            assertFalse(UltraShareMediaSignature.isValid(file, "image.svg", "image/svg+xml"))
+            assertTrue(UltraShareMediaSignature.isValid(file, "image.svg", "image/svg+xml"))
+            assertTrue(UltraShareMediaSignature.isValid(file, "drawing.svg", "image/png"))
+            assertTrue(UltraShareMediaSignature.isValid(file, "drawing.png", "image/svg+xml"))
             assertFalse(UltraShareMediaSignature.isValid(file, "blocked.pdf", "application/pdf"))
             assertFalse(UltraShareMediaSignature.isValid(file, "blocked.apk", "application/octet-stream"))
         } finally { file.delete() }
