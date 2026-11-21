@@ -442,7 +442,6 @@ class UltraShareViewModel @Inject constructor(
                     }
 
                     if (!_state.value.receiving) return@launch
-                    if (!_state.value.receiving) return@launch
                     // LAN is preferred when already available. Otherwise Wi-Fi Direct
                     // is the primary no-router transport; LocalOnlyHotspot is started
                     // only by startHotspotFallback() after P2P reports failure and
