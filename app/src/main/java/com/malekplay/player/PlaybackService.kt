@@ -720,11 +720,18 @@ class PlaybackService : MediaSessionService() {
             // A request may be accepted before Media3 selects a video track, but it
             // must never be reported as successful unless the always-on GPU stage is
             // actually installed in the service-owned player's effect graph.
+            val pipeline = videoEnhancementPipeline ?: run {
+                VideoEnhancementMetrics.recordFailure(
+                    "pending_effect_graph_attach",
+                    IllegalStateException("GPU enhancement pipeline was not created")
+                )
+                return false
+            }
             val pipelineReady = videoEnhancementPipelineAttached &&
                 AssVideoEffectRegistry.isAttached(player)
             val attached = pipelineReady || applyEffectChain(
                 player,
-                listOfNotNull(videoEnhancementPipeline),
+                listOf(pipeline),
                 hasLanczos = false
             )
             videoEffectsBridgeAttached = attached
