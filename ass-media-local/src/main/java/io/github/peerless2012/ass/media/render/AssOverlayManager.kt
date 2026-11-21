@@ -82,6 +82,32 @@ class AssOverlayManager(
         applyEffects()
     }
 
+    /**
+     * Detaches this manager from a player that is being released or rebound.
+     * Unlike disable(), release removes every effect owned by this manager,
+     * including the always-ready identity stage and host-provided GPU stages.
+     */
+    fun release(): Boolean {
+        if (Looper.myLooper() != player.applicationLooper) {
+            lastApplyFailure =
+                "IllegalStateException: release must run on ExoPlayer applicationLooper"
+            return false
+        }
+        currentRenderer = null
+        subtitleEffect = null
+        additionalEffects = emptyList()
+        return try {
+            player.setVideoEffects(emptyList())
+            isOperational = false
+            lastApplyFailure = null
+            true
+        } catch (error: Exception) {
+            isOperational = false
+            lastApplyFailure = error.javaClass.simpleName + ": " + error.message.orEmpty().take(160)
+            false
+        }
+    }
+
     private fun applyEffects(): Boolean {
         // Keep image-processing effects first and ASS subtitles last so subtitle
         // glyphs stay crisp and are not blurred or resampled by video filters.
