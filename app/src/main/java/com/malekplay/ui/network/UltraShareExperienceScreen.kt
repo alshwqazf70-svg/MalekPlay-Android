@@ -85,6 +85,7 @@ import com.malekplay.network.UltraShareQrCode
 import com.malekplay.network.UltraSharePlatformCompatibility
 import com.malekplay.network.UltraShareNetworkRouting
 import com.malekplay.network.UltraShareCore
+import com.malekplay.network.UltraShareDiagnostics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -169,6 +170,25 @@ fun UltraShareExperienceScreen(
             else viewModel.exportReceived(uri)
         }
         pendingReceivedExport = null
+    }
+    val diagnosticsExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/x-ndjson")
+    ) { uri ->
+        if (uri != null) {
+            UltraShareDiagnostics.exportLogs(uri) { result ->
+                scope.launch(Dispatchers.Main) {
+                    result.onSuccess { count ->
+                        Toast.makeText(context, "تم تصدير سجل التشخيص ($count جلسات).", Toast.LENGTH_LONG).show()
+                    }.onFailure { failure ->
+                        Toast.makeText(
+                            context,
+                            failure.localizedMessage ?: "تعذر تصدير سجل التشخيص.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+        }
     }
     val qrScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let(::handleQr)
@@ -742,6 +762,15 @@ fun UltraShareExperienceScreen(
                         OutlinedButton(onClick = { qrImagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Filled.QrCode, null)
                             Text("مسح QR من صورة محفوظة", modifier = Modifier.padding(start = 8.dp))
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                diagnosticsExportLauncher.launch("MalekPlayer-UltraShare-Diagnostics.jsonl")
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Filled.Download, null)
+                            Text("تصدير سجل تشخيص الأخطاء", modifier = Modifier.padding(start = 8.dp))
                         }
                         OutlinedButton(onClick = { page = UltraSharePage.SEND }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.AutoMirrored.Filled.Send, null)
