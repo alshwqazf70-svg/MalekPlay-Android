@@ -2,16 +2,17 @@
 set -Eeuo pipefail
 
 expected_api="${1:?Expected Android API level argument}"
-mkdir -p ultrashare-diagnostics
+diagnostics_dir="ultrashare-diagnostics"
+mkdir -p "$diagnostics_dir"
 
 capture_diagnostics() {
   status=$?
   if [ "$status" -ne 0 ]; then
     echo "Collecting emulator diagnostics after failure (exit $status)."
-    adb devices -l > ultrashare-diagnostics/adb-devices.txt 2>&1 || true
-    adb logcat -d -v threadtime > ultrashare-diagnostics/logcat.txt 2>&1 || true
-    adb shell getprop > ultrashare-diagnostics/properties.txt 2>&1 || true
-    adb shell dumpsys activity processes > ultrashare-diagnostics/activity-processes.txt 2>&1 || true
+    adb devices -l > "$diagnostics_dir/adb-devices.txt" 2>&1 || true
+    adb logcat -d -v threadtime > "$diagnostics_dir/logcat.txt" 2>&1 || true
+    adb shell getprop > "$diagnostics_dir/properties.txt" 2>&1 || true
+    adb shell dumpsys activity processes > "$diagnostics_dir/activity-processes.txt" 2>&1 || true
   fi
   exit "$status"
 }
@@ -37,15 +38,8 @@ if [ "$booted" != true ]; then
   exit 1
 fi
 
-# Verify the Android-test Kotlin source set as an explicit CI gate.
-# CI prebuilds the x86_64 APKs before emulator startup; keep this gate as a no-op when outputs exist.
-if [ ! -s app/build/outputs/apk/debug/app-debug.apk ] || [ ! -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk ]; then
-  ./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 :app:assembleDebug :app:assembleDebugAndroidTest
-fi
-if [ ! -d app/build/tmp/kotlin-classes/debugAndroidTest ]; then
-  ./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 :app:compileDebugAndroidTestKotlin
-fi
-
+# The APKs are built once in android-test-apks and downloaded by every API job.
+# Never trigger an accidental Gradle rebuild after the emulator has started.
 app_apk="app/build/outputs/apk/debug/app-debug.apk"
 test_apk="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 test -s "$app_apk"
@@ -70,15 +64,30 @@ if [ -z "$instrumentation" ]; then
   exit 1
 fi
 
-set +e
-timeout 600s adb shell am instrument -w -r "$instrumentation" 2>&1 | \
-  tee "ultrashare-diagnostics/instrumentation-api-$expected_api.txt"
-instrumentation_status=${PIPESTATUS[0]}
-set -e
+run_suite() {
+  suite_name="$1"
+  class_filter="$2"
+  output="$diagnostics_dir/${suite_name}-api-${expected_api}.txt"
+  echo "===== Running ${suite_name} tests on API ${expected_api} ====="
+  set +e
+  timeout 300s adb shell am instrument -w -r -e class "$class_filter" "$instrumentation" 2>&1 | tee "$output"
+  suite_status=${PIPESTATUS[0]}
+  set -e
+  if [ "$suite_status" -ne 0 ] || ! grep -Eq 'OK \([1-9][0-9]* tests?\)' "$output"; then
+    echo "Android ${suite_name} tests failed or timed out on API ${expected_api}."
+    return 1
+  fi
+}
 
-if [ "$instrumentation_status" -ne 0 ] || \
-   ! grep -Fq 'OK (' "ultrashare-diagnostics/instrumentation-api-$expected_api.txt" || \
-   ! grep -Eq '[0-9]+ tests?' "ultrashare-diagnostics/instrumentation-api-$expected_api.txt"; then
-  echo "Android instrumented tests failed on API $expected_api."
-  exit 1
-fi
+# Keep the fast app/database and networking checks separate from the GPU/video suite.
+# Every group still runs on API 23, 29, and 36; no instrumented test class is omitted.
+run_suite "app-smoke-database" \
+  "com.malekplay.MainNavigationSmokeTest,com.malekplay.RoomMigrationInstrumentedTest"
+
+run_suite "network" \
+  "com.malekplay.network.NetworkCredentialVaultInstrumentedTest,com.malekplay.network.UltraShareNetworkRuntimeInstrumentedTest"
+
+run_suite "gpu-video" \
+  "com.malekplay.player.effects.AssVideoEffectRegistryLifecycleInstrumentedTest,com.malekplay.player.effects.VideoEnhancementCompatibilityInstrumentedTest,com.malekplay.player.effects.VideoEnhancementExoPlayerMediaCodecInstrumentedTest,com.malekplay.player.effects.VideoEnhancementMedia3FrameProcessorInstrumentedTest,com.malekplay.player.effects.VideoEnhancementPipelineGlesInstrumentedTest,com.malekplay.player.effects.VideoEnhancementPipelinePixelInstrumentedTest"
+
+echo "All Android runtime test groups passed on API ${expected_api}."
