@@ -727,8 +727,11 @@ class PlaybackService : MediaSessionService() {
                 )
                 return false
             }
-            val pipelineReady = videoEnhancementPipelineAttached &&
-                AssVideoEffectRegistry.isAttached(player)
+            val pipelineReady = VideoEnhancementPolicy.canAcceptPendingEnhancementRequest(
+                pipelineCreated = true,
+                pipelineAttached = videoEnhancementPipelineAttached,
+                registryOperational = AssVideoEffectRegistry.isAttached(player)
+            )
             val attached = pipelineReady || applyEffectChain(
                 player,
                 listOf(pipeline),
