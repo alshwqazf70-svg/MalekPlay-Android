@@ -221,6 +221,25 @@ class PlaybackService : MediaSessionService() {
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 audioEffectsController.attach(audioSessionId)
             }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                // Media3 routes VideoFrameProcessor initialization/draw failures through
+                // Player.Listener after PlaybackVideoGraphWrapper -> VideoSink. Capture only
+                // these GPU-path failures so diagnostics do not mislabel unrelated playback
+                // or decoder errors as enhancement failures.
+                if (error.errorCode ==
+                    androidx.media3.common.PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED ||
+                    error.errorCode ==
+                    androidx.media3.common.PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
+                ) {
+                    val cause = error.cause ?: error
+                    VideoEnhancementMetrics.recordFailure(
+                        "media3_video_frame_processing",
+                        cause
+                    )
+                    Log.e(TAG, "Media3 video frame processing failed", error)
+                }
+            }
         })
         // Re-evaluate GPU quality whenever Android reports a thermal-state change.
         // Android 6-9 simply use the static low-RAM / memory-class safeguards.
