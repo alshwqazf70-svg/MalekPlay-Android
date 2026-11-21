@@ -37,6 +37,7 @@ class VideoEnhancementPipelineGlesInstrumentedTest {
             "EGL initialization failed: 0x${Integer.toHexString(EGL14.eglGetError())}",
             EGL14.eglInitialize(display, eglVersions, 0, eglVersions, 1)
         )
+        assertTrue("Could not bind OpenGL ES API", EGL14.eglBindAPI(EGL14.EGL_OPENGL_ES_API))
 
         var surface: EGLSurface = EGL14.EGL_NO_SURFACE
         var eglContext = EGL14.EGL_NO_CONTEXT

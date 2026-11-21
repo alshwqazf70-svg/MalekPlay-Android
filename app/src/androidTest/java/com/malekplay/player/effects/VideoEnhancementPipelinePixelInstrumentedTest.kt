@@ -68,8 +68,9 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
 
             passthrough = VideoEnhancementPipelineEffect()
                 .toGlShaderProgram(context, /* useHdr = */ false) as BaseGlShaderProgram
-            assertEquals(SIZE, passthrough.configure(SIZE, SIZE).width)
-            assertEquals(SIZE, passthrough.configure(SIZE, SIZE).height)
+            val passthroughSize = passthrough.configure(SIZE, SIZE)
+            assertEquals(SIZE, passthroughSize.width)
+            assertEquals(SIZE, passthroughSize.height)
             passthrough.drawFrame(inputTexture, 1L)
             GLES20.glFinish()
             val identityOutput = readPixels()
