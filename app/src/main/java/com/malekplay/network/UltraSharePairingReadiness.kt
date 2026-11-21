@@ -32,8 +32,11 @@ internal object UltraSharePairingReadiness {
         storedHosts: List<String>,
         currentHosts: List<String>
     ): List<String> =
-        if (invitationId.isNotBlank() && storedInvitationId == invitationId) storedHosts
-        else currentHosts
+        if (invitationId.isNotBlank() && storedInvitationId == invitationId && currentHosts.isEmpty()) {
+            storedHosts
+        } else {
+            currentHosts
+        }
 
     /** Keeps the first invitation bytes stable across transient network/address updates. */
     fun stableQrPayload(existing: String?, candidate: String?): String? =
@@ -98,8 +101,9 @@ internal object UltraSharePairingReadiness {
             else -> existingWifiSecurity == candidateWifiSecurity
         }
         val addsWifiCredentials = !existingHasWifi && candidateHasWifi
-        val addsHosts = candidateHosts.size > existingHosts.size &&
-            candidateHosts.containsAll(existingHosts)
+        val hasValidCandidateHosts = candidateHosts.isNotEmpty() &&
+            candidateHosts.all(UltraShareCore::isValidPrivateLanHost)
+        val changesHosts = candidateHosts != existingHosts
         return existingVersion == "5" &&
             candidateVersion == "5" &&
             !existingInvitationId.isNullOrBlank() &&
@@ -107,8 +111,8 @@ internal object UltraSharePairingReadiness {
             !existingPairingSecret.isNullOrBlank() &&
             existingPairingSecret == candidatePairingSecret &&
             credentialsCompatible &&
-            candidateHosts.containsAll(existingHosts) &&
-            (addsWifiCredentials || addsHosts)
+            hasValidCandidateHosts &&
+            (addsWifiCredentials || changesHosts)
     }
 
     fun isDataListenerReady(actualPort: Int, expectedPort: Int): Boolean =
