@@ -87,7 +87,22 @@ object VideoEnhancementMetrics {
     fun recordFailure(effectName: String, error: Throwable) {
         lastEffectName = effectName
         lastPipelineStage = "failed:$effectName"
-        lastFailure = "${error.javaClass.simpleName}: ${error.message.orEmpty().take(160)}"
+        // Media3 often wraps the EGL/GL exception in VideoFrameProcessingException.
+        // Keep the causal chain so the diagnostics show the actionable low-level cause.
+        val chain = mutableListOf<Throwable>()
+        var current: Throwable? = error
+        while (current != null && chain.size < 4 && chain.none { it === current }) {
+            chain += current
+            current = current.cause
+        }
+        lastFailure = chain.joinToString(" <- ") { cause ->
+            val message = cause.message.orEmpty()
+                .replace('\\n', ' ')
+                .replace('\\r', ' ')
+                .take(96)
+            if (message.isBlank()) cause.javaClass.simpleName
+            else "${cause.javaClass.simpleName}: $message"
+        }.take(240)
     }
 
     fun snapshot(): Snapshot = Snapshot(
