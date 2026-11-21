@@ -505,6 +505,11 @@ class UltraSharePairingReadinessTest {
         assertFalse(ready(hosts = listOf("8.8.8.8")))
     }
 
+    @Test fun ownerPeerPollingKeepsEmptyRoomsOpenAndChecksVisiblePeersMoreOften() {
+        assertEquals(2_000L, wifiDirectOwnerPeerConfirmationDelayMs(hasObservedClient = false))
+        assertEquals(500L, wifiDirectOwnerPeerConfirmationDelayMs(hasObservedClient = true))
+    }
+
     @Test fun ownerGroupIsNotPairedUntilAndroidReportsAClient() {
         assertFalse(isConfirmedWifiDirectOwnerPeer(
             groupFormed = false, isGroupOwner = true, clientCount = 1
