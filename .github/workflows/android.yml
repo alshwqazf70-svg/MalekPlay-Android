@@ -247,9 +247,9 @@ jobs:
           retention-days: 14
 
   android-test-apks:
-    name: Build Android instrumentation APKs once
+    name: Build Android test APKs once
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -263,14 +263,22 @@ jobs:
           java-version: "17"
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v5
-      - name: Build app and instrumentation APKs once for all API levels
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+      - name: Install Android SDK packages required by test compilation
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+      - name: Build x86_64 app and instrumentation APKs once
         run: |
           ./gradlew --build-cache --parallel --stacktrace --max-workers=2 \
             -PtargetAbi=x86_64 \
             :app:assembleDebug :app:assembleDebugAndroidTest
           test -s app/build/outputs/apk/debug/app-debug.apk
           test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-      - name: Upload prebuilt instrumentation APKs
+      - name: Upload prebuilt app and instrumentation APKs
         uses: actions/upload-artifact@v4
         with:
           name: android-test-apks
@@ -278,58 +286,44 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 3
 
   android-runtime-tests:
-    name: Android ${{ matrix.suite }} tests (API ${{ matrix.api-level }})
+    name: Android runtime tests (API ${{ matrix.api-level }})
     needs: android-test-apks
-    # Ubuntu 26.04 runner image currently launches API 23 without KVM and emulator exits.
-    # Pin the emulator matrix to the stable 24.04 image with hardware acceleration.
+    # Ubuntu 26.04 lacked CPU acceleration in the observed API 23 run.
+    # Use the stable Ubuntu 24.04 hosted image for emulator/KVM compatibility.
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
       fail-fast: false
       max-parallel: 3
       matrix:
-        include:
-          - { api-level: 23, suite: network }
-          - { api-level: 29, suite: network }
-          - { api-level: 36, suite: network }
-          - { api-level: 23, suite: core }
-          - { api-level: 29, suite: core }
-          - { api-level: 36, suite: core }
-          - { api-level: 23, suite: video }
-          - { api-level: 29, suite: video }
-          - { api-level: 36, suite: video }
+        api-level: [23, 29, 36]
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-      - name: Set up Gradle cache
-        uses: gradle/actions/setup-gradle@v5
       - name: Restore Android emulator system-image cache
         uses: actions/cache@v4
         with:
-          path: ${{ env.ANDROID_HOME }}/system-images/android-${{ matrix.api-level }}-google_apis/x86_64
+          path: ${{ env.ANDROID_HOME }}/system-images/android-${{ matrix.api-level }}/google_apis/x86_64
           key: android-system-image-${{ runner.os }}-api-${{ matrix.api-level }}-google-apis-x86_64-v1
       - name: Install Android emulator system image
+        shell: bash
         run: |
           set +o pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "system-images;android-${{ matrix.api-level }};google_apis;x86_64"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "system-images;android-${{ matrix.api-level }};google_apis;x86_64"
       - name: Download prebuilt app and instrumentation APKs
         uses: actions/download-artifact@v4
         with:
           name: android-test-apks
           path: app/build/outputs/apk
-      - name: Run selected Android suite on emulator
+      - name: Run all Android runtime test groups on emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
@@ -342,12 +336,12 @@ jobs:
           heap-size: 1024
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: bash scripts/ci/run_android_runtime_tests.sh ${{ matrix.api-level }} ${{ matrix.suite }}
+          script: bash scripts/ci/run_android_runtime_tests.sh ${{ matrix.api-level }}
       - name: Upload Android runtime test diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-${{ matrix.suite }}-diagnostics-api-${{ matrix.api-level }}
+          name: android-runtime-diagnostics-api-${{ matrix.api-level }}
           path: |
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
