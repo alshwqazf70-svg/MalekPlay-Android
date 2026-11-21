@@ -33,6 +33,9 @@ object PlaybackVideoEffects {
     const val KEY_DIAG_CONFIGURED_WIDTH = "diag_configured_width"
     const val KEY_DIAG_CONFIGURED_HEIGHT = "diag_configured_height"
     const val KEY_DIAG_PIPELINE_STAGE = "diag_pipeline_stage"
+    const val KEY_DIAG_RENDERED_FIRST_FRAMES = "diag_rendered_first_frames"
+    const val KEY_DIAG_LAST_RENDERED_OUTPUT = "diag_last_rendered_output"
+    const val KEY_DIAG_LAST_RENDER_TIME_MS = "diag_last_render_time_ms"
 
     val COMMANDS: List<SessionCommand>
         get() = listOf(

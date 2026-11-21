@@ -122,7 +122,10 @@ data class VideoEnhancementDiagnostics(
     val drawFrameSuccesses: Long = 0L,
     val configuredWidth: Int = 0,
     val configuredHeight: Int = 0,
-    val pipelineStage: String = "not_started"
+    val pipelineStage: String = "not_started",
+    val renderedFirstFrames: Long = 0L,
+    val lastRenderedOutput: String = "none",
+    val lastRenderedFirstFrameTimeMs: Long = -1L
 )
 @UnstableApi
 @HiltViewModel
@@ -502,7 +505,10 @@ class PlayerViewModel @Inject constructor(
                     drawFrameSuccesses = state.getLong(PlaybackVideoEffects.KEY_DIAG_DRAW_FRAME_SUCCESSES, 0L),
                     configuredWidth = state.getInt(PlaybackVideoEffects.KEY_DIAG_CONFIGURED_WIDTH, 0),
                     configuredHeight = state.getInt(PlaybackVideoEffects.KEY_DIAG_CONFIGURED_HEIGHT, 0),
-                    pipelineStage = state.getString(PlaybackVideoEffects.KEY_DIAG_PIPELINE_STAGE).orEmpty()
+                    pipelineStage = state.getString(PlaybackVideoEffects.KEY_DIAG_PIPELINE_STAGE).orEmpty(),
+                    renderedFirstFrames = state.getLong(PlaybackVideoEffects.KEY_DIAG_RENDERED_FIRST_FRAMES, 0L),
+                    lastRenderedOutput = state.getString(PlaybackVideoEffects.KEY_DIAG_LAST_RENDERED_OUTPUT).orEmpty(),
+                    lastRenderedFirstFrameTimeMs = state.getLong(PlaybackVideoEffects.KEY_DIAG_LAST_RENDER_TIME_MS, -1L)
                 )
             },
             ContextCompat.getMainExecutor(app)

@@ -477,6 +477,9 @@ class PlaybackService : MediaSessionService() {
         putInt(PlaybackVideoEffects.KEY_DIAG_CONFIGURED_WIDTH, metrics.lastConfiguredWidth)
         putInt(PlaybackVideoEffects.KEY_DIAG_CONFIGURED_HEIGHT, metrics.lastConfiguredHeight)
         putString(PlaybackVideoEffects.KEY_DIAG_PIPELINE_STAGE, metrics.lastPipelineStage)
+        putLong(PlaybackVideoEffects.KEY_DIAG_RENDERED_FIRST_FRAMES, metrics.renderedFirstFrames)
+        putString(PlaybackVideoEffects.KEY_DIAG_LAST_RENDERED_OUTPUT, metrics.lastRenderedOutputType)
+        putLong(PlaybackVideoEffects.KEY_DIAG_LAST_RENDER_TIME_MS, metrics.lastRenderedFirstFrameTimeMs)
     }
 
     private val videoEffectRouteListener = object : Player.Listener {
@@ -491,6 +494,16 @@ class PlaybackService : MediaSessionService() {
     }
 
     private val enhancementAnalyticsListener = object : AnalyticsListener {
+        override fun onRenderedFirstFrame(
+            eventTime: AnalyticsListener.EventTime,
+            output: Any,
+            renderTimeMs: Long
+        ) {
+            // Media3 confirms a frame reached the configured renderer output.
+            // This is a stronger signal than successful shader submission alone.
+            VideoEnhancementMetrics.recordRenderedFirstFrame(output, renderTimeMs)
+        }
+
         override fun onVideoFrameProcessingOffset(
             eventTime: AnalyticsListener.EventTime,
             totalProcessingOffsetUs: Long,

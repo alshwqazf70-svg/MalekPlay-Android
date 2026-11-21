@@ -41,6 +41,25 @@ class VideoEnhancementMetricsTest {
         )
     }
 
+    @Test fun renderedOutputConfirmationIsTrackedSeparatelyFromShaderDrawSuccess() {
+        VideoEnhancementMetrics.reset()
+        VideoEnhancementMetrics.recordDrawFrameEntered()
+        VideoEnhancementMetrics.recordDrawFrameSucceeded()
+        assertEquals(0L, VideoEnhancementMetrics.snapshot().renderedFirstFrames)
+
+        VideoEnhancementMetrics.recordRenderedFirstFrame("test-surface", 12_345L)
+        val snapshot = VideoEnhancementMetrics.snapshot()
+        assertEquals(1L, snapshot.drawFrameSuccesses)
+        assertEquals(1L, snapshot.renderedFirstFrames)
+        assertEquals("String", snapshot.lastRenderedOutputType)
+        assertEquals(12_345L, snapshot.lastRenderedFirstFrameTimeMs)
+
+        VideoEnhancementMetrics.reset()
+        assertEquals(0L, VideoEnhancementMetrics.snapshot().renderedFirstFrames)
+        assertEquals("none", VideoEnhancementMetrics.snapshot().lastRenderedOutputType)
+        assertEquals(-1L, VideoEnhancementMetrics.snapshot().lastRenderedFirstFrameTimeMs)
+    }
+
     @Test fun pipelineStagesAreCountedIndependently() {
         VideoEnhancementMetrics.reset()
         val creationsBefore = VideoEnhancementMetrics.snapshot().programCreations

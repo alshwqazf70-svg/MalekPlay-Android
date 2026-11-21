@@ -21,6 +21,9 @@ object VideoEnhancementMetrics {
     @Volatile private var lastConfiguredWidth = 0
     @Volatile private var lastConfiguredHeight = 0
     @Volatile private var lastPipelineStage = "not_started"
+    private val renderedFirstFrames = AtomicLong(0L)
+    @Volatile private var lastRenderedOutputType = "none"
+    @Volatile private var lastRenderedFirstFrameTimeMs = -1L
 
     fun recordProgramCreated() {
         programCreations.incrementAndGet()
@@ -32,6 +35,13 @@ object VideoEnhancementMetrics {
         lastConfiguredHeight = height
         configureCalls.incrementAndGet()
         lastPipelineStage = "configured"
+    }
+
+    /** Records Media3 confirming that a decoded frame reached its configured output. */
+    fun recordRenderedFirstFrame(output: Any?, renderTimeMs: Long) {
+        renderedFirstFrames.incrementAndGet()
+        lastRenderedOutputType = output?.javaClass?.simpleName ?: "unknown"
+        lastRenderedFirstFrameTimeMs = renderTimeMs
     }
 
     fun recordDrawFrameEntered() {
@@ -120,7 +130,10 @@ object VideoEnhancementMetrics {
         drawFrameSuccesses = drawFrameSuccesses.get(),
         lastConfiguredWidth = lastConfiguredWidth,
         lastConfiguredHeight = lastConfiguredHeight,
-        lastPipelineStage = lastPipelineStage
+        lastPipelineStage = lastPipelineStage,
+        renderedFirstFrames = renderedFirstFrames.get(),
+        lastRenderedOutputType = lastRenderedOutputType,
+        lastRenderedFirstFrameTimeMs = lastRenderedFirstFrameTimeMs
     )
 
     fun reset() {
@@ -136,6 +149,9 @@ object VideoEnhancementMetrics {
         lastConfiguredWidth = 0
         lastConfiguredHeight = 0
         lastPipelineStage = "not_started"
+        renderedFirstFrames.set(0L)
+        lastRenderedOutputType = "none"
+        lastRenderedFirstFrameTimeMs = -1L
     }
 
     data class Snapshot(
@@ -151,6 +167,9 @@ object VideoEnhancementMetrics {
         val drawFrameSuccesses: Long,
         val lastConfiguredWidth: Int,
         val lastConfiguredHeight: Int,
-        val lastPipelineStage: String
+        val lastPipelineStage: String,
+        val renderedFirstFrames: Long,
+        val lastRenderedOutputType: String,
+        val lastRenderedFirstFrameTimeMs: Long
     )
 }
