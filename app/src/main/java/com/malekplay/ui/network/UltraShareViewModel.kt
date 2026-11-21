@@ -2148,7 +2148,10 @@ private fun forgetApprovedSenderTarget(host: String) {
                 val pending = pendingQrPairing
                 if (pending != null &&
                     pending.secret == secret.trim() &&
-                    !qrP2pConnectStarted
+                    UltraSharePairingReadiness.shouldUseLanFallbackAfterInvitationDiscoveryTimeout(
+                        hasPendingInvitation = true,
+                        wifiDirectConnectionStarted = qrP2pConnectStarted
+                    )
                 ) {
                     val safeFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(
                         context,
