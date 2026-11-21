@@ -276,6 +276,42 @@ object UltraShareDiagnostics {
         return "key:" + digest.take(12).joinToString("") { "%02x".format(it) }
     }
 
+    /**
+     * Exports all retained structured diagnostic sessions through a user-selected
+     * document URI. The Storage Access Framework works on Android 6–9 without
+     * broad storage permissions; Android 10+ may still use the Downloads MediaStore.
+     */
+    fun exportLogs(destination: Uri, onComplete: (Result<Int>) -> Unit) {
+        val context = appContext
+        if (context == null) {
+            onComplete(Result.failure(IllegalStateException("لم يتم تهيئة سجل التشخيص بعد.")))
+            return
+        }
+        writer.execute {
+            val result = runCatching {
+                val snapshot = sessions.values.toList()
+                    .distinctBy { it.id }
+                    .sortedBy { it.createdAtMillis }
+                val resolver = context.contentResolver
+                val output = resolver.openOutputStream(destination, "w")
+                    ?: error("تعذر فتح ملف التصدير الذي اخترته.")
+                output.use { target ->
+                    snapshot.forEach { session ->
+                        val input = session.uri?.let { uri ->
+                            runCatching { resolver.openInputStream(uri) }.getOrNull()
+                        } ?: session.privateFile?.let { file ->
+                            runCatching { file.inputStream() }.getOrNull()
+                        }
+                        input?.use { source -> source.copyTo(target) }
+                    }
+                    target.flush()
+                }
+                snapshot.size
+            }
+            onComplete(result)
+        }
+    }
+
     private fun append(session: SessionLog, payload: Map<String, Any?>) {
         val context = appContext ?: return
         val encoded = jsonObject(payload)
