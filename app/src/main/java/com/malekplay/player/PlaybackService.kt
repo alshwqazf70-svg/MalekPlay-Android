@@ -726,9 +726,30 @@ class PlaybackService : MediaSessionService() {
             )
             return false
         }
+        // Resolve and publish the requested shader configuration before checking
+        // track readiness. The first decoded frame can race the track/size callbacks;
+        // it must never enter an attached-but-still-pass-through pipeline after the
+        // user has already enabled denoise/detail enhancement.
+        val tuning = resolveVideoEnhancementTuning()
+        val profile = tuning.effective
+        if (tuning.downgradeReason != null) {
+            Log.w(TAG, "Video enhancement profile capped: ${tuning.downgradeReason}")
+        }
+        videoEnhancementPipeline?.update(
+            VideoEnhancementPipelineConfig(
+                denoiseEnabled = videoNoiseReductionEnabled,
+                detailEnabled = videoUpscalingEnabled || videoNoiseReductionEnabled,
+                aiBoostEnabled = videoUpscalingEnabled && videoNoiseReductionEnabled,
+                denoiseStrength = profile.denoiseStrength,
+                detailStrength = profile.detailStrength,
+                contrastBoost = profile.contrastBoost,
+                clarityStrength = profile.clarityStrength
+            )
+        )
+
         // A user may toggle an effect while Media3 is still selecting tracks or
         // reporting the first frame size. Accept it as pending; listeners above
-        // will apply it as soon as the selected video format becomes available.
+        // will apply the size-dependent Lanczos stage when the selected format is known.
         if (!canApplyLocalVideoEnhancement()) {
             // A request may be accepted before Media3 selects a video track, but it
             // must never be reported as successful unless the always-on GPU stage is
@@ -766,22 +787,6 @@ class PlaybackService : MediaSessionService() {
             return true
         }
 
-        val tuning = resolveVideoEnhancementTuning()
-        val profile = tuning.effective
-        if (tuning.downgradeReason != null) {
-            Log.w(TAG, "Video enhancement profile capped: ${tuning.downgradeReason}")
-        }
-        videoEnhancementPipeline?.update(
-            VideoEnhancementPipelineConfig(
-                denoiseEnabled = videoNoiseReductionEnabled,
-                detailEnabled = videoUpscalingEnabled || videoNoiseReductionEnabled,
-                aiBoostEnabled = videoUpscalingEnabled && videoNoiseReductionEnabled,
-                denoiseStrength = profile.denoiseStrength,
-                detailStrength = profile.detailStrength,
-                contrastBoost = profile.contrastBoost,
-                clarityStrength = profile.clarityStrength
-            )
-        )
         val effects = ArrayList<Effect>(4)
         var lanczosTarget: VideoUpscaleTarget? = null
         videoLanczosSubmitted = false
