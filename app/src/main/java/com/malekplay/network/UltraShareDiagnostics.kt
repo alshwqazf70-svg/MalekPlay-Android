@@ -329,7 +329,7 @@ object UltraShareDiagnostics {
                         }
                     }
                     if (exported == 0) {
-                        target.write("No UltraShare diagnostic sessions are available.\\n".toByteArray(StandardCharsets.UTF_8))
+                        target.write("No UltraShare diagnostic sessions are available.\n".toByteArray(StandardCharsets.UTF_8))
                     }
                     target.flush()
                 }
