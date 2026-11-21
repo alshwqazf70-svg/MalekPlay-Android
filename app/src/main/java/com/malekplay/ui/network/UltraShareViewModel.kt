@@ -1836,12 +1836,17 @@ private fun forgetApprovedSenderTarget(host: String) {
                     // Prefer the P2P group-owner interface so legacy Android
                     // 6–7 clients retain the direct SoftAP route even when LAN
                     // interfaces are numerous or DNS-SD is unavailable.
+                    // A joined invitation's owner address belongs to the remote device,
+                    // not this receiver. Advertise only our P2P interface and live LAN routes.
+                    val localOwnerAddress = wifiDirectOwnerAddress
+                        .takeUnless { wifiDirectCredentialsFromJoinedInvitation }
+                        ?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
+                    val liveLanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
+                        context, current.localAddresses + service.localAddresses
+                    )
                     val hosts = (
-                        listOfNotNull(current.wifiDirectLocalAddress, wifiDirectOwnerAddress) +
-                            current.localAddresses + service.localAddresses
+                        listOfNotNull(current.wifiDirectLocalAddress, localOwnerAddress) + liveLanHosts
                         )
-                        .map { it.trim() }
-                        .filter { UltraShareCore.isValidPrivateLanHost(it) }
                         .distinct()
                         .take(8)
                     val payload = runCatching {
@@ -1914,6 +1919,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             !dnsSdReady && invitationId == null
         ) return
         val ownerAddress = wifiDirectOwnerAddress
+            .takeUnless { wifiDirectCredentialsFromJoinedInvitation }
             ?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
         // Keep the Android-confirmed P2P owner route, but rebuild LAN hints from
         // interfaces that are still active now; never carry stale WLAN addresses.
