@@ -717,9 +717,29 @@ class PlaybackService : MediaSessionService() {
         // reporting the first frame size. Accept it as pending; listeners above
         // will apply it as soon as the selected video format becomes available.
         if (!canApplyLocalVideoEnhancement()) {
-            // The request is pending, not applied. Keep the diagnostics honest:
-            // bridge connection is reported independently from selected-track readiness.
-            videoEffectsBridgeAttached = AssVideoEffectRegistry.isAttached(player)
+            // A request may be accepted before Media3 selects a video track, but it
+            // must never be reported as successful unless the always-on GPU stage is
+            // actually installed in the service-owned player's effect graph.
+            val pipelineReady = videoEnhancementPipelineAttached &&
+                AssVideoEffectRegistry.isAttached(player)
+            val attached = pipelineReady || applyEffectChain(
+                player,
+                listOfNotNull(videoEnhancementPipeline),
+                hasLanczos = false
+            )
+            videoEffectsBridgeAttached = attached
+            if (!attached) {
+                val reason = AssVideoEffectRegistry.lastFailure(player)
+                    ?: "GPU enhancement pipeline is not attached while video track selection is pending"
+                VideoEnhancementMetrics.recordFailure(
+                    "pending_effect_graph_attach",
+                    IllegalStateException(reason)
+                )
+                Log.e(TAG, "Cannot accept pending video enhancement request: $reason")
+                return false
+            }
+            // The request is now safely queued in an operational graph. Track and
+            // frame readiness are separate and will be re-evaluated by player listeners.
             return true
         }
 
