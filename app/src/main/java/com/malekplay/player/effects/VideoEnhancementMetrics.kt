@@ -109,10 +109,10 @@ object VideoEnhancementMetrics {
     fun reset() {
         processedDraws.set(0L)
         drawsByEffect.clear()
+        // Program objects can outlive a media-item transition; keep this process-lifetime count.
         lastEffectName = "none"
         lastPresentationTimeUs = -1L
         lastFailure = null
-        programCreations.set(0L)
         configureCalls.set(0L)
         drawFrameCalls.set(0L)
         drawFrameSuccesses.set(0L)
