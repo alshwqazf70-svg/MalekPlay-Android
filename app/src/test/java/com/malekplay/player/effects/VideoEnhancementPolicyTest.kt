@@ -111,11 +111,11 @@ class VideoEnhancementPolicyTest {
             maxLongEdge = VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge,
             maxPixels = VideoEnhancementProfile.BALANCED.upscaleMaxPixels
         )
-        assertTrue(target != null)
-        assertTrue(target!!.longEdge > 224)
-        assertTrue(target.shortEdge > 128)
-        assertTrue(target.longEdge.toLong() * target.shortEdge <= 2_500_000L)
-        assertEquals(7f / 4f, target.longEdge.toFloat() / target.shortEdge, 0.01f)
+        val actual = requireNotNull(target)
+        assertTrue(actual.longEdge > 224)
+        assertTrue(actual.shortEdge > 128)
+        assertTrue(actual.longEdge.toLong() * actual.shortEdge <= 2_500_000L)
+        assertEquals(7f / 4f, actual.longEdge.toFloat() / actual.shortEdge, 0.01f)
     }
 
     @Test fun lowResolutionVideoUpscalesToCappedFullHdTarget() {
