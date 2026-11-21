@@ -605,11 +605,10 @@ fun UltraShareExperienceScreen(
         ?.let { UltraShareQrCode.createReceiverPayload(it, state.pairingSecret) }
     val candidateQrPayload = wifiDirectQrPayload ?: hotspotQrPayload ?: lanQrPayload
     LaunchedEffect(candidateQrPayload, state.receiverQrPayload) {
-        val stable = com.malekplay.network.UltraSharePairingReadiness.stableQrPayload(
-            state.receiverQrPayload, candidateQrPayload
-        )
-        if (state.receiverQrPayload == null && stable != null) {
-            viewModel.latchReceiverQrPayload(stable)
+        if (!candidateQrPayload.isNullOrBlank() &&
+            candidateQrPayload != state.receiverQrPayload
+        ) {
+            viewModel.latchReceiverQrPayload(candidateQrPayload)
         }
     }
     // Keep the room invitation visible after the first peer joins so more
