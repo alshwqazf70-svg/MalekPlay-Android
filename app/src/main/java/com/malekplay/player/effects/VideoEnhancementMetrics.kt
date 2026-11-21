@@ -14,6 +14,35 @@ object VideoEnhancementMetrics {
     @Volatile private var lastEffectName = "none"
     @Volatile private var lastPresentationTimeUs = -1L
     @Volatile private var lastFailure: String? = null
+    private val programCreations = AtomicLong(0L)
+    private val configureCalls = AtomicLong(0L)
+    private val drawFrameCalls = AtomicLong(0L)
+    private val drawFrameSuccesses = AtomicLong(0L)
+    @Volatile private var lastConfiguredWidth = 0
+    @Volatile private var lastConfiguredHeight = 0
+    @Volatile private var lastPipelineStage = "not_started"
+
+    fun recordProgramCreated() {
+        programCreations.incrementAndGet()
+        lastPipelineStage = "program_created"
+    }
+
+    fun recordConfigured(width: Int, height: Int) {
+        lastConfiguredWidth = width
+        lastConfiguredHeight = height
+        configureCalls.incrementAndGet()
+        lastPipelineStage = "configured"
+    }
+
+    fun recordDrawFrameEntered() {
+        drawFrameCalls.incrementAndGet()
+        lastPipelineStage = "draw_frame_entered"
+    }
+
+    fun recordDrawFrameSucceeded() {
+        drawFrameSuccesses.incrementAndGet()
+        lastPipelineStage = "draw_frame_succeeded"
+    }
 
     fun recordProcessed(effectName: String, presentationTimeUs: Long) {
         lastEffectName = effectName
@@ -57,6 +86,7 @@ object VideoEnhancementMetrics {
 
     fun recordFailure(effectName: String, error: Throwable) {
         lastEffectName = effectName
+        lastPipelineStage = "failed:$effectName"
         lastFailure = "${error.javaClass.simpleName}: ${error.message.orEmpty().take(160)}"
     }
 
@@ -66,7 +96,14 @@ object VideoEnhancementMetrics {
         detailDraws = drawsByEffect["detail_sharpen"]?.get() ?: 0L,
         lastEffectName = lastEffectName,
         lastPresentationTimeUs = lastPresentationTimeUs,
-        lastFailure = lastFailure
+        lastFailure = lastFailure,
+        programCreations = programCreations.get(),
+        configureCalls = configureCalls.get(),
+        drawFrameCalls = drawFrameCalls.get(),
+        drawFrameSuccesses = drawFrameSuccesses.get(),
+        lastConfiguredWidth = lastConfiguredWidth,
+        lastConfiguredHeight = lastConfiguredHeight,
+        lastPipelineStage = lastPipelineStage
     )
 
     fun reset() {
@@ -75,6 +112,13 @@ object VideoEnhancementMetrics {
         lastEffectName = "none"
         lastPresentationTimeUs = -1L
         lastFailure = null
+        programCreations.set(0L)
+        configureCalls.set(0L)
+        drawFrameCalls.set(0L)
+        drawFrameSuccesses.set(0L)
+        lastConfiguredWidth = 0
+        lastConfiguredHeight = 0
+        lastPipelineStage = "not_started"
     }
 
     data class Snapshot(
@@ -83,6 +127,13 @@ object VideoEnhancementMetrics {
         val detailDraws: Long,
         val lastEffectName: String,
         val lastPresentationTimeUs: Long,
-        val lastFailure: String?
+        val lastFailure: String?,
+        val programCreations: Long,
+        val configureCalls: Long,
+        val drawFrameCalls: Long,
+        val drawFrameSuccesses: Long,
+        val lastConfiguredWidth: Int,
+        val lastConfiguredHeight: Int,
+        val lastPipelineStage: String
     )
 }
