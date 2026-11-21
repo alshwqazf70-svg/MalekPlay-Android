@@ -289,24 +289,51 @@ object UltraShareDiagnostics {
         }
         writer.execute {
             val result = runCatching {
-                val snapshot = sessions.values.toList()
-                    .distinctBy { it.id }
-                    .sortedBy { it.createdAtMillis }
                 val resolver = context.contentResolver
+                val sources = mutableListOf<() -> java.io.InputStream?>()
+                val privateDirectory = java.io.File(context.filesDir, "ultrashare-diagnostics")
+                privateDirectory.listFiles()
+                    ?.filter { it.isFile && it.name.startsWith(FILE_PREFIX) && it.name.endsWith(".jsonl") }
+                    ?.sortedBy { it.lastModified() }
+                    ?.forEach { file -> sources += { file.inputStream() } }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                    resolver.query(
+                        collection,
+                        arrayOf(MediaStore.MediaColumns._ID),
+                        MediaStore.MediaColumns.RELATIVE_PATH + "=? AND " +
+                            MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ?",
+                        arrayOf(DIRECTORY, FILE_PREFIX + "%"),
+                        MediaStore.MediaColumns.DATE_ADDED + " ASC, " + MediaStore.MediaColumns._ID + " ASC"
+                    )?.use { cursor ->
+                        val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                        while (cursor.moveToNext()) {
+                            val uri = Uri.withAppendedPath(
+                                collection,
+                                cursor.getLong(idColumn).toString()
+                            )
+                            sources += { resolver.openInputStream(uri) }
+                        }
+                    }
+                }
+
                 val output = resolver.openOutputStream(destination, "w")
                     ?: error("تعذر فتح ملف التصدير الذي اخترته.")
+                var exported = 0
                 output.use { target ->
-                    snapshot.forEach { session ->
-                        val input = session.uri?.let { uri ->
-                            runCatching { resolver.openInputStream(uri) }.getOrNull()
-                        } ?: session.privateFile?.let { file ->
-                            runCatching { file.inputStream() }.getOrNull()
+                    sources.forEach { openSource ->
+                        openSource()?.use { source ->
+                            source.copyTo(target)
+                            exported++
                         }
-                        input?.use { source -> source.copyTo(target) }
+                    }
+                    if (exported == 0) {
+                        target.write("No UltraShare diagnostic sessions are available.\\n".toByteArray(StandardCharsets.UTF_8))
                     }
                     target.flush()
                 }
-                snapshot.size
+                exported
             }
             onComplete(result)
         }
