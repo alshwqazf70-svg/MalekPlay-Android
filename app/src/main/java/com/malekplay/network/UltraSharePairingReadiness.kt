@@ -25,6 +25,12 @@ internal object UltraSharePairingReadiness {
             !wifiDirectAlreadyAttempted &&
             !hasActivePeers &&
             !hasActiveLanRoute
+    /** A discovery timeout may use LAN only if no P2P connection negotiation has begun. */
+    fun shouldUseLanFallbackAfterInvitationDiscoveryTimeout(
+        hasPendingInvitation: Boolean,
+        wifiDirectConnectionStarted: Boolean
+    ): Boolean = hasPendingInvitation && !wifiDirectConnectionStarted
+
     /** Reuses stored route hints only for the exact same ephemeral invitation. */
     fun stableInvitationHosts(
         storedInvitationId: String?,
