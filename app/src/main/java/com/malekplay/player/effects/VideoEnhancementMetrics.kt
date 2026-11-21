@@ -97,8 +97,8 @@ object VideoEnhancementMetrics {
         }
         lastFailure = chain.joinToString(" <- ") { cause ->
             val message = cause.message.orEmpty()
-                .replace('\\n', ' ')
-                .replace('\\r', ' ')
+                .replace('\n', ' ')
+                .replace('\r', ' ')
                 .take(96)
             if (message.isBlank()) cause.javaClass.simpleName
             else "${cause.javaClass.simpleName}: $message"
