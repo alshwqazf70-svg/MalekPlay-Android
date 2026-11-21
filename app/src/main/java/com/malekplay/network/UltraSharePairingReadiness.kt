@@ -115,6 +115,36 @@ internal object UltraSharePairingReadiness {
             (addsWifiCredentials || changesHosts)
     }
 
+    /** Allows a v6 room QR to replace stale route hints without changing its session identity. */
+    fun shouldRefreshRoomV6Qr(
+        existingVersion: String?,
+        candidateVersion: String?,
+        existingInvitationId: String?,
+        candidateInvitationId: String?,
+        existingPairingSecret: String?,
+        candidatePairingSecret: String?,
+        existingDeviceName: String?,
+        candidateDeviceName: String?,
+        existingSsid: String?,
+        candidateSsid: String?,
+        existingWifiPassword: String?,
+        candidateWifiPassword: String?,
+        candidateHosts: List<String>
+    ): Boolean {
+        val credentialsCompatible =
+            (existingSsid.isNullOrBlank() || existingSsid == candidateSsid) &&
+                (existingWifiPassword.isNullOrBlank() || existingWifiPassword == candidateWifiPassword)
+        return existingVersion == "6" &&
+            candidateVersion == "6" &&
+            existingInvitationId == candidateInvitationId &&
+            !existingPairingSecret.isNullOrBlank() &&
+            existingPairingSecret == candidatePairingSecret &&
+            existingDeviceName == candidateDeviceName &&
+            credentialsCompatible &&
+            candidateHosts.isNotEmpty() &&
+            candidateHosts.all(UltraShareCore::isValidPrivateLanHost)
+    }
+
     fun isDataListenerReady(actualPort: Int, expectedPort: Int): Boolean =
         expectedPort in 1..65535 && actualPort == expectedPort
 
