@@ -728,7 +728,8 @@ class PlaybackService : MediaSessionService() {
                 sourceHeight = videoSize.height,
                 displayWidth = metrics.widthPixels,
                 displayHeight = metrics.heightPixels,
-                maxLongEdge = maxLongEdge
+                maxLongEdge = maxLongEdge,
+                maxPixels = profile.upscaleMaxPixels
             )
             lanczosTarget = target
             if (target != null) {
