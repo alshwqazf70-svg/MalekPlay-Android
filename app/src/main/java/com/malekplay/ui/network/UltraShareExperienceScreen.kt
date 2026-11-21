@@ -172,13 +172,13 @@ fun UltraShareExperienceScreen(
         pendingReceivedExport = null
     }
     val diagnosticsExportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/x-ndjson")
+        ActivityResultContracts.CreateDocument("text/plain")
     ) { uri ->
         if (uri != null) {
             UltraShareDiagnostics.exportLogs(uri) { result ->
                 scope.launch(Dispatchers.Main) {
                     result.onSuccess { count ->
-                        Toast.makeText(context, "تم تصدير سجل التشخيص ($count جلسات).", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "تم تصدير سجل التشخيص ($count ملفات).", Toast.LENGTH_LONG).show()
                     }.onFailure { failure ->
                         Toast.makeText(
                             context,
