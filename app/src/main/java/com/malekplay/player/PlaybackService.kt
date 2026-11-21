@@ -232,10 +232,9 @@ class PlaybackService : MediaSessionService() {
                     error.errorCode ==
                     androidx.media3.common.PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
                 ) {
-                    val cause = error.cause ?: error
                     VideoEnhancementMetrics.recordFailure(
                         "media3_video_frame_processing",
-                        cause
+                        error
                     )
                     Log.e(TAG, "Media3 video frame processing failed", error)
                 }
