@@ -1236,7 +1236,11 @@ private fun forgetApprovedSenderTarget(host: String) {
         // Do not treat the group's SSID/PSK as an ordinary hotspot and bypass the
         // peer-discovery + connect sequence: this was the behavioral difference
         // from the known-working main-branch QR invitation flow.
-        if (pairing.mode == "p2p" && !pairing.invitationId.isNullOrBlank()) {
+        if (UltraSharePairingReadiness.shouldUseWifiDirectInvitation(
+                pairing.mode,
+                pairing.invitationId
+            )
+        ) {
             UltraShareDiagnostics.event(
                 "PAIRING",
                 "QR_P2P_MAIN_FLOW_SELECTED",
@@ -1616,15 +1620,19 @@ private fun forgetApprovedSenderTarget(host: String) {
                         UltraShareDiagnostics.event("PAIRING", "P2P_INVITATION_ROLE_REVERSED")
                         pendingQrPairing = null
                         qrP2pConnectStarted = false
+                        val localGroupOwnerAddress = remoteHost
+                            ?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
                         runCatching {
                             UltraShareForegroundService.startReceiving(
                                 context,
                                 pending.secret,
                                 createHotspot = false
                             )
+                            // Publish the address confirmed by this group callback,
+                            // not the ViewModel's possibly stale pre-callback value.
                             UltraShareForegroundService.updateWifiDirectLocalAddress(
                                 context,
-                                _state.value.wifiDirectLocalAddress
+                                localGroupOwnerAddress
                             )
                         }.onSuccess {
                             _state.value = _state.value.copy(
@@ -1632,7 +1640,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                                 pairingSecret = pending.secret,
                                 requestingConnection = false,
                                 wifiDirectHost = null,
-                                wifiDirectLocalAddress = remoteHost?.takeIf { UltraShareCore.isValidPrivateLanHost(it) },
+                                wifiDirectLocalAddress = localGroupOwnerAddress,
                                 error = null,
                                 status = "انعكس دور Wi-Fi Direct؛ أصبح هذا الهاتف مستقبلاً مؤقتاً وننتظر مصادقة منشئ رمز QR..."
                             )
