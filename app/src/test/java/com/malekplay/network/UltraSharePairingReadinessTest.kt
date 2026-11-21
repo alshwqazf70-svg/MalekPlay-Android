@@ -75,6 +75,27 @@ class UltraSharePairingReadinessTest {
         assertFalse(matchesExpectedUltraSharePeerIdentity(target.peerId, "different-peer"))
     }
 
+    @Test fun invitationDiscoveryTimeoutNeverRacesAnActiveWifiDirectConnection() {
+        assertTrue(
+            UltraSharePairingReadiness.shouldUseLanFallbackAfterInvitationDiscoveryTimeout(
+                hasPendingInvitation = true,
+                wifiDirectConnectionStarted = false
+            )
+        )
+        assertFalse(
+            UltraSharePairingReadiness.shouldUseLanFallbackAfterInvitationDiscoveryTimeout(
+                hasPendingInvitation = true,
+                wifiDirectConnectionStarted = true
+            )
+        )
+        assertFalse(
+            UltraSharePairingReadiness.shouldUseLanFallbackAfterInvitationDiscoveryTimeout(
+                hasPendingInvitation = false,
+                wifiDirectConnectionStarted = false
+            )
+        )
+    }
+
     @Test fun invitationHostHintsRemainStableOnlyForTheSameSessionId() {
         val stored = listOf("192.168.1.10", "192.168.49.1")
         val refreshed = listOf("192.168.1.11")
