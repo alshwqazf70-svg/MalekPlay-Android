@@ -738,7 +738,7 @@ object UltraShareWifiDirect {
                             "OWNER_GROUP_READY_WAITING_FOR_PEER",
                             mapOf("clientCount" to existingGroup.clientList.size)
                         )
-                        publishGroupCredentials(existingGroup)
+                        publishGroupCredentials(existingGroup, null)
                         onCreated()
                         requestConnectionInfo()
                         return@requestGroupInfo
@@ -918,7 +918,7 @@ object UltraShareWifiDirect {
                         // Group creation is only receiver readiness. requestConnectionInfo()
                         // separately confirms a client through GroupInfo.clientList.
                         UltraShareDiagnostics.event("WIFI_DIRECT", "OWNER_GROUP_READY_WAITING_FOR_PEER")
-                        requestGroupCredentials()
+                        requestGroupCredentials(info.groupOwnerAddress?.hostAddress)
                         onCreated()
                         requestConnectionInfo()
                     } else if (attempt < 20) {
