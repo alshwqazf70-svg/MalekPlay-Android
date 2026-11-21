@@ -452,6 +452,13 @@ class PlaybackService : MediaSessionService() {
         putLong(PlaybackVideoEffects.KEY_DIAG_AVG_OFFSET_US, lastAverageProcessingOffsetUs)
         putLong(PlaybackVideoEffects.KEY_DIAG_DROPPED_FRAMES, droppedVideoFramesTotal)
         putBoolean(PlaybackVideoEffects.KEY_DIAG_BRIDGE_ATTACHED, videoEffectsBridgeAttached)
+        putLong(PlaybackVideoEffects.KEY_DIAG_PROGRAM_CREATIONS, metrics.programCreations)
+        putLong(PlaybackVideoEffects.KEY_DIAG_CONFIGURE_CALLS, metrics.configureCalls)
+        putLong(PlaybackVideoEffects.KEY_DIAG_DRAW_FRAME_CALLS, metrics.drawFrameCalls)
+        putLong(PlaybackVideoEffects.KEY_DIAG_DRAW_FRAME_SUCCESSES, metrics.drawFrameSuccesses)
+        putInt(PlaybackVideoEffects.KEY_DIAG_CONFIGURED_WIDTH, metrics.lastConfiguredWidth)
+        putInt(PlaybackVideoEffects.KEY_DIAG_CONFIGURED_HEIGHT, metrics.lastConfiguredHeight)
+        putString(PlaybackVideoEffects.KEY_DIAG_PIPELINE_STAGE, metrics.lastPipelineStage)
     }
 
     private val videoEffectRouteListener = object : Player.Listener {
