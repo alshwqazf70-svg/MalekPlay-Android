@@ -11,7 +11,6 @@ import android.os.SystemClock
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.Player
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -59,6 +58,7 @@ class VideoEnhancementExoPlayerMediaCodecInstrumentedTest {
                 clarityStrength = 0.16f
             )
         )
+        val initialProgramCreations = VideoEnhancementMetrics.snapshot().programCreations
         VideoEnhancementMetrics.reset()
 
         val scenario = ActivityScenario.launch(VideoEnhancementTestActivity::class.java)
@@ -128,7 +128,7 @@ class VideoEnhancementExoPlayerMediaCodecInstrumentedTest {
             val metrics = VideoEnhancementMetrics.snapshot()
             assertTrue(
                 "The production enhancement shader was never created",
-                metrics.programCreations > 0
+                metrics.programCreations > initialProgramCreations
             )
             assertTrue(
                 "The production shader never received a decoded frame",
@@ -218,9 +218,18 @@ class VideoEnhancementExoPlayerMediaCodecInstrumentedTest {
                 }
             }
 
+            fun awaitInputBuffer(): Int {
+                val deadline = SystemClock.elapsedRealtime() + 10_000L
+                while (SystemClock.elapsedRealtime() < deadline) {
+                    val inputIndex = encoder.dequeueInputBuffer(10_000)
+                    if (inputIndex >= 0) return inputIndex
+                    drainEncoderOutput()
+                }
+                throw AssertionError("AVC encoder did not provide an input buffer before timeout")
+            }
+
             for (frameIndex in 0 until frameCount) {
-                val inputIndex = encoder.dequeueInputBuffer(10_000)
-                check(inputIndex >= 0) { "AVC encoder did not provide an input buffer" }
+                val inputIndex = awaitInputBuffer()
                 val image = requireNotNull(encoder.getInputImage(inputIndex)) {
                     "AVC encoder did not expose its flexible YUV input image"
                 }
@@ -240,8 +249,7 @@ class VideoEnhancementExoPlayerMediaCodecInstrumentedTest {
                 drainEncoderOutput()
             }
 
-            val eosInputIndex = encoder.dequeueInputBuffer(10_000)
-            check(eosInputIndex >= 0) { "AVC encoder did not accept end-of-stream" }
+            val eosInputIndex = awaitInputBuffer()
             encoder.queueInputBuffer(
                 eosInputIndex,
                 0,
