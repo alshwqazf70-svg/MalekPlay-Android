@@ -323,7 +323,9 @@ jobs:
   android-runtime-tests:
     name: Android ${{ matrix.suite }} tests (API ${{ matrix.api-level }})
     needs: android-test-apks
-    runs-on: ubuntu-latest
+    # Ubuntu 26.04 runner image currently launches API 23 without KVM and emulator exits.
+    # Pin the emulator matrix to the stable 24.04 image with hardware acceleration.
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
       fail-fast: false
