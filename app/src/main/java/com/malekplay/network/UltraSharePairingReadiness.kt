@@ -205,6 +205,10 @@ internal object UltraSharePairingReadiness {
             localAddresses.any(UltraShareCore::isValidPrivateLanHost)
 }
 
+/** Poll an empty receiver room gently; verify a visible peer more frequently within its deadline. */
+internal fun wifiDirectOwnerPeerConfirmationDelayMs(hasObservedClient: Boolean): Long =
+    if (hasObservedClient) 500L else 2_000L
+
 /** A known peer ID must match; a missing ID is allowed only for legacy peers. */
 internal fun matchesExpectedUltraSharePeerIdentity(
     expectedPeerId: String?,
