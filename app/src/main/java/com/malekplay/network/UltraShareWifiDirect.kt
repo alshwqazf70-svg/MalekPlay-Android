@@ -1858,11 +1858,11 @@ object UltraShareWifiDirect {
                         .orEmpty()
                     val clientCount = clientAddresses.size
                     if (!shouldStartWifiDirectOwnerPeerDeadline(clientCount, wasConnected)) {
-                        // Empty owner group is a valid waiting-room state. Do not
-                        // schedule retries, expire it, or report a pairing failure.
-                        ownerPeerCheckRunnable?.let(mainHandler::removeCallbacks)
-                        ownerPeerCheckRunnable = null
+                        // Keep an empty receiver room alive and poll slowly. Android can
+                        // publish GROUP_FORMED before GroupInfo.clientList is populated,
+                        // and an additional connection-changed broadcast is not guaranteed.
                         ownerPeerCheckDeadlineElapsedMs = 0L
+                        scheduleOwnerPeerConfirmation(info, token, attempt)
                         return@requestGroupInfo
                     }
                     if (ownerPeerCheckDeadlineElapsedMs == 0L) {
@@ -1946,11 +1946,12 @@ object UltraShareWifiDirect {
             attempt: Int
         ) {
             if (closed || token != ownerPeerCheckToken || wasConnected) return
-            // No timeout exists until GroupInfo confirms at least one client.
-            if (ownerPeerCheckDeadlineElapsedMs == 0L) return
-            val remainingMs = ownerPeerCheckDeadlineElapsedMs -
-                android.os.SystemClock.elapsedRealtime()
-            if (!shouldRetryWifiDirectPeerConfirmation(attempt) || remainingMs <= 0L) {
+            val waitingForFirstPeer = ownerPeerCheckDeadlineElapsedMs == 0L
+            val remainingMs = if (waitingForFirstPeer) Long.MAX_VALUE else
+                ownerPeerCheckDeadlineElapsedMs - android.os.SystemClock.elapsedRealtime()
+            if (!waitingForFirstPeer &&
+                (!shouldRetryWifiDirectPeerConfirmation(attempt) || remainingMs <= 0L)
+            ) {
                 ownerPeerCheckRunnable = null
                 ownerPeerCheckDeadlineElapsedMs = 0L
                 UltraShareDiagnostics.event("WIFI_DIRECT", "GROUP_PEER_CONFIRMATION_TIMEOUT", mapOf("attempts" to attempt))
@@ -1961,11 +1962,14 @@ object UltraShareWifiDirect {
             val next = Runnable {
                 if (!closed && token == ownerPeerCheckToken && !wasConnected) {
                     ownerPeerCheckRunnable = null
-                    requestOwnerPeerConfirmation(info, token, attempt + 1)
+                    // Do not consume the bounded confirmation budget while the room
+                    // is empty. Start a fresh 35-second budget only after a client appears.
+                    requestOwnerPeerConfirmation(info, token, if (waitingForFirstPeer) 0 else attempt + 1)
                 }
             }
             ownerPeerCheckRunnable = next
-            mainHandler.postDelayed(next, minOf(500L, remainingMs))
+            val delayMs = wifiDirectOwnerPeerConfirmationDelayMs(hasObservedClient = !waitingForFirstPeer)
+            mainHandler.postDelayed(next, if (waitingForFirstPeer) delayMs else minOf(delayMs, remainingMs))
         }
 
         private fun cancelOwnerPeerConfirmation() {
