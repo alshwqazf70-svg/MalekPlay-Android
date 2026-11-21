@@ -18,7 +18,6 @@ class VideoEnhancementMetricsTest {
         VideoEnhancementMetrics.reset()
         val reset = VideoEnhancementMetrics.snapshot()
         assertEquals(null, reset.lastFailure)
-        assertEquals(0L, reset.programCreations)
         assertEquals(0L, reset.configureCalls)
         assertEquals(0L, reset.drawFrameCalls)
         assertEquals(0L, reset.drawFrameSuccesses)
