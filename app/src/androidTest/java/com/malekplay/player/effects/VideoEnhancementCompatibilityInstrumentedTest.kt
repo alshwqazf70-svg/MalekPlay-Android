@@ -94,9 +94,10 @@ class VideoEnhancementCompatibilityInstrumentedTest {
                 maxPixels = profile.upscaleMaxPixels
             )
             assertNotNull(target)
-            assertTrue(requireNotNull(target).longEdge <= profile.upscaleMaxLongEdge)
+            val actual = requireNotNull(target)
+            assertTrue(actual.longEdge <= profile.upscaleMaxLongEdge)
             assertTrue(
-                requireNotNull(target).longEdge.toLong() * target.shortEdge <= profile.upscaleMaxPixels.toLong()
+                actual.longEdge.toLong() * actual.shortEdge <= profile.upscaleMaxPixels.toLong()
             )
         }
     }
