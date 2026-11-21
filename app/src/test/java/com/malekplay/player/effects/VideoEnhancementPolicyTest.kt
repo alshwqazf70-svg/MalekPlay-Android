@@ -102,6 +102,22 @@ class VideoEnhancementPolicyTest {
         assertTrue(balanced.denoiseStrength < ultra.denoiseStrength)
     }
 
+    @Test fun veryLowResolution128pVideoUpscalesWithoutExceedingBalancedPixelBudget() {
+        val target = VideoUpscaleTargetPolicy.resolve(
+            sourceWidth = 224,
+            sourceHeight = 128,
+            displayWidth = 2960,
+            displayHeight = 1440,
+            maxLongEdge = VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge,
+            maxPixels = VideoEnhancementProfile.BALANCED.upscaleMaxPixels
+        )
+        assertTrue(target != null)
+        assertTrue(target!!.longEdge > 224)
+        assertTrue(target.shortEdge > 128)
+        assertTrue(target.longEdge.toLong() * target.shortEdge <= 2_500_000L)
+        assertEquals(7f / 4f, target.longEdge.toFloat() / target.shortEdge, 0.01f)
+    }
+
     @Test fun lowResolutionVideoUpscalesToCappedFullHdTarget() {
         val target = VideoUpscaleTargetPolicy.resolve(640, 360, 2960, 1440, 1920)
         assertEquals(1920, target?.longEdge)
@@ -232,14 +248,17 @@ class VideoEnhancementPolicyTest {
 
         val target720p = VideoUpscaleTargetPolicy.resolve(1280, 720, 2960, 1440, 2560)
         val target1080p = VideoUpscaleTargetPolicy.resolve(1920, 1080, 2960, 1440, 2560)
-        assertEquals(VideoUpscaleTarget(2560, 1440), target720p)
-        assertEquals(VideoUpscaleTarget(2560, 1440), target1080p)
+        assertEquals(VideoUpscaleTarget(2105, 1184), target720p)
+        assertEquals(VideoUpscaleTarget(2105, 1184), target1080p)
     }
 
     @Test fun profileUpscaleBudgetsMatchSupportedDisplayClasses() {
         assertEquals(1920, VideoEnhancementProfile.ECONOMY.upscaleMaxLongEdge)
         assertEquals(2560, VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge)
         assertEquals(2960, VideoEnhancementProfile.ULTRA.upscaleMaxLongEdge)
+        assertEquals(1_500_000, VideoEnhancementProfile.ECONOMY.upscaleMaxPixels)
+        assertEquals(2_500_000, VideoEnhancementProfile.BALANCED.upscaleMaxPixels)
+        assertEquals(3_500_000, VideoEnhancementProfile.ULTRA.upscaleMaxPixels)
     }
 
     @Test fun balancedAndUltraCanUseNote9ClassDisplayTargetsForLowResolutionVideo() {
@@ -247,7 +266,7 @@ class VideoEnhancementPolicyTest {
             VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge)
         val ultra = VideoUpscaleTargetPolicy.resolve(640, 360, 2960, 1440,
             VideoEnhancementProfile.ULTRA.upscaleMaxLongEdge)
-        assertEquals(VideoUpscaleTarget(2560, 1440), balanced)
+        assertEquals(VideoUpscaleTarget(2105, 1184), balanced)
         assertEquals(VideoUpscaleTarget(2560, 1440), ultra)
     }
 
