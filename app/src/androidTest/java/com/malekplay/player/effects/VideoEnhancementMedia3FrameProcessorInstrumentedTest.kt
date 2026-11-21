@@ -156,14 +156,16 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
             activeProcessor.signalEndOfInput()
 
             assertTrue(
-                "Media3 did not deliver both processed output textures",
-                outputFrames.await(15, TimeUnit.SECONDS)
-            )
-            assertTrue(
                 "Media3 did not signal end of processing",
                 ended.await(15, TimeUnit.SECONDS)
             )
+            // Surface the original asynchronous GL/Media3 exception immediately.
+            // Waiting for output textures first would hide onError() behind a timeout.
             failure.get()?.let { throw AssertionError("Media3 frame processing failed", it) }
+            assertTrue(
+                "Media3 did not deliver both processed output textures",
+                outputFrames.await(15, TimeUnit.SECONDS)
+            )
 
             val metrics = VideoEnhancementMetrics.snapshot()
             assertTrue("Media3 never created the production GL shader program", metrics.programCreations > initialProgramCreations)
@@ -171,7 +173,10 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
             assertTrue("Media3 never entered the production drawFrame()", metrics.drawFrameCalls >= 2)
             assertTrue("Media3 did not complete any production shader draws", metrics.drawFrameSuccesses >= 2)
             assertTrue("Enabled enhancement did not process any frames", metrics.processedDraws >= 2)
-            assertEquals(2, outputTimes.size)
+            assertEquals("The second stream did not reconfigure the shader width", 24, metrics.lastConfiguredWidth)
+            assertEquals("The second stream did not reconfigure the shader height", 32, metrics.lastConfiguredHeight)
+            val renderedTimes = synchronized(outputTimes) { outputTimes.toList() }
+            assertEquals("Media3 did not preserve each stream's timestamp offset", listOf(10_000L, 30_000L), renderedTimes)
         } finally {
             processor?.let { activeProcessor ->
                 runCatching { activeProcessor.release() }
