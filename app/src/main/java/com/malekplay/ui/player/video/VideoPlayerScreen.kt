@@ -638,14 +638,33 @@ fun VideoPlayerScreen(
             }
             if (applied) {
                 internalAiFallback = true
-                googleAiState = GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE
+                googleAiState = if (videoEnhancementDiagnostics.totalShaderDraws > 0L) {
+                    GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE
+                } else {
+                    GoogleMediaEnhancementState.INTERNAL_GPU_WAITING_FOR_FIRST_FRAME
+                }
                 googleAiProgress = 0
-                googleAiMessage = "يعمل محرك GPU الداخلي مع تحسين التفاصيل وتقليل الضوضاء"
+                googleAiMessage = if (videoEnhancementDiagnostics.totalShaderDraws > 0L) {
+                    "محرك GPU يعالج إطارات الفيديو فعلياً مع تحسين التفاصيل وتقليل الضوضاء"
+                } else {
+                    "تم تجهيز مسار GPU؛ ننتظر أول إطار تتم معالجته قبل تأكيد عمل التحسين"
+                }
             } else {
                 internalAiFallback = false
                 googleAiState = GoogleMediaEnhancementState.UNSUPPORTED
                 googleAiMessage = "تعذر تشغيل محرك GPU على مسار الإخراج الحالي؛ لم يتم تغيير سطح الفيديو."
             }
+        }
+    }
+
+    LaunchedEffect(internalAiFallback, videoEnhancementDiagnostics.totalShaderDraws) {
+        if (!internalAiFallback) return@LaunchedEffect
+        if (videoEnhancementDiagnostics.totalShaderDraws > 0L) {
+            googleAiState = GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE
+            googleAiMessage = "محرك GPU يعالج إطارات الفيديو فعلياً مع تحسين التفاصيل وتقليل الضوضاء"
+        } else if (googleAiState == GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE) {
+            googleAiState = GoogleMediaEnhancementState.INTERNAL_GPU_WAITING_FOR_FIRST_FRAME
+            googleAiMessage = "ننتظر أول إطار تتم معالجته بعد تغيير مسار الفيديو"
         }
     }
 
@@ -1231,7 +1250,8 @@ fun VideoPlayerScreen(
                             GoogleMediaEnhancementState.CHECKING_DEVICE -> R.string.player_google_ai_checking
                             GoogleMediaEnhancementState.INSTALL_REQUIRED -> R.string.player_google_ai_install_required
                             GoogleMediaEnhancementState.INSTALLING -> R.string.player_google_ai_installing
-                            GoogleMediaEnhancementState.WAITING_FOR_FIRST_FRAME -> R.string.player_google_ai_first_frame
+                            GoogleMediaEnhancementState.WAITING_FOR_FIRST_FRAME,
+                            GoogleMediaEnhancementState.INTERNAL_GPU_WAITING_FOR_FIRST_FRAME -> R.string.player_google_ai_first_frame
                             GoogleMediaEnhancementState.ACTIVE, GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE -> R.string.player_google_ai_active
                             GoogleMediaEnhancementState.UNSUPPORTED -> R.string.player_google_ai_unsupported
                             GoogleMediaEnhancementState.FAILED -> R.string.player_google_ai_failed
@@ -1244,7 +1264,10 @@ fun VideoPlayerScreen(
                             Text(
                                 message,
                                 color = if (googleAiState == GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE)
-                                    MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                    MaterialTheme.colorScheme.primary
+                                else if (googleAiState == GoogleMediaEnhancementState.INTERNAL_GPU_WAITING_FOR_FIRST_FRAME)
+                                    MaterialTheme.colorScheme.tertiary
+                                else MaterialTheme.colorScheme.error
                             )
                         }
                         Text(
