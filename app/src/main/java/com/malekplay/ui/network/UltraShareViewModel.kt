@@ -442,50 +442,17 @@ class UltraShareViewModel @Inject constructor(
                     }
 
                     if (!_state.value.receiving) return@launch
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        // Mark the ordered fallback before the service observer can schedule P2P.
-                        startHotspotFallback("لا توجد شبكة LAN مشتركة جاهزة؛ نجرب نقطة الاتصال المحلية.")
-                        repeat(100) {
-                            if (!_state.value.receiving) return@launch
-                            val serviceState = UltraShareForegroundService.state.value
-                            if (serviceState.hotspotActive || _state.value.hotspotActive ||
-                                _state.value.receiverQrPayload != null
-                            ) return@launch
-                            if (!serviceState.hotspotStarting && !_state.value.hotspotStarting) {
-                                val fallbackHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
-                                    context,
-                                    _state.value.localAddresses + serviceState.localAddresses
-                                )
-                                if (serviceState.controlChannelReady && fallbackHosts.isNotEmpty()) {
-                                    _state.value = _state.value.copy(
-                                        localAddresses = fallbackHosts,
-                                        lanFallbackReady = true,
-                                        error = null,
-                                        status = "تعذر تشغيل نقطة الاتصال؛ نستخدم شبكة LAN المتاحة."
-                                    )
-                                    publishUnifiedReceiverQrIfReady()
-                                    return@launch
-                                }
-                                // Hotspot failed: P2P is now the final, sequential fallback.
-                                wifiDirectPrimaryAttempt = true
-                                advertiseCurrentWifiDirectInvitation()
-                                return@launch
-                            }
-                            delay(200L)
-                        }
-                        if (_state.value.receiving &&
-                            (UltraShareForegroundService.state.value.hotspotStarting ||
-                                _state.value.hotspotStarting)
-                        ) {
-                            _state.value = _state.value.copy(
-                                error = "ما زال Android يجهز نقطة الاتصال المحلية؛ لم نشغل Wi-Fi Direct بالتزامن لتجنب تعارض الشبكات."
-                            )
-                        }
-                    } else {
-                        // Android 6–7 has no LocalOnlyHotspot API; use P2P only after LAN probing.
-                        wifiDirectPrimaryAttempt = true
-                        advertiseCurrentWifiDirectInvitation()
-                    }
+                    if (!_state.value.receiving) return@launch
+                    // LAN is preferred when already available. Otherwise Wi-Fi Direct
+                    // is the primary no-router transport; LocalOnlyHotspot is started
+                    // only by startHotspotFallback() after P2P reports failure and
+                    // cleanupWifiDirectBeforeFallback() confirms group removal.
+                    wifiDirectPrimaryAttempt = true
+                    UltraShareDiagnostics.event(
+                        "PAIRING",
+                        "LAN_UNAVAILABLE_STARTING_WIFI_DIRECT"
+                    )
+                    advertiseCurrentWifiDirectInvitation()
                 } finally {
                     lanProbeInProgress = false
                 }
