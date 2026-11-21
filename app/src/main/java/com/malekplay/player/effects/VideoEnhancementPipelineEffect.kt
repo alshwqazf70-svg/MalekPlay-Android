@@ -77,6 +77,7 @@ private class VideoEnhancementPipelineProgram(
             val identity = GlUtil.create4x4IdentityMatrix()
             program.setFloatsUniform("uTransformationMatrix", identity)
             program.setFloatsUniform("uTexTransformationMatrix", identity)
+            VideoEnhancementMetrics.recordProgramCreated()
         } catch (error: Exception) {
             runCatching { program.delete() }
             throw error
@@ -86,10 +87,12 @@ private class VideoEnhancementPipelineProgram(
     override fun configure(inputWidth: Int, inputHeight: Int): Size {
         this.inputWidth = inputWidth.coerceAtLeast(1)
         this.inputHeight = inputHeight.coerceAtLeast(1)
+        VideoEnhancementMetrics.recordConfigured(this.inputWidth, this.inputHeight)
         return Size(this.inputWidth, this.inputHeight)
     }
 
     override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
+        VideoEnhancementMetrics.recordDrawFrameEntered()
         val settings = config.get()
         try {
             program.use()
@@ -108,6 +111,7 @@ private class VideoEnhancementPipelineProgram(
             program.bindAttributesAndUniforms()
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             GlUtil.checkGlError()
+            VideoEnhancementMetrics.recordDrawFrameSucceeded()
             if (settings.hasActiveStage) {
                 VideoEnhancementMetrics.recordPipelineProcessed(
                     denoise = settings.denoiseEnabled || settings.aiBoostEnabled,
