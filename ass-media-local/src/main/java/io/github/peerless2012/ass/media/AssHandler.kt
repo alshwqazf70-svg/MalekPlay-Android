@@ -80,8 +80,11 @@ class AssHandler(
     @Synchronized
     fun init(player: ExoPlayer) {
         if (attachedPlayer === player) return
-        attachedPlayer?.removeListener(this)
-        overlayManager?.disable()
+        attachedPlayer?.let { previousPlayer ->
+            previousPlayer.removeListener(this)
+            overlayManager?.release()
+            AssVideoEffectRegistry.detach(previousPlayer)
+        }
         overlayManager = null
         attachedPlayer = player
         player.addListener(this)
@@ -106,10 +109,13 @@ class AssHandler(
 
     @Synchronized
     fun release() {
-        attachedPlayer?.removeListener(this)
+        attachedPlayer?.let { player ->
+            player.removeListener(this)
+            if (::handler.isInitialized) handler.removeCallbacksAndMessages(null)
+            overlayManager?.release()
+            AssVideoEffectRegistry.detach(player)
+        }
         attachedPlayer = null
-        if (::handler.isInitialized) handler.removeCallbacksAndMessages(null)
-        overlayManager?.disable()
         overlayManager = null
         releaseMediaResources(closeAssInstance = true)
         runCatching { renderCallback?.invoke(null) }
