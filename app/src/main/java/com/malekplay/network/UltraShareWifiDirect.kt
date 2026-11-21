@@ -860,24 +860,27 @@ object UltraShareWifiDirect {
         }
 
         @SuppressLint("MissingPermission")
-        private fun requestGroupCredentials() {
+        private fun requestGroupCredentials(groupOwnerAddress: String?) {
             if (closed) return
             try {
                 manager.requestGroupInfo(channel) { group ->
                     if (closed || group?.isGroupOwner != true) return@requestGroupInfo
-                    publishGroupCredentials(group)
+                    publishGroupCredentials(group, groupOwnerAddress)
                 }
             } catch (failure: Exception) {
                 UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_CREDENTIALS", failure)
             }
         }
 
-        private fun publishGroupCredentials(group: android.net.wifi.p2p.WifiP2pGroup?) {
+        private fun publishGroupCredentials(
+            group: android.net.wifi.p2p.WifiP2pGroup?,
+            groupOwnerAddress: String?
+        ) {
             val ownerGroup = group ?: return
             if (closed || !ownerGroup.isGroupOwner) return
             val ssid = runCatching { ownerGroup.networkName?.trim().orEmpty() }.getOrDefault("")
             val passphrase = runCatching { ownerGroup.passphrase?.trim().orEmpty() }.getOrDefault("")
-            val ownerAddress = "192.168.49.1"
+            val ownerAddress = groupOwnerAddress?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
             val isWpa3Sae = Build.VERSION.SDK_INT >= 36 && runCatching {
                 ownerGroup.securityType == android.net.wifi.p2p.WifiP2pGroup.SECURITY_TYPE_WPA3_SAE
             }.getOrDefault(false)
@@ -1575,14 +1578,15 @@ object UltraShareWifiDirect {
 
         private fun publishLocalP2pAddress(fallbackAddress: String? = null, attempt: Int = 0) {
             if (closed) return
-            val localAddress = UltraShareNetworkRouting.wifiDirectLocalIpv4Addresses().firstOrNull()
-                ?: fallbackAddress?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
+            val validatedFallback = fallbackAddress?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
+            val localAddress = validatedFallback
+                ?: UltraShareNetworkRouting.wifiDirectLocalIpv4Addresses().firstOrNull()
             if (localAddress != null) {
                 runCatching { onLocalAddress(localAddress) }
                     .onFailure { UltraShareDiagnostics.failure("WIFI_DIRECT_LOCAL_ADDRESS_CALLBACK", it) }
             } else if (attempt < 20) {
                 mainHandler.postDelayed({
-                    if (!closed) publishLocalP2pAddress(null, attempt + 1)
+                    if (!closed) publishLocalP2pAddress(validatedFallback, attempt + 1)
                 }, 250L)
             }
         }
@@ -1624,8 +1628,9 @@ object UltraShareWifiDirect {
                     }
                     if (info.isGroupOwner) {
                         cancelClientPeerConfirmation()
-                        requestGroupCredentials()
                         val localGroupOwnerAddress = info.groupOwnerAddress?.hostAddress
+                            ?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
+                        requestGroupCredentials(localGroupOwnerAddress)
                         publishLocalP2pAddress(
                             localGroupOwnerAddress?.takeIf { UltraShareCore.isValidPrivateLanHost(it) }
                         )
