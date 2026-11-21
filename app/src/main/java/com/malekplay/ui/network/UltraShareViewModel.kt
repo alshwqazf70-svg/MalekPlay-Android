@@ -99,7 +99,7 @@ data class UltraShareUiState(
 
 @HiltViewModel
 class UltraShareViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val mediaRepository: MediaRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(UltraShareUiState())
@@ -2140,64 +2140,39 @@ private fun forgetApprovedSenderTarget(host: String) {
                 }
                 }
             }
+            // This deadline is only for DNS-SD discovery. Once a peer is found,
+            // the Wi-Fi Direct session owns the full connection timeout and its
+            // bounded BUSY/ERROR retries; falling back here would race that negotiation.
             viewModelScope.launch {
                 delay(12_000)
-                var pending = pendingQrPairing
-                if (pending != null && pending.secret == secret.trim()) {
-                    if (qrP2pConnectStarted) {
-                        delay(18_000)
-                        pending = pendingQrPairing
-                        if (pending != null && pending.secret == secret.trim()) {
-                            pendingQrPairing = null
-                            qrP2pConnectStarted = false
-                            session.stopInvitationDiscovery()
-                            // A peer can be discovered over DNS-SD while the P2P group
-                            // negotiation still fails on some Android/OEM combinations.
-                            // Do not strand the user after that attempt: try the QR's
-                            // already-advertised LAN addresses through the authenticated
-                            // MPC2 channel before reporting a terminal connection error.
-                            val fallbackHosts = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, pending.hosts)
-                            val fallback = fallbackHosts.firstOrNull()
-                            if (fallback != null) {
-                                _state.value = _state.value.copy(
-                                    requestingConnection = true,
-                                    error = null,
-                                    status = "تعذر إكمال Wi-Fi Direct؛ نجرب تلقائياً مسار الشبكة المحلية الآمن..."
-                                )
-                                requestConnection(
-                                    host = fallback,
-                                    secret = pending.secret,
-                                    alternateHosts = fallbackHosts.drop(1)
-                                )
-                            } else {
-                                _state.value = _state.value.copy(
-                                    requestingConnection = false,
-                                    error = "عُثر على الجهاز لكن تعذر إكمال اتصال Wi-Fi Direct، ولا يوجد عنوان شبكة محلية بديل صالح. تأكد من اتصال الهاتفين بالشبكة نفسها ثم أعد المحاولة."
-                                )
-                            }
-                        }
-                    } else {
-                        // DNS-SD can be unavailable on some Android/OEM combinations.
-                        // Only use QR addresses that Android can route over a live
-                        // non-P2P interface; never guess with a stale group-owner IP.
-                        val safeFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(
-                            context,
-                            fallbackHosts
+                val pending = pendingQrPairing
+                if (pending != null &&
+                    pending.secret == secret.trim() &&
+                    !qrP2pConnectStarted
+                ) {
+                    val safeFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(
+                        context,
+                        pending.hosts
+                    )
+                    val fallback = safeFallbacks.firstOrNull()
+                    pendingQrPairing = null
+                    qrP2pConnectStarted = false
+                    session.stopInvitationDiscovery()
+                    if (fallback != null) {
+                        UltraShareDiagnostics.event(
+                            "PAIRING",
+                            "INVITATION_DISCOVERY_TIMEOUT_USING_VERIFIED_LAN"
                         )
-                        val fallback = safeFallbacks.firstOrNull()
-                        if (fallback != null) {
-                            pendingQrPairing = null
-                            qrP2pConnectStarted = false
-                            session.stopInvitationDiscovery()
-                            requestConnection(fallback, pending.secret, alternateHosts = safeFallbacks.drop(1))
-                        } else {
-                            pendingQrPairing = null
-                            session.stopInvitationDiscovery()
-                            _state.value = _state.value.copy(
-                                requestingConnection = false,
-                                error = "لم يتم العثور على دعوة Wi-Fi Direct، ولا يوجد عنوان بديل على شبكة محلية غير P2P. أعد المحاولة أو استخدم QR الخاص بنقطة الاتصال."
-                            )
-                        }
+                        requestConnection(
+                            host = fallback,
+                            secret = pending.secret,
+                            alternateHosts = safeFallbacks.drop(1)
+                        )
+                    } else {
+                        _state.value = _state.value.copy(
+                            requestingConnection = false,
+                            error = "لم يتم العثور على دعوة Wi-Fi Direct، ولا يوجد عنوان بديل على شبكة محلية غير P2P. أعد المحاولة أو استخدم QR الخاص بنقطة الاتصال."
+                        )
                     }
                 }
             }
