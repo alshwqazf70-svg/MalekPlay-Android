@@ -76,6 +76,7 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
             )
         )
 
+        val initialProgramCreations = VideoEnhancementMetrics.snapshot().programCreations
         VideoEnhancementMetrics.reset()
         try {
             processor = DefaultVideoFrameProcessor.Factory.Builder()
@@ -134,7 +135,7 @@ class VideoEnhancementMedia3FrameProcessorInstrumentedTest {
             failure.get()?.let { throw AssertionError("Media3 frame processing failed", it) }
 
             val metrics = VideoEnhancementMetrics.snapshot()
-            assertTrue("Media3 never created the production GL shader program", metrics.programCreations > 0)
+            assertTrue("Media3 never created the production GL shader program", metrics.programCreations > initialProgramCreations)
             assertTrue("Media3 never configured the production shader", metrics.configureCalls >= 2)
             assertTrue("Media3 never entered the production drawFrame()", metrics.drawFrameCalls >= 2)
             assertTrue("Media3 did not complete any production shader draws", metrics.drawFrameSuccesses >= 2)
