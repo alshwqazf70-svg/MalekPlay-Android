@@ -26,6 +26,13 @@ object PlaybackVideoEffects {
     const val KEY_DIAG_AVG_OFFSET_US = "diag_avg_offset_us"
     const val KEY_DIAG_DROPPED_FRAMES = "diag_dropped_frames"
     const val KEY_DIAG_BRIDGE_ATTACHED = "diag_bridge_attached"
+    const val KEY_DIAG_PROGRAM_CREATIONS = "diag_program_creations"
+    const val KEY_DIAG_CONFIGURE_CALLS = "diag_configure_calls"
+    const val KEY_DIAG_DRAW_FRAME_CALLS = "diag_draw_frame_calls"
+    const val KEY_DIAG_DRAW_FRAME_SUCCESSES = "diag_draw_frame_successes"
+    const val KEY_DIAG_CONFIGURED_WIDTH = "diag_configured_width"
+    const val KEY_DIAG_CONFIGURED_HEIGHT = "diag_configured_height"
+    const val KEY_DIAG_PIPELINE_STAGE = "diag_pipeline_stage"
 
     val COMMANDS: List<SessionCommand>
         get() = listOf(
