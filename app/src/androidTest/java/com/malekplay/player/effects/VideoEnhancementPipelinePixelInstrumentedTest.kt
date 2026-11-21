@@ -68,9 +68,13 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
 
             passthrough = VideoEnhancementPipelineEffect()
                 .toGlShaderProgram(context, /* useHdr = */ false) as BaseGlShaderProgram
-            val passthroughSize = passthrough.configure(SIZE, SIZE)
-            assertEquals(SIZE, passthroughSize.width)
-            assertEquals(SIZE, passthroughSize.height)
+            listOf(8 to 8, 16 to 9, 9 to 16, 640 to 360, 1920 to 1080).forEach { (width, height) ->
+                val configured = passthrough.configure(width, height)
+                assertEquals(width, configured.width)
+                assertEquals(height, configured.height)
+            }
+            // Restore the dimensions of the actual test texture before drawing.
+            passthrough.configure(SIZE, SIZE)
             passthrough.drawFrame(inputTexture, 1L)
             GLES20.glFinish()
             val identityOutput = readPixels()
@@ -150,9 +154,11 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
         GLES20.glGenTextures(1, texture, 0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture[0])
         setTextureParameters()
+        val pixelBuffer = ByteBuffer.allocateDirect(pixels.size)
+        pixelBuffer.put(pixels).position(0)
         GLES20.glTexImage2D(
             GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, SIZE, SIZE, 0,
-            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, ByteBuffer.wrap(pixels)
+            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixelBuffer
         )
         return texture[0]
     }
