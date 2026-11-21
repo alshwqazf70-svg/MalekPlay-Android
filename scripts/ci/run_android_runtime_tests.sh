@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 expected_api="${1:?Expected Android API level argument}"
+suite="${2:-all}"
 diagnostics_dir="ultrashare-diagnostics"
 mkdir -p "$diagnostics_dir"
 
@@ -67,10 +68,11 @@ fi
 run_suite() {
   suite_name="$1"
   class_filter="$2"
+  timeout_seconds="$3"
   output="$diagnostics_dir/${suite_name}-api-${expected_api}.txt"
-  echo "===== Running ${suite_name} tests on API ${expected_api} ====="
+  echo "===== Running ${suite_name} tests on API ${expected_api} (timeout ${timeout_seconds}s) ====="
   set +e
-  timeout 300s adb shell am instrument -w -r -e class "$class_filter" "$instrumentation" 2>&1 | tee "$output"
+  timeout "${timeout_seconds}s" adb shell am instrument -w -r -e class "$class_filter" "$instrumentation" 2>&1 | tee "$output"
   suite_status=${PIPESTATUS[0]}
   set -e
   if [ "$suite_status" -ne 0 ] || ! grep -Eq 'OK \([1-9][0-9]* tests?\)' "$output"; then
@@ -79,15 +81,31 @@ run_suite() {
   fi
 }
 
-# Keep the fast app/database and networking checks separate from the GPU/video suite.
-# Every group still runs on API 23, 29, and 36; no instrumented test class is omitted.
-run_suite "app-smoke-database" \
-  "com.malekplay.MainNavigationSmokeTest,com.malekplay.RoomMigrationInstrumentedTest"
+case "$suite" in
+  core)
+    run_suite "app-smoke-database" \
+      "com.malekplay.MainNavigationSmokeTest,com.malekplay.RoomMigrationInstrumentedTest" 300
+    ;;
+  network)
+    run_suite "network" \
+      "com.malekplay.network.NetworkCredentialVaultInstrumentedTest,com.malekplay.network.UltraShareNetworkRuntimeInstrumentedTest" 600
+    ;;
+  video)
+    run_suite "gpu-video" \
+      "com.malekplay.player.effects.AssVideoEffectRegistryLifecycleInstrumentedTest,com.malekplay.player.effects.VideoEnhancementCompatibilityInstrumentedTest,com.malekplay.player.effects.VideoEnhancementExoPlayerMediaCodecInstrumentedTest,com.malekplay.player.effects.VideoEnhancementMedia3FrameProcessorInstrumentedTest,com.malekplay.player.effects.VideoEnhancementPipelineGlesInstrumentedTest,com.malekplay.player.effects.VideoEnhancementPipelinePixelInstrumentedTest" 900
+    ;;
+  all)
+    run_suite "app-smoke-database" \
+      "com.malekplay.MainNavigationSmokeTest,com.malekplay.RoomMigrationInstrumentedTest" 300
+    run_suite "network" \
+      "com.malekplay.network.NetworkCredentialVaultInstrumentedTest,com.malekplay.network.UltraShareNetworkRuntimeInstrumentedTest" 600
+    run_suite "gpu-video" \
+      "com.malekplay.player.effects.AssVideoEffectRegistryLifecycleInstrumentedTest,com.malekplay.player.effects.VideoEnhancementCompatibilityInstrumentedTest,com.malekplay.player.effects.VideoEnhancementExoPlayerMediaCodecInstrumentedTest,com.malekplay.player.effects.VideoEnhancementMedia3FrameProcessorInstrumentedTest,com.malekplay.player.effects.VideoEnhancementPipelineGlesInstrumentedTest,com.malekplay.player.effects.VideoEnhancementPipelinePixelInstrumentedTest" 900
+    ;;
+  *)
+    echo "Unknown Android test suite: $suite" >&2
+    exit 2
+    ;;
+esac
 
-run_suite "network" \
-  "com.malekplay.network.NetworkCredentialVaultInstrumentedTest,com.malekplay.network.UltraShareNetworkRuntimeInstrumentedTest"
-
-run_suite "gpu-video" \
-  "com.malekplay.player.effects.AssVideoEffectRegistryLifecycleInstrumentedTest,com.malekplay.player.effects.VideoEnhancementCompatibilityInstrumentedTest,com.malekplay.player.effects.VideoEnhancementExoPlayerMediaCodecInstrumentedTest,com.malekplay.player.effects.VideoEnhancementMedia3FrameProcessorInstrumentedTest,com.malekplay.player.effects.VideoEnhancementPipelineGlesInstrumentedTest,com.malekplay.player.effects.VideoEnhancementPipelinePixelInstrumentedTest"
-
-echo "All Android runtime test groups passed on API ${expected_api}."
+echo "Android runtime suite '$suite' passed on API ${expected_api}."
