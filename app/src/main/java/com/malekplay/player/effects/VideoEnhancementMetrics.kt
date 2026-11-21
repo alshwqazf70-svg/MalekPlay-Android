@@ -91,9 +91,11 @@ object VideoEnhancementMetrics {
         // Keep the causal chain so the diagnostics show the actionable low-level cause.
         val chain = mutableListOf<Throwable>()
         var current: Throwable? = error
-        while (current != null && chain.size < 4 && chain.none { it === current }) {
-            chain += current
-            current = current.cause
+        while (current != null && chain.size < 4) {
+            val cause = current
+            if (chain.any { it === cause }) break
+            chain += cause
+            current = cause.cause
         }
         lastFailure = chain.joinToString(" <- ") { cause ->
             val message = cause.message.orEmpty()
