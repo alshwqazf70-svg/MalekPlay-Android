@@ -696,6 +696,8 @@ object UltraShareWifiDirect {
             // not a continuation of a previous client connection attempt.
             connectionInfoRequestToken++
             cancelClientPeerConfirmation()
+            // A new owner-group attempt must not advertise a route retained from an older group.
+            runCatching { onLocalAddress(null) }
             pairingTargetDeviceAddress = null
             wasConnected = false
             if (peerDiscoveryActive) {
@@ -1011,6 +1013,8 @@ object UltraShareWifiDirect {
             if (connectionInProgress) return
             connectionInfoRequestToken++
             cancelClientPeerConfirmation()
+            // Do not carry an address from a previous P2P group into this pairing attempt.
+            runCatching { onLocalAddress(null) }
             pairingTargetDeviceAddress = deviceAddress.lowercase()
             wasConnected = false
             UltraShareDiagnostics.event(
@@ -1616,10 +1620,14 @@ object UltraShareWifiDirect {
                         mapOf("isGroupOwner" to info.isGroupOwner, "groupOwnerHost" to info.groupOwnerAddress?.hostAddress)
                     )
                     if (!info.groupFormed) {
-                        runCatching { onLocalAddress(null) }
                         cancelOwnerPeerConfirmation()
                         cancelClientPeerConfirmation()
-                        if (wasConnected) {
+                        if (shouldClearWifiDirectLocalAddress(
+                                groupFormed = info.groupFormed,
+                                wasConnected = wasConnected
+                            )
+                        ) {
+                            runCatching { onLocalAddress(null) }
                             wasConnected = false
                             pairingTargetDeviceAddress = null
                             reportError("انقطع اتصال Wi-Fi Direct. أعد الاتصال أو استخدم مسار الشبكة المحلية الاحتياطي.")
@@ -2002,6 +2010,7 @@ object UltraShareWifiDirect {
             invitationRequest = null
             invitationRequestInstalled = false
             peerDiscoveryActive = false
+            runCatching { onLocalAddress(null) }
             wasConnected = false
             pairingTargetDeviceAddress = null
             cancelOwnerPeerConfirmation()
