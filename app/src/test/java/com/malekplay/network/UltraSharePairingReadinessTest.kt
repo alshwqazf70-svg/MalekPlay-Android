@@ -514,6 +514,12 @@ class UltraSharePairingReadinessTest {
         assertFalse(ready(hosts = listOf("8.8.8.8")))
     }
 
+    @Test fun initialUnformedCallbacksDoNotClearTheCachedP2pAddressButRealDisconnectsDo() {
+        assertFalse(shouldClearWifiDirectLocalAddress(groupFormed = false, wasConnected = false))
+        assertFalse(shouldClearWifiDirectLocalAddress(groupFormed = true, wasConnected = true))
+        assertTrue(shouldClearWifiDirectLocalAddress(groupFormed = false, wasConnected = true))
+    }
+
     @Test fun ownerPeerPollingKeepsEmptyRoomsOpenAndChecksVisiblePeersMoreOften() {
         assertEquals(2_000L, wifiDirectOwnerPeerConfirmationDelayMs(hasObservedClient = false))
         assertEquals(500L, wifiDirectOwnerPeerConfirmationDelayMs(hasObservedClient = true))
