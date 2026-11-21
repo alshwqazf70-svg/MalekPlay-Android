@@ -304,9 +304,30 @@ jobs:
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      # GitHub-hosted Linux runners do not expose KVM; explicitly permit QEMU TCG.
+      ANDROID_I_WANT_MY_TCG: "yes"
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
+      - name: Capture emulator host and acceleration diagnostics
+        shell: bash
+        run: |
+          mkdir -p ultrashare-diagnostics
+          {
+            echo "=== Runner ==="
+            date -u
+            uname -a
+            echo "=== KVM ==="
+            ls -l /dev/kvm 2>&1 || true
+            echo "=== Emulator version ==="
+            "$ANDROID_HOME/emulator/emulator" -version 2>&1 || true
+            echo "=== Emulator acceleration check ==="
+            "$ANDROID_HOME/emulator/emulator" -accel-check 2>&1 || true
+            echo "=== Installed emulator/system image packages ==="
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list_installed 2>&1 | grep -E '(^  emulator|system-images;android-|platform-tools)' || true
+            echo "=== TCG opt-in ==="
+            printf 'ANDROID_I_WANT_MY_TCG=%s\\n' "$ANDROID_I_WANT_MY_TCG"
+          } 2>&1 | tee "ultrashare-diagnostics/emulator-host-api-${{ matrix.api-level }}.log"
       - name: Restore Android emulator system-image cache
         uses: actions/cache@v4
         with:
