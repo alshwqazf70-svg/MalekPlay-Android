@@ -213,6 +213,10 @@ internal object UltraSharePairingReadiness {
             localAddresses.any(UltraShareCore::isValidPrivateLanHost)
 }
 
+/** Clear a cached P2P route only after a previously confirmed group actually disconnects. */
+internal fun shouldClearWifiDirectLocalAddress(groupFormed: Boolean, wasConnected: Boolean): Boolean =
+    !groupFormed && wasConnected
+
 /** Poll an empty receiver room gently; verify a visible peer more frequently within its deadline. */
 internal fun wifiDirectOwnerPeerConfirmationDelayMs(hasObservedClient: Boolean): Long =
     if (hasObservedClient) 500L else 2_000L
