@@ -246,17 +246,10 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  android-runtime-tests:
-    name: Android network runtime tests (API ${{ matrix.api-level }})
+  android-test-apks:
+    name: Build Android instrumentation APKs once
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        # Cover the declared minimum Android version, the primary field-test baseline,
-        # and the current target SDK runtime behavior.
-        api-level: [23, 29, 36]
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -270,17 +263,51 @@ jobs:
           java-version: "17"
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v5
-      - name: Accept Android SDK licenses
-        shell: bash
+      - name: Build app and instrumentation APKs once for all API levels
         run: |
-          set +o pipefail
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
-      - name: Install Android SDK platform and build tools
-        run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
-      - name: Prebuild x86_64 app and test APKs before emulator startup
-        run: ./gradlew --build-cache --stacktrace --max-workers=2 -PtargetAbi=x86_64 :app:assembleDebug :app:assembleDebugAndroidTest
-      - name: Run Android instrumented tests on emulator
+          ./gradlew --build-cache --parallel --stacktrace --max-workers=2 \
+            -PtargetAbi=x86_64 \
+            :app:assembleDebug :app:assembleDebugAndroidTest
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+      - name: Upload prebuilt instrumentation APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-instrumentation-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: error
+          retention-days: 1
+
+  android-runtime-tests:
+    name: Android runtime tests (API ${{ matrix.api-level }})
+    needs: android-test-apks
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        # Keep runtime coverage on Android 6, Android 10, and Android 16.
+        api-level: [23, 29, 36]
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Download the single prebuilt app and test APK pair
+        uses: actions/download-artifact@v4
+        with:
+          name: android-instrumentation-apks
+          path: app/build/outputs/apk
+      - name: Restore Android emulator system image cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ANDROID_HOME }}/system-images
+          key: android-system-image-${{ runner.os }}-api-${{ matrix.api-level }}-google-apis-x86_64-v1
+      - name: Run all Android runtime test groups on emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
@@ -291,10 +318,8 @@ jobs:
           cores: 4
           ram-size: 4096
           heap-size: 1024
-          # Fresh hosted runners do not need a data wipe; allow normal AVD snapshot behavior.
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          # Keep the action script to one command; the full Bash script lives in the repository.
           script: bash scripts/ci/run_android_runtime_tests.sh ${{ matrix.api-level }}
       - name: Upload Android runtime test diagnostics
         if: always()
