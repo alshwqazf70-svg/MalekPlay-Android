@@ -96,6 +96,8 @@ class PlaybackService : MediaSessionService() {
     private var assHandler: AssHandler? = null
     private var videoUpscalingEnabled = false
     private var videoNoiseReductionEnabled = false
+    // Denoise runs on decoded source pixels; detail enhancement runs after optional upscaling.
+    private var videoDenoisePipeline: VideoEnhancementPipelineEffect? = null
     private var videoEnhancementPipeline: VideoEnhancementPipelineEffect? = null
     private var videoEnhancementPipelineAttached = false
     @Volatile private var videoEffectsBridgeAttached = false
@@ -195,13 +197,17 @@ class PlaybackService : MediaSessionService() {
         // The bridge starts lazily only when a local file is handed to a Cast receiver.
         // It exposes tokenized, seekable LAN URLs rather than leaking content:// URIs.
         localExoPlayer = player
-        // Install the mutable GPU stage before any media item can be prepared.
-        // All later profile/toggle changes update its atomic shader config rather
-        // than replacing the GlEffect and recreating Media3's frame processor.
-        val pipeline = VideoEnhancementPipelineEffect()
-        videoEnhancementPipeline = pipeline
-        videoEnhancementPipelineAttached =
-            AssVideoEffectRegistry.setAdditionalEffects(player, listOf(pipeline))
+        // Install both mutable GPU stages before any media item can be prepared:
+        // denoise consumes decoded source pixels; detail follows optional Lanczos.
+        // Runtime changes update their atomic configs without rebuilding the graph.
+        val denoisePipeline = VideoEnhancementPipelineEffect()
+        val detailPipeline = VideoEnhancementPipelineEffect()
+        videoDenoisePipeline = denoisePipeline
+        videoEnhancementPipeline = detailPipeline
+        videoEnhancementPipelineAttached = AssVideoEffectRegistry.setAdditionalEffects(
+            player,
+            listOf(denoisePipeline, detailPipeline)
+        )
         if (!videoEnhancementPipelineAttached) {
             val reason = AssVideoEffectRegistry.lastFailure(player)
                 ?: "ASS effect manager did not accept the initial GPU pipeline"
@@ -487,7 +493,11 @@ class PlaybackService : MediaSessionService() {
             if (deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
                 disableAllVideoEnhancements()
                 localExoPlayer?.let {
-                    applyEffectChain(it, listOfNotNull(videoEnhancementPipeline), hasLanczos = false)
+                    applyEffectChain(
+                        it,
+                        listOfNotNull(videoDenoisePipeline, videoEnhancementPipeline),
+                        hasLanczos = false
+                    )
                 }
             }
         }
@@ -566,7 +576,11 @@ class PlaybackService : MediaSessionService() {
             // the VideoFrameProcessor's configured effect graph.
             disableAllVideoEnhancements()
             localExoPlayer?.let {
-                applyEffectChain(it, listOfNotNull(videoEnhancementPipeline), hasLanczos = false)
+                applyEffectChain(
+                        it,
+                        listOfNotNull(videoDenoisePipeline, videoEnhancementPipeline),
+                        hasLanczos = false
+                    )
             }
         }
 
@@ -698,6 +712,7 @@ class PlaybackService : MediaSessionService() {
         videoUpscalingEnabled = false
         videoNoiseReductionEnabled = false
         lastAppliedEnhancementSignature = null
+        videoDenoisePipeline?.update(VideoEnhancementPipelineConfig())
         videoEnhancementPipeline?.update(VideoEnhancementPipelineConfig())
         videoEffectsBridgeAttached = false
         videoLanczosSubmitted = false
@@ -707,10 +722,11 @@ class PlaybackService : MediaSessionService() {
         val player = localExoPlayer ?: return false
         if (!hasAnyVideoEnhancementEnabled()) {
             videoLanczosSubmitted = false
+            videoDenoisePipeline?.update(VideoEnhancementPipelineConfig())
             videoEnhancementPipeline?.update(VideoEnhancementPipelineConfig())
             videoEffectsBridgeAttached = applyEffectChain(
                 player,
-                listOfNotNull(videoEnhancementPipeline),
+                listOfNotNull(videoDenoisePipeline, videoEnhancementPipeline),
                 hasLanczos = false,
                 lanczosTarget = null
             )
@@ -721,7 +737,7 @@ class PlaybackService : MediaSessionService() {
             disableAllVideoEnhancements()
             videoEffectsBridgeAttached = applyEffectChain(
                 player,
-                listOfNotNull(videoEnhancementPipeline),
+                listOfNotNull(videoDenoisePipeline, videoEnhancementPipeline),
                 hasLanczos = false
             )
             return false
@@ -735,12 +751,17 @@ class PlaybackService : MediaSessionService() {
         if (tuning.downgradeReason != null) {
             Log.w(TAG, "Video enhancement profile capped: ${tuning.downgradeReason}")
         }
-        videoEnhancementPipeline?.update(
+        // Denoise consumes original decoded pixels. The second stage receives
+        // the optional upscaled texture and performs only detail/contrast work.
+        videoDenoisePipeline?.update(
             VideoEnhancementPipelineConfig(
                 denoiseEnabled = videoNoiseReductionEnabled,
+                denoiseStrength = profile.denoiseStrength
+            )
+        )
+        videoEnhancementPipeline?.update(
+            VideoEnhancementPipelineConfig(
                 detailEnabled = videoUpscalingEnabled || videoNoiseReductionEnabled,
-                aiBoostEnabled = videoUpscalingEnabled && videoNoiseReductionEnabled,
-                denoiseStrength = profile.denoiseStrength,
                 detailStrength = profile.detailStrength,
                 contrastBoost = profile.contrastBoost,
                 clarityStrength = profile.clarityStrength
@@ -754,10 +775,12 @@ class PlaybackService : MediaSessionService() {
             // A request may be accepted before Media3 selects a video track, but it
             // must never be reported as successful unless the always-on GPU stage is
             // actually installed in the service-owned player's effect graph.
-            val pipeline = videoEnhancementPipeline ?: run {
+            val denoisePipeline = videoDenoisePipeline
+            val detailPipeline = videoEnhancementPipeline
+            if (denoisePipeline == null || detailPipeline == null) {
                 VideoEnhancementMetrics.recordFailure(
                     "pending_effect_graph_attach",
-                    IllegalStateException("GPU enhancement pipeline was not created")
+                    IllegalStateException("GPU enhancement pipelines were not created")
                 )
                 return false
             }
@@ -768,7 +791,7 @@ class PlaybackService : MediaSessionService() {
             )
             val attached = pipelineReady || applyEffectChain(
                 player,
-                listOf(pipeline),
+                listOf(denoisePipeline, detailPipeline),
                 hasLanczos = false
             )
             videoEffectsBridgeAttached = attached
@@ -788,6 +811,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         val effects = ArrayList<Effect>(4)
+        var lanczosEffect: Effect? = null
         var lanczosTarget: VideoUpscaleTarget? = null
         videoLanczosSubmitted = false
         if (videoUpscalingEnabled) {
@@ -806,7 +830,7 @@ class PlaybackService : MediaSessionService() {
             )
             lanczosTarget = target
             if (target != null) {
-                effects += LanczosResample.scaleToFitWithFlexibleOrientation(
+                lanczosEffect = LanczosResample.scaleToFitWithFlexibleOrientation(
                     target.longEdge,
                     target.shortEdge
                 )
@@ -817,9 +841,15 @@ class PlaybackService : MediaSessionService() {
                 Log.i(TAG, "Lanczos upscale skipped: source already meets the capped display target")
             }
         }
-        // The same GlEffect instance remains in the graph; only its atomic
-        // parameters change, so toggles and profile changes affect the next frame.
-        videoEnhancementPipeline?.let(effects::add)
+        // Enforce source-space denoise -> optional resampling -> output-space detail.
+        // Both shader instances remain installed; only their atomic configs change.
+        VideoEnhancementPolicy.processingOrder(includeUpscale = lanczosEffect != null).forEach { stage ->
+            when (stage) {
+                VideoEnhancementStage.DENOISE -> videoDenoisePipeline?.let(effects::add)
+                VideoEnhancementStage.UPSCALE -> lanczosEffect?.let(effects::add)
+                VideoEnhancementStage.DETAIL -> videoEnhancementPipeline?.let(effects::add)
+            }
+        }
         val videoSize = player.videoSize
         val signature = listOf(
             videoSize.width,
@@ -862,7 +892,7 @@ class PlaybackService : MediaSessionService() {
             val cleared = runCatching {
                 applyEffectChain(
                     player,
-                    listOfNotNull(videoEnhancementPipeline),
+                    listOfNotNull(videoDenoisePipeline, videoEnhancementPipeline),
                     hasLanczos = false
                 )
             }.getOrDefault(false)
@@ -904,7 +934,9 @@ class PlaybackService : MediaSessionService() {
             appliedLanczosTarget != targetKey
         // Denoise/detail/profile changes only mutate the already-installed
         // pipeline's AtomicReference. Do not call setVideoEffects again for them.
-        val pipelineIncluded = videoEnhancementPipeline != null &&
+        val pipelineIncluded = videoDenoisePipeline != null &&
+            videoEnhancementPipeline != null &&
+            effects.any { it === videoDenoisePipeline } &&
             effects.any { it === videoEnhancementPipeline }
         if (!structuralChange &&
             pipelineIncluded == videoEnhancementPipelineAttached &&
