@@ -405,7 +405,7 @@ object UltraShareWifiDirect {
 
             try {
                 manager.setDnsSdResponseListeners(
-                    channel,
+                    requestChannel,
                     WifiP2pManager.DnsSdServiceResponseListener { instanceName, registrationType, device ->
                         if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) return@DnsSdServiceResponseListener
                         UltraShareDiagnostics.event(
@@ -577,6 +577,7 @@ object UltraShareWifiDirect {
                             )
                         } else {
                             invitationRequest = null
+                            invitationRequestChannel = null
                             invitationRequestInstalled = false
                             reportError("تعذر تنظيف طلبات اكتشاف Wi-Fi Direct بعد إعادة المحاولة (رمز $reason).")
                         }
