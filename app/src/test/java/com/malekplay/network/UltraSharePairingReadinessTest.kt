@@ -88,6 +88,8 @@ class UltraSharePairingReadinessTest {
         data class Attempt(val secret: String)
         val first = Attempt("123456789")
         val second = Attempt("123456789")
+        // Data-class equality says these values match, but they are distinct attempts.
+        assertEquals(first, second)
         assertTrue(UltraSharePairingReadiness.isCurrentInvitationAttempt(first, first))
         assertFalse(UltraSharePairingReadiness.isCurrentInvitationAttempt(second, first))
         assertFalse(UltraSharePairingReadiness.isCurrentInvitationAttempt(null, first))
