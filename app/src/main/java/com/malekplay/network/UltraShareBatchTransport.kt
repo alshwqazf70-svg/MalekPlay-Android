@@ -113,6 +113,17 @@ object UltraShareBatchTransport {
         val fileId: String = java.util.UUID.randomUUID().toString()
     )
 
+    /**
+     * Stable across retries for the same document queue item. The receiver uses this
+     * identity together with the content digest to locate its durable resume checkpoint.
+     */
+    internal fun stableFileId(uri: Uri, name: String, sizeBytes: Long): String {
+        require(name.isNotBlank())
+        require(sizeBytes in 1..UltraShareCore.MAX_FILE_BYTES)
+        val identity = uri.toString() + "|" + name + "|" + sizeBytes
+        return java.util.UUID.nameUUIDFromBytes(identity.toByteArray(Charsets.UTF_8)).toString()
+    }
+
     data class FileProgress(
         val fileId: String,
         val fileName: String,
