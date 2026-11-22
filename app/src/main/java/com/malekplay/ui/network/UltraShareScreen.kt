@@ -685,6 +685,14 @@ class LegacyUltraShareViewModel @Inject constructor(
             onError = { message ->
                 val pairing = pendingInvitation
                 val fallback = pairing?.let(::verifiedLanFallback)
+                if (pendingInvitationReady != null) {
+                    // Retire a failed scanner-side P2P session before fallback or
+                    // retry. A timed-out OEM DNS-SD cleanup may leave discovery marked
+                    // active even though the invitation itself has been abandoned.
+                    val failedInvitationSession = wifiDirectSession
+                    wifiDirectSession = null
+                    runCatching { failedInvitationSession?.close() }
+                }
                 if (pendingInvitationReady != null && !fallback.isNullOrBlank()) {
                     completeInvitationConnection(
                         fallback,
