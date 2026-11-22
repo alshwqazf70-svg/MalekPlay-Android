@@ -261,9 +261,34 @@ object UltraShareWifiDirect {
             try {
                 manager.setDnsSdResponseListeners(
                     channel,
-                    WifiP2pManager.DnsSdServiceResponseListener { _, _, _ -> },
+                    WifiP2pManager.DnsSdServiceResponseListener { instanceName, registrationType, device ->
+                        if (!closed) {
+                            UltraShareDiagnostics.event(
+                                "WIFI_DIRECT",
+                                "INVITATION_SERVICE_RESPONSE",
+                                mapOf(
+                                    "instanceNamePresent" to !instanceName.isNullOrBlank(),
+                                    "registrationTypePresent" to !registrationType.isNullOrBlank(),
+                                    "deviceNamePresent" to !device.deviceName.isNullOrBlank(),
+                                    "deviceStatus" to statusLabel(device.status)
+                                )
+                            )
+                        }
+                    },
                     WifiP2pManager.DnsSdTxtRecordListener { _, records, device ->
-                        if (closed || records["peer"] != peerId) return@DnsSdTxtRecordListener
+                        if (closed) return@DnsSdTxtRecordListener
+                        val advertisedPeer = records["peer"]
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "INVITATION_TXT_RECORD_RECEIVED",
+                            mapOf(
+                                "peerIdentityMatched" to (advertisedPeer == peerId),
+                                "peerIdentityPresent" to !advertisedPeer.isNullOrBlank(),
+                                "deviceNamePresent" to !device.deviceName.isNullOrBlank(),
+                                "deviceStatus" to statusLabel(device.status)
+                            )
+                        )
+                        if (advertisedPeer != peerId) return@DnsSdTxtRecordListener
                         val callback = invitationMatch ?: return@DnsSdTxtRecordListener
                         val peer = Peer(
                             name = device.deviceName?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay",
@@ -281,6 +306,7 @@ object UltraShareWifiDirect {
                     }
                 )
                 val request = WifiP2pDnsSdServiceRequest.newInstance()
+                UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_CREATED", mapOf("sdkInt" to Build.VERSION.SDK_INT))
                 // Publish the pending identity before clear/add callbacks can arrive.
                 invitationRequest = request
                 invitationRequestInstalled = false
@@ -305,14 +331,18 @@ object UltraShareWifiDirect {
         ) {
             if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) return
             try {
+                UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_CLEAR_REQUESTED", mapOf("attempt" to attempt))
                 manager.clearServiceRequests(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
+                        UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_CLEAR_CONFIRMED", mapOf("attempt" to attempt))
                         // The user may have cancelled while Android was clearing the old
                         // request list. Never add a request after its invitation was invalidated.
                         if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) return
                         try {
+                            UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_ADD_REQUESTED", mapOf("attempt" to attempt))
                             manager.addServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
                                 override fun onSuccess() {
+                                    UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_ADD_CONFIRMED", mapOf("attempt" to attempt))
                                     if (closed || !isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
                                         // addServiceRequest completed after cancellation or
                                         // session closure. Remove this late request; it must
@@ -577,6 +607,7 @@ object UltraShareWifiDirect {
             // Mark the operation pending before crossing the asynchronous framework boundary.
             // A stop request arriving before onSuccess must still wait for stopPeerDiscovery().
             peerDiscoveryActive = true
+            UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_DISCOVERY_REQUESTED", mapOf("attempt" to attempt, "sdkInt" to Build.VERSION.SDK_INT))
             try {
                 manager.discoverServices(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
