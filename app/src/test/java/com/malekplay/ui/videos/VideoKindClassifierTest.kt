@@ -190,4 +190,20 @@ class VideoKindClassifierTest {
         assertEquals(2, classified.getValue("two").episode?.episode)
     }
 
+
+    @Test fun recognizesOneThroughEightInDownloadAndLeavesUnrelatedNumberOut() {
+        val files = (1..8).map { number ->
+            VideoFileDescriptor("episode-$number", "$number.mp4", "Download", "Download/")
+        } + VideoFileDescriptor("unrelated", "91.mp4", "Download", "Download/")
+        val classified = VideoKindClassifier.classifyAll(files)
+
+        (1..8).forEach { number ->
+            assertEquals(VideoKind.SERIES, classified.getValue("episode-$number").kind)
+            assertEquals("حلقات مرقمة", classified.getValue("episode-$number").episode?.seriesKey)
+            assertEquals(number, classified.getValue("episode-$number").episode?.episode)
+        }
+        assertEquals(VideoKind.UNCLASSIFIED, classified.getValue("unrelated").kind)
+    }
+
+
 }
