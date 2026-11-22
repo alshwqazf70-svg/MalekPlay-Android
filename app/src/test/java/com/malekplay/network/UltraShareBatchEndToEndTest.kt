@@ -253,11 +253,20 @@ class UltraShareBatchEndToEndTest {
             assertEquals(UltraShareControlChannel.Decision.ACCEPTED,
                 UltraShareControlChannel.request(host, secret, "Kotlin to Python", controlPort))
             val resolver = RuntimeEnvironment.getApplication().contentResolver
-            val sent = UltraShareBatchTransport.sendBatch(
-                resolver,
-                listOf(UltraShareBatchTransport.Source(Uri.fromFile(source), source.name, "video/mp4", source.length())),
-                host, dataPort, secret
-            )
+            val sent = try {
+                UltraShareBatchTransport.sendBatch(
+                    resolver,
+                    listOf(UltraShareBatchTransport.Source(Uri.fromFile(source), source.name, "video/mp4", source.length())),
+                    host, dataPort, secret
+                )
+            } catch (failure: Exception) {
+                val receiverResult = resultFile.takeIf { it.isFile }?.readText() ?: "not produced"
+                val receiverLog = logFile.takeIf { it.isFile }?.readText() ?: "not produced"
+                throw AssertionError(
+                    "Kotlin to Python V2 transfer failed; receiverResult=$receiverResult; receiverLog=$receiverLog",
+                    failure
+                )
+            }
             assertEquals(1, sent.files.size)
             assertEquals(UltraShareBatchProtocol.FileStatus.COMPLETED, sent.files.single().status)
             val exitCode = withContext(Dispatchers.IO) {
@@ -336,7 +345,13 @@ class UltraShareBatchEndToEndTest {
             val exitCode = withContext(Dispatchers.IO) {
                 if (runningProcess.waitFor(30, TimeUnit.SECONDS)) runningProcess.exitValue() else -1
             }
-            assertEquals("Python sender failed: ${logFile.readText()}", 0, exitCode)
+            val senderResult = resultFile.takeIf { it.isFile }?.readText() ?: "not produced"
+            val senderLog = logFile.takeIf { it.isFile }?.readText() ?: "not produced"
+            assertEquals(
+                "Python sender failed; result=$senderResult; log=$senderLog",
+                0,
+                exitCode
+            )
             val result = withTimeout(15_000) { receiverResult.await() }
             assertEquals(1, result.files.size)
             assertEquals(UltraShareBatchProtocol.FileStatus.COMPLETED, result.files.single().status)
