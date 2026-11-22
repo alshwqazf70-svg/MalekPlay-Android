@@ -8,6 +8,13 @@ import org.junit.Test
 
 class UltraShareWifiDirectPolicyTest {
     @Test
+    fun delayedAdvertisementCleanupCannotCompleteANewerInvitation() {
+        assertTrue(isCurrentWifiDirectAdvertisementOperation(false, 4, 4))
+        assertFalse(isCurrentWifiDirectAdvertisementOperation(false, 5, 4))
+        assertFalse(isCurrentWifiDirectAdvertisementOperation(true, 4, 4))
+    }
+
+    @Test
     fun delayedDnsSdCallbacksCannotReviveACancelledInvitationRequest() {
         val originalRequest = Any()
         val replacementRequest = Any()
