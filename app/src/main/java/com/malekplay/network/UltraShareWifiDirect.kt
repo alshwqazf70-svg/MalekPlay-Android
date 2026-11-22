@@ -47,6 +47,8 @@ object UltraShareWifiDirect {
         // A DNS-SD clear/add request may still be inside the framework even before
         // localInvitationService is assigned by its success callback.
         private var localInvitationOperationPending = false
+        // A timed-out/failed clear leaves registration state unknown; never reuse it blindly.
+        private var localInvitationCleanupPending = false
         // Prevent delayed clear/add callbacks from publishing an obsolete QR identity.
         private var localInvitationToken = 0
         // Tracks both the pending addServiceRequest call and the installed request.
@@ -231,7 +233,13 @@ object UltraShareWifiDirect {
                 isCurrentWifiDirectAdvertisementOperation(closed, localInvitationToken, advertisementToken)
 
             try {
-                if (localInvitationId == peerId && localInvitationService != null) {
+                if (canReuseWifiDirectAdvertisement(
+                        samePeer = localInvitationId == peerId,
+                        servicePresent = localInvitationService != null,
+                        operationPending = localInvitationOperationPending,
+                        cleanupPending = localInvitationCleanupPending
+                    )
+                ) {
                     onAdvertised()
                     return
                 }
@@ -239,6 +247,7 @@ object UltraShareWifiDirect {
                 manager.clearLocalServices(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         if (!isCurrentAdvertisement()) return
+                        localInvitationCleanupPending = false
                         try {
                             manager.addLocalService(channel, service, object : WifiP2pManager.ActionListener {
                                 override fun onSuccess() {
@@ -253,6 +262,7 @@ object UltraShareWifiDirect {
                                         return
                                     }
                                     localInvitationOperationPending = false
+                                    localInvitationCleanupPending = false
                                     localInvitationService = service
                                     localInvitationId = peerId
                                     UltraShareDiagnostics.event(
@@ -266,6 +276,7 @@ object UltraShareWifiDirect {
                                 override fun onFailure(reason: Int) {
                                     if (isCurrentAdvertisement()) {
                                         localInvitationOperationPending = false
+                                        localInvitationCleanupPending = true
                                         recordAdvertisementFailure("تعذر إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
                                     }
                                 }
@@ -273,11 +284,13 @@ object UltraShareWifiDirect {
                         } catch (failure: SecurityException) {
                             if (isCurrentAdvertisement()) {
                                 localInvitationOperationPending = false
+                                localInvitationCleanupPending = true
                                 recordAdvertisementFailure("يلزم إذن الأجهزة القريبة لإعلان دعوة Wi-Fi Direct.")
                             }
                         } catch (failure: RuntimeException) {
                             if (isCurrentAdvertisement()) {
                                 localInvitationOperationPending = false
+                                localInvitationCleanupPending = true
                                 UltraShareDiagnostics.failure("WIFI_DIRECT_ADD_LOCAL_INVITATION", failure)
                                 recordAdvertisementFailure(failure.localizedMessage ?: "تعذر إعلان دعوة Wi-Fi Direct.")
                             }
@@ -287,6 +300,7 @@ object UltraShareWifiDirect {
                     override fun onFailure(reason: Int) {
                         if (isCurrentAdvertisement()) {
                             localInvitationOperationPending = false
+                            localInvitationCleanupPending = true
                             recordAdvertisementFailure("تعذر تحديث إعلان دعوة MalekPlay عبر Wi-Fi Direct (رمز $reason).")
                         }
                     }
@@ -294,11 +308,13 @@ object UltraShareWifiDirect {
             } catch (failure: SecurityException) {
                 if (isCurrentAdvertisement()) {
                     localInvitationOperationPending = false
+                    localInvitationCleanupPending = true
                     recordAdvertisementFailure("يلزم إذن الأجهزة القريبة لإعلان دعوة Wi-Fi Direct.")
                 }
             } catch (failure: RuntimeException) {
                 if (isCurrentAdvertisement()) {
                     localInvitationOperationPending = false
+                    localInvitationCleanupPending = true
                     UltraShareDiagnostics.failure("WIFI_DIRECT_ADVERTISE_INVITATION", failure)
                     recordAdvertisementFailure(failure.localizedMessage ?: "تعذر إعلان دعوة Wi-Fi Direct.")
                 }
@@ -680,12 +696,14 @@ object UltraShareWifiDirect {
             }
             // Invalidate an addLocalService callback that may still be in flight.
             val cleanupToken = ++localInvitationToken
-            if (!localInvitationOperationPending &&
+            if (!localInvitationOperationPending && !localInvitationCleanupPending &&
                 localInvitationService == null && localInvitationId == null
             ) {
                 onResult(true)
                 return
             }
+            localInvitationOperationPending = true
+            localInvitationCleanupPending = true
             val completed = java.util.concurrent.atomic.AtomicBoolean(false)
             var cleanupTimeout: Runnable? = null
             fun finish(success: Boolean) {
@@ -694,10 +712,13 @@ object UltraShareWifiDirect {
                     val stillCurrent = isCurrentWifiDirectAdvertisementOperation(
                         closed, localInvitationToken, cleanupToken
                     )
-                    if (success && stillCurrent) {
+                    if (stillCurrent) {
                         localInvitationOperationPending = false
-                        localInvitationService = null
-                        localInvitationId = null
+                        localInvitationCleanupPending = !success
+                        if (success) {
+                            localInvitationService = null
+                            localInvitationId = null
+                        }
                     }
                     onResult(success && stillCurrent)
                 }
@@ -2355,6 +2376,7 @@ object UltraShareWifiDirect {
             localInvitationService = null
             localInvitationId = null
             localInvitationOperationPending = false
+            localInvitationCleanupPending = false
             runCatching { appContext.unregisterReceiver(receiver) }
         }
 
@@ -2389,6 +2411,13 @@ object UltraShareWifiDirect {
         return created
     }
 }
+
+internal fun canReuseWifiDirectAdvertisement(
+    samePeer: Boolean,
+    servicePresent: Boolean,
+    operationPending: Boolean,
+    cleanupPending: Boolean
+): Boolean = samePeer && servicePresent && !operationPending && !cleanupPending
 
 internal fun isCurrentWifiDirectAdvertisementOperation(
     sessionClosed: Boolean,
