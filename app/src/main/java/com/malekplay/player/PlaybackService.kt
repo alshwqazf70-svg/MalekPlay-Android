@@ -39,6 +39,7 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.effect.LanczosResample
 import com.malekplay.player.effects.VideoEnhancementProfile
 import com.malekplay.player.effects.VideoEnhancementPolicy
+import com.malekplay.player.effects.VideoEnhancementStage
 import com.malekplay.player.effects.VideoEnhancementMetrics
 import com.malekplay.player.effects.VideoEnhancementPipelineEffect
 import com.malekplay.player.effects.VideoEnhancementPipelineConfig
