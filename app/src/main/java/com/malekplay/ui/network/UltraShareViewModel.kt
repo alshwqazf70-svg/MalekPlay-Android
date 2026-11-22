@@ -1493,13 +1493,14 @@ private fun forgetApprovedSenderTarget(host: String) {
                         )
                     },
                     onConnectionFailed = { rejected, reason ->
-                        if (!rejected && !networkLost.get()) {
+                        if (!networkLost.get()) {
                             val message = reason ?: "تعذر إتمام اقتران MPC2 عبر شبكة Wi-Fi المباشرة."
-                            if (allowWifiDirectFallback &&
+                            val fallbackStarted = !rejected &&
+                                allowWifiDirectFallback &&
                                 viewModel.fallbackToWifiDirectInvitation(pairing, message)
-                            ) {
-                                // The fallback owns and replaces this temporary network lease.
-                            } else {
+                            if (!fallbackStarted) {
+                                // Authentication rejection or a terminal fallback failure
+                                // must release the process-scoped NetworkCallback lease.
                                 val activeCallback = viewModel.hotspotNetworkCallback
                                 if (activeCallback != null) {
                                     runCatching { connectivity.unregisterNetworkCallback(activeCallback) }
