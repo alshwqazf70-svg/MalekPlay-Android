@@ -108,26 +108,50 @@ internal object VideoKindClassifier {
             } ?: file.folderPath.split('/').asReversed().firstOrNull {
                 normalizedKey(it) !in genericFolders && seasonPattern.find(normalizeDigits(it)) == null
             }.orEmpty()
+            val namedFolder = folderName.takeIf { normalizedKey(it) !in genericFolders }
+                ?: file.folderPath.split('/').asReversed().firstOrNull { normalizedKey(it) !in genericFolders }
             val prefix = when {
                 trailing != null -> normalizedKey(trailing.groupValues[1])
-                else -> normalizedKey(folderName)
+                !namedFolder.isNullOrBlank() -> normalizedKey(namedFolder)
+                else -> "حلقات مرقمة"
             }
             if (prefix.isBlank()) return@mapNotNull null
             val folder = normalizedKey(file.folderPath.ifBlank { file.folderName })
             Triple(file, "$folder|$prefix", number)
         }
         candidates.groupBy { it.second }.values.forEach { siblings ->
-            if (siblings.size < 2 || siblings.map { it.third }.distinct().size < 2) return@forEach
-            siblings.forEach { (file, _, episodeNumber) ->
-                val season = seasonPattern.find(normalizeDigits(file.folderName + " " + file.folderPath))
-                    ?.groupValues?.drop(1)?.firstOrNull(String::isNotBlank)?.toIntOrNull() ?: 1
-                val title = normalizedKey(file.title)
-                val prefix = (
-                    trailingEpisodePattern.matchEntire(title)?.groupValues?.get(1)
-                        ?: file.folderName.takeIf { normalizedKey(it) !in genericFolders }
-                        ?: file.folderPath.split('/').asReversed().firstOrNull { normalizedKey(it) !in genericFolders }
-                    ).orEmpty()
-                result[file.id] = ClassifiedVideo(VideoKind.SERIES, EpisodeSortKey(normalizedKey(prefix), season, episodeNumber))
+            val isUnnamedDownloadRun = siblings.firstOrNull()?.second?.endsWith("|حلقات مرقمة") == true
+            val groups = if (isUnnamedDownloadRun) {
+                // In a generic folder such as Download, only a run of at least
+                // three consecutive numeric videos is strong enough evidence
+                // to infer an episode set. Keep unrelated numbers (for example
+                // a file named 91 beside episodes 1..8) out of the series.
+                val runs = mutableListOf<MutableList<Triple<VideoFileDescriptor, String, Int>>>()
+                siblings.sortedBy { it.third }.forEach { candidate ->
+                    val current = runs.lastOrNull()
+                    if (current != null && candidate.third == current.last().third + 1) {
+                        current += candidate
+                    } else {
+                        runs += mutableListOf(candidate)
+                    }
+                }
+                runs.filter { it.size >= 3 }
+            } else {
+                listOf(siblings)
+            }
+            groups.forEach { episodeGroup ->
+                if (episodeGroup.size < 2 || episodeGroup.map { it.third }.distinct().size < 2) return@forEach
+                episodeGroup.forEach { (file, _, episodeNumber) ->
+                    val season = seasonPattern.find(normalizeDigits(file.folderName + " " + file.folderPath))
+                        ?.groupValues?.drop(1)?.firstOrNull(String::isNotBlank)?.toIntOrNull() ?: 1
+                    val title = normalizedKey(file.title)
+                    val prefix = (
+                        trailingEpisodePattern.matchEntire(title)?.groupValues?.get(1)
+                            ?: file.folderName.takeIf { normalizedKey(it) !in genericFolders }
+                            ?: file.folderPath.split('/').asReversed().firstOrNull { normalizedKey(it) !in genericFolders }
+                        ).orEmpty().ifBlank { "حلقات مرقمة" }
+                    result[file.id] = ClassifiedVideo(VideoKind.SERIES, EpisodeSortKey(normalizedKey(prefix), season, episodeNumber))
+                }
             }
         }
 
