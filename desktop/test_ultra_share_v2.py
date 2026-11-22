@@ -291,8 +291,19 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             with patch("ultra_share_v2._is_private_v2_peer", return_value=True):
                 control = connect_control_session("127.0.0.1", control_port, "123456789")
                 try:
+                    # An interrupted handshake must not kill or consume the listener.
+                    with socket.create_connection(("127.0.0.1", data_port), timeout=3) as interrupted:
+                        greeting = recv_exact(interrupted, 4 + CHALLENGE_BYTES)
+                        self.assertEqual(HANDSHAKE_MAGIC, int.from_bytes(greeting[:4], "big"))
+                        interrupted.sendall(b"\x01\x02")
+                    # A complete but unauthenticated proof must also be rejected.
+                    with socket.create_connection(("127.0.0.1", data_port), timeout=3) as invalid:
+                        greeting = recv_exact(invalid, 4 + CHALLENGE_BYTES)
+                        self.assertEqual(HANDSHAKE_MAGIC, int.from_bytes(greeting[:4], "big"))
+                        invalid.sendall(bytes([0xA5]) * 32)
+                        self.assertEqual(b"\x00", recv_exact(invalid, 1))
                     # A reachability probe must be rejected without consuming
-                    # the one-shot listener needed by the real transfer.
+                    # the one-shot listener needed for the real transfer.
                     with socket.create_connection(("127.0.0.1", data_port), timeout=3) as probe:
                         greeting = recv_exact(probe, 4 + CHALLENGE_BYTES)
                         self.assertEqual(HANDSHAKE_MAGIC, int.from_bytes(greeting[:4], "big"))
