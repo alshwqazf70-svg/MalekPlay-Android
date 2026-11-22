@@ -1897,8 +1897,11 @@ private fun forgetApprovedSenderTarget(host: String) {
         if (!current.receiving && !service.receiving) return
         if (!service.controlChannelReady) return
 
-        val rawSsid = wifiDirectGroupSsid ?: service.hotspotSsid
-        val rawPassword = wifiDirectGroupPassword ?: service.hotspotPassword
+        // Service state can retain credentials from a hotspot that was stopped.
+        // Use its SoftAP values only while the service currently owns that network.
+        val serviceHotspotAvailable = service.hotspotActive || service.hotspotStarting
+        val rawSsid = wifiDirectGroupSsid ?: service.hotspotSsid.takeIf { serviceHotspotAvailable }
+        val rawPassword = wifiDirectGroupPassword ?: service.hotspotPassword.takeIf { serviceHotspotAvailable }
         val hasWifiCredentials = !rawSsid.isNullOrBlank() &&
             !rawPassword.isNullOrBlank() && rawPassword.length in 8..63
         val ssid = rawSsid.takeIf { hasWifiCredentials }
@@ -1997,7 +2000,23 @@ private fun forgetApprovedSenderTarget(host: String) {
             }
             return
         }
+        // A new group attempt must never reuse credentials or owner routes from
+        // a previous P2P group or a joined invitation. The new group-info callback
+        // repopulates these values before the credentials-based QR is published.
+        wifiDirectGroupSsid = null
+        wifiDirectGroupPassword = null
+        wifiDirectOwnerAddress = null
+        wifiDirectGroupSecurity = "wpa2"
+        wifiDirectCredentialsFromJoinedInvitation = false
+        dnsSdQrFallbackScheduledFor = null
         _state.value = _state.value.copy(
+            receiverQrPayload = null,
+            hotspotSsid = "",
+            hotspotPassword = "",
+            hotspotSecurity = "wpa2",
+            wifiDirectLocalAddress = null,
+            wifiDirectHost = null,
+            lanFallbackReady = false,
             error = null,
             status = "جارٍ إيقاف الاكتشاف وتجهيز مجموعة الاقتران المباشر..."
         )
