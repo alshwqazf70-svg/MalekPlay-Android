@@ -2241,7 +2241,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             // unchecked stop method here allowed a new scan to race a still-active
             // OEM discovery request after its callback had been delayed or dropped.
             viewModelScope.launch {
-                delay(12_000)
+                delay(UltraSharePairingReadiness.WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS)
                 val pending = pairingAttempt
                 if (UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pairingAttempt) &&
                     UltraSharePairingReadiness.shouldUseLanFallbackAfterInvitationDiscoveryTimeout(
