@@ -33,6 +33,16 @@ internal object UltraSharePairingReadiness {
     fun shouldUseWifiDirectInvitation(mode: String?, invitationId: String?): Boolean =
         !invitationId.isNullOrBlank() && (mode.isNullOrBlank() || mode == "p2p")
 
+    /** A P2P QR is publishable only after Android confirms its DNS-SD service advertisement. */
+    fun canPublishWifiDirectInvitationQr(
+        invitationId: String?,
+        advertisedInvitationId: String?
+    ): Boolean =
+        !invitationId.isNullOrBlank() && invitationId == advertisedInvitationId
+
+    /** Allow slow OEM DNS-SD setup and discovery, but bound a scan that never finds its peer. */
+    const val WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS = 25_000L
+
     /** A delayed callback may mutate state only while its exact invitation attempt is current. */
     fun isCurrentInvitationAttempt(current: Any?, expected: Any): Boolean = current === expected
 
