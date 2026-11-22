@@ -75,6 +75,11 @@ class UltraSharePairingReadinessTest {
         assertFalse(matchesExpectedUltraSharePeerIdentity(target.peerId, "different-peer"))
     }
 
+    @Test fun receiverInvitationAdvertisementStaysAvailableForAdditionalPeers() {
+        assertTrue(UltraSharePairingReadiness.shouldRetainReceiverInvitationAdvertisement(receiving = true))
+        assertFalse(UltraSharePairingReadiness.shouldRetainReceiverInvitationAdvertisement(receiving = false))
+    }
+
     @Test fun p2pQrIsNotPublishableUntilItsExactDnsSdAdvertisementSucceeds() {
         assertTrue(
             UltraSharePairingReadiness.canPublishWifiDirectInvitationQr(
