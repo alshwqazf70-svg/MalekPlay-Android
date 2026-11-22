@@ -2131,9 +2131,11 @@ private fun forgetApprovedSenderTarget(host: String) {
                 }
                 }
             }
-            // This deadline is only for DNS-SD discovery. Once a peer is found,
-            // the Wi-Fi Direct session owns the full connection timeout and its
-            // bounded BUSY/ERROR retries; falling back here would race that negotiation.
+            // This deadline covers DNS-SD discovery only. Once a peer is found,
+            // the P2P session owns connection negotiation and its bounded retries.
+            // On timeout, serialize cleanup before starting LAN fallback: calling the
+            // unchecked stop method here allowed a new scan to race a still-active
+            // OEM discovery request after its callback had been delayed or dropped.
             viewModelScope.launch {
                 delay(12_000)
                 val pending = pendingQrPairing
@@ -2148,25 +2150,52 @@ private fun forgetApprovedSenderTarget(host: String) {
                         context,
                         pending.hosts
                     )
-                    val fallback = safeFallbacks.firstOrNull()
-                    pendingQrPairing = null
-                    qrP2pConnectStarted = false
-                    session.stopInvitationDiscovery()
-                    if (fallback != null) {
-                        UltraShareDiagnostics.event(
-                            "PAIRING",
-                            "INVITATION_DISCOVERY_TIMEOUT_USING_VERIFIED_LAN"
+                    UltraShareDiagnostics.event(
+                        "PAIRING",
+                        "INVITATION_DISCOVERY_TIMEOUT",
+                        mapOf(
+                            "verifiedLanFallbackCount" to safeFallbacks.size,
+                            "qrHostCount" to pending.hosts.size,
+                            "sdkInt" to Build.VERSION.SDK_INT
                         )
-                        requestConnection(
-                            host = fallback,
-                            secret = pending.secret,
-                            alternateHosts = safeFallbacks.drop(1)
-                        )
-                    } else {
-                        _state.value = _state.value.copy(
-                            requestingConnection = false,
-                            error = "لم يتم العثور على دعوة Wi-Fi Direct، ولا يوجد عنوان بديل على شبكة محلية غير P2P. أعد المحاولة أو استخدم QR الخاص بنقطة الاتصال."
-                        )
+                    )
+                    session.stopInvitationDiscoveryChecked { stopped ->
+                        // A newer QR attempt or a successful DNS-SD match supersedes
+                        // this timer; never let an old timeout cancel that attempt.
+                        if (pendingQrPairing != pending || qrP2pConnectStarted ||
+                            wifiDirectSession !== session
+                        ) return@stopInvitationDiscoveryChecked
+
+                        if (!stopped) {
+                            UltraShareDiagnostics.event(
+                                "WIFI_DIRECT",
+                                "INVITATION_TIMEOUT_CLEANUP_UNCONFIRMED_SESSION_RETIRED"
+                            )
+                            wifiDirectSession = null
+                            runCatching { session.close() }
+                        }
+                        pendingQrPairing = null
+                        qrP2pConnectStarted = false
+                        val fallback = safeFallbacks.firstOrNull()
+                        if (fallback != null) {
+                            UltraShareDiagnostics.event(
+                                "PAIRING",
+                                "INVITATION_DISCOVERY_TIMEOUT_USING_VERIFIED_LAN"
+                            )
+                            requestConnection(
+                                host = fallback,
+                                secret = pending.secret,
+                                alternateHosts = safeFallbacks.drop(1)
+                            )
+                        } else {
+                            _state.value = _state.value.copy(
+                                requestingConnection = false,
+                                error = if (stopped)
+                                    "لم يتم العثور على دعوة Wi-Fi Direct، ولا يوجد عنوان بديل على شبكة محلية غير P2P. أعد المحاولة أو استخدم QR الخاص بنقطة الاتصال."
+                                else
+                                    "انتهت مهلة اكتشاف الدعوة ولم يؤكد Android تنظيف طلب Wi-Fi Direct. أُغلقت جلسة البحث؛ أعد المحاولة بعد التأكد من تشغيل Wi-Fi وخدمة الموقع."
+                            )
+                        }
                     }
                 }
             }
