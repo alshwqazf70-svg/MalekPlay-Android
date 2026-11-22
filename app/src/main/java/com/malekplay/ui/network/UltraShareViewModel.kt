@@ -1914,7 +1914,7 @@ private fun forgetApprovedSenderTarget(host: String) {
 
         // Service state can retain credentials from a hotspot that was stopped.
         // Use its SoftAP values only while the service currently owns that network.
-        val serviceHotspotAvailable = service.hotspotActive || service.hotspotStarting
+        val serviceHotspotAvailable = service.hotspotActive
         val rawSsid = wifiDirectGroupSsid ?: service.hotspotSsid.takeIf { serviceHotspotAvailable }
         val rawPassword = wifiDirectGroupPassword ?: service.hotspotPassword.takeIf { serviceHotspotAvailable }
         val hasWifiCredentials = !rawSsid.isNullOrBlank() &&
