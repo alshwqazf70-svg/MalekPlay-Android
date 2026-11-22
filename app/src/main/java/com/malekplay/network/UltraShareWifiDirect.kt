@@ -48,6 +48,9 @@ object UltraShareWifiDirect {
         // A request must be visible to cancellation before crossing the async framework boundary.
         private var invitationRequest: WifiP2pDnsSdServiceRequest? = null
         private var invitationRequestInstalled = false
+        // Separates retries for the same service request; old framework callbacks
+        // must not mutate the state of a newer discoverServices invocation.
+        private var invitationDiscoveryToken = 0
         private var invitationMatch: ((Peer) -> Unit)? = null
         private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -482,6 +485,7 @@ object UltraShareWifiDirect {
                 return
             }
             invitationMatch = null
+            invitationDiscoveryToken++
             val completed = java.util.concurrent.atomic.AtomicBoolean(false)
             var cleanupStage = if (peerDiscoveryActive) "stop_peer_discovery" else "remove_service_request"
             var cleanupTimeout: Runnable? = null
@@ -623,29 +627,62 @@ object UltraShareWifiDirect {
             attempt: Int
         ) {
             if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request) || !invitationRequestInstalled) return
+            val discoveryToken = ++invitationDiscoveryToken
+            fun isCurrentAttempt(): Boolean =
+                isCurrentWifiDirectInvitationDiscovery(
+                    sessionClosed = closed,
+                    currentRequest = invitationRequest,
+                    callbackRequest = request,
+                    currentToken = invitationDiscoveryToken,
+                    callbackToken = discoveryToken
+                )
+
             // Mark the operation pending before crossing the asynchronous framework boundary.
             // A stop request arriving before onSuccess must still wait for stopPeerDiscovery().
             peerDiscoveryActive = true
-            UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_DISCOVERY_REQUESTED", mapOf("attempt" to attempt, "sdkInt" to Build.VERSION.SDK_INT))
+            UltraShareDiagnostics.event(
+                "WIFI_DIRECT",
+                "INVITATION_SERVICE_DISCOVERY_REQUESTED",
+                mapOf("attempt" to attempt, "discoveryToken" to discoveryToken, "sdkInt" to Build.VERSION.SDK_INT)
+            )
             try {
                 manager.discoverServices(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) return
-                        UltraShareDiagnostics.event("WIFI_DIRECT", "SERVICE_DISCOVERY_STARTED", mapOf("attempt" to attempt))
+                        if (!isCurrentAttempt()) {
+                            UltraShareDiagnostics.event(
+                                "WIFI_DIRECT",
+                                "STALE_SERVICE_DISCOVERY_CALLBACK_IGNORED",
+                                mapOf("attempt" to attempt, "discoveryToken" to discoveryToken)
+                            )
+                            return
+                        }
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "SERVICE_DISCOVERY_STARTED",
+                            mapOf("attempt" to attempt, "discoveryToken" to discoveryToken)
+                        )
                     }
 
                     override fun onFailure(reason: Int) {
-                        // An old callback must not clear the active flag belonging to
-                        // a newer peer/service discovery operation.
-                        if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) return
+                        if (!isCurrentAttempt()) {
+                            UltraShareDiagnostics.event(
+                                "WIFI_DIRECT",
+                                "STALE_SERVICE_DISCOVERY_FAILURE_IGNORED",
+                                mapOf("attempt" to attempt, "discoveryToken" to discoveryToken, "reason" to reason)
+                            )
+                            return
+                        }
                         peerDiscoveryActive = false
-                        UltraShareDiagnostics.event("WIFI_DIRECT", "SERVICE_DISCOVERY_FAILED", mapOf("reason" to reason, "attempt" to attempt))
-                        if (closed || invitationRequest !== request) return
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "SERVICE_DISCOVERY_FAILED",
+                            mapOf("reason" to reason, "attempt" to attempt, "discoveryToken" to discoveryToken)
+                        )
                         val retryable = reason == WifiP2pManager.BUSY ||
                             reason == WifiP2pManager.ERROR
                         if (retryable && attempt < 3) {
                             mainHandler.postDelayed({
-                                if (!closed && invitationRequest === request) {
+                                if (isCurrentAttempt()) {
                                     startInvitationServiceDiscovery(request, attempt + 1)
                                 }
                             }, 600L * (attempt + 1))
@@ -655,12 +692,16 @@ object UltraShareWifiDirect {
                     }
                 })
             } catch (failure: SecurityException) {
-                peerDiscoveryActive = false
-                reportError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
+                if (isCurrentAttempt()) {
+                    peerDiscoveryActive = false
+                    reportError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
+                }
             } catch (failure: RuntimeException) {
-                peerDiscoveryActive = false
-                UltraShareDiagnostics.failure("WIFI_DIRECT_START_SERVICE_DISCOVERY", failure)
-                reportError(failure.localizedMessage ?: "تعذر بدء البحث عن دعوة Wi-Fi Direct.")
+                if (isCurrentAttempt()) {
+                    peerDiscoveryActive = false
+                    UltraShareDiagnostics.failure("WIFI_DIRECT_START_SERVICE_DISCOVERY", failure)
+                    reportError(failure.localizedMessage ?: "تعذر بدء البحث عن دعوة Wi-Fi Direct.")
+                }
             }
         }
 
@@ -2074,6 +2115,7 @@ object UltraShareWifiDirect {
             if (closed) return
             UltraShareDiagnostics.event("WIFI_DIRECT", "CHANNEL_DISCONNECTED")
             connectionInProgress = false
+            invitationDiscoveryToken++
             connectionAttemptToken++
             connectionInfoRequestToken++
             connectionTimeout?.let(mainHandler::removeCallbacks)
@@ -2178,6 +2220,17 @@ internal fun isCurrentWifiDirectInvitationRequest(
     currentRequest: Any?,
     callbackRequest: Any?
 ): Boolean = !sessionClosed && currentRequest != null && currentRequest === callbackRequest
+
+/** A retry callback is valid only for both its request identity and discovery generation. */
+internal fun isCurrentWifiDirectInvitationDiscovery(
+    sessionClosed: Boolean,
+    currentRequest: Any?,
+    callbackRequest: Any?,
+    currentToken: Int,
+    callbackToken: Int
+): Boolean =
+    isCurrentWifiDirectInvitationRequest(sessionClosed, currentRequest, callbackRequest) &&
+        currentToken == callbackToken
 
 /**
  * A formed client group belongs to the current pairing flow when Android reports
