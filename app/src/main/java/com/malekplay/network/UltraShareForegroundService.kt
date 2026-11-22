@@ -2118,7 +2118,7 @@ class UltraShareForegroundService : Service() {
                                             status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
                                         )
                                     }
-                                    updateNotification(sendProgress)
+                                    updateNotification(currentState().sendProgress ?: sendProgress)
                                 }
                                 val uriById = candidateChunk.associate { it.second.fileId to it.first }
                                 updateState { current ->
@@ -2134,7 +2134,14 @@ class UltraShareForegroundService : Service() {
                                             status = if (failedInChunk == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failedInChunk",
                                             updatedAtMillis = System.currentTimeMillis()
                                         )
-                                    current.copy(peerTransfers = current.peerTransfers.filterNot { it.host == activeV2Host } + summary)
+                                    val updatedTransfers = current.peerTransfers.filterNot { it.host == activeV2Host } + summary
+                                    val aggregateSend = latestActivePeerSendProgress(updatedTransfers)
+                                        ?: current.sendProgress?.copy(bytesPerSecond = 0L)
+                                    current.copy(
+                                        peerTransfers = updatedTransfers,
+                                        sendProgress = aggregateSend,
+                                        progress = if (current.receiving) current.receiveProgress else aggregateSend
+                                    )
                                 }
                                 batch.files.forEachIndexed { index, outcome ->
                                     val uri = uriById[outcome.fileId] ?: return@forEachIndexed
@@ -2411,7 +2418,7 @@ class UltraShareForegroundService : Service() {
                                         status = "إرسال دفعة V2 إلى $activePeerHost"
                                     )
                                 }
-                                updateNotification(sendProgress)
+                                updateNotification(currentState().sendProgress ?: sendProgress)
                             }
                             val outcomes = outcome.files.associateBy { it.fileId }
                             chunk.forEach { source ->
