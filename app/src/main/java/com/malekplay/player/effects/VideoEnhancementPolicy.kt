@@ -35,12 +35,26 @@ data class VideoEnhancementTuning(
     val downgradeReason: String? = null
 )
 
+/** Ordered GPU processing stages; denoise must see source pixels before resampling. */
+enum class VideoEnhancementStage {
+    DENOISE,
+    UPSCALE,
+    DETAIL
+}
+
 /**
  * Pure capability policy so legacy-device and thermal decisions are unit-testable.
  * thermalStatus uses Android PowerManager values (NONE=0, LIGHT=1, MODERATE=2,
  * SEVERE=3, CRITICAL=4, EMERGENCY=5, SHUTDOWN=6).
  */
 object VideoEnhancementPolicy {
+    /** Source-space denoise, optional resampling, then output-space detail enhancement. */
+    fun processingOrder(includeUpscale: Boolean): List<VideoEnhancementStage> = buildList {
+        add(VideoEnhancementStage.DENOISE)
+        if (includeUpscale) add(VideoEnhancementStage.UPSCALE)
+        add(VideoEnhancementStage.DETAIL)
+    }
+
     /**
      * A pre-track enhancement request is safe to acknowledge only after the GPU
      * effect exists and the same player has an operational effect registry.
