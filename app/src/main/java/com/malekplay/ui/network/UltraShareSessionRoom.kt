@@ -123,6 +123,21 @@ fun UltraShareSessionRoom(
         (state.queueTransferredBytes.toDouble() / state.queueTotalBytes.toDouble()).toFloat().coerceIn(0f, 1f)
     } else null
 
+    // Sum only live peer channels. Completed/failed rows retain their last byte
+    // counters for history and must not inflate the room's current speed or ETA.
+    val activePeerTransfers = state.peerTransfers.filter {
+        (it.status.startsWith("يرسل الآن") || it.status.startsWith("يستقبل الآن")) &&
+            it.totalBytes > it.transferredBytes && it.bytesPerSecond > 0L
+    }
+    val aggregatePeerSpeed = activePeerTransfers.fold(0L) { total, transfer ->
+        val rate = transfer.bytesPerSecond.coerceAtLeast(0L)
+        if (Long.MAX_VALUE - total < rate) Long.MAX_VALUE else total + rate
+    }
+    val aggregatePeerRemaining = activePeerTransfers.fold(0L) { total, transfer ->
+        val remaining = (transfer.totalBytes - transfer.transferredBytes).coerceAtLeast(0L)
+        if (Long.MAX_VALUE - total < remaining) Long.MAX_VALUE else total + remaining
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
@@ -416,6 +431,37 @@ fun UltraShareSessionRoom(
                                 }
                             }
                         }
+                    }
+                }
+            }
+            if (activePeerTransfers.size > 1) {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(
+                            MalekPlayColors.PurpleBright.copy(alpha = 0.09f),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .padding(horizontal = 11.dp, vertical = 9.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        "إجمالي النقل المتزامن عبر ${activePeerTransfers.size} أجهزة",
+                        color = MalekPlayColors.PurpleBright,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    Text(
+                        "السرعة الإجمالية: ${formatSessionTransferBytes(aggregatePeerSpeed)}/ث",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    if (aggregatePeerSpeed > 0L && aggregatePeerRemaining > 0L) {
+                        Text(
+                            "الوقت المتبقي التقريبي لجميع القنوات: ${formatSessionDuration(aggregatePeerRemaining / aggregatePeerSpeed)}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall
+                        )
                     }
                 }
             }
