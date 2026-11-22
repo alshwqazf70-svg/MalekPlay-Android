@@ -43,6 +43,15 @@ class UltraShareWifiDirectPolicyTest {
     }
 
     @Test
+    fun delayedDiscoveryRetryCallbacksCannotMutateANewerAttemptForTheSameRequest() {
+        val request = Any()
+        assertTrue(isCurrentWifiDirectInvitationDiscovery(false, request, request, 2, 2))
+        assertFalse(isCurrentWifiDirectInvitationDiscovery(false, request, request, 3, 2))
+        assertFalse(isCurrentWifiDirectInvitationDiscovery(false, Any(), request, 2, 2))
+        assertFalse(isCurrentWifiDirectInvitationDiscovery(true, request, request, 2, 2))
+    }
+
+    @Test
     fun acceptsFormedClientGroupForAnActiveQrPairingWithoutComparingRotatingMacAddresses() {
         assertTrue(
             isReadyWifiDirectClientGroup(
