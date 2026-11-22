@@ -158,14 +158,15 @@ internal object VideoKindClassifier {
             }
             clusters.forEach { cluster ->
                 val distinctNumbers = cluster.map { it.second }.distinct()
-                if (distinctNumbers.size < 3 ||
-                    distinctNumbers.last() - distinctNumbers.first() > distinctNumbers.size + 2
-                ) return@forEach
-                cluster.forEach { (file, episodeNumber) ->
-                    result[file.id] = ClassifiedVideo(
-                        VideoKind.SERIES,
-                        EpisodeSortKey("حلقات مرقمة", 1, episodeNumber)
-                    )
+                if (distinctNumbers.size >= 3 &&
+                    distinctNumbers.last() - distinctNumbers.first() <= distinctNumbers.size + 2
+                ) {
+                    cluster.forEach { (file, episodeNumber) ->
+                        result[file.id] = ClassifiedVideo(
+                            VideoKind.SERIES,
+                            EpisodeSortKey("حلقات مرقمة", 1, episodeNumber)
+                        )
+                    }
                 }
             }
         }
