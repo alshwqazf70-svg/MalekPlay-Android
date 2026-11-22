@@ -131,45 +131,6 @@ internal object VideoKindClassifier {
             }
         }
 
-        // Some downloaders save episodes directly in Download with filenames such
-        // as "8.mp4", "7.mp4", ... . There is no show name to recover, so only
-        // recognize a dense set of at least three distinct episode numbers and
-        // keep it under an explicit generic group rather than guessing a title.
-        files.filter { file ->
-            result[file.id]?.kind != VideoKind.MOVIE &&
-                result[file.id]?.kind != VideoKind.SERIES &&
-                numericEpisodePattern.matches(normalizedKey(file.title))
-        }.groupBy { file ->
-            normalizedKey(file.folderPath.ifBlank { file.folderName }).ifBlank { "unknown-folder" }
-        }.values.forEach { siblings ->
-            val numbered = siblings.mapNotNull { file ->
-                numericEpisodePattern.matchEntire(normalizedKey(file.title))
-                    ?.groupValues?.get(1)?.toIntOrNull()?.let { number -> file to number }
-            }
-            val sorted = numbered.sortedBy { it.second }
-            val clusters = mutableListOf<MutableList<Pair<VideoFileDescriptor, Int>>>()
-            sorted.forEach { entry ->
-                val current = clusters.lastOrNull()
-                if (current == null || entry.second - current.last().second > 2) {
-                    clusters += mutableListOf(entry)
-                } else {
-                    current += entry
-                }
-            }
-            clusters.forEach { cluster ->
-                val distinctNumbers = cluster.map { it.second }.distinct()
-                if (distinctNumbers.size >= 3 &&
-                    distinctNumbers.last() - distinctNumbers.first() <= distinctNumbers.size + 2
-                ) {
-                    cluster.forEach { (file, episodeNumber) ->
-                        result[file.id] = ClassifiedVideo(
-                            VideoKind.SERIES,
-                            EpisodeSortKey("حلقات مرقمة", 1, episodeNumber)
-                        )
-                    }
-                }
-            }
-        }
         return result
     }
 }
