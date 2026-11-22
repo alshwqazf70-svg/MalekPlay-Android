@@ -230,6 +230,7 @@ object UltraShareWifiDirect {
                 mapOf("peer" to peerId)
             )
             val advertisementToken = ++localInvitationToken
+            val advertisementChannel = channel
             localInvitationAdvertisementTimeout?.let(mainHandler::removeCallbacks)
             localInvitationAdvertisementTimeout = null
             fun isCurrentAdvertisement(): Boolean =
@@ -265,17 +266,17 @@ object UltraShareWifiDirect {
                 }
                 localInvitationAdvertisementTimeout = advertisementTimeout
                 mainHandler.postDelayed(advertisementTimeout, 10_000L)
-                manager.clearLocalServices(channel, object : WifiP2pManager.ActionListener {
+                manager.clearLocalServices(advertisementChannel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         if (!isCurrentAdvertisement()) return
                         localInvitationCleanupPending = false
                         try {
-                            manager.addLocalService(channel, service, object : WifiP2pManager.ActionListener {
+                            manager.addLocalService(advertisementChannel, service, object : WifiP2pManager.ActionListener {
                                 override fun onSuccess() {
                                     if (!isCurrentAdvertisement()) {
                                         // The add completed after cancellation or a newer
                                         // invitation. Remove only this stale service record.
-                                        runCatching { manager.removeLocalService(channel, service, null) }
+                                        runCatching { manager.removeLocalService(advertisementChannel, service, null) }
                                         UltraShareDiagnostics.event(
                                             "WIFI_DIRECT",
                                             "STALE_LOCAL_INVITATION_ADD_REMOVED"
@@ -731,6 +732,7 @@ object UltraShareWifiDirect {
             }
             // Invalidate an addLocalService callback that may still be in flight.
             val cleanupToken = ++localInvitationToken
+            val cleanupChannel = channel
             localInvitationAdvertisementTimeout?.let(mainHandler::removeCallbacks)
             localInvitationAdvertisementTimeout = null
             if (!localInvitationOperationPending && !localInvitationCleanupPending &&
@@ -773,7 +775,7 @@ object UltraShareWifiDirect {
             // framework-confirmed clear before fallback can reuse the P2P radio.
             mainHandler.postDelayed(requireNotNull(cleanupTimeout), 5_000L)
             try {
-                manager.clearLocalServices(channel, object : WifiP2pManager.ActionListener {
+                manager.clearLocalServices(cleanupChannel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         finish(true)
                     }
