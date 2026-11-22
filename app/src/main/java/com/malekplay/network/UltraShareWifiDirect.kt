@@ -533,6 +533,7 @@ object UltraShareWifiDirect {
                                         )
                                     } else {
                                         invitationRequest = null
+                                        invitationRequestChannel = null
                                         invitationRequestInstalled = false
                                         reportError("تعذر تهيئة البحث عن دعوة Wi-Fi Direct (رمز $reason).")
                                     }
@@ -548,6 +549,7 @@ object UltraShareWifiDirect {
                         } catch (failure: RuntimeException) {
                             if (isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
                                 invitationRequest = null
+                                invitationRequestChannel = null
                                 invitationRequestInstalled = false
                                 UltraShareDiagnostics.failure("WIFI_DIRECT_ADD_INVITATION_REQUEST", failure)
                                 reportError(failure.localizedMessage ?: "تعذر تهيئة البحث عن دعوة Wi-Fi Direct.")
@@ -568,7 +570,7 @@ object UltraShareWifiDirect {
                             mainHandler.postDelayed(
                                 {
                                     if (isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
-                                        prepareInvitationServiceRequest(request, attempt + 1)
+                                        prepareInvitationServiceRequest(request, attempt + 1, requestChannel)
                                     }
                                 },
                                 500L * (attempt + 1)
@@ -583,12 +585,14 @@ object UltraShareWifiDirect {
             } catch (failure: SecurityException) {
                 if (isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
                     invitationRequest = null
+                    invitationRequestChannel = null
                     invitationRequestInstalled = false
                     reportError("يلزم إذن الأجهزة القريبة لتنظيف طلبات اكتشاف Wi-Fi Direct.")
                 }
             } catch (failure: RuntimeException) {
                 if (isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
                     invitationRequest = null
+                    invitationRequestChannel = null
                     invitationRequestInstalled = false
                     UltraShareDiagnostics.failure("WIFI_DIRECT_CLEAR_SERVICE_REQUESTS", failure)
                     reportError(failure.localizedMessage ?: "تعذر تنظيف طلبات اكتشاف Wi-Fi Direct.")
@@ -677,7 +681,7 @@ object UltraShareWifiDirect {
                 }
                 try {
                     UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_REMOVE_REQUESTED")
-                    manager.removeServiceRequest(requestChannel, object : WifiP2pManager.ActionListener {
+                    manager.removeServiceRequest(requestChannel, request, object : WifiP2pManager.ActionListener {
                         override fun onSuccess() {
                             // removeServiceRequest belongs to this captured request only.
                             // A newer QR scan may already have installed another request;
@@ -990,6 +994,7 @@ object UltraShareWifiDirect {
                 return
             }
             val stopToken = ++peerDiscoveryStopToken
+            val discoveryChannel = channel
             val completed = java.util.concurrent.atomic.AtomicBoolean(false)
             var timeout: Runnable? = null
             fun finish(success: Boolean) {
@@ -1018,7 +1023,7 @@ object UltraShareWifiDirect {
                 return
             }
             try {
-                manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
+                manager.stopPeerDiscovery(discoveryChannel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         if (!isCurrentWifiDirectDiscoveryStop(closed, peerDiscoveryStopToken, stopToken)) return
                         peerDiscoveryActive = false
