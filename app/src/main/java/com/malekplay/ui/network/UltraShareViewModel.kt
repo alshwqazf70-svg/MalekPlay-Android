@@ -2069,7 +2069,9 @@ private fun forgetApprovedSenderTarget(host: String) {
             // QR service discovery must not overlap a regular discoverPeers request.
             // Wait for the framework's stop callback before installing DNS-SD requests.
             session.stopDiscoveryChecked { stopped ->
-                if (pendingQrPairing == null || wifiDirectSession !== session) return@stopDiscoveryChecked
+                if (!UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pairingAttempt) ||
+                    wifiDirectSession !== session
+                ) return@stopDiscoveryChecked
                 if (!stopped) {
                     val pending = pendingQrPairing ?: return@stopDiscoveryChecked
                     val safeFallbacks = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(
@@ -2096,13 +2098,17 @@ private fun forgetApprovedSenderTarget(host: String) {
                     return@stopDiscoveryChecked
                 }
                 session.discoverInvitation(invitationId) { peer ->
-                if (pendingQrPairing != null && !qrP2pConnectStarted) {
+                if (UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pairingAttempt) &&
+                    !qrP2pConnectStarted
+                ) {
                     qrP2pConnectStarted = true
                     _state.value = _state.value.copy(
                         status = "تم العثور على جهاز الاستقبال؛ جارٍ إنشاء الاتصال المباشر..."
                     )
                     session.stopInvitationDiscoveryChecked { stopped ->
-                        if (pendingQrPairing == null || wifiDirectSession !== session) return@stopInvitationDiscoveryChecked
+                        if (!UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pairingAttempt) ||
+                            wifiDirectSession !== session
+                        ) return@stopInvitationDiscoveryChecked
                         if (!stopped) {
                             val pending = pendingQrPairing ?: return@stopInvitationDiscoveryChecked
                             // A timed-out OEM cleanup can leave this Session marked as
