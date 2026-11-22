@@ -1716,6 +1716,13 @@ private fun forgetApprovedSenderTarget(host: String) {
                     UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, it.hosts)
                 }.orEmpty()
                 if (pending != null) {
+                    // A terminal scanner-side DNS-SD error can leave an OEM session
+                    // marked as discovering even after cleanup was attempted. Retire
+                    // that session before LAN fallback or a later QR retry; keep any
+                    // established foreground transfers independent of this ViewModel.
+                    val failedInvitationSession = wifiDirectSession
+                    wifiDirectSession = null
+                    runCatching { failedInvitationSession?.close() }
                     pendingQrPairing = null
                     qrP2pConnectStarted = false
                 }
