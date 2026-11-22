@@ -1317,6 +1317,11 @@ object UltraShareWifiDirect {
             }
         }
 
+        /** Invalidates any group-info callback before the caller retires this P2P group. */
+        fun invalidateGroupCredentials() {
+            groupCredentialsRequestToken++
+        }
+
         @SuppressLint("MissingPermission")
         fun removeGroup(onComplete: (Boolean) -> Unit = {}) {
             if (closed) {
