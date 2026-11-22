@@ -139,8 +139,8 @@ internal object VideoKindClassifier {
             } else {
                 listOf(siblings)
             }
-            groups.forEach { episodeGroup ->
-                if (episodeGroup.size < 2 || episodeGroup.map { it.third }.distinct().size < 2) return@forEach
+            groups.forEach episodeGroupLoop@ { episodeGroup ->
+                if (episodeGroup.size < 2 || episodeGroup.map { it.third }.distinct().size < 2) return@episodeGroupLoop
                 episodeGroup.forEach { (file, _, episodeNumber) ->
                     val season = seasonPattern.find(normalizeDigits(file.folderName + " " + file.folderPath))
                         ?.groupValues?.drop(1)?.firstOrNull(String::isNotBlank)?.toIntOrNull() ?: 1
