@@ -54,8 +54,8 @@ fun MediaBulkDeleteBar(
     val resolver = context.contentResolver
     val scope = rememberCoroutineScope()
     var showConfirmation by remember { mutableStateOf(false) }
-    var platformBatchApproval by remember { mutableStateOf(false) }
     var pendingApproval by remember { mutableStateOf<CompletableDeferred<Boolean>?>(null) }
+    var pendingPermission by remember { mutableStateOf<CompletableDeferred<Boolean>?>(null) }
 
     val approvalLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -70,15 +70,15 @@ fun MediaBulkDeleteBar(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            // The callback is intentionally only a permission gate. The actual
-            // deletion is started by the confirmation handler below.
-            legacyPermissionGranted = granted
-            legacyPermissionResult?.complete(granted)
-            legacyPermissionResult = null
+            pendingPermission?.let { deferred ->
+                if (!deferred.isCompleted) deferred.complete(granted)
+            }
+            pendingPermission = null
         } else {
-            legacyPermissionGranted = false
-            legacyPermissionResult?.complete(false)
-            legacyPermissionResult = null
+            pendingPermission?.let { deferred ->
+                if (!deferred.isCompleted) deferred.complete(false)
+            }
+            pendingPermission = null
         }
     }
 
@@ -127,12 +127,10 @@ fun MediaBulkDeleteBar(
                             try {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                     val request = MediaStore.createDeleteRequest(resolver, uris)
-                                    platformBatchApproval = true
                                     val deferred = CompletableDeferred<Boolean>()
                                     pendingApproval = deferred
                                     approvalLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
                                     val approved = deferred.await()
-                                    platformBatchApproval = false
                                     if (approved) {
                                         val remaining = withContext(Dispatchers.IO) {
                                             uris.count { uri ->
@@ -151,7 +149,7 @@ fun MediaBulkDeleteBar(
                                         ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
                                     ) {
                                         val permissionResult = CompletableDeferred<Boolean>()
-                                        legacyPermissionResult = permissionResult
+                                        pendingPermission = permissionResult
                                         permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
                                         if (!permissionResult.await()) {
                                             failedCount = uris.size
@@ -197,8 +195,8 @@ fun MediaBulkDeleteBar(
                                 failedCount = (uris.size - deletedCount).coerceAtLeast(0)
                                 Toast.makeText(context, error.localizedMessage ?: "تعذر إكمال الحذف", Toast.LENGTH_LONG).show()
                             } finally {
-                                platformBatchApproval = false
                                 pendingApproval = null
+                                pendingPermission = null
                             }
 
                             if (deletedCount > 0) onDeleted()
@@ -223,5 +221,3 @@ fun MediaBulkDeleteBar(
     }
 }
 
-private var legacyPermissionGranted: Boolean = false
-private var legacyPermissionResult: CompletableDeferred<Boolean>? = null
