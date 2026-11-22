@@ -8,6 +8,13 @@ import org.junit.Test
 
 class UltraShareWifiDirectPolicyTest {
     @Test
+    fun delayedGroupCreationRetryCannotSupersedeANewerGroupAttempt() {
+        assertTrue(isCurrentWifiDirectGroupRetry(false, 9, 9))
+        assertFalse(isCurrentWifiDirectGroupRetry(false, 10, 9))
+        assertFalse(isCurrentWifiDirectGroupRetry(true, 9, 9))
+    }
+
+    @Test
     fun delayedGroupCredentialsCannotOverwriteANewerP2pGroup() {
         assertTrue(isCurrentWifiDirectGroupInfoRequest(false, 7, 7))
         assertFalse(isCurrentWifiDirectGroupInfoRequest(false, 8, 7))
