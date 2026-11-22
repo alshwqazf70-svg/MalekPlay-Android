@@ -125,6 +125,37 @@ class UltraSharePeerTransferTest {
     }
 
     @Test
+    fun aggregateSpeedSumsOnlyActivePeersAndSaturatesOnOverflow() {
+        val activeReceiveA = UltraSharePeerTransfer(
+            host = "192.168.1.50", fileName = "a.mp4",
+            transferredBytes = 10L, totalBytes = 100L, bytesPerSecond = 700L,
+            status = "يستقبل الآن"
+        )
+        val activeReceiveB = UltraSharePeerTransfer(
+            host = "192.168.1.51", fileName = "b.mp4",
+            transferredBytes = 20L, totalBytes = 100L, bytesPerSecond = 900L,
+            status = "يستقبل الآن"
+        )
+        val completed = UltraSharePeerTransfer(
+            host = "192.168.1.52", fileName = "done.mp4",
+            transferredBytes = 100L, totalBytes = 100L, bytesPerSecond = 5_000L,
+            status = "اكتمل • 1 ملفات"
+        )
+        assertEquals(
+            1_600L,
+            aggregateActivePeerBytesPerSecond(
+                listOf(activeReceiveA, activeReceiveB, completed),
+                receiving = true
+            )
+        )
+        val huge = activeReceiveA.copy(bytesPerSecond = Long.MAX_VALUE)
+        assertEquals(
+            Long.MAX_VALUE,
+            aggregateActivePeerBytesPerSecond(listOf(huge, activeReceiveB), receiving = true)
+        )
+    }
+
+    @Test
     fun latestSendProgressTracksTheMostRecentlyUpdatedActivePeer() {
         val first = UltraSharePeerTransfer(
             host = "192.168.1.43", fileName = "first.mp4",
