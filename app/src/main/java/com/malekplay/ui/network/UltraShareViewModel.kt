@@ -469,6 +469,9 @@ class UltraShareViewModel @Inject constructor(
         session: UltraShareWifiDirect.Session,
         onComplete: (Boolean) -> Unit
     ) {
+        // Retire credentials immediately; discovery and group-removal callbacks are
+        // asynchronous and must not republish a QR for the group being removed.
+        session.invalidateGroupCredentials()
         session.stopInvitationDiscoveryChecked { discoveryStopped ->
             if (!discoveryStopped) {
                 // A stale DNS-SD request must not prevent us from attempting to
@@ -489,6 +492,7 @@ class UltraShareViewModel @Inject constructor(
     private fun startHotspotFallback(reason: String) {
         if (hotspotFallbackStarted || !_state.value.receiving) return
         hotspotFallbackStarted = true
+        wifiDirectSession?.invalidateGroupCredentials()
         clearStoredInvitation()
         // The P2P group is being retired. Never carry its SSID/passphrase or
         // owner address into the independent LocalOnlyHotspot/LAN QR payload.
