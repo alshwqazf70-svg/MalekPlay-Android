@@ -2134,7 +2134,10 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     fun advertiseCurrentWifiDirectInvitation() {
-        if (_state.value.hotspotActive || _state.value.hotspotStarting) {
+        val serviceHotspotState = UltraShareForegroundService.state.value
+        if (_state.value.hotspotActive || _state.value.hotspotStarting ||
+            serviceHotspotState.hotspotActive || serviceHotspotState.hotspotStarting
+        ) {
             disableWifiDirectInvitation()
             _state.value = _state.value.copy(
                 error = null,
