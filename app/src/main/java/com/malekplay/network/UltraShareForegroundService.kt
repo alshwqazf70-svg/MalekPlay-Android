@@ -1996,8 +1996,7 @@ class UltraShareForegroundService : Service() {
                     // Stable per queue URI so a retry after interruption can address
                     // the same per-file resume checkpoint, including duplicate-content
                     // files selected from different document-provider locations.
-                    val fileIdentity = uri.toString() + "|" + metadata.first + "|" + metadata.third
-                    val fileId = java.util.UUID.nameUUIDFromBytes(fileIdentity.toByteArray(Charsets.UTF_8)).toString()
+                    val fileId = UltraShareBatchTransport.stableFileId(uri, metadata.first, metadata.third)
                     v2Candidates += uri to UltraShareBatchTransport.Source(
                         uri = uri,
                         name = metadata.first,
@@ -2274,7 +2273,7 @@ class UltraShareForegroundService : Service() {
                             name = details.first,
                             mimeType = details.second,
                             sizeBytes = details.third,
-                            fileId = java.util.UUID.randomUUID().toString()
+                            fileId = UltraShareBatchTransport.stableFileId(uri, details.first, details.third)
                         )
                     }
                     val previousDeliveries = UltraSharePeerDeliveryStore.observe(this@UltraShareForegroundService).first()
@@ -2454,7 +2453,10 @@ class UltraShareForegroundService : Service() {
                 }
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) {
-                    UltraSharePeerDeliveryStore.recoverInterrupted(this@UltraShareForegroundService)
+                    UltraSharePeerDeliveryStore.recoverInterrupted(
+                        this@UltraShareForegroundService,
+                        peerTargets.mapTo(linkedSetOf()) { it.sessionId }
+                    )
                 }
                 updateState { current ->
                     current.copy(
