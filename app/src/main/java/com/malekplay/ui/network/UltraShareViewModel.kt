@@ -1062,6 +1062,41 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     /**
+     * Last-resort QR fallback after DNS-SD has been cleaned up. P2P SoftAP
+     * credentials are used only when the exact invitation and secret still match;
+     * the caller disables a return-to-DNS-SD fallback to avoid an infinite loop.
+     */
+    private fun fallbackToQrWifiCredentials(
+        pairing: com.malekplay.network.UltraShareQrCode.PairingDetails?,
+        invitationId: String,
+        secret: String,
+        reason: String
+    ): Boolean {
+        val candidate = pairing?.takeIf {
+            it.invitationId == invitationId &&
+                it.pairingSecret == secret &&
+                !it.hotspotSsid.isNullOrBlank() &&
+                !it.hotspotPassword.isNullOrBlank() &&
+                it.hosts.any(UltraShareCore::isValidPrivateLanHost)
+        } ?: return false
+        UltraShareDiagnostics.event(
+            "PAIRING",
+            "DNSSD_FAILED_USING_QR_WIFI_CREDENTIALS",
+            mapOf("sdkInt" to Build.VERSION.SDK_INT, "reason" to reason.take(120))
+        )
+        _state.value = _state.value.copy(
+            requestingConnection = true,
+            error = null,
+            status = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                "تعذر اكتشاف دعوة Wi-Fi Direct؛ سنحاول الانضمام إلى شبكة المجموعة عبر طلب Android النظامي..."
+            else
+                "تعذر اكتشاف دعوة Wi-Fi Direct؛ سنحاول الانضمام إلى شبكة المجموعة مباشرة..."
+        )
+        connectHotspotInvitation(candidate, allowWifiDirectFallback = false)
+        return true
+    }
+
+    /**
      * Joins the temporary LocalOnlyHotspot advertised by QR v4, then performs
      * the same authenticated MPC2 handshake as every other route.
      */
@@ -1104,7 +1139,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                     waitedMs += 50
                 }
                 if (!controlPairingInProgress) {
-                    joinWifiDirectInvitation(invitationId, pairing.pairingSecret, pairing.hosts)
+                    joinWifiDirectInvitation(invitationId, pairing.pairingSecret, pairing.hosts, pairing)
                 } else {
                     _state.value = _state.value.copy(
                         requestingConnection = false,
@@ -1113,7 +1148,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                 }
             }
         } else {
-            joinWifiDirectInvitation(invitationId, pairing.pairingSecret, pairing.hosts)
+            joinWifiDirectInvitation(invitationId, pairing.pairingSecret, pairing.hosts, pairing)
         }
         return true
     }
@@ -1280,7 +1315,8 @@ private fun forgetApprovedSenderTarget(host: String) {
             joinWifiDirectInvitation(
                 requireNotNull(pairing.invitationId),
                 pairing.pairingSecret,
-                pairing.hosts
+                pairing.hosts,
+                pairing
             )
             return
         }
@@ -1315,7 +1351,8 @@ private fun forgetApprovedSenderTarget(host: String) {
                 joinWifiDirectInvitation(
                     pairing.invitationId,
                     pairing.pairingSecret,
-                    pairing.hosts
+                    pairing.hosts,
+                    pairing
                 )
             } else {
                 val firstHost = pairing.hosts.firstOrNull() ?: pairing.host
@@ -2123,7 +2160,8 @@ private fun forgetApprovedSenderTarget(host: String) {
     fun joinWifiDirectInvitation(
         invitationId: String,
         secret: String,
-        fallbackHosts: List<String> = emptyList()
+        fallbackHosts: List<String> = emptyList(),
+        fallbackPairing: com.malekplay.network.UltraShareQrCode.PairingDetails? = null
     ) {
         if (pendingQrPairing != null || qrP2pConnectStarted || controlPairingInProgress ||
             hotspotNetworkCallback != null
