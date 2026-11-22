@@ -88,6 +88,37 @@ class UltraSharePeerDeliveryStoreTest {
     }
 
     @Test
+    fun recoveringOneConcurrentQueueDoesNotResetAnotherPeersActiveDelivery() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val uri = Uri.parse("content://files/concurrent")
+        UltraSharePeerDeliveryStore.clear(context)
+        try {
+            val peers = listOf(
+                UltraShareMultiRecipientCoordinator.Target("queue-a", "192.168.1.2"),
+                UltraShareMultiRecipientCoordinator.Target("queue-b", "192.168.1.3")
+            )
+            UltraSharePeerDeliveryStore.prepare(context, listOf(uri to "concurrent.mp4"), peers)
+            peers.forEach { peer ->
+                UltraSharePeerDeliveryStore.update(
+                    context, uri, peer.sessionId, UltraSharePeerDeliveryStore.STATUS_SENDING
+                )
+            }
+            UltraSharePeerDeliveryStore.recoverInterrupted(context, setOf("queue-a"))
+            val entries = UltraSharePeerDeliveryStore.observe(context).first()
+            assertEquals(
+                UltraSharePeerDeliveryStore.STATUS_PENDING,
+                entries.single { it.peerSessionId == "queue-a" }.status
+            )
+            assertEquals(
+                UltraSharePeerDeliveryStore.STATUS_SENDING,
+                entries.single { it.peerSessionId == "queue-b" }.status
+            )
+        } finally {
+            UltraSharePeerDeliveryStore.clear(context)
+        }
+    }
+
+    @Test
     fun interruptedPeerDeliveryIsRecoveredWithoutChangingCompletedPeers() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val uri = Uri.parse("content://files/recovery")
