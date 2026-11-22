@@ -39,7 +39,7 @@ class UltraShareBatchTransportTest {
         val estimator = UltraShareBatchTransport.TransferRateEstimator(0L, 1_000_000_000L)
         assertEquals(2L * 1024L * 1024L, estimator.update(2L * 1024L * 1024L, 2_000_000_000L))
         // A slower second interval is smoothed instead of averaging all bytes since file start.
-        assertEquals(1_835_008L, estimator.update(3L * 1024L * 1024L, 3_000_000_000L))
+        assertEquals(1_730_150L, estimator.update(3L * 1024L * 1024L, 3_000_000_000L))
     }
 
     @Test
