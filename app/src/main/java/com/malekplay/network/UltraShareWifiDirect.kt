@@ -606,13 +606,20 @@ object UltraShareWifiDirect {
                     UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_REMOVE_REQUESTED")
                     manager.removeServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
                         override fun onSuccess() {
-                            invitationRequest = null
-                            invitationRequestInstalled = false
+                            // removeServiceRequest belongs to this captured request only.
+                            // A newer QR scan may already have installed another request;
+                            // never let this late callback clear that newer global state.
+                            if (invitationRequest === request) {
+                                invitationRequest = null
+                                invitationRequestInstalled = false
+                            }
                             UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_REMOVE_CONFIRMED")
                             finish(stopSucceeded)
                         }
                         override fun onFailure(reason: Int) {
-                            invitationRequestInstalled = false
+                            if (invitationRequest === request) {
+                                invitationRequestInstalled = false
+                            }
                             UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_REQUEST_REMOVE_FAILED", mapOf("reason" to reason))
                             finish(false)
                         }
@@ -905,7 +912,7 @@ object UltraShareWifiDirect {
             try {
                 manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        if (closed || peerDiscoveryStopToken != stopToken) return
+                        if (!isCurrentWifiDirectDiscoveryStop(closed, peerDiscoveryStopToken, stopToken)) return
                         peerDiscoveryActive = false
                         finish(true)
                     }
@@ -920,7 +927,7 @@ object UltraShareWifiDirect {
                     }
                 })
             } catch (failure: SecurityException) {
-                if (peerDiscoveryStopToken == stopToken) {
+                if (isCurrentWifiDirectDiscoveryStop(closed, peerDiscoveryStopToken, stopToken)) {
                     UltraShareDiagnostics.failure("WIFI_DIRECT_STOP_DISCOVERY_SECURITY", failure)
                     reportError("يلزم إذن الأجهزة القريبة لإيقاف البحث قبل الاتصال.")
                     finish(false)
