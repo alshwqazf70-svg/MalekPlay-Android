@@ -1444,9 +1444,9 @@ object UltraShareBatchTransport {
             require(nowNanos >= previousNanos) { "Transfer clock moved backwards." }
             val byteDelta = totalBytes - previousBytes
             val timeDelta = nowNanos - previousNanos
+            if (timeDelta <= 0L) return smoothedRate
             previousBytes = totalBytes
             previousNanos = nowNanos
-            if (timeDelta <= 0L) return smoothedRate
             if (byteDelta == 0L) {
                 if (nowNanos - lastDataNanos >= 1_000_000_000L) smoothedRate = 0L
                 return smoothedRate
