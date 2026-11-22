@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.malekplay.domain.model.MediaItem
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,9 +39,9 @@ import kotlinx.coroutines.withContext
 /**
  * Shared bulk-delete action for every library surface.
  *
- * Android 11+ presents one system confirmation for the complete MediaStore batch.
- * Android 10 may require one recoverable approval per protected item; older
- * Android versions use the legacy storage permission.
+ * Android 11+ supports one system confirmation for a MediaStore batch.
+ * Android 10 exposes recoverable approval per protected URI, so process the
+ * selection sequentially and retry only the URI whose approval was granted.
  */
 @Composable
 fun MediaBulkDeleteBar(
@@ -53,86 +54,31 @@ fun MediaBulkDeleteBar(
     val resolver = context.contentResolver
     val scope = rememberCoroutineScope()
     var showConfirmation by remember { mutableStateOf(false) }
-    var platformDeleteApproved by remember { mutableStateOf(false) }
-    var deleteLegacyBatch: () -> Unit = {}
+    var platformBatchApproval by remember { mutableStateOf(false) }
+    var pendingApproval by remember { mutableStateOf<CompletableDeferred<Boolean>?>(null) }
 
     val approvalLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            if (platformDeleteApproved) {
-                platformDeleteApproved = false
-                Toast.makeText(context, "تم حذف الملفات المحددة من الجهاز", Toast.LENGTH_LONG).show()
-                onClearSelection()
-                onDeleted()
-            } else {
-                deleteLegacyBatch()
-            }
-        } else {
-            platformDeleteApproved = false
-            Toast.makeText(context, "لم تتم الموافقة على حذف جميع الملفات", Toast.LENGTH_LONG).show()
+        pendingApproval?.let { deferred ->
+            if (!deferred.isCompleted) deferred.complete(result.resultCode == Activity.RESULT_OK)
         }
+        pendingApproval = null
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) deleteLegacyBatch()
-        else Toast.makeText(context, "يلزم السماح بحذف الملفات من مساحة التخزين", Toast.LENGTH_LONG).show()
-    }
-
-    deleteLegacyBatch = {
-        scope.launch {
-            try {
-                val deletedCount = withContext(Dispatchers.IO) {
-                    var count = 0
-                    mediaItems.forEach { media ->
-                        if (media.uri.scheme != "content" || media.uri.authority != "media") {
-                            throw IllegalArgumentException("يوجد ملف لا ينتمي إلى مكتبة وسائط الهاتف")
-                        }
-                        count += resolver.delete(media.uri, null, null).coerceAtLeast(0)
-                    }
-                    count
-                }
-                if (deletedCount > 0) {
-                    Toast.makeText(context, "تم حذف الملفات المحددة من الجهاز ($deletedCount ملف)", Toast.LENGTH_LONG).show()
-                    onClearSelection()
-                    onDeleted()
-                } else {
-                    Toast.makeText(context, "لم يُحذف أي ملف؛ ربما حُذفت الملفات مسبقاً", Toast.LENGTH_LONG).show()
-                }
-            } catch (security: SecurityException) {
-                // RecoverableSecurityException was introduced in API 29.
-                // Keep the type reference behind an SDK guard for minSdk 23 devices.
-                if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-                    val recoverable = security as? RecoverableSecurityException
-                    if (recoverable != null) {
-                        approvalLauncher.launch(
-                            IntentSenderRequest.Builder(
-                                recoverable.userAction.actionIntent.intentSender
-                            ).build()
-                        )
-                    } else {
-                        Toast.makeText(
-                            context,
-                            "لا يملك التطبيق إذن حذف بعض الملفات",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                } else {
-                    Toast.makeText(
-                        context,
-                        "لا يملك التطبيق إذن حذف بعض الملفات",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            } catch (error: Exception) {
-                Toast.makeText(
-                    context,
-                    error.localizedMessage ?: "تعذر حذف الملفات المحددة",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
+        if (granted) {
+            // The callback is intentionally only a permission gate. The actual
+            // deletion is started by the confirmation handler below.
+            legacyPermissionGranted = granted
+            legacyPermissionResult?.complete(granted)
+            legacyPermissionResult = null
+        } else {
+            legacyPermissionGranted = false
+            legacyPermissionResult?.complete(false)
+            legacyPermissionResult = null
         }
     }
 
@@ -166,30 +112,105 @@ fun MediaBulkDeleteBar(
             onDismissRequest = { showConfirmation = false },
             title = { Text("حذف الملفات المحددة؟") },
             text = {
-                Text("سيتم طلب حذف ${mediaItems.size} ملف من مساحة تخزين الهاتف. الملفات التي يؤكد Android حذفها ستُزال من الجهاز ولن تعود إلى المكتبة بعد إعادة الفحص.")
+                Text("سيطلب Android الموافقة اللازمة لحذف ${mediaItems.size} ملف. في Android 10 قد تظهر موافقة منفصلة لبعض الملفات المحمية.")
             },
             confirmButton = {
                 TextButton(onClick = {
                     showConfirmation = false
                     val uris = mediaItems.map { it.uri }.distinct()
                     if (uris.size != mediaItems.size || uris.any { it.scheme != "content" || it.authority != "media" }) {
-                        Toast.makeText(context, "تعذر الحذف الجماعي: بعض العناصر ليست ملفات MediaStore", Toast.LENGTH_LONG).show()
-                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        try {
-                            val request = MediaStore.createDeleteRequest(resolver, uris)
-                            platformDeleteApproved = true
-                            approvalLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
-                        } catch (error: Exception) {
-                            platformDeleteApproved = false
-                            Toast.makeText(context, error.localizedMessage ?: "تعذر طلب إذن الحذف", Toast.LENGTH_LONG).show()
-                        }
-                    } else if (
-                        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        Toast.makeText(context, "تعذر الحذف: بعض العناصر ليست ملفات MediaStore", Toast.LENGTH_LONG).show()
                     } else {
-                        deleteLegacyBatch()
+                        scope.launch {
+                            var deletedCount = 0
+                            var failedCount = 0
+                            try {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    val request = MediaStore.createDeleteRequest(resolver, uris)
+                                    platformBatchApproval = true
+                                    val deferred = CompletableDeferred<Boolean>()
+                                    pendingApproval = deferred
+                                    approvalLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+                                    val approved = deferred.await()
+                                    platformBatchApproval = false
+                                    if (approved) {
+                                        val remaining = withContext(Dispatchers.IO) {
+                                            uris.count { uri ->
+                                                resolver.query(uri, arrayOf(MediaStore.MediaColumns._ID), null, null, null)?.use {
+                                                    it.moveToFirst()
+                                                } ?: false
+                                            }
+                                        }
+                                        deletedCount = uris.size - remaining
+                                        failedCount = remaining
+                                    } else {
+                                        failedCount = uris.size
+                                    }
+                                } else {
+                                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+                                        ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+                                    ) {
+                                        val permissionResult = CompletableDeferred<Boolean>()
+                                        legacyPermissionResult = permissionResult
+                                        permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                                        if (!permissionResult.await()) {
+                                            failedCount = uris.size
+                                        }
+                                    }
+
+                                    if (failedCount == 0) {
+                                        for (uri in uris) {
+                                            var itemDeleted = false
+                                            try {
+                                                try {
+                                                    withContext(Dispatchers.IO) { resolver.delete(uri, null, null) }
+                                                } catch (security: SecurityException) {
+                                                    val recoverable = if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+                                                        security as? RecoverableSecurityException
+                                                    } else null
+                                                    if (recoverable == null) throw security
+
+                                                    val deferred = CompletableDeferred<Boolean>()
+                                                    pendingApproval = deferred
+                                                    approvalLauncher.launch(
+                                                        IntentSenderRequest.Builder(
+                                                            recoverable.userAction.actionIntent.intentSender
+                                                        ).build()
+                                                    )
+                                                    if (!deferred.await()) throw SecurityException("رفض المستخدم حذف هذا الملف")
+                                                    // Retry only this URI after its own approval; never restart the batch.
+                                                    withContext(Dispatchers.IO) { resolver.delete(uri, null, null) }
+                                                }
+                                                itemDeleted = withContext(Dispatchers.IO) {
+                                                    resolver.query(uri, arrayOf(MediaStore.MediaColumns._ID), null, null, null)?.use {
+                                                        !it.moveToFirst()
+                                                    } ?: false
+                                                }
+                                            } catch (_: Exception) {
+                                                itemDeleted = false
+                                            }
+                                            if (itemDeleted) deletedCount++ else failedCount++
+                                        }
+                                    }
+                                }
+                            } catch (error: Exception) {
+                                failedCount = (uris.size - deletedCount).coerceAtLeast(0)
+                                Toast.makeText(context, error.localizedMessage ?: "تعذر إكمال الحذف", Toast.LENGTH_LONG).show()
+                            } finally {
+                                platformBatchApproval = false
+                                pendingApproval = null
+                            }
+
+                            if (deletedCount > 0) onDeleted()
+                            if (failedCount == 0 && deletedCount > 0) {
+                                Toast.makeText(context, "تم حذف جميع الملفات المحددة ($deletedCount)", Toast.LENGTH_LONG).show()
+                                onClearSelection()
+                            } else if (deletedCount > 0) {
+                                Toast.makeText(context, "تم حذف $deletedCount ملف، وتعذر حذف $failedCount ملف. بقيت الملفات غير المحذوفة محددة.", Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(context, "لم يُحذف أي ملف. بقيت العناصر محددة لتتمكن من إعادة المحاولة.", Toast.LENGTH_LONG).show()
+                            }
+                        }
                     }
                 }) {
                     Text("تأكيد الحذف", color = MaterialTheme.colorScheme.error)
@@ -201,3 +222,6 @@ fun MediaBulkDeleteBar(
         )
     }
 }
+
+private var legacyPermissionGranted: Boolean = false
+private var legacyPermissionResult: CompletableDeferred<Boolean>? = null
