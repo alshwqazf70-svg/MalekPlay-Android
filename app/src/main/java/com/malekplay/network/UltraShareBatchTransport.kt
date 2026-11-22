@@ -1325,7 +1325,7 @@ object UltraShareBatchTransport {
             // Reserve four bytes in front of the ciphertext so the length prefix and
             // encrypted frame are submitted to the buffered socket stream together.
             val encryptedSize = activeCipher.doFinal(plain, inputOffset, inputLength, encryptedBuffer, 4)
-            writeLengthPrefixedFrame(output, encryptedBuffer, encryptedSize, flush)
+            writeLengthPrefixedFrame(output, encryptedBuffer, encryptedSize, flush = false)
         } else {
             val encrypted = activeCipher.doFinal(plain, inputOffset, inputLength)
             output.writeInt(encrypted.size)
