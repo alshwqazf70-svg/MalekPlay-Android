@@ -434,6 +434,7 @@ object UltraShareWifiDirect {
             }
             invitationMatch = null
             val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+            var cleanupStage = if (peerDiscoveryActive) "stop_peer_discovery" else "remove_service_request"
             var cleanupTimeout: Runnable? = null
             fun finish(success: Boolean) {
                 if (completed.compareAndSet(false, true)) {
@@ -446,7 +447,7 @@ object UltraShareWifiDirect {
                     UltraShareDiagnostics.event(
                         "WIFI_DIRECT",
                         "INVITATION_DISCOVERY_CLEANUP_TIMEOUT",
-                        mapOf("timeoutMs" to 5_000)
+                        mapOf("timeoutMs" to 5_000, "stage" to cleanupStage)
                     )
                     onResult(false)
                 }
@@ -456,6 +457,7 @@ object UltraShareWifiDirect {
             // pairing after the exact receiver has already been discovered.
             mainHandler.postDelayed(requireNotNull(cleanupTimeout), 5_000L)
             fun removeRequest(stopSucceeded: Boolean) {
+                cleanupStage = "remove_service_request"
                 val request = invitationRequest
                 val requestWasInstalled = invitationRequestInstalled
                 // Invalidate delayed DNS-SD retry callbacks immediately, before the
@@ -479,10 +481,12 @@ object UltraShareWifiDirect {
                     return
                 }
                 try {
+                    UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_REMOVE_REQUESTED")
                     manager.removeServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
                         override fun onSuccess() {
                             invitationRequest = null
                             invitationRequestInstalled = false
+                            UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_REMOVE_CONFIRMED")
                             finish(stopSucceeded)
                         }
                         override fun onFailure(reason: Int) {
@@ -501,9 +505,12 @@ object UltraShareWifiDirect {
                 return
             }
             try {
+                cleanupStage = "stop_peer_discovery"
+                UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_STOP_REQUESTED")
                 manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         peerDiscoveryActive = false
+                        UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_STOP_CONFIRMED")
                         removeRequest(true)
                     }
                     override fun onFailure(reason: Int) {
