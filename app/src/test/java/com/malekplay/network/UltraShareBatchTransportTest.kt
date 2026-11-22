@@ -35,6 +35,35 @@ class UltraShareBatchTransportTest {
     }
 
     @Test
+    fun transferRateUsesRecentByteAndTimeDeltasInsteadOfWholeFileAverage() {
+        val estimator = UltraShareBatchTransport.TransferRateEstimator(0L, 1_000_000_000L)
+        assertEquals(2L * 1024L * 1024L, estimator.update(2L * 1024L * 1024L, 2_000_000_000L))
+        // A slower second interval is smoothed instead of averaging all bytes since file start.
+        assertEquals(1_835_008L, estimator.update(3L * 1024L * 1024L, 3_000_000_000L))
+    }
+
+    @Test
+    fun transferRateDoesNotDivideByZeroAndDecaysAfterAnObservedIdleInterval() {
+        val estimator = UltraShareBatchTransport.TransferRateEstimator(4096L, 10L)
+        assertEquals(0L, estimator.update(4096L, 10L))
+        assertEquals(1_000L, estimator.update(5096L, 1_000_000_010L))
+        assertEquals(1_000L, estimator.update(5096L, 1_500_000_010L))
+        assertEquals(0L, estimator.update(5096L, 2_000_000_010L))
+    }
+
+    @Test
+    fun transferRateStartsFromResumeOffsetAndIgnoresEarlierPreparationTime() {
+        val estimator = UltraShareBatchTransport.TransferRateEstimator(
+            initialBytes = 8L * 1024L * 1024L,
+            startNanos = 50_000_000_000L
+        )
+        assertEquals(
+            4L * 1024L * 1024L,
+            estimator.update(12L * 1024L * 1024L, 51_000_000_000L)
+        )
+    }
+
+    @Test
     fun sourcePreparationIsBoundedOrderedAndAllowsTwoFilesToPrepareConcurrently() = runBlocking {
         val active = java.util.concurrent.atomic.AtomicInteger(0)
         val peak = java.util.concurrent.atomic.AtomicInteger(0)
