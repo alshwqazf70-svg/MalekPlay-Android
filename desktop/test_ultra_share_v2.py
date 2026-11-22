@@ -32,6 +32,9 @@ from ultra_share_v2 import (
     _control_decrypt,
     CONTROL_MAGIC,
     CONTROL_VERSION,
+    HANDSHAKE_MAGIC,
+    CHALLENGE_BYTES,
+    DISCOVERY_PROBE_PROOF,
     recv_exact,
 )
 
@@ -288,6 +291,13 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             with patch("ultra_share_v2._is_private_v2_peer", return_value=True):
                 control = connect_control_session("127.0.0.1", control_port, "123456789")
                 try:
+                    # A reachability probe must be rejected without consuming
+                    # the one-shot listener needed by the real transfer.
+                    with socket.create_connection(("127.0.0.1", data_port), timeout=3) as probe:
+                        greeting = recv_exact(probe, 4 + CHALLENGE_BYTES)
+                        self.assertEqual(HANDSHAKE_MAGIC, int.from_bytes(greeting[:4], "big"))
+                        probe.sendall(DISCOVERY_PROBE_PROOF)
+                        self.assertEqual(b"\\x00", recv_exact(probe, 1))
                     results = send_batch_v2(
                         "127.0.0.1", data_port, "123456789", [first, second]
                     )
