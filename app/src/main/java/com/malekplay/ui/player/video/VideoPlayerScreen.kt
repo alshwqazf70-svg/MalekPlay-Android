@@ -44,6 +44,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -1272,20 +1274,41 @@ fun VideoPlayerScreen(
                 onDismissRequest = { showVideoDiagnostics = false },
                 title = { Text(stringResource(R.string.player_video_diagnostics)) },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 520.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val internalGpuState =
+                            googleAiState == GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE ||
+                                googleAiState == GoogleMediaEnhancementState.INTERNAL_GPU_WAITING_FOR_FIRST_FRAME
                         val googleAiStatusLabel = when (googleAiState) {
                             GoogleMediaEnhancementState.DISABLED -> R.string.player_google_ai_disabled
                             GoogleMediaEnhancementState.WAITING_FOR_VIDEO -> R.string.player_google_ai_waiting
                             GoogleMediaEnhancementState.CHECKING_DEVICE -> R.string.player_google_ai_checking
                             GoogleMediaEnhancementState.INSTALL_REQUIRED -> R.string.player_google_ai_install_required
                             GoogleMediaEnhancementState.INSTALLING -> R.string.player_google_ai_installing
-                            GoogleMediaEnhancementState.WAITING_FOR_FIRST_FRAME,
-                            GoogleMediaEnhancementState.INTERNAL_GPU_WAITING_FOR_FIRST_FRAME -> R.string.player_google_ai_first_frame
-                            GoogleMediaEnhancementState.ACTIVE, GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE -> R.string.player_google_ai_active
+                            GoogleMediaEnhancementState.WAITING_FOR_FIRST_FRAME -> R.string.player_google_ai_first_frame
+                            GoogleMediaEnhancementState.ACTIVE -> R.string.player_google_ai_active
+                            GoogleMediaEnhancementState.INTERNAL_GPU_WAITING_FOR_FIRST_FRAME -> R.string.player_internal_gpu_waiting
+                            GoogleMediaEnhancementState.INTERNAL_GPU_ACTIVE -> R.string.player_internal_gpu_active
                             GoogleMediaEnhancementState.UNSUPPORTED -> R.string.player_google_ai_unsupported
                             GoogleMediaEnhancementState.FAILED -> R.string.player_google_ai_failed
                         }
-                        Text(stringResource(R.string.player_google_ai_status, stringResource(googleAiStatusLabel)))
+                        Text(
+                            stringResource(
+                                if (internalGpuState) R.string.player_internal_gpu_status
+                                else R.string.player_google_ai_status,
+                                stringResource(googleAiStatusLabel)
+                            )
+                        )
+                        Text(
+                            stringResource(R.string.player_google_ai_requirement),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         if (googleAiState == GoogleMediaEnhancementState.INSTALLING) {
                             Text(stringResource(R.string.player_google_ai_progress, googleAiProgress))
                         }
