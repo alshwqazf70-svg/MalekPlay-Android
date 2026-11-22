@@ -1815,6 +1815,8 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun disableWifiDirectInvitation() {
         clearStoredInvitation()
+        val serviceState = UltraShareForegroundService.state.value
+        val serviceHotspotActive = serviceState.hotspotActive
         wifiDirectGroupSsid = null
         wifiDirectGroupPassword = null
         wifiDirectOwnerAddress = null
@@ -1825,9 +1827,9 @@ private fun forgetApprovedSenderTarget(host: String) {
             receiverQrPayload = null,
             wifiDirectLocalAddress = null,
             wifiDirectHost = null,
-            hotspotSsid = "",
-            hotspotPassword = "",
-            hotspotSecurity = "wpa2"
+            hotspotSsid = serviceState.hotspotSsid.takeIf { serviceHotspotActive }.orEmpty(),
+            hotspotPassword = serviceState.hotspotPassword.takeIf { serviceHotspotActive }.orEmpty(),
+            hotspotSecurity = if (serviceHotspotActive) _state.value.hotspotSecurity else "wpa2"
         )
         val session = wifiDirectSession
         if (session == null) {
