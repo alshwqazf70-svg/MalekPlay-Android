@@ -70,19 +70,36 @@ class GoogleMediaEnhancementSurfaceBackend(
         if (closed.get()) return
         val request = generation.incrementAndGet()
 
-        client.isDeviceSupported()
-            .addOnCompleteListener(executor) { supportTask ->
-                if (!isCurrent(request)) return@addOnCompleteListener
-                if (!supportTask.isSuccessful) {
-                    fail(request, "Google AI capability check failed")
-                    return@addOnCompleteListener
+        try {
+            client.isDeviceSupported()
+                .addOnCompleteListener(executor) { supportTask ->
+                    if (!isCurrent(request)) return@addOnCompleteListener
+                    if (!supportTask.isSuccessful) {
+                        fail(
+                            request,
+                            supportTask.exception?.message
+                                ?: "Google Play services could not verify AI enhancement support"
+                        )
+                        return@addOnCompleteListener
+                    }
+                    if (supportTask.result != true) {
+                        listener.onUnsupported()
+                        return@addOnCompleteListener
+                    }
+                    checkModule(request)
                 }
-                if (supportTask.result != true) {
-                    listener.onUnsupported()
-                    return@addOnCompleteListener
+                .addOnFailureListener(executor) { error ->
+                    fail(
+                        request,
+                        error.message ?: "Google Play services are unavailable for AI enhancement"
+                    )
                 }
-                checkModule(request)
-            }
+        } catch (error: Throwable) {
+            fail(
+                request,
+                error.message ?: "Google Play services are unavailable for AI enhancement"
+            )
+        }
     }
 
     /**
@@ -127,17 +144,34 @@ class GoogleMediaEnhancementSurfaceBackend(
     }
 
     private fun checkModule(request: Long) {
-        client.isModuleInstalled()
-            .addOnCompleteListener(executor) { moduleTask ->
-                if (!isCurrent(request)) return@addOnCompleteListener
-                if (!moduleTask.isSuccessful) {
-                    fail(request, "Google AI model availability check failed")
-                } else if (moduleTask.result != true) {
-                    listener.onModuleInstallRequired()
-                } else {
-                    createSession(request)
+        try {
+            client.isModuleInstalled()
+                .addOnCompleteListener(executor) { moduleTask ->
+                    if (!isCurrent(request)) return@addOnCompleteListener
+                    if (!moduleTask.isSuccessful) {
+                        fail(
+                            request,
+                            moduleTask.exception?.message
+                                ?: "Google Play services could not check the AI model"
+                        )
+                    } else if (moduleTask.result != true) {
+                        listener.onModuleInstallRequired()
+                    } else {
+                        createSession(request)
+                    }
                 }
-            }
+                .addOnFailureListener(executor) { error ->
+                    fail(
+                        request,
+                        error.message ?: "Google Play services could not check the AI model"
+                    )
+                }
+        } catch (error: Throwable) {
+            fail(
+                request,
+                error.message ?: "Google Play services could not check the AI model"
+            )
+        }
     }
 
     private fun createSession(request: Long) {
