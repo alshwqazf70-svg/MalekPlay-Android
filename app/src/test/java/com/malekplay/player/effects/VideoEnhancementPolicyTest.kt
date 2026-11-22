@@ -133,6 +133,34 @@ class VideoEnhancementPolicyTest {
         assertTrue(balanced.denoiseStrength < ultra.denoiseStrength)
     }
 
+    @Test fun standard144pVideoUsesBalancedTextureBudgetWithoutAspectDistortion() {
+        val target = VideoUpscaleTargetPolicy.resolve(
+            sourceWidth = 256,
+            sourceHeight = 144,
+            displayWidth = 2960,
+            displayHeight = 1440,
+            maxLongEdge = VideoEnhancementProfile.BALANCED.upscaleMaxLongEdge,
+            maxPixels = VideoEnhancementProfile.BALANCED.upscaleMaxPixels
+        )
+        assertEquals(VideoUpscaleTarget(2108, 1185), target)
+        assertTrue(requireNotNull(target).longEdge.toLong() * target.shortEdge <= 2_500_000L)
+    }
+
+    @Test fun enhancementStagesDenoiseBeforeUpscalingAndDetailAfterwards() {
+        assertEquals(
+            listOf(
+                VideoEnhancementStage.DENOISE,
+                VideoEnhancementStage.UPSCALE,
+                VideoEnhancementStage.DETAIL
+            ),
+            VideoEnhancementPolicy.processingOrder(includeUpscale = true)
+        )
+        assertEquals(
+            listOf(VideoEnhancementStage.DENOISE, VideoEnhancementStage.DETAIL),
+            VideoEnhancementPolicy.processingOrder(includeUpscale = false)
+        )
+    }
+
     @Test fun veryLowResolution128pVideoUpscalesWithoutExceedingBalancedPixelBudget() {
         val target = VideoUpscaleTargetPolicy.resolve(
             sourceWidth = 224,
