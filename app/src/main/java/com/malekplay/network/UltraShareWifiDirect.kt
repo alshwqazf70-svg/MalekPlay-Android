@@ -660,19 +660,17 @@ object UltraShareWifiDirect {
                 val request = invitationRequest
                 val requestWasInstalled = invitationRequestInstalled
                 val requestChannel = invitationRequestChannel ?: channel
-                // Invalidate delayed DNS-SD retry callbacks immediately, before the
-                // asynchronous removeServiceRequest callback returns.
-                invitationRequest = null
-                invitationRequestChannel = null
-                invitationRequestInstalled = false
                 if (request == null) {
                     finish(stopSucceeded)
                     return
                 }
                 if (!requestWasInstalled) {
-                    // clearServiceRequests/addServiceRequest is still in flight. We cannot
-                    // claim cleanup or start another P2P operation until its callback is
-                    // settled; the late add callback will see the stale identity and abort.
+                    // clearServiceRequests/addServiceRequest is still in flight. Invalidate
+                    // the request identity so a late add callback removes only its own
+                    // service request instead of starting discovery after cancellation.
+                    invitationRequest = null
+                    invitationRequestChannel = null
+                    invitationRequestInstalled = false
                     UltraShareDiagnostics.event(
                         "WIFI_DIRECT",
                         "INVITATION_REQUEST_CANCELLED_DURING_SETUP",
@@ -681,6 +679,10 @@ object UltraShareWifiDirect {
                     finish(false)
                     return
                 }
+                // Keep an installed request attached to the session until Android
+                // confirms removal. If removeServiceRequest fails, a later cleanup
+                // attempt must still be able to remove this exact request; clearing
+                // the field early made the next stop falsely report success.
                 try {
                     UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_REMOVE_REQUESTED")
                     manager.removeServiceRequest(requestChannel, request, object : WifiP2pManager.ActionListener {
@@ -697,9 +699,9 @@ object UltraShareWifiDirect {
                             finish(stopSucceeded)
                         }
                         override fun onFailure(reason: Int) {
-                            if (invitationRequest === request) {
-                                invitationRequestInstalled = false
-                            }
+                            // The framework did not confirm removal. Retain the exact
+                            // request/channel as installed so the next stop can retry;
+                            // never turn a failed cleanup into a false clean state.
                             UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_REQUEST_REMOVE_FAILED", mapOf("reason" to reason))
                             finish(false)
                         }
