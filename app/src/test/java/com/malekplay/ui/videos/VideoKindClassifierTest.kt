@@ -98,6 +98,51 @@ class VideoKindClassifierTest {
         assertEquals(10, classified.getValue("ep10").episode?.episode)
     }
 
+    @Test fun recognizesConsecutiveNumberOnlyEpisodesDirectlyInDownloads() {
+        val files = listOf(8, 4, 7, 5, 6).map { number ->
+            VideoFileDescriptor(
+                "episode-$number",
+                "$number.mp4",
+                "Download",
+                "Download/"
+            )
+        }
+        val classified = VideoKindClassifier.classifyAll(files)
+
+        files.forEach { file ->
+            assertEquals(VideoKind.SERIES, classified.getValue(file.id).kind)
+            assertEquals("حلقات مرقمة", classified.getValue(file.id).episode?.seriesKey)
+        }
+        assertEquals(4, classified.getValue("episode-4").episode?.episode)
+        assertEquals(8, classified.getValue("episode-8").episode?.episode)
+    }
+
+    @Test fun doesNotTreatOneOrTwoNumberedDownloadsAsASeries() {
+        val files = listOf(
+            VideoFileDescriptor("clip-1", "1.mp4", "Download", "Download/"),
+            VideoFileDescriptor("clip-2", "2.mp4", "Download", "Download/")
+        )
+        val classified = VideoKindClassifier.classifyAll(files)
+
+        assertEquals(VideoKind.UNCLASSIFIED, classified.getValue("clip-1").kind)
+        assertEquals(VideoKind.UNCLASSIFIED, classified.getValue("clip-2").kind)
+    }
+
+    @Test fun separatesNumberedEpisodeRunsFromUnrelatedNumbersInDownloads() {
+        val numbers = listOf(4, 5, 6, 7, 8, 30, 60)
+        val files = numbers.map { number ->
+            VideoFileDescriptor("number-$number", "$number.mp4", "Download", "Download/")
+        }
+        val classified = VideoKindClassifier.classifyAll(files)
+
+        (4..8).forEach { number ->
+            assertEquals(VideoKind.SERIES, classified.getValue("number-$number").kind)
+        }
+        listOf(30, 60).forEach { number ->
+            assertEquals(VideoKind.UNCLASSIFIED, classified.getValue("number-$number").kind)
+        }
+    }
+
     @Test fun keepsAmbiguousVideoClassificationConservative() {
         val files = listOf(
             VideoFileDescriptor("unknown", "Nature Documentary 4K.mp4", "Downloads", "/storage/emulated/0/Download"),
