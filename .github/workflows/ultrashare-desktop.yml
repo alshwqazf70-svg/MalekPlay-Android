@@ -7,6 +7,8 @@ on:
   pull_request:
     branches:
       - feature/zapya-engineering-analysis
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
