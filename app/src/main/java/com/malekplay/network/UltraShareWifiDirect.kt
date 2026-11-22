@@ -55,6 +55,7 @@ object UltraShareWifiDirect {
         // Tracks both the pending addServiceRequest call and the installed request.
         // A request must be visible to cancellation before crossing the async framework boundary.
         private var invitationRequest: WifiP2pDnsSdServiceRequest? = null
+        private var invitationRequestChannel: WifiP2pManager.Channel? = null
         private var invitationRequestInstalled = false
         // Separates retries for the same service request; old framework callbacks
         // must not mutate the state of a newer discoverServices invocation.
@@ -395,7 +396,9 @@ object UltraShareWifiDirect {
             // listeners. Android may deliver late TXT records after cancellation or
             // after a new scan for the same QR identity has already started.
             val request = WifiP2pDnsSdServiceRequest.newInstance()
+            val requestChannel = channel
             invitationRequest = request
+            invitationRequestChannel = requestChannel
             invitationRequestInstalled = false
             invitationMatch = onMatch
             UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_REQUESTED", mapOf("sdkInt" to Build.VERSION.SDK_INT))
@@ -453,10 +456,11 @@ object UltraShareWifiDirect {
                     }
                 )
                 UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_CREATED", mapOf("sdkInt" to Build.VERSION.SDK_INT))
-                prepareInvitationServiceRequest(request, 0)
+                prepareInvitationServiceRequest(request, 0, requestChannel)
             } catch (failure: SecurityException) {
                 if (isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
                     invitationRequest = null
+                    invitationRequestChannel = null
                     invitationRequestInstalled = false
                     invitationMatch = null
                 }
@@ -464,6 +468,7 @@ object UltraShareWifiDirect {
             } catch (failure: RuntimeException) {
                 if (isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
                     invitationRequest = null
+                    invitationRequestChannel = null
                     invitationRequestInstalled = false
                     invitationMatch = null
                 }
@@ -480,12 +485,13 @@ object UltraShareWifiDirect {
         @SuppressLint("MissingPermission")
         private fun prepareInvitationServiceRequest(
             request: WifiP2pDnsSdServiceRequest,
-            attempt: Int
+            attempt: Int,
+            requestChannel: WifiP2pManager.Channel
         ) {
             if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) return
             try {
                 UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_CLEAR_REQUESTED", mapOf("attempt" to attempt))
-                manager.clearServiceRequests(channel, object : WifiP2pManager.ActionListener {
+                manager.clearServiceRequests(requestChannel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_CLEAR_CONFIRMED", mapOf("attempt" to attempt))
                         // The user may have cancelled while Android was clearing the old
@@ -493,7 +499,7 @@ object UltraShareWifiDirect {
                         if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) return
                         try {
                             UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_ADD_REQUESTED", mapOf("attempt" to attempt))
-                            manager.addServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
+                            manager.addServiceRequest(requestChannel, request, object : WifiP2pManager.ActionListener {
                                 override fun onSuccess() {
                                     UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_ADD_CONFIRMED", mapOf("attempt" to attempt))
                                     if (closed || !isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
@@ -501,12 +507,12 @@ object UltraShareWifiDirect {
                                         // session closure. Remove this late request; it must
                                         // never start DNS-SD discovery or remain registered.
                                         runCatching {
-                                            manager.removeServiceRequest(channel, request, null)
+                                            manager.removeServiceRequest(requestChannel, request, null)
                                         }
                                         return
                                     }
                                     invitationRequestInstalled = true
-                                    startInvitationServiceDiscovery(request, 0)
+                                    startInvitationServiceDiscovery(request, 0, requestChannel)
                                 }
 
                                 override fun onFailure(reason: Int) {
@@ -520,7 +526,7 @@ object UltraShareWifiDirect {
                                         mainHandler.postDelayed(
                                             {
                                                 if (isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
-                                                    prepareInvitationServiceRequest(request, attempt + 1)
+                                                    prepareInvitationServiceRequest(request, attempt + 1, requestChannel)
                                                 }
                                             },
                                             500L * (attempt + 1)
@@ -535,6 +541,7 @@ object UltraShareWifiDirect {
                         } catch (failure: SecurityException) {
                             if (isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
                                 invitationRequest = null
+                                invitationRequestChannel = null
                                 invitationRequestInstalled = false
                                 reportError("يلزم إذن الأجهزة القريبة لإعداد البحث عن دعوة Wi-Fi Direct.")
                             }
@@ -617,6 +624,7 @@ object UltraShareWifiDirect {
             }
             invitationMatch = null
             invitationDiscoveryToken++
+            val requestChannel = invitationRequestChannel ?: channel
             val peerStopToken = ++peerDiscoveryStopToken
             val completed = java.util.concurrent.atomic.AtomicBoolean(false)
             var cleanupStage = if (peerDiscoveryActive) "stop_peer_discovery" else "remove_service_request"
@@ -645,9 +653,11 @@ object UltraShareWifiDirect {
                 cleanupStage = "remove_service_request"
                 val request = invitationRequest
                 val requestWasInstalled = invitationRequestInstalled
+                val requestChannel = invitationRequestChannel ?: channel
                 // Invalidate delayed DNS-SD retry callbacks immediately, before the
                 // asynchronous removeServiceRequest callback returns.
                 invitationRequest = null
+                invitationRequestChannel = null
                 invitationRequestInstalled = false
                 if (request == null) {
                     finish(stopSucceeded)
@@ -667,13 +677,14 @@ object UltraShareWifiDirect {
                 }
                 try {
                     UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_REMOVE_REQUESTED")
-                    manager.removeServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
+                    manager.removeServiceRequest(requestChannel, object : WifiP2pManager.ActionListener {
                         override fun onSuccess() {
                             // removeServiceRequest belongs to this captured request only.
                             // A newer QR scan may already have installed another request;
                             // never let this late callback clear that newer global state.
                             if (invitationRequest === request) {
                                 invitationRequest = null
+                                invitationRequestChannel = null
                                 invitationRequestInstalled = false
                             }
                             UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_REMOVE_CONFIRMED")
@@ -699,7 +710,7 @@ object UltraShareWifiDirect {
             try {
                 cleanupStage = "stop_peer_discovery"
                 UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_STOP_REQUESTED")
-                manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
+                manager.stopPeerDiscovery(requestChannel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         if (!isCurrentWifiDirectDiscoveryStop(closed, peerDiscoveryStopToken, peerStopToken)) return
                         peerDiscoveryActive = false
@@ -823,7 +834,8 @@ object UltraShareWifiDirect {
         @SuppressLint("MissingPermission")
         private fun startInvitationServiceDiscovery(
             request: WifiP2pDnsSdServiceRequest,
-            attempt: Int
+            attempt: Int,
+            requestChannel: WifiP2pManager.Channel
         ) {
             if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request) || !invitationRequestInstalled) return
             val discoveryToken = ++invitationDiscoveryToken
@@ -846,7 +858,7 @@ object UltraShareWifiDirect {
                 mapOf("attempt" to attempt, "discoveryToken" to discoveryToken, "sdkInt" to Build.VERSION.SDK_INT)
             )
             try {
-                manager.discoverServices(channel, object : WifiP2pManager.ActionListener {
+                manager.discoverServices(requestChannel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
                         if (!isCurrentAttempt()) {
                             UltraShareDiagnostics.event(
@@ -883,7 +895,7 @@ object UltraShareWifiDirect {
                         if (retryable && attempt < 3) {
                             mainHandler.postDelayed({
                                 if (isCurrentAttempt()) {
-                                    startInvitationServiceDiscovery(request, attempt + 1)
+                                    startInvitationServiceDiscovery(request, attempt + 1, requestChannel)
                                 }
                             }, 600L * (attempt + 1))
                         } else {
@@ -987,14 +999,16 @@ object UltraShareWifiDirect {
                 }
             }
             timeout = Runnable {
-                if (!closed && peerDiscoveryStopToken == stopToken) {
+                if (peerDiscoveryStopToken == stopToken && !closed) {
                     UltraShareDiagnostics.event(
                         "WIFI_DIRECT",
                         "PEER_DISCOVERY_STOP_TIMEOUT",
                         mapOf("timeoutMs" to 5_000, "stopToken" to stopToken)
                     )
-                    finish(false)
                 }
+                // A stale callback still belongs to a waiting caller. Complete it
+                // as unconfirmed instead of leaving create/connect suspended forever.
+                finish(false)
             }
             mainHandler.postDelayed(requireNotNull(timeout), 5_000L)
             // If this Session never started discovery (or it already stopped), there is
@@ -2366,6 +2380,7 @@ object UltraShareWifiDirect {
             localInvitationCleanupPending = false
             invitationMatch = null
             invitationRequest = null
+            invitationRequestChannel = null
             invitationRequestInstalled = false
             peerDiscoveryActive = false
             runCatching { onLocalAddress(null) }
@@ -2417,6 +2432,7 @@ object UltraShareWifiDirect {
             runCatching { manager.clearLocalServices(channel, null) }
             invitationMatch = null
             invitationRequest = null
+            invitationRequestChannel = null
             invitationRequestInstalled = false
             peerDiscoveryActive = false
             localInvitationService = null
