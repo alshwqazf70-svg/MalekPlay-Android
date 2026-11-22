@@ -24,6 +24,39 @@ import org.junit.Test
 class UltraShareBatchTransportTest {
 
     @Test
+    fun encryptedFrameLengthAndPayloadAreWrittenInOneBufferedStreamCall() {
+        val writes = mutableListOf<Int>()
+        val captured = java.io.ByteArrayOutputStream()
+        val sink = object : java.io.OutputStream() {
+            override fun write(value: Int) {
+                captured.write(value)
+                writes += 1
+            }
+
+            override fun write(buffer: ByteArray, offset: Int, length: Int) {
+                captured.write(buffer, offset, length)
+                writes += length
+            }
+        }
+        val output = java.io.DataOutputStream(java.io.BufferedOutputStream(sink, 16))
+        val payload = ByteArray(64) { (it * 7).toByte() }
+        val frame = ByteArray(payload.size + 4)
+        payload.copyInto(frame, destinationOffset = 4)
+
+        UltraShareBatchTransport.writeLengthPrefixedFrame(output, frame, payload.size)
+        output.close()
+
+        assertEquals(listOf(payload.size + 4), writes)
+        val encoded = captured.toByteArray()
+        assertEquals(payload.size + 4, encoded.size)
+        assertEquals(0, encoded[0].toInt())
+        assertEquals(0, encoded[1].toInt())
+        assertEquals(0, encoded[2].toInt())
+        assertEquals(payload.size, encoded[3].toInt() and 0xff)
+        org.junit.Assert.assertArrayEquals(payload, encoded.copyOfRange(4, encoded.size))
+    }
+
+    @Test
     fun stableFileIdentitySurvivesRetriesAndSeparatesDifferentQueueItems() {
         val firstUri = Uri.parse("content://media/external/video/42")
         val sameRetry = UltraShareBatchTransport.stableFileId(firstUri, "clip.mp4", 4096L)
