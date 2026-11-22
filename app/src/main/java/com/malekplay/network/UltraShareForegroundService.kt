@@ -1023,7 +1023,7 @@ class UltraShareForegroundService : Service() {
     }
 
     private fun updateNotification(progress: UltraShareCore.Progress) {
-        val now = android.os.(System.nanoTime() / 1_000_000L)
+        val now = System.nanoTime() / 1_000_000L
         val completed = progress.totalBytes > 0L && progress.transferredBytes >= progress.totalBytes
         val shouldNotify = synchronized(notificationProgressGuard) {
             if (!completed && now - lastProgressNotificationAtMs < 350L) {
@@ -2539,7 +2539,7 @@ class UltraShareForegroundService : Service() {
                 withContext(NonCancellable) {
                     UltraSharePeerDeliveryStore.recoverInterrupted(
                         this@UltraShareForegroundService,
-                        peerTargets.mapTo(linkedSetOf()) { it.sessionId }
+                        targets.mapTo(linkedSetOf()) { it.sessionId }
                     )
                 }
                 updateState { current ->
