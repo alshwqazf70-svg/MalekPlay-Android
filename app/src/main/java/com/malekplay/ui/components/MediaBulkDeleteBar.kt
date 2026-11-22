@@ -4,10 +4,12 @@ import android.Manifest
 import android.app.Activity
 import android.app.RecoverableSecurityException
 import android.content.pm.PackageManager
+import android.content.IntentSender
 import android.os.Build
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.annotation.RequiresApi
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +37,11 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+
+@RequiresApi(Build.VERSION_CODES.Q)
+private fun recoverableDeleteIntentSender(exception: RecoverableSecurityException): IntentSender =
+    exception.userAction.actionIntent.intentSender
 
 /**
  * Shared bulk-delete action for every library surface.
@@ -172,7 +179,7 @@ fun MediaBulkDeleteBar(
                                                     pendingApproval = deferred
                                                     approvalLauncher.launch(
                                                         IntentSenderRequest.Builder(
-                                                            recoverable.userAction.actionIntent.intentSender
+                                                            recoverableDeleteIntentSender(recoverable)
                                                         ).build()
                                                     )
                                                     if (!deferred.await()) throw SecurityException("رفض المستخدم حذف هذا الملف")
