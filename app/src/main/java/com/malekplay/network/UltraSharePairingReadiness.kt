@@ -33,6 +33,9 @@ internal object UltraSharePairingReadiness {
     fun shouldUseWifiDirectInvitation(mode: String?, invitationId: String?): Boolean =
         !invitationId.isNullOrBlank() && (mode.isNullOrBlank() || mode == "p2p")
 
+    /** Keep a receiver's QR advertisement alive while its room can accept additional peers. */
+    fun shouldRetainReceiverInvitationAdvertisement(receiving: Boolean): Boolean = receiving
+
     /** A P2P QR is publishable only after Android confirms its DNS-SD service advertisement. */
     fun canPublishWifiDirectInvitationQr(
         invitationId: String?,
