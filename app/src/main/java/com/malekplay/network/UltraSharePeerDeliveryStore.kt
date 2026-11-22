@@ -111,10 +111,15 @@ object UltraSharePeerDeliveryStore {
                 (it.status == STATUS_PENDING || it.status == STATUS_FAILED)
         }
 
-    suspend fun recoverInterrupted(context: Context) {
+    suspend fun recoverInterrupted(context: Context, peerSessionIds: Set<String>? = null) {
+        require(peerSessionIds == null || peerSessionIds.isNotEmpty()) {
+            "يجب تحديد جهاز واحد على الأقل عند استعادة طابور جزئي."
+        }
         context.applicationContext.ultraShareDeliveryDataStore.edit { preferences ->
             val recovered = decodeForMutation(preferences[DELIVERIES].orEmpty()).map { entry ->
-                if (entry.status == STATUS_SENDING) entry.copy(
+                if (entry.status == STATUS_SENDING &&
+                    (peerSessionIds == null || entry.peerSessionId in peerSessionIds)
+                ) entry.copy(
                     status = STATUS_PENDING,
                     error = "انقطع التطبيق أثناء الإرسال إلى هذا الجهاز؛ يمكن استئناف هذه الوجهة."
                 ) else entry
