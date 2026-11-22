@@ -2140,7 +2140,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             viewModelScope.launch {
                 delay(12_000)
                 val pending = pairingAttempt
-                if (pendingQrPairing === pairingAttempt &&
+                if (UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pairingAttempt) &&
                     UltraSharePairingReadiness.shouldUseLanFallbackAfterInvitationDiscoveryTimeout(
                         hasPendingInvitation = true,
                         wifiDirectConnectionStarted = qrP2pConnectStarted
