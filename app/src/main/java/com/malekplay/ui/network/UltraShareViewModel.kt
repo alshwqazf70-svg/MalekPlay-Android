@@ -164,6 +164,7 @@ class UltraShareViewModel @Inject constructor(
     @Volatile private var wifiDirectGroupSecurity: String = "wpa2"
     @Volatile private var wifiDirectCredentialsFromJoinedInvitation = false
     private var dnsSdQrFallbackScheduledFor: String? = null
+    @Volatile private var wifiDirectAdvertisedInvitationId: String? = null
     private var wifiDirectCleanupInProgress = false
     private companion object {
         const val PEER_SIGHTING_TTL_MS = 12_000L
@@ -390,6 +391,7 @@ class UltraShareViewModel @Inject constructor(
         wifiDirectGroupSecurity = "wpa2"
         wifiDirectCredentialsFromJoinedInvitation = false
         dnsSdQrFallbackScheduledFor = null
+        wifiDirectAdvertisedInvitationId = null
         _state.value = _state.value.copy(
             pairingSecret = secret,
             invitationId = "",
@@ -502,6 +504,7 @@ class UltraShareViewModel @Inject constructor(
         wifiDirectGroupSecurity = "wpa2"
         wifiDirectCredentialsFromJoinedInvitation = false
         dnsSdQrFallbackScheduledFor = null
+        wifiDirectAdvertisedInvitationId = null
         _state.value = _state.value.copy(
             receiverQrPayload = null,
             wifiDirectLocalAddress = null,
@@ -1005,6 +1008,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         wifiDirectGroupSecurity = "wpa2"
         wifiDirectCredentialsFromJoinedInvitation = false
         dnsSdQrFallbackScheduledFor = null
+        wifiDirectAdvertisedInvitationId = null
         val session = wifiDirectSession
         wifiDirectCleanupInProgress = session != null
         // End the logical receive session before asynchronous P2P cleanup callbacks
@@ -1830,6 +1834,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         wifiDirectGroupSecurity = "wpa2"
         wifiDirectCredentialsFromJoinedInvitation = false
         dnsSdQrFallbackScheduledFor = null
+        wifiDirectAdvertisedInvitationId = null
         _state.value = _state.value.copy(
             receiverQrPayload = null,
             wifiDirectLocalAddress = null,
@@ -1950,7 +1955,26 @@ private fun forgetApprovedSenderTarget(host: String) {
             !rawPassword.isNullOrBlank() && rawPassword.length in 8..63
         val ssid = rawSsid.takeIf { hasWifiCredentials }
         val password = rawPassword.takeIf { hasWifiCredentials }
-        val invitationId = current.invitationId.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }
+        val requestedInvitationId = current.invitationId.takeIf {
+            it.matches(Regex("[A-Za-z0-9_-]{1,64}"))
+        }
+        if (requestedInvitationId != null &&
+            !UltraSharePairingReadiness.canPublishWifiDirectInvitationQr(
+                requestedInvitationId,
+                wifiDirectAdvertisedInvitationId
+            )
+        ) {
+            // The QR scanner selects DNS-SD whenever a P2P invitation ID is present.
+            // Publishing before addLocalService succeeds creates a QR that can only
+            // wait for a service record which Android has not advertised yet.
+            UltraShareDiagnostics.event(
+                "PAIRING_QR",
+                "P2P_QR_WITHHELD_UNTIL_DNSSD_ADVERTISEMENT",
+                mapOf("invitationIdPresent" to true)
+            )
+            return
+        }
+        val invitationId = requestedInvitationId
         val advertisedAddresses = current.localAddresses + service.localAddresses
         val verifiedLanHosts = UltraShareNetworkRouting.nonP2pLocalIpv4Addresses(
             context, advertisedAddresses
@@ -2054,6 +2078,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         wifiDirectGroupSecurity = "wpa2"
         wifiDirectCredentialsFromJoinedInvitation = false
         dnsSdQrFallbackScheduledFor = null
+        wifiDirectAdvertisedInvitationId = null
         _state.value = _state.value.copy(
             receiverQrPayload = null,
             hotspotSsid = "",
@@ -2076,19 +2101,20 @@ private fun forgetApprovedSenderTarget(host: String) {
             if (wifiDirectSession !== session || !_state.value.receiving) return@stopInvitationDiscoveryChecked
             session.createGroup {
                 if (wifiDirectSession !== session || !_state.value.receiving) return@createGroup
-                // Group creation is sufficient to publish the credentials-based QR.
-                // DNS-SD is an optional fallback and must never gate the QR display.
-                publishUnifiedReceiverQrIfReady()
-                // Schedule the LAN/P2P QR fallback independently of DNS-SD. An OEM
-                // addLocalService failure must not hide an otherwise usable invitation.
-                publishDnsSdReceiverQrIfReady(invitationId)
+                // A P2P QR selects DNS-SD on the joining device. Do not expose it
+                // until Android confirms addLocalService; otherwise a fast scanner
+                // can start discovery before the invitation exists on the radio.
                 session.advertiseInvitation(invitationId) {
+                    if (wifiDirectSession !== session || !_state.value.receiving) return@advertiseInvitation
+                    wifiDirectAdvertisedInvitationId = invitationId
                     UltraShareForegroundService.refreshLocalAddresses(context)
                     _state.value = _state.value.copy(
                         invitationId = invitationId,
                         error = null,
-                        status = "مجموعة Wi-Fi Direct جاهزة؛ رمز QR الموحد متاح للانضمام المباشر."
+                        status = "مجموعة Wi-Fi Direct جاهزة؛ تم إعلان الدعوة وأصبح رمز QR متاحاً."
                     )
+                    publishUnifiedReceiverQrIfReady()
+                    publishDnsSdReceiverQrIfReady(invitationId)
                 }
             }
         }
