@@ -2162,8 +2162,8 @@ private fun forgetApprovedSenderTarget(host: String) {
                     session.stopInvitationDiscoveryChecked { stopped ->
                         // A newer QR attempt or a successful DNS-SD match supersedes
                         // this timer; never let an old timeout cancel that attempt.
-                        if (pendingQrPairing != pending || qrP2pConnectStarted ||
-                            wifiDirectSession !== session
+                        if (!UltraSharePairingReadiness.isCurrentInvitationAttempt(pendingQrPairing, pending) ||
+                            qrP2pConnectStarted || wifiDirectSession !== session
                         ) return@stopInvitationDiscoveryChecked
 
                         if (!stopped) {
