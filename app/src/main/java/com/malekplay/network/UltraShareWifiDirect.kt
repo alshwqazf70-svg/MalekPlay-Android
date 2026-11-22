@@ -1068,6 +1068,11 @@ object UltraShareWifiDirect {
             // not a continuation of a previous client connection attempt.
             connectionInfoRequestToken++
             groupCredentialsRequestToken++
+            // Supersede any previous create/await group attempt before waiting for
+            // discovery shutdown; its delayed retries must not create a second group.
+            groupAttemptTimeout?.let(mainHandler::removeCallbacks)
+            groupAttemptTimeout = null
+            groupAttemptToken++
             cancelClientPeerConfirmation()
             // A new owner-group attempt must not advertise a route retained from an older group.
             runCatching { onLocalAddress(null) }
@@ -1132,8 +1137,11 @@ object UltraShareWifiDirect {
                             manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
                                 override fun onSuccess() {
                                     finishGroupAttempt(token)
+                                    val retryToken = groupAttemptToken
                                     mainHandler.postDelayed({
-                                        if (!closed) createGroupAttempt(onCreated, attempt + 1)
+                                        if (isCurrentWifiDirectGroupRetry(closed, groupAttemptToken, retryToken)) {
+                                            createGroupAttempt(onCreated, attempt + 1)
+                                        }
                                     }, 500L)
                                 }
 
@@ -1170,8 +1178,11 @@ object UltraShareWifiDirect {
                                 if (shouldRetryWifiDirectConnectFailure(reason, attempt)) {
                                     finishGroupAttempt(token)
                                     runCatching { manager.cancelConnect(channel, null) }
+                                    val retryToken = groupAttemptToken
                                     mainHandler.postDelayed({
-                                        if (!closed) createGroupAttempt(onCreated, attempt + 1)
+                                        if (isCurrentWifiDirectGroupRetry(closed, groupAttemptToken, retryToken)) {
+                                            createGroupAttempt(onCreated, attempt + 1)
+                                        }
                                     }, 1_000L * (attempt + 1))
                                 } else {
                                     finishGroupAttempt(token)
@@ -1291,7 +1302,7 @@ object UltraShareWifiDirect {
 
         @SuppressLint("MissingPermission")
         private fun awaitReceiverGroup(onCreated: () -> Unit, attempt: Int, token: Int) {
-            if (closed) return
+            if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return
             try {
                 manager.requestConnectionInfo(channel) { info ->
                     if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return@requestConnectionInfo
@@ -2626,6 +2637,12 @@ internal fun isCurrentWifiDirectConnectionAttempt(
 ): Boolean = !sessionClosed && connectionInProgress && currentToken == callbackToken
 
 /** Rejects delayed group-setup callbacks after timeout, closure, or a newer attempt. */
+internal fun isCurrentWifiDirectGroupRetry(
+    sessionClosed: Boolean,
+    currentToken: Int,
+    scheduledToken: Int
+): Boolean = !sessionClosed && currentToken == scheduledToken
+
 internal fun isCurrentWifiDirectGroupAttempt(
     sessionClosed: Boolean,
     currentToken: Int,
