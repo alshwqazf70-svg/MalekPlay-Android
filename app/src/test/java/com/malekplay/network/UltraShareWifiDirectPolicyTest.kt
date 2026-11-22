@@ -8,6 +8,15 @@ import org.junit.Test
 
 class UltraShareWifiDirectPolicyTest {
     @Test
+    fun stableAdvertisementIsReusedOnlyWhenNoMutationOrCleanupIsPending() {
+        assertTrue(canReuseWifiDirectAdvertisement(true, true, false, false))
+        assertFalse(canReuseWifiDirectAdvertisement(true, true, true, false))
+        assertFalse(canReuseWifiDirectAdvertisement(true, true, false, true))
+        assertFalse(canReuseWifiDirectAdvertisement(false, true, false, false))
+        assertFalse(canReuseWifiDirectAdvertisement(true, false, false, false))
+    }
+
+    @Test
     fun delayedAdvertisementCleanupCannotCompleteANewerInvitation() {
         assertTrue(isCurrentWifiDirectAdvertisementOperation(false, 4, 4))
         assertFalse(isCurrentWifiDirectAdvertisementOperation(false, 5, 4))
