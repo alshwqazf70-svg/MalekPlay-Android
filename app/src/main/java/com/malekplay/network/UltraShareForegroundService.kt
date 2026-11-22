@@ -540,22 +540,18 @@ class UltraShareForegroundService : Service() {
                                             bytesPerSecond = progress.bytesPerSecond,
                                             status = "يستقبل الآن"
                                         )
+                                        val updatedTransfers = current.peerTransfers.filterNot { it.host == peer } + item
+                                        val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
                                         current.copy(
-                                            peerTransfers = current.peerTransfers.filterNot { it.host == peer } + item,
-                                            receiveProgress = UltraShareCore.Progress(
-                                                progress.fileName, progress.transferredBytes, progress.totalBytes,
-                                                progress.bytesPerSecond, true
-                                            ),
-                                            progress = if (current.sending) current.sendProgress else UltraShareCore.Progress(
-                                                progress.fileName, progress.transferredBytes, progress.totalBytes,
-                                                progress.bytesPerSecond, true
-                                            ),
+                                            peerTransfers = updatedTransfers,
+                                            receiveProgress = activeProgress,
+                                            progress = if (current.sending) current.sendProgress else activeProgress,
                                             status = "استقبال ملفات عبر جلسة V2 من $peer",
                                             error = null
                                         )
                                     }
                                     updateNotification(
-                                        UltraShareCore.Progress(
+                                        currentState().receiveProgress ?: UltraShareCore.Progress(
                                             progress.fileName, progress.transferredBytes, progress.totalBytes,
                                             progress.bytesPerSecond, true
                                         )
@@ -2109,10 +2105,14 @@ class UltraShareForegroundService : Service() {
                                             bytesPerSecond = progress.bytesPerSecond,
                                             status = "يرسل الآن"
                                         )
+                                        val updatedTransfers = current.peerTransfers.filterNot { it.host == activeV2Host } + peerTransfer
+                                        val aggregateSendProgress = sendProgress.copy(
+                                            bytesPerSecond = aggregateActivePeerBytesPerSecond(updatedTransfers, receiving = false)
+                                        )
                                         current.copy(
-                                            peerTransfers = current.peerTransfers.filterNot { it.host == activeV2Host } + peerTransfer,
-                                            progress = if (current.receiving) current.receiveProgress else sendProgress,
-                                            sendProgress = sendProgress,
+                                            peerTransfers = updatedTransfers,
+                                            progress = if (current.receiving) current.receiveProgress else aggregateSendProgress,
+                                            sendProgress = aggregateSendProgress,
                                             queueCurrentName = progress.fileName,
                                             queueTransferredBytes = minOf(totalBytes, v2ProgressCompletedBytes + progress.transferredBytes),
                                             status = "إرسال دفعة V2 عبر اتصال بيانات واحد: ${progress.fileName}"
@@ -2399,10 +2399,14 @@ class UltraShareForegroundService : Service() {
                                         bytesPerSecond = progress.bytesPerSecond,
                                         status = "يرسل الآن • V2"
                                     )
+                                    val updatedTransfers = current.peerTransfers.filterNot { it.host == activePeerHost } + transfer
+                                    val aggregateSendProgress = sendProgress.copy(
+                                        bytesPerSecond = aggregateActivePeerBytesPerSecond(updatedTransfers, receiving = false)
+                                    )
                                     current.copy(
-                                        peerTransfers = current.peerTransfers.filterNot { it.host == activePeerHost } + transfer,
-                                        progress = if (current.receiving) current.receiveProgress else sendProgress,
-                                        sendProgress = sendProgress,
+                                        peerTransfers = updatedTransfers,
+                                        progress = if (current.receiving) current.receiveProgress else aggregateSendProgress,
+                                        sendProgress = aggregateSendProgress,
                                         queueCurrentName = progress.fileName,
                                         status = "إرسال دفعة V2 إلى $activePeerHost"
                                     )
