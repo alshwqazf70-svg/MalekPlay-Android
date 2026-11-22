@@ -1155,13 +1155,14 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     @Suppress("DEPRECATION")
     private fun connectLegacyWifiNetwork(
-        pairing: com.malekplay.network.UltraShareQrCode.PairingDetails
+        pairing: com.malekplay.network.UltraShareQrCode.PairingDetails,
+        allowWifiDirectFallback: Boolean = true
     ) {
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE)
             as? android.net.wifi.WifiManager
         if (wifi == null) {
             val message = "خدمة Wi-Fi غير متاحة؛ تعذر الانضمام المباشر إلى الشبكة."
-            if (!fallbackToWifiDirectInvitation(pairing, message)) {
+            if (!allowWifiDirectFallback || !fallbackToWifiDirectInvitation(pairing, message)) {
                 _state.value = _state.value.copy(requestingConnection = false, error = message)
             }
             return
@@ -1219,7 +1220,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                 if (!associated) {
                     val message = "انتهت مهلة الانضمام إلى شبكة المجموعة قبل اكتمال اتصال Wi-Fi."
                     releaseLegacyWifiNetwork()
-                    if (!fallbackToWifiDirectInvitation(pairing, message)) {
+                    if (!allowWifiDirectFallback || !fallbackToWifiDirectInvitation(pairing, message)) {
                         _state.value = _state.value.copy(requestingConnection = false, error = message)
                     }
                     return@launch
@@ -1241,10 +1242,17 @@ private fun forgetApprovedSenderTarget(host: String) {
                     port = pairing.port,
                     onConnectionFailed = { rejected, reason ->
                         releaseLegacyWifiNetwork()
-                        if (!rejected) fallbackToWifiDirectInvitation(
-                            pairing,
-                            reason ?: "تعذر الوصول إلى مجموعة Wi-Fi بعد الانضمام إليها."
-                        )
+                        if (!rejected) {
+                            val message = reason ?: "تعذر الوصول إلى مجموعة Wi-Fi بعد الانضمام إليها."
+                            if (!allowWifiDirectFallback ||
+                                !fallbackToWifiDirectInvitation(pairing, message)
+                            ) {
+                                _state.value = _state.value.copy(
+                                    requestingConnection = false,
+                                    error = message
+                                )
+                            }
+                        }
                     }
                 )
             }
@@ -1254,7 +1262,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             val message = (failure.localizedMessage
                 ?: "تعذر الانضمام التلقائي إلى شبكة Wi-Fi على هذا الجهاز.") +
                 " يمكنك الاتصال بها يدوياً من إعدادات Wi-Fi ثم إعادة مسح الرمز."
-            if (!fallbackToWifiDirectInvitation(pairing, message)) {
+            if (!allowWifiDirectFallback || !fallbackToWifiDirectInvitation(pairing, message)) {
                 _state.value = _state.value.copy(requestingConnection = false, error = message)
             }
         }
@@ -1373,7 +1381,10 @@ private fun forgetApprovedSenderTarget(host: String) {
         }
     }
 
-    fun connectHotspotInvitation(pairing: com.malekplay.network.UltraShareQrCode.PairingDetails) {
+    fun connectHotspotInvitation(
+        pairing: com.malekplay.network.UltraShareQrCode.PairingDetails,
+        allowWifiDirectFallback: Boolean = true
+    ) {
         if (hotspotNetworkCallback != null || controlPairingInProgress || pendingQrPairing != null) {
             _state.value = _state.value.copy(
                 error = "هناك محاولة اقتران أو جلسة شبكة قائمة بالفعل. أنهِ الجلسة الحالية قبل مسح رمز آخر."
@@ -1389,7 +1400,7 @@ private fun forgetApprovedSenderTarget(host: String) {
         // Keep the API-29+ guard explicit for WifiNetworkSpecifier; older
         // Android versions use WifiManager.addNetwork in the legacy helper.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            connectLegacyWifiNetwork(pairing)
+            connectLegacyWifiNetwork(pairing, allowWifiDirectFallback)
             return
         }
 
@@ -1397,7 +1408,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             as? android.net.ConnectivityManager
         if (connectivity == null) {
             val message = "خدمة اتصال Wi-Fi غير متاحة على هذا الجهاز."
-            if (!fallbackToWifiDirectInvitation(pairing, message)) {
+            if (!allowWifiDirectFallback || !fallbackToWifiDirectInvitation(pairing, message)) {
                 _state.value = _state.value.copy(requestingConnection = false, error = message)
             }
             return
@@ -1427,7 +1438,7 @@ private fun forgetApprovedSenderTarget(host: String) {
                 .build()
         }.getOrElse { failure ->
             val message = failure.localizedMessage ?: "تعذر إعداد طلب اتصال Wi-Fi المباشر."
-            if (!fallbackToWifiDirectInvitation(pairing, message)) {
+            if (!allowWifiDirectFallback || !fallbackToWifiDirectInvitation(pairing, message)) {
                 _state.value = _state.value.copy(requestingConnection = false, error = message)
             }
             return
@@ -1479,10 +1490,15 @@ private fun forgetApprovedSenderTarget(host: String) {
                     },
                     onConnectionFailed = { rejected, reason ->
                         if (!rejected && !networkLost.get()) {
-                            viewModel.fallbackToWifiDirectInvitation(
-                                pairing,
-                                reason ?: "تعذر إتمام اقتران MPC2 عبر شبكة Wi-Fi المباشرة."
-                            )
+                            val message = reason ?: "تعذر إتمام اقتران MPC2 عبر شبكة Wi-Fi المباشرة."
+                            if (!allowWifiDirectFallback ||
+                                !viewModel.fallbackToWifiDirectInvitation(pairing, message)
+                            ) {
+                                viewModel._state.value = viewModel._state.value.copy(
+                                    requestingConnection = false,
+                                    error = message
+                                )
+                            }
                         }
                     }
                 )
@@ -1500,7 +1516,9 @@ private fun forgetApprovedSenderTarget(host: String) {
                     viewModel.hotspotNetworkCallback = null
                     viewModel.hotspotNetworkPaired = false
                     val message = "لم يكتمل الانضمام إلى شبكة MalekPlay. وافق على طلب Wi-Fi الذي عرضه Android وأبقِ نقطة الاتصال مفتوحة."
-                    if (!viewModel.fallbackToWifiDirectInvitation(pairing, message)) {
+                    if (!allowWifiDirectFallback ||
+                        !viewModel.fallbackToWifiDirectInvitation(pairing, message)
+                    ) {
                         viewModel._state.value = viewModel._state.value.copy(
                             requestingConnection = false,
                             error = message
@@ -1521,10 +1539,9 @@ private fun forgetApprovedSenderTarget(host: String) {
                         UltraShareForegroundService.disconnectApprovedPeer(peerHost)
                     }
                 } else if (!paired.get()) {
-                    val fallbackStarted = owner.get()?.fallbackToWifiDirectInvitation(
-                        pairing,
-                        "انقطع الاتصال بالشبكة قبل اكتمال الاقتران."
-                    ) == true
+                    val lostReason = "انقطع الاتصال بالشبكة قبل اكتمال الاقتران."
+                    val fallbackStarted = allowWifiDirectFallback &&
+                        owner.get()?.fallbackToWifiDirectInvitation(pairing, lostReason) == true
                     if (!fallbackStarted) {
                         viewModel?.let { ownerViewModel ->
                             ownerViewModel._state.value = ownerViewModel._state.value.copy(
@@ -1570,7 +1587,7 @@ private fun forgetApprovedSenderTarget(host: String) {
             hotspotNetworkCallback = null
             hotspotNetworkPaired = false
             val message = failure.localizedMessage ?: "تعذر طلب الانضمام إلى شبكة MalekPlay."
-            if (!fallbackToWifiDirectInvitation(pairing, message)) {
+            if (!allowWifiDirectFallback || !fallbackToWifiDirectInvitation(pairing, message)) {
                 _state.value = _state.value.copy(
                     requestingConnection = false,
                     error = message
