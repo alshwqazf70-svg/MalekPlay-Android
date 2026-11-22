@@ -125,18 +125,10 @@ fun UltraShareSessionRoom(
 
     // Sum only live peer channels. Completed/failed rows retain their last byte
     // counters for history and must not inflate the room's current speed or ETA.
-    val activePeerTransfers = state.peerTransfers.filter {
-        (it.status.startsWith("يرسل الآن") || it.status.startsWith("يستقبل الآن")) &&
-            it.totalBytes > it.transferredBytes && it.bytesPerSecond > 0L
-    }
-    val aggregatePeerSpeed = activePeerTransfers.fold(0L) { total, transfer ->
-        val rate = transfer.bytesPerSecond.coerceAtLeast(0L)
-        if (Long.MAX_VALUE - total < rate) Long.MAX_VALUE else total + rate
-    }
-    val aggregatePeerRemaining = activePeerTransfers.fold(0L) { total, transfer ->
-        val remaining = (transfer.totalBytes - transfer.transferredBytes).coerceAtLeast(0L)
-        if (Long.MAX_VALUE - total < remaining) Long.MAX_VALUE else total + remaining
-    }
+    val aggregatePeerMetrics = aggregateUltraSharePeerMetrics(state.peerTransfers)
+    val activePeerTransfersCount = aggregatePeerMetrics.activePeerCount
+    val aggregatePeerSpeed = aggregatePeerMetrics.bytesPerSecond
+    val aggregatePeerRemaining = aggregatePeerMetrics.remainingBytes
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -434,7 +426,7 @@ fun UltraShareSessionRoom(
                     }
                 }
             }
-            if (activePeerTransfers.size > 1) {
+            if (activePeerTransfersCount > 1) {
                 Column(
                     modifier = Modifier.fillMaxWidth()
                         .background(
@@ -445,7 +437,7 @@ fun UltraShareSessionRoom(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        "إجمالي النقل المتزامن عبر ${activePeerTransfers.size} أجهزة",
+                        "إجمالي النقل المتزامن عبر ${activePeerTransfersCount} أجهزة",
                         color = MalekPlayColors.PurpleBright,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.labelMedium
@@ -833,6 +825,30 @@ private fun UltraShareCompletionPanel(title: String, subtitle: String, detail: S
             Text(detail, color = Color(0xFFB6E8D2), style = MaterialTheme.typography.labelSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
+}
+
+internal data class UltraShareAggregatePeerMetrics(
+    val activePeerCount: Int,
+    val bytesPerSecond: Long,
+    val remainingBytes: Long
+)
+
+internal fun aggregateUltraSharePeerMetrics(
+    transfers: List<com.malekplay.network.UltraSharePeerTransfer>
+): UltraShareAggregatePeerMetrics {
+    val active = transfers.filter {
+        (it.status.startsWith("يرسل الآن") || it.status.startsWith("يستقبل الآن")) &&
+            it.totalBytes > it.transferredBytes && it.bytesPerSecond > 0L
+    }
+    val speed = active.fold(0L) { total, transfer ->
+        val rate = transfer.bytesPerSecond.coerceAtLeast(0L)
+        if (Long.MAX_VALUE - total < rate) Long.MAX_VALUE else total + rate
+    }
+    val remaining = active.fold(0L) { total, transfer ->
+        val bytes = (transfer.totalBytes - transfer.transferredBytes).coerceAtLeast(0L)
+        if (Long.MAX_VALUE - total < bytes) Long.MAX_VALUE else total + bytes
+    }
+    return UltraShareAggregatePeerMetrics(active.size, speed, remaining)
 }
 
 internal fun formatTransferBytes(value: Long): String {
