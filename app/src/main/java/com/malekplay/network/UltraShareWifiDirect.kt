@@ -144,8 +144,41 @@ object UltraShareWifiDirect {
                         requestPeers()
                     }
                     WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
-                        UltraShareDiagnostics.event("WIFI_DIRECT", "CONNECTION_CHANGED_BROADCAST")
+                        @Suppress("DEPRECATION")
+                        val networkInfo = intent.getParcelableExtra<android.net.NetworkInfo>(
+                            WifiP2pManager.EXTRA_NETWORK_INFO
+                        )
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "CONNECTION_CHANGED_BROADCAST",
+                            mapOf(
+                                "networkInfoPresent" to (networkInfo != null),
+                                "state" to networkInfo?.state?.name.orEmpty(),
+                                "detailedState" to networkInfo?.detailedState?.name.orEmpty(),
+                                "connected" to (networkInfo?.isConnected == true),
+                                "sdkInt" to Build.VERSION.SDK_INT
+                            )
+                        )
                         requestConnectionInfo()
+                    }
+                    WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION -> {
+                        val discoveryState = intent.getIntExtra(
+                            WifiP2pManager.EXTRA_DISCOVERY_STATE,
+                            Int.MIN_VALUE
+                        )
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "DISCOVERY_STATE_BROADCAST",
+                            mapOf(
+                                "state" to discoveryState,
+                                "stateName" to when (discoveryState) {
+                                    WifiP2pManager.WIFI_P2P_DISCOVERY_STARTED -> "STARTED"
+                                    WifiP2pManager.WIFI_P2P_DISCOVERY_STOPPED -> "STOPPED"
+                                    else -> "UNKNOWN"
+                                },
+                                "sdkInt" to Build.VERSION.SDK_INT
+                            )
+                        )
                     }
                 }
             }
@@ -156,6 +189,7 @@ object UltraShareWifiDirect {
                 addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
                 addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
                 addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+                addAction(WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION)
             }
             ContextCompat.registerReceiver(
                 appContext,
