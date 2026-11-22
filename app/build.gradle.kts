@@ -110,6 +110,15 @@ android {
         abortOnError = true
         checkReleaseBuilds = true
     }
+
+    // Robolectric downloads instrumented Android framework jars at test runtime.
+    // Use Maven Central's canonical host instead of repo1 to avoid intermittent 429s.
+    testOptions {
+        unitTests.all {
+            it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+            it.systemProperty("robolectric.dependency.repo.id", "central")
+        }
+    }
 }
 
 ksp {

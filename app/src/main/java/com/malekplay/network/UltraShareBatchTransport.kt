@@ -117,10 +117,18 @@ object UltraShareBatchTransport {
      * Stable across retries for the same document queue item. The receiver uses this
      * identity together with the content digest to locate its durable resume checkpoint.
      */
-    internal fun stableFileId(uri: Uri, name: String, sizeBytes: Long): String {
+    internal fun stableFileId(uri: Uri, name: String, sizeBytes: Long): String =
+        stableFileIdFromIdentity(uri.toString(), name, sizeBytes)
+
+    /**
+     * Pure identity encoder so retry identity can be verified without Android framework stubs.
+     * The URI string is the canonical document identity supplied by ContentResolver.
+     */
+    internal fun stableFileIdFromIdentity(uriIdentity: String, name: String, sizeBytes: Long): String {
+        require(uriIdentity.isNotBlank())
         require(name.isNotBlank())
         require(sizeBytes in 1..UltraShareCore.MAX_FILE_BYTES)
-        val identity = uri.toString() + "|" + name + "|" + sizeBytes
+        val identity = uriIdentity + "|" + name + "|" + sizeBytes
         return java.util.UUID.nameUUIDFromBytes(identity.toByteArray(Charsets.UTF_8)).toString()
     }
 

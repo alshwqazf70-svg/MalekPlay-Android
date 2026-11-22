@@ -158,15 +158,30 @@ class UltraShareV2ManifestTests(unittest.TestCase):
 
     def test_v2_aes_gcm_frame_round_trip_and_directional_nonce(self):
         import socket
+        import threading
         left, right = socket.socketpair()
+        writer_failures = []
         try:
+            left.settimeout(5)
+            right.settimeout(5)
             key = derive_v2_key(bytes(range(32)), bytes(range(32)), "client-to-server")
             prefix = b"abcd"
             # Kotlin uses 1 MiB chunks plus a 7-byte chunk header.
-            # Both language implementations must permit that authenticated frame size.
+            # A socketpair has a bounded send buffer, so write concurrently with the reader.
             payload = bytes(1024 * 1024 + 7)
-            v2_write_frame(left, key, prefix, 9, payload)
+
+            def write_frame():
+                try:
+                    v2_write_frame(left, key, prefix, 9, payload)
+                except BaseException as error:
+                    writer_failures.append(error)
+
+            writer = threading.Thread(target=write_frame, name="v2-frame-writer", daemon=True)
+            writer.start()
             self.assertEqual(payload, v2_read_frame(right, key, prefix, 9, 1024 * 1024 + 7))
+            writer.join(timeout=5)
+            self.assertFalse(writer.is_alive(), "frame writer did not finish after the reader consumed the frame")
+            self.assertEqual([], writer_failures)
             self.assertEqual(b"abcd" + (9).to_bytes(8, "big"), v2_nonce(prefix, 9))
         finally:
             left.close()

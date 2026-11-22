@@ -1,7 +1,5 @@
 package com.malekplay.network
 
-import android.net.Uri
-
 import java.nio.file.Files
 import java.net.ServerSocket
 import java.net.Socket
@@ -58,13 +56,18 @@ class UltraShareBatchTransportTest {
 
     @Test
     fun stableFileIdentitySurvivesRetriesAndSeparatesDifferentQueueItems() {
-        val firstUri = Uri.parse("content://media/external/video/42")
-        val sameRetry = UltraShareBatchTransport.stableFileId(firstUri, "clip.mp4", 4096L)
-        assertEquals(sameRetry, UltraShareBatchTransport.stableFileId(firstUri, "clip.mp4", 4096L))
-        assertTrue(sameRetry != UltraShareBatchTransport.stableFileId(
-            Uri.parse("content://media/external/video/43"), "clip.mp4", 4096L
+        val firstUri = "content://media/external/video/42"
+        val sameRetry = UltraShareBatchTransport.stableFileIdFromIdentity(firstUri, "clip.mp4", 4096L)
+        assertEquals(
+            sameRetry,
+            UltraShareBatchTransport.stableFileIdFromIdentity(firstUri, "clip.mp4", 4096L)
+        )
+        assertTrue(sameRetry != UltraShareBatchTransport.stableFileIdFromIdentity(
+            "content://media/external/video/43", "clip.mp4", 4096L
         ))
-        assertTrue(sameRetry != UltraShareBatchTransport.stableFileId(firstUri, "clip.mp4", 4097L))
+        assertTrue(sameRetry != UltraShareBatchTransport.stableFileIdFromIdentity(
+            firstUri, "clip.mp4", 4097L
+        ))
     }
 
     @Test
