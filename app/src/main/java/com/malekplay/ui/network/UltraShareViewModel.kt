@@ -1959,7 +1959,16 @@ private fun forgetApprovedSenderTarget(host: String) {
             // Give requestGroupInfo a short opportunity to publish WPA2 credentials.
             // If this OEM withholds them, retain the compatible DNS-SD invitation QR.
             repeat(20) {
-                if (wifiDirectGroupSsid != null && wifiDirectGroupPassword != null) return@launch
+                if (wifiDirectGroupSsid != null && wifiDirectGroupPassword != null) {
+                    // Prefer the richer room QR when its live route is ready. If
+                    // Android has not exposed a usable IPv4 yet, still publish the
+                    // DNS-SD-only invitation below; credentials alone must not leave
+                    // the receiver waiting with no QR on older OEM P2P stacks.
+                    publishUnifiedReceiverQrIfReady()
+                    val publishedInvitationId = _state.value.receiverQrPayload
+                        ?.let { runCatching { UltraShareQrCode.parsePayload(it).invitationId }.getOrNull() }
+                    if (publishedInvitationId == invitationId) return@launch
+                }
                 val current = _state.value
                 val service = UltraShareForegroundService.state.value
                 if (current.receiving && service.controlChannelReady) {
