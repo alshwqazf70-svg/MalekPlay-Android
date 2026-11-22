@@ -490,7 +490,22 @@ class UltraShareViewModel @Inject constructor(
         if (hotspotFallbackStarted || !_state.value.receiving) return
         hotspotFallbackStarted = true
         clearStoredInvitation()
-        _state.value = _state.value.copy(receiverQrPayload = null)
+        // The P2P group is being retired. Never carry its SSID/passphrase or
+        // owner address into the independent LocalOnlyHotspot/LAN QR payload.
+        wifiDirectGroupSsid = null
+        wifiDirectGroupPassword = null
+        wifiDirectOwnerAddress = null
+        wifiDirectGroupSecurity = "wpa2"
+        wifiDirectCredentialsFromJoinedInvitation = false
+        dnsSdQrFallbackScheduledFor = null
+        _state.value = _state.value.copy(
+            receiverQrPayload = null,
+            wifiDirectLocalAddress = null,
+            wifiDirectHost = null,
+            hotspotSsid = "",
+            hotspotPassword = "",
+            hotspotSecurity = "wpa2"
+        )
         wifiDirectPrimaryAttempt = false
         pendingQrPairing = null
         qrP2pConnectStarted = false
