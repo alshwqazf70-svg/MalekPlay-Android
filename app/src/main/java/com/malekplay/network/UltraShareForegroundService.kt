@@ -109,7 +109,21 @@ data class UltraSharePeerTransfer(
         else (transferredBytes.toDouble() / totalBytes.toDouble()).toFloat().coerceIn(0f, 1f)
 }
 
-/** Keeps the shared progress indicator truthful while other peers are still receiving. */
+/** Sum only active peer rates; saturate rather than overflow for large fan-out rooms. */
+internal fun aggregateActivePeerBytesPerSecond(
+    transfers: List<UltraSharePeerTransfer>,
+    receiving: Boolean
+): Long = transfers.asSequence()
+    .filter { transfer ->
+        if (receiving) transfer.status == "يستقبل الآن"
+        else transfer.status.startsWith("يرسل الآن")
+    }
+    .fold(0L) { total, transfer ->
+        val rate = transfer.bytesPerSecond.coerceAtLeast(0L)
+        if (Long.MAX_VALUE - total < rate) Long.MAX_VALUE else total + rate
+    }
+
+/** Keeps the shared receive progress indicator truthful while peers transfer concurrently. */
 internal fun latestActivePeerReceiveProgress(
     transfers: List<UltraSharePeerTransfer>
 ): UltraShareCore.Progress? =
@@ -121,7 +135,7 @@ internal fun latestActivePeerReceiveProgress(
                 active.fileName,
                 active.transferredBytes,
                 active.totalBytes,
-                active.bytesPerSecond,
+                aggregateActivePeerBytesPerSecond(transfers, receiving = true),
                 true
             )
         }
@@ -154,7 +168,7 @@ internal fun latestActivePeerSendProgress(
                 active.fileName,
                 active.transferredBytes,
                 active.totalBytes,
-                active.bytesPerSecond,
+                aggregateActivePeerBytesPerSecond(transfers, receiving = false),
                 false
             )
         }
