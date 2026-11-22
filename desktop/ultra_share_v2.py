@@ -605,6 +605,7 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
             connection = candidate
             address = candidate_address
             challenge = candidate_challenge
+            proof = candidate_proof
 
     with connection:
         if challenge is None:
