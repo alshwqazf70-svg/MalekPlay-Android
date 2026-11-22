@@ -697,10 +697,14 @@ class UltraShareViewModel @Inject constructor(
                         localAddress
                     }
                 if (routeHosts.isEmpty()) {
+                    val message = "عنوان الجهاز الموجود في الدعوة يطابق عنوان هذا الهاتف نفسه؛ أُوقف الاتصال الذاتي. أنشئ رمز QR جديداً من الهاتف المستقبل ثم امسحه من الهاتف الآخر."
                     _state.value = _state.value.copy(
                         requestingConnection = false,
-                        error = "عنوان الجهاز الموجود في الدعوة يطابق عنوان هذا الهاتف نفسه؛ أُوقف الاتصال الذاتي. أنشئ رمز QR جديداً من الهاتف المستقبل ثم امسحه من الهاتف الآخر."
+                        error = message
                     )
+                    // NetworkSpecifier callers own a temporary NetworkCallback lease;
+                    // notify them on every terminal route failure so they can release it.
+                    onConnectionFailed?.invoke(false, message)
                     return@launch
                 }
                 var acceptedHost: String? = null
