@@ -126,6 +126,39 @@ internal fun latestActivePeerReceiveProgress(
             )
         }
 
+/** A stalled socket must not leave its last non-zero throughput on screen indefinitely. */
+internal fun zeroStalePeerTransferSpeeds(
+    transfers: List<UltraSharePeerTransfer>,
+    nowMillis: Long,
+    staleAfterMillis: Long = 1_500L
+): List<UltraSharePeerTransfer> {
+    require(staleAfterMillis >= 0L)
+    return transfers.map { transfer ->
+        val isActive = transfer.status == "يستقبل الآن" || transfer.status.startsWith("يرسل الآن")
+        val age = (nowMillis - transfer.updatedAtMillis).coerceAtLeast(0L)
+        if (isActive && transfer.bytesPerSecond > 0L && age >= staleAfterMillis) {
+            transfer.copy(bytesPerSecond = 0L)
+        } else transfer
+    }
+}
+
+/** The global send indicator follows the most recently updated active outbound peer. */
+internal fun latestActivePeerSendProgress(
+    transfers: List<UltraSharePeerTransfer>
+): UltraShareCore.Progress? =
+    transfers.asSequence()
+        .filter { it.status.startsWith("يرسل الآن") }
+        .maxByOrNull { it.updatedAtMillis }
+        ?.let { active ->
+            UltraShareCore.Progress(
+                active.fileName,
+                active.transferredBytes,
+                active.totalBytes,
+                active.bytesPerSecond,
+                false
+            )
+        }
+
 /**
  * Owns transfer sockets and coroutine jobs independently from the navigation/ViewModel lifecycle.
  * The service remains active when the Ultra Share screen is removed from the back stack.
@@ -185,6 +218,30 @@ class UltraShareForegroundService : Service() {
         }
         UltraShareDiagnostics.event("SERVICE", "CREATED")
         notificationHelper.ensureChannel()
+        // Refresh only stale speed values; no state emission occurs while rates are current.
+        serviceScope.launch {
+            while (true) {
+                delay(500L)
+                updateState { current ->
+                    val refreshed = zeroStalePeerTransferSpeeds(current.peerTransfers, System.currentTimeMillis())
+                    if (refreshed == current.peerTransfers) current else {
+                        val receive = latestActivePeerReceiveProgress(refreshed)
+                        val send = latestActivePeerSendProgress(refreshed)
+                        val sendProgress = send ?: current.sendProgress?.copy(bytesPerSecond = 0L)
+                        current.copy(
+                            peerTransfers = refreshed,
+                            receiveProgress = receive,
+                            sendProgress = sendProgress,
+                            progress = when {
+                                current.receiving -> receive ?: current.receiveProgress?.copy(bytesPerSecond = 0L)
+                                current.sending -> sendProgress ?: current.progress?.copy(bytesPerSecond = 0L)
+                                else -> current.progress
+                            }
+                        )
+                    }
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
