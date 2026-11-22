@@ -162,9 +162,11 @@ class UltraShareV2ManifestTests(unittest.TestCase):
         try:
             key = derive_v2_key(bytes(range(32)), bytes(range(32)), "client-to-server")
             prefix = b"abcd"
-            payload = b"authenticated v2 payload"
+            # Kotlin uses 1 MiB chunks plus a 7-byte chunk header.
+            # Both language implementations must permit that authenticated frame size.
+            payload = bytes(FRAME_BYTES + 7)
             v2_write_frame(left, key, prefix, 9, payload)
-            self.assertEqual(payload, v2_read_frame(right, key, prefix, 9, 1024))
+            self.assertEqual(payload, v2_read_frame(right, key, prefix, 9, FRAME_BYTES + 7))
             self.assertEqual(b"abcd" + (9).to_bytes(8, "big"), v2_nonce(prefix, 9))
         finally:
             left.close()
