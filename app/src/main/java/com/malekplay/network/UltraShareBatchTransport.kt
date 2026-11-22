@@ -1431,6 +1431,7 @@ object UltraShareBatchTransport {
     ) {
         private var previousBytes = initialBytes
         private var previousNanos = startNanos
+        private var lastDataNanos = startNanos
         private var smoothedRate = 0L
 
         init {
@@ -1447,9 +1448,10 @@ object UltraShareBatchTransport {
             previousNanos = nowNanos
             if (timeDelta <= 0L) return smoothedRate
             if (byteDelta == 0L) {
-                if (timeDelta >= 1_000_000_000L) smoothedRate = 0L
+                if (nowNanos - lastDataNanos >= 1_000_000_000L) smoothedRate = 0L
                 return smoothedRate
             }
+            lastDataNanos = nowNanos
             val sample = ((byteDelta.toDouble() * 1_000_000_000.0) / timeDelta.toDouble())
                 .coerceAtMost(Long.MAX_VALUE.toDouble()).toLong()
             smoothedRate = if (smoothedRate == 0L) sample else
