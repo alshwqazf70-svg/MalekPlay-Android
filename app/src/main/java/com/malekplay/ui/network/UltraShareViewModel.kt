@@ -2055,7 +2055,8 @@ private fun forgetApprovedSenderTarget(host: String) {
             )
             return
         }
-        pendingQrPairing = PendingQrPairing(secret.trim(), fallbackHosts)
+        val pairingAttempt = PendingQrPairing(secret.trim(), fallbackHosts)
+        pendingQrPairing = pairingAttempt
         qrP2pConnectStarted = false
         try {
             val session = ensureWifiDirectSession()
@@ -2138,9 +2139,8 @@ private fun forgetApprovedSenderTarget(host: String) {
             // OEM discovery request after its callback had been delayed or dropped.
             viewModelScope.launch {
                 delay(12_000)
-                val pending = pendingQrPairing
-                if (pending != null &&
-                    pending.secret == secret.trim() &&
+                val pending = pairingAttempt
+                if (pendingQrPairing === pairingAttempt &&
                     UltraSharePairingReadiness.shouldUseLanFallbackAfterInvitationDiscoveryTimeout(
                         hasPendingInvitation = true,
                         wifiDirectConnectionStarted = qrP2pConnectStarted
