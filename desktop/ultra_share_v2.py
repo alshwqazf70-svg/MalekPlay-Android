@@ -574,6 +574,8 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
     """
     directory = Path(directory).expanduser().resolve()
     directory.mkdir(parents=True, exist_ok=True)
+    connection = None
+    challenge = None
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind(("0.0.0.0", port))
@@ -581,23 +583,32 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
         if on_listening is not None:
             on_listening(server.getsockname()[1])
         server.settimeout(1.0)
-        while True:
+        # Discovery probes are transient reachability checks, not transfer
+        # attempts. Reject them and keep the one-shot receiver available for
+        # the authenticated data connection that follows.
+        while connection is None:
             try:
-                connection, address = server.accept()
-                break
+                candidate, candidate_address = server.accept()
             except socket.timeout:
                 continue
+            if not _is_private_v2_peer(candidate_address[0]):
+                candidate.close()
+                continue
+            candidate.settimeout(SESSION_TIMEOUT_SECONDS)
+            candidate_challenge = secrets.token_bytes(CHALLENGE_BYTES)
+            candidate.sendall(struct.pack(">I", HANDSHAKE_MAGIC) + candidate_challenge)
+            candidate_proof = recv_exact(candidate, 32)
+            if hmac.compare_digest(candidate_proof, DISCOVERY_PROBE_PROOF):
+                candidate.sendall(b"\x00")
+                candidate.close()
+                continue
+            connection = candidate
+            address = candidate_address
+            challenge = candidate_challenge
 
     with connection:
-        if not _is_private_v2_peer(address[0]):
-            raise PermissionError("Rejected V2 peer outside the private LAN.")
-        connection.settimeout(SESSION_TIMEOUT_SECONDS)
-        challenge = secrets.token_bytes(CHALLENGE_BYTES)
-        connection.sendall(struct.pack(">I", HANDSHAKE_MAGIC) + challenge)
-        proof = recv_exact(connection, 32)
-        if hmac.compare_digest(proof, DISCOVERY_PROBE_PROOF):
-            connection.sendall(b"\x00")
-            return []
+        if challenge is None:
+            raise RuntimeError("V2 receiver accepted a connection without a challenge.")
         with _CONTROL_PEER_LOCK:
             active_peer = _CONTROL_PEER_SESSIONS.get(address[0])
             session_active = (
