@@ -102,6 +102,32 @@ class UltraSharePairingReadinessTest {
         )
     }
 
+    @Test fun qrWifiFallbackRequiresTheExactInvitationSecretAndAUsableRoute() {
+        fun allowed(
+            invitationId: String? = "invite-1",
+            secret: String? = "123456789",
+            ssid: String? = "DIRECT-xy-MalekPlayer",
+            password: String? = "abcdefgh",
+            hosts: List<String> = listOf("192.168.49.1")
+        ) = UltraSharePairingReadiness.canUseQrWifiCredentialFallback(
+            expectedInvitationId = "invite-1",
+            expectedPairingSecret = "123456789",
+            qrInvitationId = invitationId,
+            qrPairingSecret = secret,
+            ssid = ssid,
+            password = password,
+            hosts = hosts
+        )
+
+        assertTrue(allowed())
+        assertFalse(allowed(invitationId = "invite-2"))
+        assertFalse(allowed(secret = "987654321"))
+        assertFalse(allowed(ssid = null))
+        assertFalse(allowed(password = "short"))
+        assertFalse(allowed(hosts = emptyList()))
+        assertFalse(allowed(hosts = listOf("8.8.8.8")))
+    }
+
     @Test fun wifiDirectInvitationDiscoveryHasAnExplicitBoundedDeadline() {
         assertTrue(
             UltraSharePairingReadiness.WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS in 15_000L..30_000L
