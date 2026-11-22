@@ -561,7 +561,7 @@ object UltraShareBatchTransport {
             val receiveCipher = Cipher.getInstance("AES/GCM/NoPadding")
             val sendKeySpec = SecretKeySpec(sendKey, "AES")
             val receiveKeySpec = SecretKeySpec(receiveKey, "AES")
-            val encryptedFrameBuffer = ByteArray(CHUNK_BYTES + 7 + TAG_BYTES)
+            val encryptedFrameBuffer = ByteArray(4 + CHUNK_BYTES + 7 + TAG_BYTES)
             val plainChunkFrame = ByteArray(CHUNK_BYTES + 7)
             var sendSequence = 0L
             var receiveSequence = 0L
@@ -1322,14 +1322,34 @@ object UltraShareBatchTransport {
         val activeCipher = cipher ?: Cipher.getInstance("AES/GCM/NoPadding")
         activeCipher.init(Cipher.ENCRYPT_MODE, keySpec ?: SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce(prefix, sequence)))
         if (encryptedBuffer != null) {
-            val encryptedSize = activeCipher.doFinal(plain, inputOffset, inputLength, encryptedBuffer, 0)
-            output.writeInt(encryptedSize)
-            output.write(encryptedBuffer, 0, encryptedSize)
+            // Reserve four bytes in front of the ciphertext so the length prefix and
+            // encrypted frame are submitted to the buffered socket stream together.
+            val encryptedSize = activeCipher.doFinal(plain, inputOffset, inputLength, encryptedBuffer, 4)
+            writeLengthPrefixedFrame(output, encryptedBuffer, encryptedSize, flush)
         } else {
             val encrypted = activeCipher.doFinal(plain, inputOffset, inputLength)
             output.writeInt(encrypted.size)
             output.write(encrypted)
         }
+        if (flush) output.flush()
+    }
+
+    /**
+     * Writes a four-byte big-endian frame length and its payload in one stream call.
+     * The payload already occupies frameBuffer starting at offset 4.
+     */
+    internal fun writeLengthPrefixedFrame(
+        output: DataOutputStream,
+        frameBuffer: ByteArray,
+        payloadSize: Int,
+        flush: Boolean = true
+    ) {
+        require(payloadSize >= 0 && payloadSize <= frameBuffer.size - 4)
+        frameBuffer[0] = (payloadSize ushr 24).toByte()
+        frameBuffer[1] = (payloadSize ushr 16).toByte()
+        frameBuffer[2] = (payloadSize ushr 8).toByte()
+        frameBuffer[3] = payloadSize.toByte()
+        output.write(frameBuffer, 0, payloadSize + 4)
         if (flush) output.flush()
     }
 
