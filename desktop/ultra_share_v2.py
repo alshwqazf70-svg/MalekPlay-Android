@@ -220,6 +220,7 @@ NONCE_PREFIX_BYTES = 4
 GCM_TAG_BYTES = 16
 BUFFER_BYTES = 1024 * 1024
 FRAME_BYTES = 1024 * 1024
+MAX_FRAME_PLAINTEXT_BYTES = max(MAX_MANIFEST_BYTES + 64, FRAME_BYTES + 7)
 SESSION_TIMEOUT_SECONDS = 30
 TYPE_CHUNK = 1
 TYPE_FILE_END = 2
@@ -260,7 +261,7 @@ def v2_nonce(prefix: bytes, sequence: int) -> bytes:
 
 def v2_write_frame(sock: socket.socket, key: bytes, prefix: bytes,
                    sequence: int, plaintext: bytes, cipher: AESGCM | None = None) -> None:
-    if len(plaintext) > MAX_MANIFEST_BYTES + 64:
+    if len(plaintext) > MAX_FRAME_PLAINTEXT_BYTES:
         raise ValueError("V2 frame exceeds the maximum plaintext size.")
     encrypted = (cipher or AESGCM(key)).encrypt(v2_nonce(prefix, sequence), plaintext, None)
     sock.sendall(struct.pack(">I", len(encrypted)) + encrypted)
@@ -268,7 +269,7 @@ def v2_write_frame(sock: socket.socket, key: bytes, prefix: bytes,
 
 def v2_read_frame(sock: socket.socket, key: bytes, prefix: bytes,
                   sequence: int, maximum_plain: int, cipher: AESGCM | None = None) -> bytes:
-    if not 0 <= maximum_plain <= MAX_MANIFEST_BYTES + 64:
+    if not 0 <= maximum_plain <= MAX_FRAME_PLAINTEXT_BYTES:
         raise ValueError("Invalid V2 frame limit.")
     encrypted_size = struct.unpack(">I", recv_exact(sock, 4))[0]
     if not GCM_TAG_BYTES <= encrypted_size <= maximum_plain + GCM_TAG_BYTES:
