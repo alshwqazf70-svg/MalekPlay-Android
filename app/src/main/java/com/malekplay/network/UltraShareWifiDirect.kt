@@ -53,6 +53,7 @@ object UltraShareWifiDirect {
         // Separates retries for the same service request; old framework callbacks
         // must not mutate the state of a newer discoverServices invocation.
         private var invitationDiscoveryToken = 0
+        private var peerDiscoveryStopToken = 0
         private var invitationMatch: ((Peer) -> Unit)? = null
         private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -553,6 +554,7 @@ object UltraShareWifiDirect {
             }
             invitationMatch = null
             invitationDiscoveryToken++
+            val peerStopToken = ++peerDiscoveryStopToken
             val completed = java.util.concurrent.atomic.AtomicBoolean(false)
             var cleanupStage = if (peerDiscoveryActive) "stop_peer_discovery" else "remove_service_request"
             var cleanupTimeout: Runnable? = null
@@ -629,11 +631,13 @@ object UltraShareWifiDirect {
                 UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_STOP_REQUESTED")
                 manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
+                        if (closed || peerDiscoveryStopToken != peerStopToken) return
                         peerDiscoveryActive = false
                         UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_STOP_CONFIRMED")
                         removeRequest(true)
                     }
                     override fun onFailure(reason: Int) {
+                        if (closed || peerDiscoveryStopToken != peerStopToken) return
                         UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_STOP_FAILED", mapOf("reason" to reason))
                         removeRequest(false)
                     }
@@ -722,6 +726,7 @@ object UltraShareWifiDirect {
         ) {
             if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request) || !invitationRequestInstalled) return
             val discoveryToken = ++invitationDiscoveryToken
+            peerDiscoveryStopToken++
             fun isCurrentAttempt(): Boolean =
                 isCurrentWifiDirectInvitationDiscovery(
                     sessionClosed = closed,
@@ -819,6 +824,8 @@ object UltraShareWifiDirect {
                 reportError("على Android 6–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
                 return
             }
+            // Invalidate a delayed callback from a previously timed-out stop request.
+            peerDiscoveryStopToken++
             // Set pending before the async call so stopDiscoveryChecked also serializes
             // against a discoverPeers request whose callback has not arrived yet.
             peerDiscoveryActive = true
@@ -869,10 +876,26 @@ object UltraShareWifiDirect {
                 onResult(false)
                 return
             }
+            val stopToken = ++peerDiscoveryStopToken
             val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+            var timeout: Runnable? = null
             fun finish(success: Boolean) {
-                if (completed.compareAndSet(false, true)) onResult(success)
+                if (completed.compareAndSet(false, true)) {
+                    timeout?.let(mainHandler::removeCallbacks)
+                    onResult(success)
+                }
             }
+            timeout = Runnable {
+                if (!closed && peerDiscoveryStopToken == stopToken) {
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        "PEER_DISCOVERY_STOP_TIMEOUT",
+                        mapOf("timeoutMs" to 5_000, "stopToken" to stopToken)
+                    )
+                    finish(false)
+                }
+            }
+            mainHandler.postDelayed(requireNotNull(timeout), 5_000L)
             // If this Session never started discovery (or it already stopped), there is
             // no P2P discovery operation to serialize against group creation/connect.
             if (!peerDiscoveryActive) {
@@ -882,25 +905,31 @@ object UltraShareWifiDirect {
             try {
                 manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
+                        if (closed || peerDiscoveryStopToken != stopToken) return
                         peerDiscoveryActive = false
                         finish(true)
                     }
                     override fun onFailure(reason: Int) {
+                        if (closed || peerDiscoveryStopToken != stopToken) return
                         UltraShareDiagnostics.event(
                             "WIFI_DIRECT",
                             "PEER_DISCOVERY_STOP_FAILED",
-                            mapOf("reason" to reason)
+                            mapOf("reason" to reason, "stopToken" to stopToken)
                         )
                         finish(false)
                     }
                 })
             } catch (failure: SecurityException) {
-                UltraShareDiagnostics.failure("WIFI_DIRECT_STOP_DISCOVERY_SECURITY", failure)
-                reportError("يلزم إذن الأجهزة القريبة لإيقاف البحث قبل الاتصال.")
-                finish(false)
+                if (peerDiscoveryStopToken == stopToken) {
+                    UltraShareDiagnostics.failure("WIFI_DIRECT_STOP_DISCOVERY_SECURITY", failure)
+                    reportError("يلزم إذن الأجهزة القريبة لإيقاف البحث قبل الاتصال.")
+                    finish(false)
+                }
             } catch (failure: RuntimeException) {
-                UltraShareDiagnostics.failure("WIFI_DIRECT_STOP_DISCOVERY", failure)
-                finish(false)
+                if (peerDiscoveryStopToken == stopToken) {
+                    UltraShareDiagnostics.failure("WIFI_DIRECT_STOP_DISCOVERY", failure)
+                    finish(false)
+                }
             }
         }
 
@@ -2335,6 +2364,13 @@ internal fun isCurrentWifiDirectInvitationDiscovery(
 ): Boolean =
     isCurrentWifiDirectInvitationRequest(sessionClosed, currentRequest, callbackRequest) &&
         currentToken == callbackToken
+
+/** A delayed stopPeerDiscovery callback cannot alter a newer discovery generation. */
+internal fun isCurrentWifiDirectDiscoveryStop(
+    sessionClosed: Boolean,
+    currentToken: Int,
+    callbackToken: Int
+): Boolean = !sessionClosed && currentToken == callbackToken
 
 /**
  * A formed client group belongs to the current pairing flow when Android reports
