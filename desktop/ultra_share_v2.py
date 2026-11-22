@@ -595,18 +595,50 @@ def receive_batch_v2(port: int, secret: str, directory: Path,
             if not _is_private_v2_peer(candidate_address[0]):
                 candidate.close()
                 continue
-            candidate.settimeout(SESSION_TIMEOUT_SECONDS)
-            candidate_challenge = secrets.token_bytes(CHALLENGE_BYTES)
-            candidate.sendall(struct.pack(">I", HANDSHAKE_MAGIC) + candidate_challenge)
-            candidate_proof = recv_exact(candidate, 32)
-            if hmac.compare_digest(candidate_proof, DISCOVERY_PROBE_PROOF):
-                candidate.sendall(b"\x00")
+            # Only a peer with an approved MPC2 control session may attempt
+            # the data handshake. This rejects unrelated TCP clients before
+            # running the expensive PIN KDF.
+            with _CONTROL_PEER_LOCK:
+                candidate_control_peer = _CONTROL_PEER_SESSIONS.get(candidate_address[0])
+                candidate_control_active = (
+                    candidate_control_peer is not None
+                    and candidate_control_peer[1].fileno() >= 0
+                )
+            if not candidate_control_active:
                 candidate.close()
                 continue
-            connection = candidate
-            address = candidate_address
-            challenge = candidate_challenge
-            proof = candidate_proof
+
+            # An incomplete candidate gets a short handshake deadline, not
+            # the much longer timeout reserved for an authenticated transfer.
+            candidate.settimeout(5.0)
+            try:
+                candidate_challenge = secrets.token_bytes(CHALLENGE_BYTES)
+                candidate.sendall(struct.pack(">I", HANDSHAKE_MAGIC) + candidate_challenge)
+                candidate_proof = recv_exact(candidate, 32)
+                if hmac.compare_digest(candidate_proof, DISCOVERY_PROBE_PROOF):
+                    candidate.sendall(b"\x00")
+                    candidate.close()
+                    continue
+
+                candidate_pairing_key = derive_v2_pairing_key(secret, candidate_challenge)
+                expected_proof = hmac.new(
+                    candidate_pairing_key, candidate_challenge, hashlib.sha256
+                ).digest()
+                if not hmac.compare_digest(candidate_proof, expected_proof):
+                    candidate.sendall(b"\x00")
+                    candidate.close()
+                    continue
+
+                candidate.settimeout(SESSION_TIMEOUT_SECONDS)
+                connection = candidate
+                address = candidate_address
+                challenge = candidate_challenge
+                proof = candidate_proof
+            except (EOFError, socket.timeout, ConnectionError, OSError, ValueError):
+                # A malformed or interrupted candidate is isolated to its
+                # own socket; it cannot tear down the listening server.
+                candidate.close()
+                continue
 
     with connection:
         if challenge is None:
