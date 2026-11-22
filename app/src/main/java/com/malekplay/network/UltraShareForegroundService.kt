@@ -10,6 +10,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -102,7 +103,7 @@ data class UltraSharePeerTransfer(
     val totalBytes: Long,
     val bytesPerSecond: Long,
     val status: String,
-    val updatedAtMillis: Long = System.currentTimeMillis()
+    val updatedAtMillis: Long = SystemClock.elapsedRealtime()
 ) {
     val fraction: Float
         get() = if (totalBytes <= 0L) 0f
@@ -237,7 +238,7 @@ class UltraShareForegroundService : Service() {
             while (true) {
                 delay(500L)
                 updateState { current ->
-                    val refreshed = zeroStalePeerTransferSpeeds(current.peerTransfers, System.currentTimeMillis())
+                    val refreshed = zeroStalePeerTransferSpeeds(current.peerTransfers, SystemClock.elapsedRealtime())
                     if (refreshed == current.peerTransfers) current else {
                         val receive = latestActivePeerReceiveProgress(refreshed)
                         val send = latestActivePeerSendProgress(refreshed)
@@ -518,7 +519,7 @@ class UltraShareForegroundService : Service() {
                                         val existing = current.peerTransfers.firstOrNull { it.host == peer }
                                         val updatedTransfers = if (existing == null || existing.status == "جارٍ الاستقبال") {
                                             val idle = (existing ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "اكتملت الجلسة"))
-                                                .copy(status = "اكتملت الجلسة", bytesPerSecond = 0L, updatedAtMillis = System.currentTimeMillis())
+                                                .copy(status = "اكتملت الجلسة", bytesPerSecond = 0L, updatedAtMillis = SystemClock.elapsedRealtime())
                                             current.peerTransfers.filterNot { it.host == peer } + idle
                                         } else current.peerTransfers
                                         val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
@@ -608,7 +609,7 @@ class UltraShareForegroundService : Service() {
                                                 totalBytes = totalBytes,
                                                 bytesPerSecond = 0L,
                                                 status = if (failed == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failed",
-                                                updatedAtMillis = System.currentTimeMillis()
+                                                updatedAtMillis = SystemClock.elapsedRealtime()
                                             )
                                         val updatedTransfers = current.peerTransfers.filterNot { it.host == peer } + summary
                                         val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
@@ -625,7 +626,7 @@ class UltraShareForegroundService : Service() {
                                     updateState { current ->
                                         val previous = current.peerTransfers.firstOrNull { it.host == peer }
                                         val failed = (previous ?: UltraSharePeerTransfer(peer, "", 0L, 0L, 0L, "فشل النقل"))
-                                            .copy(status = "فشل النقل", bytesPerSecond = 0L, updatedAtMillis = System.currentTimeMillis())
+                                            .copy(status = "فشل النقل", bytesPerSecond = 0L, updatedAtMillis = SystemClock.elapsedRealtime())
                                         val updatedTransfers = current.peerTransfers.filterNot { it.host == peer } + failed
                                         val activeProgress = latestActivePeerReceiveProgress(updatedTransfers)
                                         current.copy(
@@ -2132,7 +2133,7 @@ class UltraShareForegroundService : Service() {
                                             totalBytes = candidateChunk.sumOf { it.second.sizeBytes.coerceAtLeast(0L) },
                                             bytesPerSecond = 0L,
                                             status = if (failedInChunk == 0) "اكتمل • $completed ملفات" else "اكتمل $completed • فشل $failedInChunk",
-                                            updatedAtMillis = System.currentTimeMillis()
+                                            updatedAtMillis = SystemClock.elapsedRealtime()
                                         )
                                     val updatedTransfers = current.peerTransfers.filterNot { it.host == activeV2Host } + summary
                                     val aggregateSend = latestActivePeerSendProgress(updatedTransfers)
