@@ -1323,6 +1323,9 @@ object UltraShareWifiDirect {
                 onComplete(false)
                 return
             }
+            // Credentials from the group being removed must not be published after
+            // fallback has cleared the ViewModel's P2P network state.
+            groupCredentialsRequestToken++
             val completed = java.util.concurrent.atomic.AtomicBoolean(false)
             val timeout = Runnable {
                 if (completed.compareAndSet(false, true)) onComplete(false)
