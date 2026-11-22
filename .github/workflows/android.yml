@@ -217,6 +217,13 @@ jobs:
           java-version: "17"
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v5
+      - name: Restore Robolectric Android SDK artifact cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-android-all-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            robolectric-android-all-${{ runner.os }}-
       - name: Set up Python for Kotlin-Python V2 socket interoperability tests
         uses: actions/setup-python@v5
         with:
@@ -234,7 +241,21 @@ jobs:
       - name: Run JVM unit tests including Kotlin-Python V2 TCP interoperability
         env:
           ULTRASHARE_CROSS_LANG: "1"
-        run: ./gradlew --build-cache --stacktrace --max-workers=2 :app:testDebugUnitTest
+        shell: bash
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            echo "JVM test attempt ${attempt}/3"
+            if ./gradlew --build-cache --stacktrace --max-workers=2 :app:testDebugUnitTest; then
+              exit 0
+            fi
+            if [ "${attempt}" -eq 3 ]; then
+              echo "JVM tests failed after three attempts; preserving the real test failure."
+              exit 1
+            fi
+            echo "Gradle test attempt failed. Waiting 30 seconds before retry; downloaded artifacts remain cached."
+            sleep 30
+          done
       - name: Upload JVM unit test reports
         if: always()
         uses: actions/upload-artifact@v4
