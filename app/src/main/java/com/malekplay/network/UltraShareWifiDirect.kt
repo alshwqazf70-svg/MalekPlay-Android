@@ -251,32 +251,42 @@ object UltraShareWifiDirect {
                 reportError("هناك عملية اكتشاف Wi-Fi Direct أخرى نشطة أو قيد الإعداد؛ أوقفها وانتظر تأكيد Android قبل البحث عن دعوة QR.")
                 return
             }
-            invitationMatch = onMatch
-            UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_REQUESTED", mapOf("sdkInt" to Build.VERSION.SDK_INT))
             if (!legacyDiscoveryPrerequisite()) {
                 UltraShareDiagnostics.event("WIFI_DIRECT", "LOCATION_SERVICES_DISABLED", mapOf("sdkInt" to Build.VERSION.SDK_INT, "operation" to "discover_invitation"))
                 reportError("على Android 6–12 يجب تشغيل خدمة الموقع للسماح باكتشاف أجهزة Wi-Fi Direct.")
                 return
             }
+
+            // Bind every DNS-SD callback to this exact request before registering
+            // listeners. Android may deliver late TXT records after cancellation or
+            // after a new scan for the same QR identity has already started.
+            val request = WifiP2pDnsSdServiceRequest.newInstance()
+            invitationRequest = request
+            invitationRequestInstalled = false
+            invitationMatch = onMatch
+            UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_REQUESTED", mapOf("sdkInt" to Build.VERSION.SDK_INT))
+
             try {
                 manager.setDnsSdResponseListeners(
                     channel,
                     WifiP2pManager.DnsSdServiceResponseListener { instanceName, registrationType, device ->
-                        if (!closed) {
-                            UltraShareDiagnostics.event(
-                                "WIFI_DIRECT",
-                                "INVITATION_SERVICE_RESPONSE",
-                                mapOf(
-                                    "instanceNamePresent" to !instanceName.isNullOrBlank(),
-                                    "registrationTypePresent" to !registrationType.isNullOrBlank(),
-                                    "deviceNamePresent" to !device.deviceName.isNullOrBlank(),
-                                    "deviceStatus" to statusLabel(device.status)
-                                )
+                        if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) return@DnsSdServiceResponseListener
+                        UltraShareDiagnostics.event(
+                            "WIFI_DIRECT",
+                            "INVITATION_SERVICE_RESPONSE",
+                            mapOf(
+                                "instanceNamePresent" to !instanceName.isNullOrBlank(),
+                                "registrationTypePresent" to !registrationType.isNullOrBlank(),
+                                "deviceNamePresent" to !device.deviceName.isNullOrBlank(),
+                                "deviceStatus" to statusLabel(device.status)
                             )
-                        }
+                        )
                     },
                     WifiP2pManager.DnsSdTxtRecordListener { _, records, device ->
-                        if (closed) return@DnsSdTxtRecordListener
+                        if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
+                            UltraShareDiagnostics.event("WIFI_DIRECT", "STALE_INVITATION_TXT_CALLBACK_IGNORED")
+                            return@DnsSdTxtRecordListener
+                        }
                         val advertisedPeer = records["peer"]
                         UltraShareDiagnostics.event(
                             "WIFI_DIRECT",
@@ -291,29 +301,38 @@ object UltraShareWifiDirect {
                         if (advertisedPeer != peerId) return@DnsSdTxtRecordListener
                         val callback = invitationMatch ?: return@DnsSdTxtRecordListener
                         val peer = Peer(
-                            name = device.deviceName?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlay",
+                            name = device.deviceName?.takeIf { it.isNotBlank() } ?: "جهاز MalekPlayer",
                             deviceAddress = device.deviceAddress.orEmpty(),
                             status = statusLabel(device.status)
                         )
                         if (peer.deviceAddress.isNotBlank()) {
-                            UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERED", mapOf("deviceName" to peer.name, "deviceStatus" to peer.status))
-                            // DNS-SD may report the same TXT record more than once.
-                            // Consume the invitation match before invoking UI code so
-                            // duplicate callbacks cannot start competing P2P connects.
+                            UltraShareDiagnostics.event(
+                                "WIFI_DIRECT",
+                                "INVITATION_DISCOVERED",
+                                mapOf("deviceName" to peer.name, "deviceStatus" to peer.status)
+                            )
+                            // Consume the callback before entering ViewModel code;
+                            // duplicate records cannot initiate competing connects.
                             invitationMatch = null
                             callback(peer)
                         }
                     }
                 )
-                val request = WifiP2pDnsSdServiceRequest.newInstance()
                 UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_SERVICE_REQUEST_CREATED", mapOf("sdkInt" to Build.VERSION.SDK_INT))
-                // Publish the pending identity before clear/add callbacks can arrive.
-                invitationRequest = request
-                invitationRequestInstalled = false
                 prepareInvitationServiceRequest(request, 0)
             } catch (failure: SecurityException) {
+                if (isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
+                    invitationRequest = null
+                    invitationRequestInstalled = false
+                    invitationMatch = null
+                }
                 reportError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
             } catch (failure: RuntimeException) {
+                if (isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) {
+                    invitationRequest = null
+                    invitationRequestInstalled = false
+                    invitationMatch = null
+                }
                 UltraShareDiagnostics.failure("WIFI_DIRECT_DISCOVER_INVITATION", failure)
                 reportError(failure.localizedMessage ?: "تعذر البحث عن دعوة Wi-Fi Direct.")
             }
