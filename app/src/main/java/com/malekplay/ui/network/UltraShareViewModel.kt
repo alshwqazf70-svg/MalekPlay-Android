@@ -2242,10 +2242,20 @@ private fun forgetApprovedSenderTarget(host: String) {
                             alternateHosts = safeFallbacks.drop(1)
                         )
                     } else {
-                        _state.value = _state.value.copy(
-                            requestingConnection = false,
-                            error = "لم يؤكد Android إيقاف البحث السابق، ولا يوجد مسار شبكة محلية غير P2P يمكن التحقق منه. أوقف البحث ثم أعد المحاولة."
-                        )
+                        wifiDirectSession = null
+                        runCatching { session.close() }
+                        if (!fallbackToQrWifiCredentials(
+                                fallbackPairing,
+                                invitationId,
+                                pending.secret,
+                                "discovery_stop_unconfirmed"
+                            )
+                        ) {
+                            _state.value = _state.value.copy(
+                                requestingConnection = false,
+                                error = "لم يؤكد Android إيقاف البحث السابق، ولا يوجد مسار LAN صالح أو بيانات شبكة في QR للاتصال البديل."
+                            )
+                        }
                     }
                     return@stopDiscoveryChecked
                 }
@@ -2278,10 +2288,18 @@ private fun forgetApprovedSenderTarget(host: String) {
                             } else {
                                 pendingQrPairing = null
                                 qrP2pConnectStarted = false
-                                _state.value = _state.value.copy(
-                                    requestingConnection = false,
-                                    error = "لم يؤكد Android إيقاف اكتشاف دعوة Wi-Fi Direct؛ لم نبدأ اتصالاً متزامناً. أعد المحاولة أو استخدم اتصال الشبكة المحلية."
-                                )
+                                if (!fallbackToQrWifiCredentials(
+                                        fallbackPairing,
+                                        invitationId,
+                                        pending.secret,
+                                        "invitation_discovery_stop_unconfirmed"
+                                    )
+                                ) {
+                                    _state.value = _state.value.copy(
+                                        requestingConnection = false,
+                                        error = "لم يؤكد Android إيقاف اكتشاف دعوة Wi-Fi Direct؛ لا يوجد LAN صالح أو بيانات شبكة في QR للاتصال البديل."
+                                    )
+                                }
                             }
                             return@stopInvitationDiscoveryChecked
                         }
@@ -2345,13 +2363,19 @@ private fun forgetApprovedSenderTarget(host: String) {
                                 secret = pending.secret,
                                 alternateHosts = safeFallbacks.drop(1)
                             )
-                        } else {
+                        } else if (!fallbackToQrWifiCredentials(
+                                fallbackPairing,
+                                invitationId,
+                                pending.secret,
+                                if (stopped) "dnssd_timeout" else "dnssd_timeout_cleanup_unconfirmed"
+                            )
+                        ) {
                             _state.value = _state.value.copy(
                                 requestingConnection = false,
                                 error = if (stopped)
-                                    "لم يتم العثور على دعوة Wi-Fi Direct، ولا يوجد عنوان بديل على شبكة محلية غير P2P. أعد المحاولة أو استخدم QR الخاص بنقطة الاتصال."
+                                    "لم يتم العثور على دعوة Wi-Fi Direct، ولا يوجد LAN صالح أو بيانات شبكة في QR للاتصال البديل."
                                 else
-                                    "انتهت مهلة اكتشاف الدعوة ولم يؤكد Android تنظيف طلب Wi-Fi Direct. أُغلقت جلسة البحث؛ أعد المحاولة بعد التأكد من تشغيل Wi-Fi وخدمة الموقع."
+                                    "انتهت مهلة اكتشاف الدعوة ولم يؤكد Android تنظيف طلب Wi-Fi Direct؛ أُغلقت الجلسة ولا توجد بيانات شبكة صالحة للاتصال البديل."
                             )
                         }
                     }
@@ -2369,10 +2393,21 @@ private fun forgetApprovedSenderTarget(host: String) {
                     alternateHosts = safeFallbacks.drop(1)
                 )
             } else {
-                _state.value = _state.value.copy(
-                    requestingConnection = false,
-                    error = failure.localizedMessage ?: "تعذر بدء اكتشاف دعوة الجهاز."
-                )
+                val failedSession = wifiDirectSession
+                wifiDirectSession = null
+                runCatching { failedSession?.close() }
+                if (!fallbackToQrWifiCredentials(
+                        fallbackPairing,
+                        invitationId,
+                        secret.trim(),
+                        "dnssd_start_failure"
+                    )
+                ) {
+                    _state.value = _state.value.copy(
+                        requestingConnection = false,
+                        error = failure.localizedMessage ?: "تعذر بدء اكتشاف دعوة الجهاز."
+                    )
+                }
             }
         }
     }
