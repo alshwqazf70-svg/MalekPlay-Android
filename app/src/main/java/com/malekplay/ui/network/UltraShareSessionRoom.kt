@@ -14,6 +14,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -197,9 +199,28 @@ fun UltraShareSessionRoom(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                Button(onClick = onPickAndSendFiles, modifier = Modifier.weight(1f)) { Text("إرسال ملفات") }
-                OutlinedButton(onClick = onShowGroupQr, modifier = Modifier.weight(1f)) { Text("رمز المجموعة") }
-                OutlinedButton(onClick = onLeaveRoom, modifier = Modifier.weight(1f)) { Text("مغادرة الغرفة") }
+                Button(
+                    onClick = onPickAndSendFiles,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFB66CFF),
+                        contentColor = Color(0xFF190F22),
+                        disabledContainerColor = Color(0xFF513A63),
+                        disabledContentColor = Color(0xFFE4D8EC)
+                    )
+                ) { Text("إرسال ملفات", fontWeight = FontWeight.Bold) }
+                OutlinedButton(
+                    onClick = onShowGroupQr,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                    border = BorderStroke(1.dp, Color(0xFF9A63C7))
+                ) { Text("رمز المجموعة", fontWeight = FontWeight.SemiBold) }
+                OutlinedButton(
+                    onClick = onLeaveRoom,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                    border = BorderStroke(1.dp, Color(0xFF9A63C7))
+                ) { Text("مغادرة الغرفة", fontWeight = FontWeight.SemiBold) }
             }
             if (isSendingRoom && (state.sending || sendingPaused)) {
                 Row(
@@ -209,20 +230,30 @@ fun UltraShareSessionRoom(
                     if (state.sending) {
                         OutlinedButton(
                             onClick = onPauseSending,
-                            modifier = Modifier.weight(1f)
-                        ) { Text("إيقاف مؤقت") }
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                            border = BorderStroke(1.dp, Color(0xFF9A63C7))
+                        ) { Text("إيقاف مؤقت", fontWeight = FontWeight.SemiBold) }
                     } else {
                         Button(
                             onClick = onResumeSending,
                             modifier = Modifier.weight(1f),
                             enabled = state.approvedSenderPeerHosts.isNotEmpty() ||
-                                !state.approvedPeerHost.isNullOrBlank()
-                        ) { Text("استئناف المتبقي") }
+                                !state.approvedPeerHost.isNullOrBlank(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFB66CFF),
+                                contentColor = Color(0xFF190F22),
+                                disabledContainerColor = Color(0xFF513A63),
+                                disabledContentColor = Color(0xFFE4D8EC)
+                            )
+                        ) { Text("استئناف المتبقي", fontWeight = FontWeight.Bold) }
                     }
                     OutlinedButton(
                         onClick = onCancelSending,
-                        modifier = Modifier.weight(1f)
-                    ) { Text("إلغاء الإرسال") }
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD7A0FF)),
+                        border = BorderStroke(1.dp, Color(0xFF9A63C7))
+                    ) { Text("إلغاء الإرسال", fontWeight = FontWeight.SemiBold) }
                 }
             }
             // Show each peer independently instead of hiding concurrent sessions
