@@ -1671,6 +1671,9 @@ private fun forgetApprovedSenderTarget(host: String) {
                                 requestingConnection = false,
                                 wifiDirectHost = null,
                                 wifiDirectLocalAddress = localGroupOwnerAddress,
+                                hotspotSsid = "",
+                                hotspotPassword = "",
+                                hotspotSecurity = "wpa2",
                                 error = null,
                                 status = "انعكس دور Wi-Fi Direct؛ أصبح هذا الهاتف مستقبلاً مؤقتاً وننتظر مصادقة منشئ رمز QR..."
                             )
