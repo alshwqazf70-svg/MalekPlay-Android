@@ -33,6 +33,9 @@ internal object UltraSharePairingReadiness {
     fun shouldUseWifiDirectInvitation(mode: String?, invitationId: String?): Boolean =
         !invitationId.isNullOrBlank() && (mode.isNullOrBlank() || mode == "p2p")
 
+    /** A delayed callback may mutate state only while its exact invitation attempt is current. */
+    fun isCurrentInvitationAttempt(current: Any?, expected: Any): Boolean = current === expected
+
     /** A discovery timeout may use LAN only if no P2P connection negotiation has begun. */
     fun shouldUseLanFallbackAfterInvitationDiscoveryTimeout(
         hasPendingInvitation: Boolean,
