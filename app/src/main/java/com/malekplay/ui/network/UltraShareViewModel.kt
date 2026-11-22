@@ -1491,9 +1491,27 @@ private fun forgetApprovedSenderTarget(host: String) {
                     onConnectionFailed = { rejected, reason ->
                         if (!rejected && !networkLost.get()) {
                             val message = reason ?: "تعذر إتمام اقتران MPC2 عبر شبكة Wi-Fi المباشرة."
-                            if (!allowWifiDirectFallback ||
-                                !viewModel.fallbackToWifiDirectInvitation(pairing, message)
+                            if (allowWifiDirectFallback &&
+                                viewModel.fallbackToWifiDirectInvitation(pairing, message)
                             ) {
+                                // The fallback owns and replaces this temporary network lease.
+                            } else {
+                                val activeCallback = viewModel.hotspotNetworkCallback
+                                if (activeCallback != null) {
+                                    runCatching { connectivity.unregisterNetworkCallback(activeCallback) }
+                                    if (viewModel.hotspotNetworkCallback === activeCallback) {
+                                        viewModel.hotspotNetworkCallback = null
+                                        viewModel.hotspotNetworkPaired = false
+                                    }
+                                    if (retainedHotspotNetworkCallback === activeCallback) {
+                                        retainedHotspotNetworkCallback = null
+                                        retainedHotspotNetworkPaired = false
+                                    }
+                                }
+                                UltraShareNetworkRouting.releasePinnedNetworkForHosts(
+                                    pairing.hosts + pairing.host,
+                                    network
+                                )
                                 viewModel._state.value = viewModel._state.value.copy(
                                     requestingConnection = false,
                                     error = message
