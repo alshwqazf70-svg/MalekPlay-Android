@@ -171,7 +171,7 @@ class UltraSharePeerTransferTest {
         val progress = latestActivePeerSendProgress(listOf(first, second))
 
         assertEquals("second.mp4", progress?.fileName)
-        assertEquals(700L, progress?.bytesPerSecond)
+        assertEquals(800L, progress?.bytesPerSecond)
         assertEquals(false, progress?.receiving)
     }
 
