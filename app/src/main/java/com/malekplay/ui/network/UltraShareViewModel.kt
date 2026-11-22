@@ -2104,6 +2104,12 @@ private fun forgetApprovedSenderTarget(host: String) {
                         if (pendingQrPairing == null || wifiDirectSession !== session) return@stopInvitationDiscoveryChecked
                         if (!stopped) {
                             val pending = pendingQrPairing ?: return@stopInvitationDiscoveryChecked
+                            // A timed-out OEM cleanup can leave this Session marked as
+                            // actively discovering. Retire the scanner-side session before
+                            // switching to LAN so a later retry starts with a fresh P2P channel.
+                            val failedInvitationSession = wifiDirectSession
+                            wifiDirectSession = null
+                            runCatching { failedInvitationSession?.close() }
                             val fallbackHosts = UltraShareNetworkRouting.findNonP2pLanFallbackHosts(context, pending.hosts)
                             val fallback = fallbackHosts.firstOrNull()
                             if (fallback != null) {
