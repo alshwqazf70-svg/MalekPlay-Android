@@ -1640,6 +1640,13 @@ private fun forgetApprovedSenderTarget(host: String) {
                         // Android selected the QR scanner as group owner. It must
                         // become the temporary receiver; the QR creator will connect
                         // back to this new group using the same short-lived secret.
+                        // The scanned QR's SSID/passphrase belong to the remote group,
+                        // so discard them before publishing this device's new group QR.
+                        wifiDirectGroupSsid = null
+                        wifiDirectGroupPassword = null
+                        wifiDirectOwnerAddress = null
+                        wifiDirectGroupSecurity = "wpa2"
+                        wifiDirectCredentialsFromJoinedInvitation = false
                         UltraShareDiagnostics.event("PAIRING", "P2P_INVITATION_ROLE_REVERSED")
                         pendingQrPairing = null
                         qrP2pConnectStarted = false
