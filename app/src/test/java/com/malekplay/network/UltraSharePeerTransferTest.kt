@@ -84,6 +84,67 @@ class UltraSharePeerTransferTest {
     }
 
     @Test
+    fun staleActivePeerSpeedIsZeroedWithoutChangingProgressOrCompletedPeers() {
+        val staleReceive = UltraSharePeerTransfer(
+            host = "192.168.1.40",
+            fileName = "stalled.mp4",
+            transferredBytes = 40L,
+            totalBytes = 100L,
+            bytesPerSecond = 900L,
+            status = "يستقبل الآن",
+            updatedAtMillis = 1_000L
+        )
+        val freshSend = UltraSharePeerTransfer(
+            host = "192.168.1.41",
+            fileName = "active.zip",
+            transferredBytes = 20L,
+            totalBytes = 100L,
+            bytesPerSecond = 500L,
+            status = "يرسل الآن • V2",
+            updatedAtMillis = 2_400L
+        )
+        val completed = UltraSharePeerTransfer(
+            host = "192.168.1.42",
+            fileName = "done.txt",
+            transferredBytes = 100L,
+            totalBytes = 100L,
+            bytesPerSecond = 0L,
+            status = "اكتمل • 1 ملفات",
+            updatedAtMillis = 100L
+        )
+
+        val refreshed = zeroStalePeerTransferSpeeds(
+            listOf(staleReceive, freshSend, completed),
+            nowMillis = 2_600L
+        )
+
+        assertEquals(0L, refreshed[0].bytesPerSecond)
+        assertEquals(40L, refreshed[0].transferredBytes)
+        assertEquals(500L, refreshed[1].bytesPerSecond)
+        assertEquals(0L, refreshed[2].bytesPerSecond)
+    }
+
+    @Test
+    fun latestSendProgressTracksTheMostRecentlyUpdatedActivePeer() {
+        val first = UltraSharePeerTransfer(
+            host = "192.168.1.43", fileName = "first.mp4",
+            transferredBytes = 10L, totalBytes = 100L, bytesPerSecond = 100L,
+            status = "يرسل الآن", updatedAtMillis = 10L
+        )
+        val second = UltraSharePeerTransfer(
+            host = "192.168.1.44", fileName = "second.mp4",
+            transferredBytes = 70L, totalBytes = 100L, bytesPerSecond = 700L,
+            status = "يرسل الآن • V2", updatedAtMillis = 20L
+        )
+
+        val progress = latestActivePeerSendProgress(listOf(first, second))
+
+        assertEquals("second.mp4", progress?.fileName)
+        assertEquals(700L, progress?.bytesPerSecond)
+        assertEquals(false, progress?.receiving)
+    }
+
+    @Test
     fun noSharedProgressIsReportedWhenAllPeersAreFinished() {
         val completedPeer = UltraSharePeerTransfer(
             host = "192.168.1.32",
