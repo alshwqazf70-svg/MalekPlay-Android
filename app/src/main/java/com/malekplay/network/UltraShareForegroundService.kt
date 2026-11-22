@@ -247,7 +247,9 @@ class UltraShareForegroundService : Service() {
                             receiveProgress = receive,
                             sendProgress = sendProgress,
                             progress = when {
-                                current.receiving -> receive ?: current.receiveProgress?.copy(bytesPerSecond = 0L)
+                                current.receiving && receive != null -> receive
+                                current.receiving && current.sending -> sendProgress ?: current.progress
+                                current.receiving -> current.receiveProgress?.copy(bytesPerSecond = 0L)
                                 current.sending -> sendProgress ?: current.progress?.copy(bytesPerSecond = 0L)
                                 else -> current.progress
                             }
