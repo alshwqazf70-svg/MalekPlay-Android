@@ -164,9 +164,9 @@ class UltraShareV2ManifestTests(unittest.TestCase):
             prefix = b"abcd"
             # Kotlin uses 1 MiB chunks plus a 7-byte chunk header.
             # Both language implementations must permit that authenticated frame size.
-            payload = bytes(FRAME_BYTES + 7)
+            payload = bytes(1024 * 1024 + 7)
             v2_write_frame(left, key, prefix, 9, payload)
-            self.assertEqual(payload, v2_read_frame(right, key, prefix, 9, FRAME_BYTES + 7))
+            self.assertEqual(payload, v2_read_frame(right, key, prefix, 9, 1024 * 1024 + 7))
             self.assertEqual(b"abcd" + (9).to_bytes(8, "big"), v2_nonce(prefix, 9))
         finally:
             left.close()
