@@ -127,6 +127,7 @@ fun UltraShareExperienceScreen(
     var selectedUris by remember(initialUris) {
         mutableStateOf(initialUris.distinct().filter { isUltraShareAllowedFile(context, it) })
     }
+    var autoSentInitialUriKey by remember { mutableStateOf<String?>(null) }
 
     fun handleQr(raw: String) {
         runCatching { UltraShareQrCode.parsePayload(raw) }
@@ -486,6 +487,45 @@ fun UltraShareExperienceScreen(
         }
     }
 
+    // Media selected in Movies, Series, Music or Library arrives through initialUris.
+    // If a peer is already authenticated, start the transfer directly; otherwise keep
+    // the selection and automatically start it when the room becomes ready.
+    LaunchedEffect(
+        initialUris,
+        state.activePeers,
+        state.approvedSenderPeerHosts,
+        state.approvedPeerHost,
+        state.sending
+    ) {
+        val requested = initialUris.distinct().filter { isUltraShareAllowedFile(context, it) }
+        if (requested.isEmpty()) {
+            autoSentInitialUriKey = null
+            return@LaunchedEffect
+        }
+        val peerReady = state.activePeers.isNotEmpty() ||
+            state.approvedSenderPeerHosts.isNotEmpty() ||
+            !state.approvedPeerHost.isNullOrBlank()
+        if (!peerReady || state.sending) return@LaunchedEffect
+
+        val requestKey = requested.map(Uri::toString).sorted().joinToString("|")
+        if (requestKey == autoSentInitialUriKey) return@LaunchedEffect
+
+        val readable = requested.filter { uri ->
+            ensureUltraShareReadableUri(context, uri)
+        }
+        if (readable.isNotEmpty() && viewModel.sendBatchToApprovedPeers(readable)) {
+            autoSentInitialUriKey = requestKey
+            selectedUris = selectedUris.filterNot { it in requested }
+            onInitialUrisConsumed()
+            Toast.makeText(
+                context,
+                if (readable.size == 1) "بدأ إرسال الملف مباشرة إلى الجهاز المتصل."
+                else "بدأ إرسال ${readable.size} ملفات مباشرة إلى الأجهزة المتصلة.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
     LaunchedEffect(pendingQrPairing) {
         val pairing = pendingQrPairing ?: return@LaunchedEffect
         viewModel.rememberInvitationPeer(pairing.invitationId, pairing.pairingSecret)
@@ -641,7 +681,8 @@ fun UltraShareExperienceScreen(
     val visiblePeers = state.discoveredPeers.filter {
         it.name.contains(search, true) || it.host.contains(search, true)
     }
-    val hasConnectedPeer = state.activePeers.isNotEmpty() || state.approvedSenderPeerHosts.isNotEmpty()
+    val hasConnectedPeer = state.activePeers.isNotEmpty() ||
+        state.approvedSenderPeerHosts.isNotEmpty() || !state.approvedPeerHost.isNullOrBlank()
     fun sendSelectedUrisToRoom() {
         if (selectedUris.isEmpty()) return
         if (viewModel.sendBatchToApprovedPeers(selectedUris)) {
@@ -672,9 +713,14 @@ fun UltraShareExperienceScreen(
                         fontWeight = FontWeight.Bold
                     )
                     if (hasConnectedPeer) {
-                        Button(onClick = ::sendSelectedUrisToRoom, enabled = !state.sending, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.AutoMirrored.Filled.Send, null)
-                            Text("إرسال المختار الآن", modifier = Modifier.padding(start = 8.dp))
+                        Button(
+                            onClick = ::sendSelectedUrisToRoom,
+                            enabled = !state.sending,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ultraShareButtonColors()
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
+                            Text("إرسال المختار الآن", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
                         }
                     } else {
                         Text("أنشئ غرفة أو امسح رمز QR؛ ستبقى الملفات محددة هنا حتى يصبح الجهاز الآخر متصلاً.", color = MalekPlayColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
