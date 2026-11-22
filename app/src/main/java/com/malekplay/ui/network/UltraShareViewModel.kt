@@ -2045,8 +2045,9 @@ private fun forgetApprovedSenderTarget(host: String) {
             return
         }
         // A new group attempt must never reuse credentials or owner routes from
-        // a previous P2P group or a joined invitation. The new group-info callback
-        // repopulates these values before the credentials-based QR is published.
+        // a previous P2P group or a joined invitation. Invalidate pending old-group
+        // callbacks before the asynchronous discovery shutdown begins.
+        session.invalidateGroupCredentials()
         wifiDirectGroupSsid = null
         wifiDirectGroupPassword = null
         wifiDirectOwnerAddress = null
