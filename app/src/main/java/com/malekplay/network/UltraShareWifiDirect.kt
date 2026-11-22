@@ -638,7 +638,7 @@ object UltraShareWifiDirect {
                 UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_STOP_REQUESTED")
                 manager.stopPeerDiscovery(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
-                        if (closed || peerDiscoveryStopToken != peerStopToken) return
+                        if (!isCurrentWifiDirectDiscoveryStop(closed, peerDiscoveryStopToken, peerStopToken)) return
                         peerDiscoveryActive = false
                         UltraShareDiagnostics.event("WIFI_DIRECT", "INVITATION_DISCOVERY_STOP_CONFIRMED")
                         removeRequest(true)
@@ -917,7 +917,7 @@ object UltraShareWifiDirect {
                         finish(true)
                     }
                     override fun onFailure(reason: Int) {
-                        if (closed || peerDiscoveryStopToken != stopToken) return
+                        if (!isCurrentWifiDirectDiscoveryStop(closed, peerDiscoveryStopToken, stopToken)) return
                         UltraShareDiagnostics.event(
                             "WIFI_DIRECT",
                             "PEER_DISCOVERY_STOP_FAILED",
