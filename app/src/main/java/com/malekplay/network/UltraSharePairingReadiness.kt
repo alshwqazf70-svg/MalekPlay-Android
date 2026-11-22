@@ -40,6 +40,25 @@ internal object UltraSharePairingReadiness {
     ): Boolean =
         !invitationId.isNullOrBlank() && invitationId == advertisedInvitationId
 
+    /** Never use Wi-Fi credentials from a different QR attempt as a DNS-SD fallback. */
+    fun canUseQrWifiCredentialFallback(
+        expectedInvitationId: String,
+        expectedPairingSecret: String,
+        qrInvitationId: String?,
+        qrPairingSecret: String?,
+        ssid: String?,
+        password: String?,
+        hosts: List<String>
+    ): Boolean =
+        expectedInvitationId.isNotBlank() &&
+            expectedInvitationId == qrInvitationId &&
+            UltraShareCore.isValidPairingSecret(expectedPairingSecret) &&
+            expectedPairingSecret == qrPairingSecret &&
+            !ssid.isNullOrBlank() &&
+            !password.isNullOrBlank() &&
+            password.length in 8..63 &&
+            hosts.any(UltraShareCore::isValidPrivateLanHost)
+
     /** Allow slow OEM DNS-SD setup and discovery, but bound a scan that never finds its peer. */
     const val WIFI_DIRECT_INVITATION_DISCOVERY_TIMEOUT_MS = 25_000L
 
