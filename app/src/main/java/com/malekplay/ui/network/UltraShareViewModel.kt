@@ -1073,11 +1073,15 @@ private fun forgetApprovedSenderTarget(host: String) {
         reason: String
     ): Boolean {
         val candidate = pairing?.takeIf {
-            it.invitationId == invitationId &&
-                it.pairingSecret == secret &&
-                !it.hotspotSsid.isNullOrBlank() &&
-                !it.hotspotPassword.isNullOrBlank() &&
-                it.hosts.any(UltraShareCore::isValidPrivateLanHost)
+            UltraSharePairingReadiness.canUseQrWifiCredentialFallback(
+                expectedInvitationId = invitationId,
+                expectedPairingSecret = secret,
+                qrInvitationId = it.invitationId,
+                qrPairingSecret = it.pairingSecret,
+                ssid = it.hotspotSsid,
+                password = it.hotspotPassword,
+                hosts = it.hosts
+            )
         } ?: return false
         UltraShareDiagnostics.event(
             "PAIRING",
