@@ -94,6 +94,7 @@ object UltraShareWifiDirect {
         private var ownerPeerCheckTimeout: Runnable? = null
         private var connectionAttemptToken = 0
         private var connectionInfoRequestToken = 0
+        private var groupCredentialsRequestToken = 0
         private var connectionTimeout: Runnable? = null
         private var groupAttemptToken = 0
         private var groupAttemptTimeout: Runnable? = null
@@ -1064,6 +1065,7 @@ object UltraShareWifiDirect {
             // Explicit receiver group creation is a new owner-side pairing flow,
             // not a continuation of a previous client connection attempt.
             connectionInfoRequestToken++
+            groupCredentialsRequestToken++
             cancelClientPeerConfirmation()
             // A new owner-group attempt must not advertise a route retained from an older group.
             runCatching { onLocalAddress(null) }
@@ -1233,13 +1235,20 @@ object UltraShareWifiDirect {
         @SuppressLint("MissingPermission")
         private fun requestGroupCredentials(groupOwnerAddress: String?) {
             if (closed) return
+            val requestChannel = channel
+            val requestToken = ++groupCredentialsRequestToken
             try {
-                manager.requestGroupInfo(channel) { group ->
-                    if (closed || group?.isGroupOwner != true) return@requestGroupInfo
+                manager.requestGroupInfo(requestChannel) { group ->
+                    if (!isCurrentWifiDirectGroupInfoRequest(
+                            closed, groupCredentialsRequestToken, requestToken
+                        ) || group?.isGroupOwner != true
+                    ) return@requestGroupInfo
                     publishGroupCredentials(group, groupOwnerAddress)
                 }
             } catch (failure: Exception) {
-                UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_CREDENTIALS", failure)
+                if (isCurrentWifiDirectGroupInfoRequest(closed, groupCredentialsRequestToken, requestToken)) {
+                    UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_CREDENTIALS", failure)
+                }
             }
         }
 
@@ -1989,6 +1998,7 @@ object UltraShareWifiDirect {
                         mapOf("isGroupOwner" to info.isGroupOwner, "groupOwnerHost" to info.groupOwnerAddress?.hostAddress)
                     )
                     if (!info.groupFormed) {
+                        groupCredentialsRequestToken++
                         cancelOwnerPeerConfirmation()
                         cancelClientPeerConfirmation()
                         if (shouldClearWifiDirectLocalAddress(
@@ -2373,6 +2383,7 @@ object UltraShareWifiDirect {
             peerDiscoveryStopToken++
             connectionAttemptToken++
             connectionInfoRequestToken++
+            groupCredentialsRequestToken++
             connectionTimeout?.let(mainHandler::removeCallbacks)
             connectionTimeout = null
             groupAttemptToken++
@@ -2425,6 +2436,7 @@ object UltraShareWifiDirect {
             connectionInProgress = false
             connectionAttemptToken++
             connectionInfoRequestToken++
+            groupCredentialsRequestToken++
             pairingTargetDeviceAddress = null
             cancelClientPeerConfirmation()
             cancelOwnerPeerConfirmation()
@@ -2481,6 +2493,12 @@ object UltraShareWifiDirect {
         return created
     }
 }
+
+internal fun isCurrentWifiDirectGroupInfoRequest(
+    sessionClosed: Boolean,
+    currentToken: Int,
+    callbackToken: Int
+): Boolean = !sessionClosed && currentToken == callbackToken
 
 internal fun canReuseWifiDirectAdvertisement(
     samePeer: Boolean,
