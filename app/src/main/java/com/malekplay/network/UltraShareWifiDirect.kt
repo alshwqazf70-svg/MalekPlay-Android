@@ -2348,6 +2348,7 @@ object UltraShareWifiDirect {
             connectionInProgress = false
             invitationDiscoveryToken++
             localInvitationToken++
+            peerDiscoveryStopToken++
             connectionAttemptToken++
             connectionInfoRequestToken++
             connectionTimeout?.let(mainHandler::removeCallbacks)
@@ -2355,6 +2356,12 @@ object UltraShareWifiDirect {
             groupAttemptToken++
             groupAttemptTimeout?.let(mainHandler::removeCallbacks)
             groupAttemptTimeout = null
+            localInvitationAdvertisementTimeout?.let(mainHandler::removeCallbacks)
+            localInvitationAdvertisementTimeout = null
+            localInvitationService = null
+            localInvitationId = null
+            localInvitationOperationPending = false
+            localInvitationCleanupPending = false
             invitationMatch = null
             invitationRequest = null
             invitationRequestInstalled = false
