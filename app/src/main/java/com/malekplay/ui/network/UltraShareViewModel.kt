@@ -1101,8 +1101,8 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     /**
-     * Joins the temporary LocalOnlyHotspot advertised by QR v4, then performs
-     * the same authenticated MPC2 handshake as every other route.
+     * Returns to the advertised P2P invitation after a temporary Wi-Fi network
+     * join fails, then performs the same authenticated MPC2 handshake.
      */
     private fun fallbackToWifiDirectInvitation(
         pairing: com.malekplay.network.UltraShareQrCode.PairingDetails,
@@ -1300,10 +1300,10 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     /**
-     * QR join order follows the proven main-branch P2P sequence for P2P invitations:
-     * discover the advertised peer, stop discovery, negotiate Wi-Fi Direct, then
-     * authenticate the control channel. The existing verified-LAN fallback remains
-     * inside joinWifiDirectInvitation. Hotspot/LAN invitations retain their own paths.
+     * QR join order follows the proven P2P sequence: discover the advertised peer,
+     * stop discovery, negotiate Wi-Fi Direct, then authenticate the control channel.
+     * If DNS-SD times out, use a verified LAN route or the exact QR network credentials.
+     * Hotspot/LAN invitations retain their direct paths.
      */
     fun joinUnifiedInvitation(pairing: com.malekplay.network.UltraShareQrCode.PairingDetails) {
         if (controlPairingInProgress || pendingQrPairing != null) return
@@ -1620,9 +1620,9 @@ private fun forgetApprovedSenderTarget(host: String) {
     }
 
     /**
-     * Discovery is useful only until the peer is paired. Stop LAN, Wi-Fi Direct,
-     * Bluetooth and BLE scans/advertisements without releasing the paired P2P group
-     * or closing the foreground transfer/control service.
+     * Discovery scans are useful only until a peer is paired. Stop LAN, Wi-Fi Direct,
+     * Bluetooth and BLE scans without releasing the paired P2P group or foreground
+     * transfer service; keep the receiver's DNS-SD invitation available for more peers.
      */
     private fun stopNearbyDiscoveryAfterPairing() {
         if (discoveryStoppedForPairedSession) return
