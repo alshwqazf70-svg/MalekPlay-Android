@@ -1641,8 +1641,10 @@ private fun forgetApprovedSenderTarget(host: String) {
         wifiDirectSession?.let { session ->
             session.stopDiscoveryChecked { }
             session.stopInvitationDiscoveryChecked { }
-            val receiverRoomStillOpen = _state.value.receiving ||
-                UltraShareForegroundService.state.value.receiving
+            val receiverRoomStillOpen = UltraSharePairingReadiness
+                .shouldRetainReceiverInvitationAdvertisement(
+                    _state.value.receiving || UltraShareForegroundService.state.value.receiving
+                )
             if (receiverRoomStillOpen) {
                 // Stop scanning after the first peer, but keep the receiver's local
                 // DNS-SD invitation advertised so additional devices can join the
