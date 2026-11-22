@@ -1808,7 +1808,20 @@ private fun forgetApprovedSenderTarget(host: String) {
 
     fun disableWifiDirectInvitation() {
         clearStoredInvitation()
-        _state.value = _state.value.copy(receiverQrPayload = null)
+        wifiDirectGroupSsid = null
+        wifiDirectGroupPassword = null
+        wifiDirectOwnerAddress = null
+        wifiDirectGroupSecurity = "wpa2"
+        wifiDirectCredentialsFromJoinedInvitation = false
+        dnsSdQrFallbackScheduledFor = null
+        _state.value = _state.value.copy(
+            receiverQrPayload = null,
+            wifiDirectLocalAddress = null,
+            wifiDirectHost = null,
+            hotspotSsid = "",
+            hotspotPassword = "",
+            hotspotSecurity = "wpa2"
+        )
         val session = wifiDirectSession
         if (session == null) {
             _state.value = _state.value.copy(
