@@ -146,13 +146,27 @@ internal object VideoKindClassifier {
                 numericEpisodePattern.matchEntire(normalizedKey(file.title))
                     ?.groupValues?.get(1)?.toIntOrNull()?.let { number -> file to number }
             }
-            val numbers = numbered.map { it.second }.distinct().sorted()
-            if (numbers.size < 3 || numbers.last() - numbers.first() > numbers.size + 2) return@forEach
-            numbered.forEach { (file, episodeNumber) ->
-                result[file.id] = ClassifiedVideo(
-                    VideoKind.SERIES,
-                    EpisodeSortKey("حلقات مرقمة", 1, episodeNumber)
-                )
+            val sorted = numbered.sortedBy { it.second }
+            val clusters = mutableListOf<MutableList<Pair<VideoFileDescriptor, Int>>>()
+            sorted.forEach { entry ->
+                val current = clusters.lastOrNull()
+                if (current == null || entry.second - current.last().second > 2) {
+                    clusters += mutableListOf(entry)
+                } else {
+                    current += entry
+                }
+            }
+            clusters.forEach { cluster ->
+                val distinctNumbers = cluster.map { it.second }.distinct()
+                if (distinctNumbers.size < 3 ||
+                    distinctNumbers.last() - distinctNumbers.first() > distinctNumbers.size + 2
+                ) return@forEach
+                cluster.forEach { (file, episodeNumber) ->
+                    result[file.id] = ClassifiedVideo(
+                        VideoKind.SERIES,
+                        EpisodeSortKey("حلقات مرقمة", 1, episodeNumber)
+                    )
+                }
             }
         }
         return result
