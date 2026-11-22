@@ -297,7 +297,7 @@ class UltraShareV2ManifestTests(unittest.TestCase):
                         greeting = recv_exact(probe, 4 + CHALLENGE_BYTES)
                         self.assertEqual(HANDSHAKE_MAGIC, int.from_bytes(greeting[:4], "big"))
                         probe.sendall(DISCOVERY_PROBE_PROOF)
-                        self.assertEqual(b"\\x00", recv_exact(probe, 1))
+                        self.assertEqual(b"\x00", recv_exact(probe, 1))
                     results = send_batch_v2(
                         "127.0.0.1", data_port, "123456789", [first, second]
                     )
