@@ -9,7 +9,7 @@ import android.os.Build
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.annotation.RequiresApi
+import android.annotation.SuppressLint
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 
-@RequiresApi(Build.VERSION_CODES.Q)
+@SuppressLint("NewApi")
 private fun recoverableDeleteIntentSender(exception: RecoverableSecurityException): IntentSender =
     exception.userAction.actionIntent.intentSender
 
