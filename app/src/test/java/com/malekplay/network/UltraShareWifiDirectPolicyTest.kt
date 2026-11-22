@@ -43,6 +43,13 @@ class UltraShareWifiDirectPolicyTest {
     }
 
     @Test
+    fun delayedPeerDiscoveryStopCannotChangeANewerDiscoveryState() {
+        assertTrue(isCurrentWifiDirectDiscoveryStop(false, 4, 4))
+        assertFalse(isCurrentWifiDirectDiscoveryStop(false, 5, 4))
+        assertFalse(isCurrentWifiDirectDiscoveryStop(true, 4, 4))
+    }
+
+    @Test
     fun delayedDiscoveryRetryCallbacksCannotMutateANewerAttemptForTheSameRequest() {
         val request = Any()
         assertTrue(isCurrentWifiDirectInvitationDiscovery(false, request, request, 2, 2))
