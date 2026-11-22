@@ -657,7 +657,7 @@ object UltraShareWifiDirect {
                 return
             }
             // Invalidate an addLocalService callback that may still be in flight.
-            localInvitationToken++
+            val cleanupToken = ++localInvitationToken
             if (localInvitationService == null && localInvitationId == null) {
                 onResult(true)
                 return
@@ -666,6 +666,10 @@ object UltraShareWifiDirect {
             try {
                 manager.clearLocalServices(channel, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() {
+                        if (localInvitationToken != cleanupToken) {
+                            if (completed.compareAndSet(false, true)) onResult(false)
+                            return
+                        }
                         localInvitationService = null
                         localInvitationId = null
                         if (completed.compareAndSet(false, true)) onResult(true)
