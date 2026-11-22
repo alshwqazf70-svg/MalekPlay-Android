@@ -605,13 +605,12 @@ object UltraShareBatchTransport {
                     )
                 )
                 var transferred = offset
-                val started = System.nanoTime()
-                var lastProgressAt = started
-                var lastProgressBytes = offset
                 val streamedDigest = MessageDigest.getInstance("SHA-256")
                 resolver.openInputStream(source.uri)?.use { raw ->
                     BufferedInputStream(raw, BUFFER_BYTES).use { stream ->
                         skipAndDigest(stream, offset, streamedDigest)
+                        // Start measuring only after the resumed prefix has been re-read and hashed.
+                        val speedEstimator = TransferRateEstimator(offset, System.nanoTime())
                         val buffer = reusableSourceChunk
                         while (transferred < entry.sizeBytes) {
                             currentCoroutineContext().ensureActive()
@@ -640,10 +639,8 @@ object UltraShareBatchTransport {
                             ) {
                                 onProgress(FileProgress(
                                     entry.id, entry.name, transferred, entry.sizeBytes,
-                                    rate(transferred - offset, started), false
+                                    speedEstimator.update(transferred, progressNow), false
                                 ))
-                                lastProgressAt = progressNow
-                                lastProgressBytes = transferred
                             }
                         }
                         check(stream.read() == -1) { "تغير حجم الملف أثناء الإرسال: ${entry.name}" }
@@ -953,9 +950,8 @@ object UltraShareBatchTransport {
                     var streamFailure: Throwable? = null
                     var lastCheckpointOffset = offset
                     try {
-                        val startedAt = System.nanoTime()
-                        var lastProgressAt = startedAt
-                        var lastProgressBytes = offset
+                        // Resume-prefix verification is complete before this timer starts.
+                        val speedEstimator = TransferRateEstimator(offset, System.nanoTime())
                         while (transferred < entry.sizeBytes) {
                             currentCoroutineContext().ensureActive()
                             val remaining = entry.sizeBytes - transferred
@@ -1010,10 +1006,8 @@ object UltraShareBatchTransport {
                             ) {
                                 onProgress(FileProgress(
                                     entry.id, entry.name, transferred, entry.sizeBytes,
-                                    rate(transferred - offset, startedAt), true
+                                    speedEstimator.update(transferred, progressNow), true
                                 ))
-                                lastProgressAt = progressNow
-                                lastProgressBytes = transferred
                             }
                         }
                     } catch (failure: Throwable) {
@@ -1416,9 +1410,46 @@ object UltraShareBatchTransport {
         return total
     }
 
-    private fun rate(bytes: Long, started: Long): Long =
-        ((bytes.toDouble() * 1_000_000_000.0) / (System.nanoTime() - started).coerceAtLeast(1L))
-            .coerceAtMost(Long.MAX_VALUE.toDouble()).toLong()
+    /**
+     * Reports a smoothed short-window throughput, not an average from the start
+     * of the file. The clock and byte baseline are reset after resume verification.
+     */
+    internal class TransferRateEstimator(
+        initialBytes: Long,
+        startNanos: Long,
+        private val smoothingFactor: Double = 0.35
+    ) {
+        private var previousBytes = initialBytes
+        private var previousNanos = startNanos
+        private var smoothedRate = 0L
+
+        init {
+            require(initialBytes >= 0L)
+            require(startNanos >= 0L)
+            require(smoothingFactor in 0.0..1.0)
+        }
+
+        fun update(totalBytes: Long, nowNanos: Long): Long {
+            require(totalBytes >= previousBytes) { "Transfer byte counter moved backwards." }
+            require(nowNanos >= previousNanos) { "Transfer clock moved backwards." }
+            val byteDelta = totalBytes - previousBytes
+            val timeDelta = nowNanos - previousNanos
+            previousBytes = totalBytes
+            previousNanos = nowNanos
+            if (timeDelta <= 0L) return smoothedRate
+            if (byteDelta == 0L) {
+                if (timeDelta >= 1_000_000_000L) smoothedRate = 0L
+                return smoothedRate
+            }
+            val sample = ((byteDelta.toDouble() * 1_000_000_000.0) / timeDelta.toDouble())
+                .coerceAtMost(Long.MAX_VALUE.toDouble()).toLong()
+            smoothedRate = if (smoothedRate == 0L) sample else
+                (smoothedRate.toDouble() * (1.0 - smoothingFactor) +
+                    sample.toDouble() * smoothingFactor)
+                    .coerceAtMost(Long.MAX_VALUE.toDouble()).toLong()
+            return smoothedRate
+        }
+    }
 
     private fun uniqueDestination(directory: File, name: String): File {
         val safe = UltraShareCore.sanitizeFileName(name)
