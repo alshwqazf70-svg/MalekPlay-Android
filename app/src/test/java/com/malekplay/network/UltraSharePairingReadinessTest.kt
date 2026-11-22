@@ -84,6 +84,15 @@ class UltraSharePairingReadinessTest {
         assertFalse(UltraSharePairingReadiness.shouldUseWifiDirectInvitation(null, ""))
     }
 
+    @Test fun staleInvitationTimeoutCannotCancelANewerAttemptWithTheSameSecret() {
+        data class Attempt(val secret: String)
+        val first = Attempt("123456789")
+        val second = Attempt("123456789")
+        assertTrue(UltraSharePairingReadiness.isCurrentInvitationAttempt(first, first))
+        assertFalse(UltraSharePairingReadiness.isCurrentInvitationAttempt(second, first))
+        assertFalse(UltraSharePairingReadiness.isCurrentInvitationAttempt(null, first))
+    }
+
     @Test fun invitationDiscoveryTimeoutNeverRacesAnActiveWifiDirectConnection() {
         assertTrue(
             UltraSharePairingReadiness.shouldUseLanFallbackAfterInvitationDiscoveryTimeout(
