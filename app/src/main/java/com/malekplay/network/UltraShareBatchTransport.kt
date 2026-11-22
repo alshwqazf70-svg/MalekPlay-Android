@@ -610,7 +610,10 @@ object UltraShareBatchTransport {
                     BufferedInputStream(raw, BUFFER_BYTES).use { stream ->
                         skipAndDigest(stream, offset, streamedDigest)
                         // Start measuring only after the resumed prefix has been re-read and hashed.
-                        val speedEstimator = TransferRateEstimator(offset, System.nanoTime())
+                        val speedStartedAt = System.nanoTime()
+                        val speedEstimator = TransferRateEstimator(offset, speedStartedAt)
+                        var lastProgressAt = speedStartedAt
+                        var lastProgressBytes = offset
                         val buffer = reusableSourceChunk
                         while (transferred < entry.sizeBytes) {
                             currentCoroutineContext().ensureActive()
@@ -641,6 +644,8 @@ object UltraShareBatchTransport {
                                     entry.id, entry.name, transferred, entry.sizeBytes,
                                     speedEstimator.update(transferred, progressNow), false
                                 ))
+                                lastProgressAt = progressNow
+                                lastProgressBytes = transferred
                             }
                         }
                         check(stream.read() == -1) { "تغير حجم الملف أثناء الإرسال: ${entry.name}" }
@@ -951,7 +956,10 @@ object UltraShareBatchTransport {
                     var lastCheckpointOffset = offset
                     try {
                         // Resume-prefix verification is complete before this timer starts.
-                        val speedEstimator = TransferRateEstimator(offset, System.nanoTime())
+                        val speedStartedAt = System.nanoTime()
+                        val speedEstimator = TransferRateEstimator(offset, speedStartedAt)
+                        var lastProgressAt = speedStartedAt
+                        var lastProgressBytes = offset
                         while (transferred < entry.sizeBytes) {
                             currentCoroutineContext().ensureActive()
                             val remaining = entry.sizeBytes - transferred
@@ -1008,6 +1016,8 @@ object UltraShareBatchTransport {
                                     entry.id, entry.name, transferred, entry.sizeBytes,
                                     speedEstimator.update(transferred, progressNow), true
                                 ))
+                                lastProgressAt = progressNow
+                                lastProgressBytes = transferred
                             }
                         }
                     } catch (failure: Throwable) {
@@ -1425,7 +1435,6 @@ object UltraShareBatchTransport {
 
         init {
             require(initialBytes >= 0L)
-            require(startNanos >= 0L)
             require(smoothingFactor in 0.0..1.0)
         }
 
