@@ -621,6 +621,27 @@ object UltraShareWifiDirect {
          * changing discovery state. Retry the service scan a few times before
          * handing control back to the QR/LAN fallback.
          */
+        private fun failInvitationServiceDiscovery(
+            request: WifiP2pDnsSdServiceRequest,
+            message: String
+        ) {
+            if (!isCurrentWifiDirectInvitationRequest(closed, invitationRequest, request)) return
+            // A terminal discoverServices failure must release the installed request.
+            // Otherwise a later QR scan on this Session is rejected as "already active".
+            stopInvitationDiscoveryChecked { cleaned ->
+                if (closed) return@stopInvitationDiscoveryChecked
+                if (!cleaned) {
+                    UltraShareDiagnostics.event(
+                        "WIFI_DIRECT",
+                        "SERVICE_DISCOVERY_FAILURE_CLEANUP_UNCONFIRMED"
+                    )
+                    reportError("$message تعذر تأكيد تنظيف طلب الاكتشاف؛ أُغلقت محاولة Wi-Fi Direct الحالية.")
+                } else {
+                    reportError(message)
+                }
+            }
+        }
+
         @SuppressLint("MissingPermission")
         private fun startInvitationServiceDiscovery(
             request: WifiP2pDnsSdServiceRequest,
@@ -687,20 +708,29 @@ object UltraShareWifiDirect {
                                 }
                             }, 600L * (attempt + 1))
                         } else {
-                            reportError("تعذر البحث عن دعوة Wi-Fi Direct (رمز $reason).")
+                            failInvitationServiceDiscovery(
+                                request,
+                                "تعذر البحث عن دعوة Wi-Fi Direct (رمز $reason)."
+                            )
                         }
                     }
                 })
             } catch (failure: SecurityException) {
                 if (isCurrentAttempt()) {
                     peerDiscoveryActive = false
-                    reportError("يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct.")
+                    failInvitationServiceDiscovery(
+                        request,
+                        "يلزم إذن الأجهزة القريبة للبحث عن دعوة Wi-Fi Direct."
+                    )
                 }
             } catch (failure: RuntimeException) {
                 if (isCurrentAttempt()) {
                     peerDiscoveryActive = false
                     UltraShareDiagnostics.failure("WIFI_DIRECT_START_SERVICE_DISCOVERY", failure)
-                    reportError(failure.localizedMessage ?: "تعذر بدء البحث عن دعوة Wi-Fi Direct.")
+                    failInvitationServiceDiscovery(
+                        request,
+                        failure.localizedMessage ?: "تعذر بدء البحث عن دعوة Wi-Fi Direct."
+                    )
                 }
             }
         }
