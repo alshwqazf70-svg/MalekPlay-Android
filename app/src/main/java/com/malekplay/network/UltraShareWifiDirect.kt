@@ -434,10 +434,10 @@ object UltraShareWifiDirect {
             }
             invitationMatch = null
             val completed = java.util.concurrent.atomic.AtomicBoolean(false)
-            lateinit var cleanupTimeout: Runnable
+            var cleanupTimeout: Runnable? = null
             fun finish(success: Boolean) {
                 if (completed.compareAndSet(false, true)) {
-                    mainHandler.removeCallbacks(cleanupTimeout)
+                    cleanupTimeout?.let(mainHandler::removeCallbacks)
                     onResult(success)
                 }
             }
@@ -454,7 +454,7 @@ object UltraShareWifiDirect {
             // Android/OEM P2P callbacks are not guaranteed to arrive. A missing
             // stopPeerDiscovery/removeServiceRequest callback must not strand QR
             // pairing after the exact receiver has already been discovered.
-            mainHandler.postDelayed(cleanupTimeout, 5_000L)
+            mainHandler.postDelayed(requireNotNull(cleanupTimeout), 5_000L)
             fun removeRequest(stopSucceeded: Boolean) {
                 val request = invitationRequest
                 val requestWasInstalled = invitationRequestInstalled
