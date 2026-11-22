@@ -52,6 +52,13 @@ class UltraShareBatchTransportTest {
     }
 
     @Test
+    fun transferRateRetainsBytesWhenTwoProgressSamplesShareTheSameTimestamp() {
+        val estimator = UltraShareBatchTransport.TransferRateEstimator(0L, 100L)
+        assertEquals(0L, estimator.update(1024L, 100L))
+        assertEquals(2048L, estimator.update(2048L, 1_000_000_100L))
+    }
+
+    @Test
     fun transferRateStartsFromResumeOffsetAndIgnoresEarlierPreparationTime() {
         val estimator = UltraShareBatchTransport.TransferRateEstimator(
             initialBytes = 8L * 1024L * 1024L,
