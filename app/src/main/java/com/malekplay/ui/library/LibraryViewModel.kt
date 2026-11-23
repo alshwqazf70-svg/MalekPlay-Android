@@ -183,7 +183,11 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun setSortMode(mode: SortMode) {
-        viewModelScope.launch { settingsRepository.update { it.copy(sortMode = mode) } }
+        val ascendingByDefault = mode == SortMode.NAME || mode == SortMode.OLDEST ||
+            mode == SortMode.TYPE || mode == SortMode.LAST_PLAYED
+        viewModelScope.launch {
+            settingsRepository.update { it.copy(sortMode = mode, sortAscending = ascendingByDefault) }
+        }
     }
 
     fun setSortAscending(ascending: Boolean) {
@@ -239,9 +243,7 @@ class LibraryViewModel @Inject constructor(
                 items.sortedBy { positions[it.media.id] ?: Int.MAX_VALUE }
             }
         }
-        val descendingByDefault = mode == SortMode.NEWEST || mode == SortMode.DURATION ||
-            mode == SortMode.SIZE || mode == SortMode.LAST_PLAYED
-        return if (mode == SortMode.MANUAL || ascending) sorted else if (descendingByDefault) sorted.asReversed() else sorted
+        return if (mode == SortMode.MANUAL || ascending) sorted else sorted.asReversed()
     }
 
     fun applyFolderSort(items: List<MediaFolder>, mode: SortMode): List<MediaFolder> = when (mode) {
