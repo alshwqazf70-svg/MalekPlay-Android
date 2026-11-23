@@ -3192,27 +3192,35 @@ class UltraShareForegroundService : Service() {
             UltraShareControlChannel.closeSession(host)
             UltraShareControlChannel.closeServerSession(host)
             removeApprovedSendTarget(host)
-            // A room is temporary: closing a peer drops its one-time session material.
+            // A room is temporary. Once its final paired peer leaves, clear every
+            // room-only result (completed, failed, pending and receive summaries).
             mutableState.update { current ->
-                current.copy(
-                    activePeers = current.activePeers.filterNot { it.host == host },
-                    // A disconnected peer must not leave a stale "active transfer"
-                    // card on either device. Delivery history remains available separately.
-                    peerTransfers = current.peerTransfers.filterNot { it.host == host },
+                val remainingPeers = current.activePeers.filterNot { it.host == host }
+                val roomEnded = remainingPeers.isEmpty() &&
+                    approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+                val updated = current.copy(
+                    activePeers = remainingPeers,
+                    peerTransfers = if (roomEnded) emptyList() else current.peerTransfers.filterNot { it.host == host },
                     reconnectablePeers = emptyList(),
                     reconnectableSenderPeerHosts = emptyList()
                 )
+                if (roomEnded) resetRoomTransferPresentation(updated) else updated
             }
         }
 
         fun forgetApprovedPeer(host: String) {
             removeApprovedSendTarget(host)
             mutableState.update { current ->
-                current.copy(
-                    activePeers = current.activePeers.filterNot { it.host == host },
+                val remainingPeers = current.activePeers.filterNot { it.host == host }
+                val roomEnded = remainingPeers.isEmpty() &&
+                    approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+                val updated = current.copy(
+                    activePeers = remainingPeers,
+                    peerTransfers = if (roomEnded) emptyList() else current.peerTransfers,
                     reconnectablePeers = emptyList(),
                     reconnectableSenderPeerHosts = emptyList()
                 )
+                if (roomEnded) resetRoomTransferPresentation(updated) else updated
             }
         }
 
