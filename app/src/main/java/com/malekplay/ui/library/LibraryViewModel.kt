@@ -209,20 +209,16 @@ class LibraryViewModel @Inject constructor(
 
     fun moveManualItem(mediaId: String, targetIndex: Int, currentItems: List<LibraryItem>) {
         if (mediaId.isBlank() || currentItems.isEmpty()) return
+        val visibleIds = currentItems.map { it.media.id }
         viewModelScope.launch {
             settingsRepository.update { current ->
-                val visibleIds = currentItems.map { it.media.id }.distinct()
-                val visibleSet = visibleIds.toSet()
-                val allOrder = (current.manualSortOrder + visibleIds).distinct().toMutableList()
-                val slots = allOrder.indices.filter { allOrder[it] in visibleSet }
-                val visibleOrder = slots.map { allOrder[it] }.toMutableList()
-                val from = visibleOrder.indexOf(mediaId)
-                if (from < 0) return@update current
-                val to = targetIndex.coerceIn(0, visibleOrder.lastIndex)
-                val moved = visibleOrder.removeAt(from)
-                visibleOrder.add(to.coerceAtMost(visibleOrder.size), moved)
-                slots.forEachIndexed { index, slot -> allOrder[slot] = visibleOrder[index] }
-                current.copy(sortMode = SortMode.MANUAL, manualSortOrder = allOrder)
+                val nextOrder = ManualSortOrderPolicy.move(
+                    currentOrder = current.manualSortOrder,
+                    visibleIds = visibleIds,
+                    draggedId = mediaId,
+                    targetIndex = targetIndex
+                )
+                current.copy(sortMode = SortMode.MANUAL, manualSortOrder = nextOrder)
             }
         }
     }
