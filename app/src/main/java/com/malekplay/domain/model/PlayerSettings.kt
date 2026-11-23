@@ -13,7 +13,7 @@ enum class GestureAction {
 }
 
 /** Library sort order. */
-enum class SortMode { NEWEST, OLDEST, NAME, DURATION, SIZE, TYPE, LAST_PLAYED }
+enum class SortMode { NEWEST, OLDEST, NAME, DURATION, SIZE, TYPE, LAST_PLAYED, MANUAL }
 
 /** List rendering style for the library grid. */
 enum class ViewMode { LIST, GRID }
@@ -82,6 +82,8 @@ data class PlayerSettings(
     // Library
     val sortMode: SortMode = SortMode.NEWEST,
     val sortAscending: Boolean = false,
+    val foldersFirst: Boolean = true,
+    val manualSortOrder: List<String> = emptyList(),
     val viewMode: ViewMode = ViewMode.GRID
 ) {
     val subtitleColorInt: Int get() = (subtitleColor and 0xFFFFFFFFL).toInt()
