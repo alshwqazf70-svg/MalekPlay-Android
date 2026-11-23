@@ -621,7 +621,9 @@ object UltraShareBatchTransport {
                 )
                 var transferred = offset
                 resolver.openInputStream(source.uri)?.use { raw ->
-                    BufferedInputStream(raw, BUFFER_BYTES).use { stream ->
+                    // readAtMost() already fills the reusable 1 MiB destination buffer.
+                    // Avoid a second 1 MiB BufferedInputStream and its extra memory copy.
+                    raw.use { stream ->
                         // The source digest was computed once during preparation and is
                         // verified by the receiver against the manifest after the file arrives.
                         // Do not hash the same source bytes again on the sending hot path.
