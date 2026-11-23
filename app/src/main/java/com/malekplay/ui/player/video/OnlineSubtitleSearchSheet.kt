@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,6 +64,7 @@ fun OnlineSubtitleSearchSheet(
     onSaveProviderKeys: (String, String) -> Unit, onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val uriHandler = LocalUriHandler.current
     var credentialsExpanded by remember { mutableStateOf(false) }
     var apiKey by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
@@ -72,10 +74,6 @@ fun OnlineSubtitleSearchSheet(
     var downloadingKey by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(loading) { if (!loading) downloadingKey = null }
-    LaunchedEffect(Unit) {
-        if (query.isNotBlank() && results.isEmpty() && !loading) onSearch()
-    }
-
     androidx.compose.runtime.CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
             Column(
@@ -148,6 +146,21 @@ fun OnlineSubtitleSearchSheet(
                     Text("البحث المجاني لا يحتاج إلى بيانات. تُحفظ المفاتيح مشفّرة محليًا.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        TextButton(onClick = {
+                            uriHandler.openUri("https://subdl.com/developers")
+                        }) {
+                            Text("الحصول على مفتاح SubDL")
+                        }
+                        TextButton(onClick = {
+                            uriHandler.openUri("https://www.opensubtitles.com/")
+                        }) {
+                            Text("موقع OpenSubtitles")
+                        }
+                    }
                     OutlinedTextField(apiKey, { apiKey = it }, Modifier.fillMaxWidth(),
                         singleLine = true, label = { Text("مفتاح OpenSubtitles API") })
                     OutlinedTextField(username, { username = it }, Modifier.fillMaxWidth(),
