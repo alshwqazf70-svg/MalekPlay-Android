@@ -116,7 +116,7 @@ fun LibraryScreen(
     // on mid-range phones. Keep this work cancellable and off the main thread.
     val visibleItems by produceState(
         initialValue = emptyList<LibraryItem>(),
-        rawItems, filter, settings.sortMode, settings.sortAscending, lastPlayedMediaId
+        rawItems, filter, settings.sortMode, settings.sortAscending, lastPlayedMediaId, settings.manualSortOrder
     ) {
         value = withContext(Dispatchers.Default) {
             val chosen = when (filter) {
@@ -124,7 +124,7 @@ fun LibraryScreen(
                 LibraryFilter.WATCHING -> rawItems.filter { it.isInProgress }
                 LibraryFilter.FAVOURITES -> rawItems.filter { it.isFavourite }
             }
-            viewModel.applySort(chosen, settings.sortMode, settings.sortAscending, lastPlayedMediaId)
+            viewModel.applySort(chosen, settings.sortMode, settings.sortAscending, lastPlayedMediaId, settings.manualSortOrder)
         }
     }
 
@@ -177,6 +177,10 @@ fun LibraryScreen(
 
             DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
                 DropdownMenuItem(
+                    text = { Text(if (settings.foldersFirst) "المجلدات أولاً ✓" else "الملفات أولاً ✓") },
+                    onClick = { viewModel.setFoldersFirst(!settings.foldersFirst) }
+                )
+                DropdownMenuItem(
                     text = { Text(if (settings.sortAscending) "الترتيب: تصاعدي ↑" else "الترتيب: تنازلي ↓") },
                     onClick = { viewModel.setSortAscending(!settings.sortAscending) }
                 )
@@ -190,6 +194,7 @@ fun LibraryScreen(
                             SortMode.SIZE -> "حجم الملف"
                             SortMode.TYPE -> "نوع الملف"
                             SortMode.LAST_PLAYED -> "آخر ملف تمت مشاهدته"
+                            SortMode.MANUAL -> "ترتيب يدوي بالسحب"
                         }) },
                         onClick = { viewModel.setSortMode(mode) }
                     )
