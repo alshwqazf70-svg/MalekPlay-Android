@@ -386,6 +386,7 @@ object UltraShareBatchTransport {
         if (!UltraShareControlChannel.hasAnyActiveSession(host)) {
             throw IOException("انتهت قناة الموافقة؛ يجب إعادة الاتصال قبل بدء نقل V2.")
         }
+        val preparationStartedAtNanos = System.nanoTime()
         UltraShareDiagnostics.event(
             "DATA_SEND",
             "SOURCE_PREPARATION_STARTED",
@@ -441,7 +442,12 @@ object UltraShareBatchTransport {
                 "batchId" to manifest.batchId,
                 "fileCount" to manifest.entries.size,
                 "failedPreparationCount" to preparationFailures,
-                "totalBytes" to manifest.totalBytes
+                "totalBytes" to manifest.totalBytes,
+                "preparationElapsedMs" to ((System.nanoTime() - preparationStartedAtNanos) / 1_000_000L),
+                "preparationBytesPerSecond" to (
+                    manifest.totalBytes.toDouble() * 1_000_000_000.0 /
+                        (System.nanoTime() - preparationStartedAtNanos).coerceAtLeast(1L)
+                ).toLong()
             )
         )
         if (prepared.isEmpty()) {
@@ -593,6 +599,8 @@ object UltraShareBatchTransport {
                 )
             )
             val reusableSourceChunk = ByteArray(CHUNK_BYTES - 8)
+            val transferStartedAtNanos = System.nanoTime()
+            val resumedBytes = offsets.values.sum()
             prepared.forEachIndexed { index, preparedSource ->
                 currentCoroutineContext().ensureActive()
                 val source = preparedSource.source
@@ -707,7 +715,15 @@ object UltraShareBatchTransport {
                     "peerHost" to host,
                     "batchId" to manifest.batchId,
                     "completedFiles" to batchOutcome.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED },
-                    "failedFiles" to batchOutcome.files.count { it.status != UltraShareBatchProtocol.FileStatus.COMPLETED }
+                    "failedFiles" to batchOutcome.files.count { it.status != UltraShareBatchProtocol.FileStatus.COMPLETED },
+                    "transferredBytes" to (manifest.totalBytes - resumedBytes).coerceAtLeast(0L),
+                    "resumedBytes" to resumedBytes,
+                    "transferElapsedMs" to ((System.nanoTime() - transferStartedAtNanos) / 1_000_000L),
+                    "transferBytesPerSecond" to (
+                        (manifest.totalBytes - resumedBytes).coerceAtLeast(0L).toDouble() *
+                            1_000_000_000.0 /
+                            (System.nanoTime() - transferStartedAtNanos).coerceAtLeast(1L)
+                    ).toLong()
                 )
             )
             batchOutcome
@@ -909,6 +925,7 @@ object UltraShareBatchTransport {
         writeFrame(output, sendKey, noncePrefix, sendSequence++, offsets.toByteArray(), cipher = sendCipher, keySpec = sendKeySpec)
 
         val outcomes = ArrayList<FileOutcome>(manifest.entries.size)
+        val receiveStartedAtNanos = System.nanoTime()
         for ((index, entry) in manifest.entries.withIndex()) {
             val (partial, offset) = partials.getValue(entry.id)
             val identity = transferStorageIdentity(entry)
@@ -1181,7 +1198,16 @@ object UltraShareBatchTransport {
                 "peerHost" to peerHost,
                 "batchId" to manifest.batchId,
                 "completedFiles" to outcomes.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED },
-                "failedFiles" to outcomes.count { it.status != UltraShareBatchProtocol.FileStatus.COMPLETED }
+                "failedFiles" to outcomes.count { it.status != UltraShareBatchProtocol.FileStatus.COMPLETED },
+                "receivedBytes" to outcomes.filter {
+                    it.status == UltraShareBatchProtocol.FileStatus.COMPLETED
+                }.sumOf { it.transferredBytes },
+                "receiveElapsedMs" to ((System.nanoTime() - receiveStartedAtNanos) / 1_000_000L),
+                "receiveBytesPerSecond" to (
+                    outcomes.filter { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED }
+                        .sumOf { it.transferredBytes }.toDouble() * 1_000_000_000.0 /
+                        (System.nanoTime() - receiveStartedAtNanos).coerceAtLeast(1L)
+                ).toLong()
             )
         )
         return BatchOutcome(manifest.batchId, outcomes)
