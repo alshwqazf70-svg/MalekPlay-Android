@@ -236,11 +236,13 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }.map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase(Locale.ROOT) }
 
         val failures = mutableListOf<Exception>()
+        val candidateResults = mutableListOf<List<OnlineSubtitle>>()
         candidates.forEach { query ->
             val result = runCatching { searchPublicQuery(query) }
             if (result.isSuccess) {
-                val subtitles = result.getOrDefault(emptyList())
-                if (subtitles.isNotEmpty()) return subtitles
+                // Do not stop at an English-only hit: the selected Arabic filter is
+                // applied after provider fan-out, and a weaker title may find Arabic.
+                candidateResults += result.getOrDefault(emptyList())
             } else {
                 val failure = result.exceptionOrNull() ?: return@forEach
                 if (failure !is Exception) throw failure
@@ -252,8 +254,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 ) throw failure
             }
         }
-        if (failures.size == candidates.size && failures.isNotEmpty()) throw failures.last()
-        return emptyList()
+        if (candidateResults.isEmpty() && failures.size == candidates.size && failures.isNotEmpty()) {
+            throw failures.last()
+        }
+        return SubtitleResultPolicy.combineCandidates(candidateResults)
     }
 
     private fun searchPublicQuery(query: String): List<OnlineSubtitle> {

@@ -29,6 +29,26 @@ class SubtitleResultPolicyTest {
         assertNull(cache.get("another query"))
     }
 
+    @Test fun combinesAllTitleCandidatesBeforeApplyingArabicFilter() {
+        val englishExact = item("en", "Avatar S01E02 English")
+        val arabicFallback = item("ar", "Avatar The Last Airbender S01E02 Arabic")
+        val combined = SubtitleResultPolicy.combineCandidates(
+            listOf(listOf(englishExact), listOf(arabicFallback))
+        )
+        assertEquals(
+            listOf("Avatar The Last Airbender S01E02 Arabic"),
+            SubtitleResultPolicy.rankAndFilter(combined, "ar", 1, 2).map { it.release }
+        )
+    }
+
+    @Test fun emptySearchResultsAreNotCachedAndCanBeRetried() {
+        val cache = SubtitleSearchResultCache()
+        cache.put("avatar s01e02", emptyList())
+        assertNull(cache.get("avatar s01e02"))
+        cache.put("avatar s01e02", listOf(item("ar", "arabic")))
+        assertEquals(1, cache.get("avatar s01e02")?.size)
+    }
+
     @Test fun cacheEvictsLeastRecentlyUsedEntry() {
         val cache = SubtitleSearchResultCache(2)
         cache.put("one", listOf(item("ar", "1")))

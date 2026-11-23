@@ -2,6 +2,9 @@ package com.malekplay.network
 
 /** Pure provider-result policy, kept independent from Android and HTTP for JVM tests. */
 internal object SubtitleResultPolicy {
+    fun combineCandidates(candidateResults: Iterable<List<OnlineSubtitle>>): List<OnlineSubtitle> =
+        candidateResults.flatten().distinctBy { it.provider + ":" + it.sourceId }
+
     fun rankAndFilter(
         results: List<OnlineSubtitle>,
         languageFilter: String,
@@ -31,6 +34,12 @@ internal class SubtitleSearchResultCache(private val capacity: Int = 12) {
             size > capacity
     }
     @Synchronized fun get(query: String): List<OnlineSubtitle>? = entries[query]?.toList()
-    @Synchronized fun put(query: String, results: List<OnlineSubtitle>) { entries[query] = results.toList() }
+    @Synchronized fun put(query: String, results: List<OnlineSubtitle>) {
+        if (results.isEmpty()) {
+            entries.remove(query)
+        } else {
+            entries[query] = results.toList()
+        }
+    }
     @Synchronized fun clear() = entries.clear()
 }
