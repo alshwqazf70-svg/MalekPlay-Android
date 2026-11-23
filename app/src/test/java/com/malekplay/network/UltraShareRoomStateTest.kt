@@ -1,6 +1,5 @@
 package com.malekplay.network
 
-import android.net.Uri
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -14,7 +13,7 @@ class UltraShareRoomStateTest {
             sendProgress = UltraShareCore.Progress("movie.mp4", 50L, 100L, 10L, false),
             receiveProgress = UltraShareCore.Progress("episode.mkv", 80L, 100L, 20L, true),
             receivedFile = UltraShareCore.ReceivedFile(
-                File("received.mp4"), "received.mp4", 100L, "video/mp4", Uri.parse("file:///received.mp4")
+                File("received.mp4"), "received.mp4", 100L, "video/mp4"
             ),
             status = "انتهى الطابور مع وجود ملفات فاشلة",
             error = "تعذر إرسال ملف",
