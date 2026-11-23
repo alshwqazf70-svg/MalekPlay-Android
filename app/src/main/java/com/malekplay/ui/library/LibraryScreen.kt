@@ -313,21 +313,24 @@ fun LibraryScreen(
                         }
                     }
                 }
-                if (folders.isNotEmpty()) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("تصفح المجلدات", color = colors.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.weight(1f))
-                        Text("${folders.size} مجلد", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
-                    }
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 9.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(viewModel.applyFolderSort(folders, settings.sortMode), key = { it.path }) { entry ->
-                            FolderTile(entry, onOpen = { folder = entry })
+                if (settings.foldersFirst) {
+                    if (folders.isNotEmpty()) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("تصفح المجلدات", color = colors.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                            Spacer(Modifier.weight(1f))
+                            Text("${folders.size} مجلد", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                        }
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 9.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(viewModel.applyFolderSort(folders, settings.sortMode), key = { it.path }) { entry ->
+                                FolderTile(entry, onOpen = { folder = entry })
+                            }
                         }
                     }
                 }
+
             }
 
             AnimatedContent(
@@ -439,6 +442,23 @@ fun LibraryScreen(
                     }
                 }
                 }
+            if (!settings.foldersFirst) {
+                if (folders.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("تصفح المجلدات", color = colors.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.weight(1f))
+                        Text("${folders.size} مجلد", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    }
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 9.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(viewModel.applyFolderSort(folders, settings.sortMode), key = { it.path }) { entry ->
+                            FolderTile(entry, onOpen = { folder = entry })
+                        }
+                    }
+                }
+            }
             }
         }
     }
