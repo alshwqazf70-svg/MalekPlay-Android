@@ -324,7 +324,7 @@ fun LibraryScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 9.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            items(viewModel.applyFolderSort(folders, settings.sortMode), key = { it.path }) { entry ->
+                            items(viewModel.applyFolderSort(folders, settings.sortMode, settings.sortAscending), key = { it.path }) { entry ->
                                 FolderTile(entry, onOpen = { folder = entry })
                             }
                         }
@@ -411,6 +411,7 @@ fun LibraryScreen(
                                 Modifier.fillMaxWidth()
                                     .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
                                     .pointerInput(visibleItems, settings.sortMode) {
+                                        if (settings.sortMode == SortMode.MANUAL) {
                                         var targetIndex = -1
                                         detectDragGesturesAfterLongPress(
                                             onDragStart = { targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id } },
@@ -427,6 +428,7 @@ fun LibraryScreen(
                                             },
                                             onDragCancel = {}
                                         )
+                                        }
                                     }
                             ) {
                             PremiumVideoRow(
