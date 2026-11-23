@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -45,6 +46,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -94,6 +99,7 @@ fun LibraryScreen(
     var sortOpen by remember { mutableStateOf(false) }
     var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
     val selectedUris = remember { mutableStateListOf<Uri>() }
+    val itemBounds = remember { mutableStateMapOf<String, Rect>() }
     val selectionMode = selectedUris.isNotEmpty()
     fun toggleSelection(uri: Uri) { if (uri in selectedUris) selectedUris.remove(uri) else selectedUris.add(uri) }
     var assistantQuery by remember { mutableStateOf("") }
@@ -355,6 +361,28 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         gridItems(visibleItems, key = { it.media.id }) { item ->
+                            Box(
+                                Modifier.fillMaxWidth()
+                                    .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
+                                    .pointerInput(visibleItems, settings.sortMode) {
+                                        var targetIndex = -1
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = { targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id } },
+                                            onDrag = { change, _ ->
+                                                change.consume()
+                                                val origin = itemBounds[item.media.id]?.topLeft ?: return@detectDragGesturesAfterLongPress
+                                                val point = origin + change.position
+                                                targetIndex = visibleItems.indexOfFirst { row -> itemBounds[row.media.id]?.contains(point) == true }
+                                            },
+                                            onDragEnd = {
+                                                if (settings.sortMode == SortMode.MANUAL && targetIndex >= 0) {
+                                                    viewModel.moveManualItem(item.media.id, targetIndex, visibleItems)
+                                                }
+                                            },
+                                            onDragCancel = {}
+                                        )
+                                    }
+                            ) {
                             MediaGridCard(
                                 item = item,
                                 onPlay = { onVideoClick(item) },
@@ -365,6 +393,7 @@ fun LibraryScreen(
                                 isSelected = item.media.uri in selectedUris,
                                 onSelect = { toggleSelection(item.media.uri) }
                             )
+                            }
                         }
                     }
                 } else {
@@ -373,6 +402,28 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(9.dp)
                     ) {
                         items(visibleItems, key = { it.media.id }) { item ->
+                            Box(
+                                Modifier.fillMaxWidth()
+                                    .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
+                                    .pointerInput(visibleItems, settings.sortMode) {
+                                        var targetIndex = -1
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = { targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id } },
+                                            onDrag = { change, _ ->
+                                                change.consume()
+                                                val origin = itemBounds[item.media.id]?.topLeft ?: return@detectDragGesturesAfterLongPress
+                                                val point = origin + change.position
+                                                targetIndex = visibleItems.indexOfFirst { row -> itemBounds[row.media.id]?.contains(point) == true }
+                                            },
+                                            onDragEnd = {
+                                                if (settings.sortMode == SortMode.MANUAL && targetIndex >= 0) {
+                                                    viewModel.moveManualItem(item.media.id, targetIndex, visibleItems)
+                                                }
+                                            },
+                                            onDragCancel = {}
+                                        )
+                                    }
+                            ) {
                             PremiumVideoRow(
                                 item = item,
                                 onClick = { onVideoClick(item) },
@@ -383,6 +434,7 @@ fun LibraryScreen(
                                 isSelected = item.media.uri in selectedUris,
                                 onSelect = { toggleSelection(item.media.uri) }
                             )
+                            }
                         }
                     }
                 }
