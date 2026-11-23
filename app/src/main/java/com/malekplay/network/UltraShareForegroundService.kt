@@ -32,7 +32,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.delay
 import java.io.IOException
 
-private fun resetRoomTransferPresentation(state: UltraShareServiceState): UltraShareServiceState = state.copy(
+internal fun resetRoomTransferPresentation(state: UltraShareServiceState): UltraShareServiceState = state.copy(
     progress = null,
     sendProgress = null,
     receiveProgress = null,
@@ -44,7 +44,9 @@ private fun resetRoomTransferPresentation(state: UltraShareServiceState): UltraS
     queueTransferredBytes = 0L,
     lastTransferMetrics = null,
     lastReceiveMetrics = null,
-    peerTransfers = emptyList()
+    peerTransfers = emptyList(),
+    status = null,
+    error = null
 )
 
 data class UltraShareServiceState(
@@ -2007,6 +2009,18 @@ class UltraShareForegroundService : Service() {
         transferLocks.release()
     }
 
+    private fun clearRoomPresentationIfUnpaired() {
+        if (currentState().activePeers.isEmpty() &&
+            approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+        ) {
+            updateState { current ->
+                if (current.activePeers.isEmpty() &&
+                    approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+                ) resetRoomTransferPresentation(current) else current
+            }
+        }
+    }
+
     private fun updateState(transform: (UltraShareServiceState) -> UltraShareServiceState) {
         mutableState.update { current ->
             val next = transform(current)
@@ -2260,6 +2274,7 @@ class UltraShareForegroundService : Service() {
                 throw cancelled
             } finally {
                 sendJobsByPeer.remove(sendKey, sendJobForPeer)
+                clearRoomPresentationIfUnpaired()
                 pauseRequested = false
                 updateState { current -> current.copy(sending = sendJobsByPeer.isNotEmpty(), progress = if (current.receiving) current.receiveProgress else null, sendProgress = null, queueCurrentName = null) }
                 scheduleIdleDisconnect()
@@ -2595,6 +2610,7 @@ class UltraShareForegroundService : Service() {
             } finally {
                 if (transferLockStarted) endTransfer(isReceiving = false)
                 targets.forEach { target -> sendJobsByPeer.remove(target.sessionId, multiPeerSendJob) }
+                clearRoomPresentationIfUnpaired()
                 updateState { current ->
                     current.copy(
                         sending = sendJobsByPeer.isNotEmpty(),
