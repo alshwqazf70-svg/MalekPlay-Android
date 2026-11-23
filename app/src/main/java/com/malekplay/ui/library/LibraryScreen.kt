@@ -367,7 +367,8 @@ fun LibraryScreen(
                             Box(
                                 Modifier.fillMaxWidth()
                                     .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
-                                    .pointerInput(visibleItems, settings.sortMode) {
+                                     .pointerInput(visibleItems, settings.sortMode) {
+                                        if (settings.sortMode == SortMode.MANUAL) {
                                         var targetIndex = -1
                                         detectDragGesturesAfterLongPress(
                                             onDragStart = { targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id } },
@@ -384,6 +385,7 @@ fun LibraryScreen(
                                             },
                                             onDragCancel = {}
                                         )
+                                        }
                                     }
                             ) {
                             MediaGridCard(
