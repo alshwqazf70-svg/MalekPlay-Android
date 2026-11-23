@@ -56,11 +56,11 @@ private fun lightScheme(seed: Color): ColorScheme = lightColorScheme(
 
 private fun darkScheme(seed: Color): ColorScheme = darkColorScheme(
     primary = seed,
-    onPrimary = Color(0xFF210B35),
+    onPrimary = Color.Black,
     primaryContainer = Color(0xFF35134F),
     onPrimaryContainer = Color(0xFFE9D5FF),
     secondary = MalekPlayColors.PurpleBright,
-    onSecondary = Color(0xFF210B35),
+    onSecondary = Color.Black,
     secondaryContainer = Color(0xFF3B2452),
     onSecondaryContainer = Color(0xFFF1E5FF),
     tertiary = MalekPlayColors.Teal,
@@ -162,11 +162,8 @@ fun MalekPlayTheme(
     // Route the selected palette through every semantic text color token.
     // This covers screens that explicitly request primary/secondary/tertiary
     // text colors instead of relying only on the typography defaults.
-    val readableOnText = if (chosenText != null && chosenText.luminance() > 0.48f) {
-        Color(0xFF17121D)
-    } else {
-        Color.White
-    }
+    // Filled accent controls use black labels for clear contrast on purple surfaces.
+    val readableOnText = Color.Black
     val colorScheme = if (chosenText == null) textBase else textBase.copy(
         primary = chosenText,
         onPrimary = readableOnText,
