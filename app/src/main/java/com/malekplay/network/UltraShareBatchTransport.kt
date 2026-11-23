@@ -70,8 +70,9 @@ object UltraShareBatchTransport {
     internal const val CHUNK_BYTES = 1024 * 1024
     private const val PROGRESS_UPDATE_INTERVAL_BYTES = 1024L * 1024L
     private const val PROGRESS_UPDATE_INTERVAL_NANOS = 80_000_000L
-    // A checkpoint is committed only after the corresponding partial bytes are fsynced.
-    private const val RESUME_CHECKPOINT_INTERVAL_BYTES = 4L * 1024L * 1024L
+    // Fewer durable checkpoints reduce storage sync stalls on multi-gigabyte transfers.
+    // At most 16 MiB may need retransmission after an abrupt interruption.
+    private const val RESUME_CHECKPOINT_INTERVAL_BYTES = 16L * 1024L * 1024L
     private const val HANDSHAKE_TIMEOUT_MS = 8_000
     private const val SESSION_TIMEOUT_MS = 30_000
     // Verification and publication may take longer than an ordinary data-frame gap,
@@ -1015,7 +1016,11 @@ object UltraShareBatchTransport {
                         // partial file was synchronized. Never hide fsync failures or
                         // replace the original transfer/cancellation failure.
                         try {
-                            file.fd.sync()
+                            // A completed file has already been synced immediately before its
+                            // final checkpoint. Avoid issuing the same expensive sync twice.
+                            // On interruption, still sync any uncheckpointed tail, but the next
+                            // resume will discard it and continue from the last durable checkpoint.
+                            if (transferred > lastCheckpointOffset) file.fd.sync()
                         } catch (syncFailure: IOException) {
                             UltraShareDiagnostics.failure(
                                 "DATA_RECEIVE_PARTIAL_SYNC",
