@@ -186,17 +186,33 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.update { it.copy(sortMode = mode) } }
     }
 
+    fun setSortAscending(ascending: Boolean) {
+        viewModelScope.launch { settingsRepository.update { it.copy(sortAscending = ascending) } }
+    }
+
     fun setViewMode(mode: ViewMode) {
         viewModelScope.launch { settingsRepository.update { it.copy(viewMode = mode) } }
     }
 
-    /** Applies the persisted sort order to a list. */
-    fun applySort(items: List<LibraryItem>, mode: SortMode): List<LibraryItem> = when (mode) {
-        SortMode.NEWEST -> items.sortedByDescending { it.media.addedAtMs }
-        SortMode.OLDEST -> items.sortedBy { it.media.addedAtMs }
-        SortMode.NAME -> items.sortedBy { it.media.title.lowercase(Locale.ROOT) }
-        SortMode.DURATION -> items.sortedByDescending { it.media.durationMs }
-        SortMode.SIZE -> items.sortedByDescending { it.media.sizeBytes }
+    /** Applies the persisted sort order to a list without mutating the source snapshot. */
+    fun applySort(
+        items: List<LibraryItem>,
+        mode: SortMode,
+        ascending: Boolean = false,
+        lastPlayedMediaId: String? = null
+    ): List<LibraryItem> {
+        val sorted = when (mode) {
+            SortMode.NEWEST -> items.sortedBy { it.media.addedAtMs }
+            SortMode.OLDEST -> items.sortedBy { it.media.addedAtMs }
+            SortMode.NAME -> items.sortedBy { it.media.displayTitle.lowercase(Locale.ROOT) }
+            SortMode.DURATION -> items.sortedBy { it.media.durationMs }
+            SortMode.SIZE -> items.sortedBy { it.media.sizeBytes }
+            SortMode.TYPE -> items.sortedBy { it.media.mimeType.lowercase(Locale.ROOT) }
+            SortMode.LAST_PLAYED -> items.sortedBy { if (it.media.id == lastPlayedMediaId) 0 else 1 }
+        }
+        val descendingByDefault = mode == SortMode.NEWEST || mode == SortMode.DURATION ||
+            mode == SortMode.SIZE || mode == SortMode.LAST_PLAYED
+        return if (ascending xor descendingByDefault) sorted else sorted.asReversed()
     }
 
     fun applyFolderSort(items: List<MediaFolder>, mode: SortMode): List<MediaFolder> = when (mode) {
