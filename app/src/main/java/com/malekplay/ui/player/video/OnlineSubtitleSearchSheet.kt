@@ -21,6 +21,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -38,6 +39,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
@@ -121,12 +123,18 @@ fun OnlineSubtitleSearchSheet(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        val chipColors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = Color.Black,
+                            selectedLeadingIconColor = Color.Black,
+                            selectedTrailingIconColor = Color.Black
+                        )
                         FilterChip(language == "ar,en", { onLanguageChange("ar,en") },
-                            label = { Text("العربية + English") })
+                            label = { Text("العربية + English") }, colors = chipColors)
                         FilterChip(language == "ar", { onLanguageChange("ar") },
-                            label = { Text("العربية فقط") })
+                            label = { Text("العربية فقط") }, colors = chipColors)
                         FilterChip(language == "en", { onLanguageChange("en") },
-                            label = { Text("English") })
+                            label = { Text("English") }, colors = chipColors)
                     }
                 }
                 Button(onClick = onSearch, enabled = query.isNotBlank() && !loading,
@@ -274,6 +282,18 @@ fun OnlineSubtitleSearchSheet(
                                 Text(cleanRelease, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold)
+                                val episodeContext = buildList {
+                                    subtitle.seasonNumber?.let { add("الموسم $it") }
+                                    subtitle.episodeNumber?.let { add("الحلقة $it") }
+                                }.joinToString("  •  ")
+                                if (episodeContext.isNotBlank()) {
+                                    Text(
+                                        episodeContext,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("${subtitle.downloads} تنزيلات",
                                         style = MaterialTheme.typography.bodySmall,
