@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -51,10 +52,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -436,7 +442,9 @@ fun LocalScreen(
                 onToggleSelection = ::toggleSelection,
                 onFavourite = { viewModel.toggleFavourite(it.media.id) },
                 onAddToPlaylist = { playlistTarget = it.media },
-                onDeleted = viewModel::refresh
+                onDeleted = viewModel::refresh,
+                manualReorderEnabled = settings.sortMode == SortMode.MANUAL,
+                onMoveManualItem = viewModel::moveManualItem
             )
             return
         }
@@ -609,8 +617,11 @@ private fun MediaList(
     onToggleSelection: (Uri) -> Unit = {},
     onFavourite: (com.malekplay.domain.model.LibraryItem) -> Unit,
     onAddToPlaylist: (com.malekplay.domain.model.LibraryItem) -> Unit,
-    onDeleted: () -> Unit = {}
+    onDeleted: () -> Unit = {},
+    manualReorderEnabled: Boolean = false,
+    onMoveManualItem: (String, Int, List<LibraryItem>) -> Unit = { _, _, _ -> }
 ) {
+    val itemBounds = remember { mutableStateMapOf<String, Rect>() }
     if (items.isEmpty()) {
         EmptyState(title = emptyTitle, body = emptyBody)
         return
@@ -626,6 +637,26 @@ private fun MediaList(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             items(items, key = { it.media.id }) { item ->
+                Box(
+                    Modifier.fillMaxWidth()
+                        .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
+                        .pointerInput(items, manualReorderEnabled) {
+                            if (manualReorderEnabled) {
+                                var targetIndex = -1
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { targetIndex = items.indexOfFirst { row -> row.media.id == item.media.id } },
+                                    onDrag = { change, _ ->
+                                        change.consume()
+                                        val origin = itemBounds[item.media.id]?.topLeft ?: return@detectDragGesturesAfterLongPress
+                                        val point = origin + change.position
+                                        targetIndex = items.indexOfFirst { row -> itemBounds[row.media.id]?.contains(point) == true }
+                                    },
+                                    onDragEnd = { if (targetIndex >= 0) onMoveManualItem(item.media.id, targetIndex, items) },
+                                    onDragCancel = {}
+                                )
+                            }
+                        }
+                ) {
                 MediaGridCard(
                     item = item,
                     onPlay = { onPlay(item.media) },
@@ -637,6 +668,7 @@ private fun MediaList(
                     isSelected = item.media.uri in selectedUris,
                     onSelect = { onToggleSelection(item.media.uri) }
                 )
+                }
             }
         }
     } else {
@@ -648,6 +680,26 @@ private fun MediaList(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(items, key = { it.media.id }) { item ->
+                Box(
+                    Modifier.fillMaxWidth()
+                        .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
+                        .pointerInput(items, manualReorderEnabled) {
+                            if (manualReorderEnabled) {
+                                var targetIndex = -1
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { targetIndex = items.indexOfFirst { row -> row.media.id == item.media.id } },
+                                    onDrag = { change, _ ->
+                                        change.consume()
+                                        val origin = itemBounds[item.media.id]?.topLeft ?: return@detectDragGesturesAfterLongPress
+                                        val point = origin + change.position
+                                        targetIndex = items.indexOfFirst { row -> itemBounds[row.media.id]?.contains(point) == true }
+                                    },
+                                    onDragEnd = { if (targetIndex >= 0) onMoveManualItem(item.media.id, targetIndex, items) },
+                                    onDragCancel = {}
+                                )
+                            }
+                        }
+                ) {
                 MediaListRow(
                     item = item,
                     showFolder = showFolder,
@@ -660,6 +712,7 @@ private fun MediaList(
                     isSelected = item.media.uri in selectedUris,
                     onSelect = { onToggleSelection(item.media.uri) }
                 )
+                }
             }
         }
     }
