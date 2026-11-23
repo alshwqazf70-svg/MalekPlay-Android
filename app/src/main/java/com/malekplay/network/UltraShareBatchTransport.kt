@@ -599,7 +599,6 @@ object UltraShareBatchTransport {
                     "resumedBytes" to offsets.values.sum()
                 )
             )
-            val reusableSourceChunk = ByteArray(CHUNK_BYTES - 8)
             val transferStartedAtNanos = System.nanoTime()
             val resumedBytes = offsets.values.sum()
             prepared.forEachIndexed { index, preparedSource ->
@@ -633,20 +632,22 @@ object UltraShareBatchTransport {
                         val speedEstimator = TransferRateEstimator(offset, speedStartedAt)
                         var lastProgressAt = speedStartedAt
                         var lastProgressBytes = offset
-                        val buffer = reusableSourceChunk
                         while (transferred < entry.sizeBytes) {
                             currentCoroutineContext().ensureActive()
-                            val wanted = minOf(buffer.size.toLong(), entry.sizeBytes - transferred).toInt()
-                            val read = readAtMost(stream, buffer, wanted)
-                            check(read > 0) { "انتهى الملف قبل اكتمال الإرسال: ${entry.name}" }
+                            val wanted = minOf((CHUNK_BYTES - 8).toLong(), entry.sizeBytes - transferred).toInt()
                             plainChunkFrame[0] = TYPE_CHUNK.toByte()
                             plainChunkFrame[1] = (index ushr 8).toByte()
                             plainChunkFrame[2] = index.toByte()
+                            plainChunkFrame[3] = (wanted ushr 24).toByte()
+                            plainChunkFrame[4] = (wanted ushr 16).toByte()
+                            plainChunkFrame[5] = (wanted ushr 8).toByte()
+                            plainChunkFrame[6] = wanted.toByte()
+                            val read = readAtMost(stream, plainChunkFrame, 7, wanted)
+                            check(read > 0) { "انتهى الملف قبل اكتمال الإرسال: ${entry.name}" }
                             plainChunkFrame[3] = (read ushr 24).toByte()
                             plainChunkFrame[4] = (read ushr 16).toByte()
                             plainChunkFrame[5] = (read ushr 8).toByte()
                             plainChunkFrame[6] = read.toByte()
-                            System.arraycopy(buffer, 0, plainChunkFrame, 7, read)
                             writeFrame(
                                 output, sendKey, noncePrefix, sendSequence++, plainChunkFrame,
                                 flush = false, cipher = sendCipher, keySpec = sendKeySpec,
@@ -1465,15 +1466,28 @@ object UltraShareBatchTransport {
         }
     }
 
-    internal fun readAtMost(input: java.io.InputStream, buffer: ByteArray, wanted: Int): Int {
+    internal fun readAtMost(input: java.io.InputStream, buffer: ByteArray, wanted: Int): Int =
+        readAtMost(input, buffer, 0, wanted)
+
+    /** Fills a bounded region directly, preserving any frame header and trailing bytes. */
+    internal fun readAtMost(
+        input: java.io.InputStream,
+        buffer: ByteArray,
+        offset: Int,
+        wanted: Int
+    ): Int {
+        require(offset >= 0 && wanted >= 0 && offset <= buffer.size - wanted) {
+            "Read range is outside the destination buffer."
+        }
         var total = 0
         while (total < wanted) {
-            val count = input.read(buffer, total, wanted - total)
+            val count = input.read(buffer, offset + total, wanted - total)
             if (count < 0) break
             if (count == 0) {
                 val value = input.read()
                 if (value < 0) break
-                buffer[total++] = value.toByte()
+                buffer[offset + total] = value.toByte()
+                total++
             } else total += count
         }
         return total

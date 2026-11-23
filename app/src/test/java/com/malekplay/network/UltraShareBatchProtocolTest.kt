@@ -230,12 +230,43 @@ class UltraShareBatchProtocolTest {
                     returnZero = false
                     return 0
                 }
-                return source.read(buffer, offset, length)
+                return source.read(buffer, offset, minOf(length, 2))
             }
         }
         val buffer = ByteArray(3)
         assertEquals(3, UltraShareBatchTransport.readAtMost(unusual, buffer, buffer.size))
         assertEquals(listOf<Byte>(10, 20, 30), buffer.toList())
         assertEquals(0, UltraShareBatchTransport.readAtMost(unusual, buffer, buffer.size))
+    }
+
+    @Test fun v2ReaderFillsFramePayloadAtOffsetWithoutChangingHeaderOrTail() {
+        val payload = byteArrayOf(4, 8, 15, 16, 23, 42)
+        val source = java.io.ByteArrayInputStream(payload)
+        val unusual = object : java.io.InputStream() {
+            private var returnZero = true
+            override fun read(): Int = source.read()
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (returnZero) {
+                    returnZero = false
+                    return 0
+                }
+                return source.read(buffer, offset, minOf(length, 2))
+            }
+        }
+        val frame = ByteArray(12) { 0x55.toByte() }
+        frame[0] = 0x11
+        frame[1] = 0x22
+        val count = UltraShareBatchTransport.readAtMost(unusual, frame, 3, payload.size)
+        assertEquals(payload.size, count)
+        assertEquals(listOf<Byte>(0x11, 0x22, 0x55), frame.take(3))
+        assertEquals(payload.toList(), frame.slice(3 until 9))
+        assertEquals(listOf<Byte>(0x55, 0x55, 0x55), frame.takeLast(3))
+        assertEquals(0, UltraShareBatchTransport.readAtMost(unusual, frame, 3, payload.size))
+        assertThrows(IllegalArgumentException::class.java) {
+            UltraShareBatchTransport.readAtMost(unusual, frame, 10, 3)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            UltraShareBatchTransport.readAtMost(unusual, frame, -1, 1)
+        }
     }
 }
