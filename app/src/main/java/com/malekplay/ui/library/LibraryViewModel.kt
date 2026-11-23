@@ -246,14 +246,25 @@ class LibraryViewModel @Inject constructor(
         return if (mode == SortMode.MANUAL || ascending) sorted else sorted.asReversed()
     }
 
-    fun applyFolderSort(items: List<MediaFolder>, mode: SortMode): List<MediaFolder> = when (mode) {
-        SortMode.NAME -> items.sortedBy { it.name.lowercase(Locale.ROOT) }
-        SortMode.SIZE -> items.sortedByDescending { it.totalBytes }
-        SortMode.NEWEST -> items.sortedByDescending { it.lastAddedMs }
-        SortMode.OLDEST -> items.sortedBy { it.lastAddedMs }
-        SortMode.DURATION -> items.sortedByDescending { it.itemCount }
-        SortMode.TYPE -> items.sortedBy { it.name.lowercase(Locale.ROOT) }
-        SortMode.LAST_PLAYED -> items.sortedByDescending { it.lastAddedMs }
-        SortMode.MANUAL -> items
+    fun applyFolderSort(
+        items: List<MediaFolder>,
+        mode: SortMode,
+        ascending: Boolean = false
+    ): List<MediaFolder> {
+        val sorted = when (mode) {
+            SortMode.NAME -> items.sortedBy { it.name.lowercase(Locale.ROOT) }
+            SortMode.SIZE -> items.sortedBy { it.totalBytes }
+            SortMode.NEWEST, SortMode.OLDEST, SortMode.LAST_PLAYED -> items.sortedBy { it.lastAddedMs }
+            SortMode.DURATION -> items.sortedBy { it.itemCount }
+            SortMode.TYPE -> items.sortedBy { it.name.lowercase(Locale.ROOT) }
+            SortMode.MANUAL -> items
+        }
+        val forward = when (mode) {
+            SortMode.NEWEST -> false
+            SortMode.OLDEST -> true
+            SortMode.MANUAL -> true
+            else -> ascending
+        }
+        return if (forward) sorted else sorted.asReversed()
     }
 }
