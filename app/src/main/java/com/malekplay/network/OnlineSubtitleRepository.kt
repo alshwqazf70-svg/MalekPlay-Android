@@ -49,7 +49,10 @@ data class OnlineSubtitle(
     val downloads: Int,
     val format: String,
     val sourceId: String = fileId.toString(),
-    val provider: String = "opensubtitles"
+    val provider: String = "opensubtitles",
+    /** Season/episode requested by the user; describes the search scope, not provider verification. */
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null
 )
 
 /** Collision-resistant, filesystem-safe cache token for untrusted provider identifiers. */
@@ -164,7 +167,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val task = automaticSearchInFlight.putIfAbsent(queryKey, candidate) ?: candidate
         if (task === candidate) candidate.run()
         try {
-            return SubtitleResultPolicy.rankAndFilter(task.get(), language, resolvedSeason, resolvedEpisode).take(40)
+            return SubtitleResultPolicy.rankAndFilter(task.get(), language, resolvedSeason, resolvedEpisode)
+                .take(40)
+                .map { it.copy(seasonNumber = resolvedSeason, episodeNumber = resolvedEpisode) }
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             throw java.io.IOException("تم إيقاف البحث عن الترجمة", interrupted)
