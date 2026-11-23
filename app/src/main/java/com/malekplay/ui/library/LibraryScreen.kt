@@ -376,8 +376,8 @@ fun LibraryScreen(
                             Box(
                                 Modifier.fillMaxWidth()
                                     .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
-                                     .pointerInput(visibleItems, settings.sortMode) {
-                                        if (settings.sortMode == SortMode.MANUAL) {
+                                     .pointerInput(visibleItems, settings.sortMode, selectionMode) {
+                                        if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
                                         var targetIndex = -1
                                         detectDragGesturesAfterLongPress(
                                             onDragStart = { targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id } },
@@ -405,6 +405,7 @@ fun LibraryScreen(
                                 onDeleted = viewModel::refresh,
                                 selectionMode = selectionMode,
                                 isSelected = item.media.uri in selectedUris,
+                                enableLongPressSelection = settings.sortMode != SortMode.MANUAL || selectionMode,
                                 onSelect = { toggleSelection(item.media.uri) }
                             )
                             }
@@ -420,8 +421,8 @@ fun LibraryScreen(
                             Box(
                                 Modifier.fillMaxWidth()
                                     .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
-                                    .pointerInput(visibleItems, settings.sortMode) {
-                                        if (settings.sortMode == SortMode.MANUAL) {
+                                    .pointerInput(visibleItems, settings.sortMode, selectionMode) {
+                                        if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
                                         var targetIndex = -1
                                         detectDragGesturesAfterLongPress(
                                             onDragStart = { targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id } },
@@ -449,6 +450,7 @@ fun LibraryScreen(
                                 onDeleted = viewModel::refresh,
                                 selectionMode = selectionMode,
                                 isSelected = item.media.uri in selectedUris,
+                                enableLongPressSelection = settings.sortMode != SortMode.MANUAL || selectionMode,
                                 onSelect = { toggleSelection(item.media.uri) }
                             )
                             }
@@ -701,6 +703,7 @@ private fun PremiumVideoRow(
     onDeleted: () -> Unit,
     selectionMode: Boolean = false,
     isSelected: Boolean = false,
+    enableLongPressSelection: Boolean = true,
     onSelect: () -> Unit = {}
 ) {
     val colors = MaterialTheme.colorScheme
@@ -709,7 +712,7 @@ private fun PremiumVideoRow(
     Row(
         Modifier.fillMaxWidth().animateContentSize().clip(RoundedCornerShape(19.dp)).background(glass)
             .border(1.dp, if (isSelected) Brush.linearGradient(listOf(colors.primary, colors.secondary)) else glassStroke, RoundedCornerShape(19.dp))
-            .combinedClickable(onClick = { if (selectionMode) onSelect() else onClick() }, onLongClick = onSelect)
+            .combinedClickable(onClick = { if (selectionMode) onSelect() else onClick() }, onLongClick = if (enableLongPressSelection) onSelect else null)
             .background(if (isSelected) colors.primaryContainer.copy(alpha = 0.35f) else Color.Transparent)
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
