@@ -131,6 +131,13 @@ class UltraShareWifiDirectPolicyTest {
     }
 
     @Test
+    fun clientGroupConfirmationUsesTheSameBoundedLegacyCompatibilityWindow() {
+        assertTrue(shouldRetryWifiDirectPeerConfirmation(0))
+        assertTrue(shouldRetryWifiDirectPeerConfirmation(69))
+        assertFalse(shouldRetryWifiDirectPeerConfirmation(70))
+    }
+
+    @Test
     fun peerRefreshTimeoutAndCallbackCannotStartTwoConnectAttempts() {
         val finished = AtomicBoolean(false)
         assertTrue(claimWifiDirectPeerRefreshCompletion(finished))
