@@ -198,14 +198,18 @@ class LibraryViewModel @Inject constructor(
         if (mediaId.isBlank() || currentItems.isEmpty()) return
         viewModelScope.launch {
             settingsRepository.update { current ->
-                val currentIds = currentItems.map { it.media.id }
-                val ordered = (current.manualSortOrder.filter { it in currentIds } + currentIds.filterNot { it in current.manualSortOrder }).toMutableList()
-                val from = ordered.indexOf(mediaId)
+                val visibleIds = currentItems.map { it.media.id }.distinct()
+                val visibleSet = visibleIds.toSet()
+                val allOrder = (current.manualSortOrder + visibleIds).distinct().toMutableList()
+                val slots = allOrder.indices.filter { allOrder[it] in visibleSet }
+                val visibleOrder = slots.map { allOrder[it] }.toMutableList()
+                val from = visibleOrder.indexOf(mediaId)
                 if (from < 0) return@update current
-                val to = targetIndex.coerceIn(0, ordered.lastIndex)
-                val moved = ordered.removeAt(from)
-                ordered.add(to.coerceAtMost(ordered.size), moved)
-                current.copy(sortMode = SortMode.MANUAL, manualSortOrder = ordered)
+                val to = targetIndex.coerceIn(0, visibleOrder.lastIndex)
+                val moved = visibleOrder.removeAt(from)
+                visibleOrder.add(to.coerceAtMost(visibleOrder.size), moved)
+                slots.forEachIndexed { index, slot -> allOrder[slot] = visibleOrder[index] }
+                current.copy(sortMode = SortMode.MANUAL, manualSortOrder = allOrder)
             }
         }
     }
@@ -237,7 +241,7 @@ class LibraryViewModel @Inject constructor(
         }
         val descendingByDefault = mode == SortMode.NEWEST || mode == SortMode.DURATION ||
             mode == SortMode.SIZE || mode == SortMode.LAST_PLAYED
-        return if (ascending) sorted else if (descendingByDefault) sorted.asReversed() else sorted
+        return if (mode == SortMode.MANUAL || ascending) sorted else if (descendingByDefault) sorted.asReversed() else sorted
     }
 
     fun applyFolderSort(items: List<MediaFolder>, mode: SortMode): List<MediaFolder> = when (mode) {
