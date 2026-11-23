@@ -339,14 +339,29 @@ fun UltraShareSessionRoom(
                                 val failedCount = peerFiles.count {
                                     it.status == com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_FAILED
                                 }
-                                val waitingCount = peerFiles.size - deliveredCount - failedCount
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    UltraShareQueueCount("مستلم $deliveredCount", Color(0xFF65D6A2), Modifier.weight(1f))
-                                    UltraShareQueueCount("قيد الانتظار $waitingCount", MalekPlayColors.PurpleBright, Modifier.weight(1f))
-                                    UltraShareQueueCount("فشل $failedCount", MaterialTheme.colorScheme.error, Modifier.weight(1f))
+                                val sendingCount = peerFiles.count {
+                                    it.status == com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_SENDING
+                                }
+                                val waitingCount = peerFiles.count {
+                                    it.status != com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_COMPLETED &&
+                                        it.status != com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_FAILED &&
+                                        it.status != com.malekplay.network.UltraSharePeerDeliveryStore.STATUS_SENDING
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        UltraShareQueueCount("مستلم $deliveredCount", Color(0xFF65D6A2), Modifier.weight(1f))
+                                        UltraShareQueueCount("جارٍ $sendingCount", MalekPlayColors.PurpleBright, Modifier.weight(1f))
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        UltraShareQueueCount("انتظار $waitingCount", MaterialTheme.colorScheme.onSurfaceVariant, Modifier.weight(1f))
+                                        UltraShareQueueCount("فشل $failedCount", MaterialTheme.colorScheme.error, Modifier.weight(1f))
+                                    }
                                 }
                                 Column(
                                     modifier = Modifier.fillMaxWidth()
