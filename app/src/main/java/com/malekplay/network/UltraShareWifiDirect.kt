@@ -2342,6 +2342,7 @@ object UltraShareWifiDirect {
             } catch (failure: SecurityException) {
                 if (completed.compareAndSet(false, true)) {
                     mainHandler.removeCallbacks(timeout)
+                    if (!isCurrentWifiDirectPeerConfirmation(closed, ownerPeerCheckToken, token)) return
                     if (ownerPeerCheckTimeout === timeout) ownerPeerCheckTimeout = null
                     ownerPeerCheckInFlight = false
                     UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_INFO_SECURITY", failure)
@@ -2350,6 +2351,7 @@ object UltraShareWifiDirect {
             } catch (failure: RuntimeException) {
                 if (completed.compareAndSet(false, true)) {
                     mainHandler.removeCallbacks(timeout)
+                    if (!isCurrentWifiDirectPeerConfirmation(closed, ownerPeerCheckToken, token)) return
                     if (ownerPeerCheckTimeout === timeout) ownerPeerCheckTimeout = null
                     ownerPeerCheckInFlight = false
                     UltraShareDiagnostics.failure("WIFI_DIRECT_GROUP_INFO", failure)
