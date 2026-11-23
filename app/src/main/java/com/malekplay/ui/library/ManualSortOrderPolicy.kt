@@ -12,7 +12,7 @@ internal object ManualSortOrderPolicy {
         targetIndex: Int
     ): List<String> {
         if (draggedId.isBlank()) return currentOrder
-        val uniqueVisibleIds = visibleIds.filter(String::isNotBlank).distinct()
+        val uniqueVisibleIds = visibleIds.filter { it.isNotBlank() }.distinct()
         if (uniqueVisibleIds.isEmpty()) return currentOrder
 
         val visibleSet = uniqueVisibleIds.toSet()
