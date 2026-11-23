@@ -221,5 +221,7 @@ class LibraryViewModel @Inject constructor(
         SortMode.NEWEST -> items.sortedByDescending { it.lastAddedMs }
         SortMode.OLDEST -> items.sortedBy { it.lastAddedMs }
         SortMode.DURATION -> items.sortedByDescending { it.itemCount }
+        SortMode.TYPE -> items.sortedBy { it.name.lowercase(Locale.ROOT) }
+        SortMode.LAST_PLAYED -> items.sortedByDescending { it.lastAddedMs }
     }
 }
