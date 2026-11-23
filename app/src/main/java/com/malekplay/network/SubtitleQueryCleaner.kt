@@ -26,7 +26,7 @@ object SubtitleQueryCleaner {
     )
 
     fun clean(raw: String): CleanSubtitleQuery {
-        val segment = raw.substringAfterLast('/').substringAfterLast('\\').trim()
+        val segment = normalizeDigits(raw).substringAfterLast('/').substringAfterLast('\\').trim()
         var input = knownExtension.replace(segment, "")
             .replace(Regex("""[._]+"""), " ")
             .replace(Regex("""\s+"""), " ")
@@ -65,6 +65,17 @@ object SubtitleQueryCleaner {
         ).containsMatchIn(base)
         return if (containsEpisode) base
         else base + " S%02dE%02d".format(Locale.ROOT, season, episode)
+    }
+
+    /** Converts Arabic-Indic and Persian numerals to ASCII for reliable parsing and provider queries. */
+    fun normalizeDigits(value: String): String = buildString(value.length) {
+        value.forEach { character ->
+            append(when (character) {
+                in '٠'..'٩' -> ('0'.code + character.code - '٠'.code).toChar()
+                in '۰'..'۹' -> ('0'.code + character.code - '۰'.code).toChar()
+                else -> character
+            })
+        }
     }
 
     fun normalizeLanguage(code: String): String = when (code.trim().lowercase(Locale.ROOT)) {
