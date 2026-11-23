@@ -86,6 +86,7 @@ fun LibraryScreen(
     val refreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val lastPlayedMediaId by viewModel.lastPlayedMediaId.collectAsStateWithLifecycle(initialValue = null)
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var folder by remember { mutableStateOf<MediaFolder?>(null) }
@@ -115,7 +116,7 @@ fun LibraryScreen(
     // on mid-range phones. Keep this work cancellable and off the main thread.
     val visibleItems by produceState(
         initialValue = emptyList<LibraryItem>(),
-        rawItems, filter, settings.sortMode
+        rawItems, filter, settings.sortMode, settings.sortAscending, lastPlayedMediaId
     ) {
         value = withContext(Dispatchers.Default) {
             val chosen = when (filter) {
@@ -123,7 +124,7 @@ fun LibraryScreen(
                 LibraryFilter.WATCHING -> rawItems.filter { it.isInProgress }
                 LibraryFilter.FAVOURITES -> rawItems.filter { it.isFavourite }
             }
-            viewModel.applySort(chosen, settings.sortMode)
+            viewModel.applySort(chosen, settings.sortMode, settings.sortAscending, lastPlayedMediaId)
         }
     }
 
@@ -175,16 +176,22 @@ fun LibraryScreen(
             }
 
             DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text(if (settings.sortAscending) "الترتيب: تصاعدي ↑" else "الترتيب: تنازلي ↓") },
+                    onClick = { viewModel.setSortAscending(!settings.sortAscending) }
+                )
                 SortMode.entries.forEach { mode ->
                     DropdownMenuItem(
-                        text = { Text(when (mode) {
-                            SortMode.NEWEST -> "الأحدث أولاً"
-                            SortMode.OLDEST -> "الأقدم أولاً"
-                            SortMode.NAME -> "الاسم"
-                            SortMode.DURATION -> "المدة"
+                        text = { Text((if (settings.sortMode == mode) "✓ " else "") + when (mode) {
+                            SortMode.NEWEST -> "تاريخ الإضافة"
+                            SortMode.OLDEST -> "الأقدم إضافة"
+                            SortMode.NAME -> "اسم الملف"
+                            SortMode.DURATION -> "مدة الفيديو"
                             SortMode.SIZE -> "حجم الملف"
+                            SortMode.TYPE -> "نوع الملف"
+                            SortMode.LAST_PLAYED -> "آخر ملف تمت مشاهدته"
                         }) },
-                        onClick = { viewModel.setSortMode(mode); sortOpen = false }
+                        onClick = { viewModel.setSortMode(mode) }
                     )
                 }
             }
