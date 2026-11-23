@@ -346,8 +346,7 @@ object UltraShareBatchTransport {
     private data class PreparedSource(
         val sourceIndex: Int,
         val source: Source,
-        val entry: UltraShareBatchProtocol.FileEntry,
-        val digest: ByteArray
+        val entry: UltraShareBatchProtocol.FileEntry
     )
 
     private fun preparationFailureOutcome(source: Source, failure: Exception): FileOutcome {
@@ -425,8 +424,7 @@ object UltraShareBatchTransport {
                 source = source,
                 entry = UltraShareBatchProtocol.newEntry(
                     name, mime, source.sizeBytes, digest, source.fileId
-                ),
-                digest = digest
+                )
             )
         }
         val prepared = preparationResults.mapNotNull { it.value }
@@ -598,7 +596,6 @@ object UltraShareBatchTransport {
                 currentCoroutineContext().ensureActive()
                 val source = preparedSource.source
                 val entry = preparedSource.entry
-                val preparedDigest = preparedSource.digest
                 val offset = offsets.getValue(entry.id)
                 UltraShareDiagnostics.event(
                     "DATA_SEND",
@@ -613,11 +610,13 @@ object UltraShareBatchTransport {
                     )
                 )
                 var transferred = offset
-                val streamedDigest = MessageDigest.getInstance("SHA-256")
                 resolver.openInputStream(source.uri)?.use { raw ->
                     BufferedInputStream(raw, BUFFER_BYTES).use { stream ->
-                        skipAndDigest(stream, offset, streamedDigest)
-                        // Start measuring only after the resumed prefix has been re-read and hashed.
+                        // The source digest was computed once during preparation and is
+                        // verified by the receiver against the manifest after the file arrives.
+                        // Do not hash the same source bytes again on the sending hot path.
+                        skipFully(stream, offset)
+                        // Start measuring only after the resumed prefix has been skipped.
                         val speedStartedAt = System.nanoTime()
                         val speedEstimator = TransferRateEstimator(offset, speedStartedAt)
                         var lastProgressAt = speedStartedAt
@@ -636,7 +635,6 @@ object UltraShareBatchTransport {
                             plainChunkFrame[5] = (read ushr 8).toByte()
                             plainChunkFrame[6] = read.toByte()
                             System.arraycopy(buffer, 0, plainChunkFrame, 7, read)
-                            streamedDigest.update(buffer, 0, read)
                             writeFrame(
                                 output, sendKey, noncePrefix, sendSequence++, plainChunkFrame,
                                 flush = false, cipher = sendCipher, keySpec = sendKeySpec,
@@ -659,27 +657,8 @@ object UltraShareBatchTransport {
                         check(stream.read() == -1) { "تغير حجم الملف أثناء الإرسال: ${entry.name}" }
                     }
                 } ?: error("تعذر إعادة فتح الملف: ${entry.name}")
-                val actualDigest = streamedDigest.digest()
-                if (!MessageDigest.isEqual(preparedDigest, actualDigest)) {
-                    UltraShareDiagnostics.event(
-                        "DATA_SEND",
-                        "SOURCE_DIGEST_CHANGED",
-                        mapOf(
-                            "peerHost" to host,
-                            "batchId" to manifest.batchId,
-                            "fileId" to entry.id,
-                            "fileName" to entry.name,
-                            "expectedBytes" to entry.sizeBytes,
-                            "sentBytes" to transferred
-                        )
-                    )
-                    throw IOException("تغير محتوى الملف أثناء الإرسال؛ أوقفنا النقل لحماية سلامة الملف: ${entry.name}")
-                }
-                UltraShareDiagnostics.event(
-                    "DATA_SEND",
-                    "FILE_SOURCE_DIGEST_VERIFIED",
-                    mapOf("peerHost" to host, "batchId" to manifest.batchId, "fileId" to entry.id)
-                )
+                // The receiver performs the authoritative SHA-256 check against the
+                // manifest before publishing the completed file.
                 val end = ByteArrayOutputStream()
                 DataOutputStream(end).use { data -> data.writeByte(TYPE_FILE_END); data.writeShort(index) }
                 writeFrame(output, sendKey, noncePrefix, sendSequence++, end.toByteArray(), cipher = sendCipher, keySpec = sendKeySpec, encryptedBuffer = encryptedFrameBuffer)
