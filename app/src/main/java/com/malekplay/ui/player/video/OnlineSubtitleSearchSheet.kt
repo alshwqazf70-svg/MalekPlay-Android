@@ -288,7 +288,7 @@ fun OnlineSubtitleSearchSheet(
                                 }.joinToString("  •  ")
                                 if (episodeContext.isNotBlank()) {
                                     Text(
-                                        episodeContext,
+                                        "نطاق البحث: $episodeContext",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = FontWeight.Medium
