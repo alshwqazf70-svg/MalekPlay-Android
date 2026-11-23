@@ -71,4 +71,13 @@ class SubtitleQueryCleanerTest {
         assertEquals("My Film", SubtitleQueryCleaner.clean("content://media/external/video/My_Film.mkv").title)
         assertEquals("Release Name", SubtitleQueryCleaner.clean("Release.Name.srt").title)
     }
+    @Test fun parsesArabicIndicAndPersianEpisodeDigits() {
+        val arabicIndic = SubtitleQueryCleaner.clean("مسلسل.S٠٢E٠٥.1080p.mkv")
+        assertEquals("مسلسل", arabicIndic.title)
+        assertEquals(2, arabicIndic.season)
+        assertEquals(5, arabicIndic.episode)
+        assertEquals("2", SubtitleQueryCleaner.normalizeDigits("٢"))
+        assertEquals("05", SubtitleQueryCleaner.normalizeDigits("۰۵"))
+    }
+
 }
