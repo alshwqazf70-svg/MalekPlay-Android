@@ -96,7 +96,8 @@ data class UltraShareUiState(
     val approvedSenderPeerCount: Int = 0,
     val approvedSenderPeerHosts: List<String> = emptyList(),
     val reconnectableSenderPeerHosts: List<String> = emptyList(),
-    val peerDeliveryEntries: List<com.malekplay.network.UltraSharePeerDeliveryEntry> = emptyList()
+    val peerDeliveryEntries: List<com.malekplay.network.UltraSharePeerDeliveryEntry> = emptyList(),
+    val roomResetGeneration: Long = 0L
 )
 
 @HiltViewModel
@@ -199,6 +200,7 @@ class UltraShareViewModel @Inject constructor(
             UltraShareForegroundService.state.collect { serviceState ->
                 val current = _state.value
                 val received = serviceState.receivedFile
+                val roomPresentationWasReset = serviceState.roomResetGeneration != current.roomResetGeneration
                 if (received?.publishedUri != null &&
                     received.file.absolutePath != current.receivedFile?.file?.absolutePath
                 ) {
@@ -217,16 +219,16 @@ class UltraShareViewModel @Inject constructor(
                     progress = serviceState.progress,
                     sendProgress = serviceState.sendProgress,
                     receiveProgress = serviceState.receiveProgress,
-                    receivedFile = serviceState.receivedFile ?: current.receivedFile,
-                    status = serviceState.status ?: current.status,
-                    error = serviceState.error,
+                    receivedFile = serviceState.receivedFile,
+                    status = if (roomPresentationWasReset) null else serviceState.status ?: current.status,
+                    error = if (roomPresentationWasReset) null else serviceState.error,
                     queueCompleted = serviceState.queueCompleted,
                     queueTotal = serviceState.queueTotal,
                     queueCurrentName = serviceState.queueCurrentName,
                     queueTotalBytes = serviceState.queueTotalBytes,
                     queueTransferredBytes = serviceState.queueTransferredBytes,
-                    lastTransferMetrics = serviceState.lastTransferMetrics ?: current.lastTransferMetrics,
-                    lastReceiveMetrics = serviceState.lastReceiveMetrics ?: current.lastReceiveMetrics,
+                    lastTransferMetrics = serviceState.lastTransferMetrics,
+                    lastReceiveMetrics = serviceState.lastReceiveMetrics,
                     hotspotSsid = wifiDirectGroupSsid ?: serviceState.hotspotSsid,
                     hotspotPassword = wifiDirectGroupPassword ?: serviceState.hotspotPassword,
                     hotspotStarting = serviceState.hotspotStarting,
@@ -243,6 +245,7 @@ class UltraShareViewModel @Inject constructor(
                     activePeers = serviceState.roomPeers.ifEmpty { serviceState.activePeers },
                     reconnectablePeers = serviceState.reconnectablePeers,
                     peerTransfers = serviceState.peerTransfers,
+                    roomResetGeneration = serviceState.roomResetGeneration,
                     approvedSenderPeerCount = serviceState.approvedSenderPeerHosts.size,
                     approvedSenderPeerHosts = serviceState.approvedSenderPeerHosts,
                     reconnectableSenderPeerHosts = serviceState.reconnectableSenderPeerHosts,

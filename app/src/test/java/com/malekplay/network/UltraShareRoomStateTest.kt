@@ -45,5 +45,6 @@ class UltraShareRoomStateTest {
         assertEquals(0L, clean.queueTotalBytes)
         assertEquals(0L, clean.queueTransferredBytes)
         assertEquals(emptyList<UltraSharePeerTransfer>(), clean.peerTransfers)
+        assertEquals(dirty.roomResetGeneration + 1L, clean.roomResetGeneration)
     }
 }

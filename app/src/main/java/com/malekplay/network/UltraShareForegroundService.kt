@@ -45,6 +45,7 @@ internal fun resetRoomTransferPresentation(state: UltraShareServiceState): Ultra
     lastTransferMetrics = null,
     lastReceiveMetrics = null,
     peerTransfers = emptyList(),
+    roomResetGeneration = if (state.roomResetGeneration == Long.MAX_VALUE) 1L else state.roomResetGeneration + 1L,
     status = null,
     error = null
 )
@@ -82,6 +83,8 @@ data class UltraShareServiceState(
     val roomConnected: Boolean = false,
     val reconnectablePeers: List<UltraSharePeerSession> = emptyList(),
     val peerTransfers: List<UltraSharePeerTransfer> = emptyList(),
+    /** Monotonic signal that room-only UI data must be discarded by observers. */
+    val roomResetGeneration: Long = 0L,
     /** Authenticated outbound MPC2 peers; distinct from inbound activePeers. */
     val approvedSenderPeerHosts: List<String> = emptyList(),
     /** Legacy UI compatibility only; always empty because disconnected peers are not retained. */
