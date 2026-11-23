@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -122,55 +123,60 @@ fun LocalFolderScreen(
             )
         }
     ) { padding ->
-        if (selectionMode) {
-            androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f), modifier = Modifier.fillMaxWidth().padding(padding).padding(horizontal = 12.dp, vertical = 6.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
-                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${selectedUris.size} ملف محدد", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    androidx.compose.material3.TextButton(onClick = { selectedUris.clear() }) { Text("إلغاء") }
-                    androidx.compose.material3.TextButton(onClick = { onSendMedia(items.filter { it.media.uri in selectedUris }.map { it.media }) }) { Text("إرسال المحدد") }
-                }
-            }
-        }
-        if (selectionMode) {
-            MediaBulkDeleteBar(
-                mediaItems = items.filter { it.media.uri in selectedUris }.map { it.media },
-                onDeleted = viewModel::refresh,
-                onClearSelection = { selectedUris.clear() }
-            )
-        }
-        if (items.isEmpty()) {
-            EmptyState(
-                title = stringResource(R.string.lib_empty_title),
-                body = stringResource(R.string.lib_empty_body),
-                icon = Icons.Filled.Movie,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(contentPadding)
-            )
-            return@Scaffold
-        }
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(contentPadding),
-            contentPadding = PaddingValues(bottom = 24.dp)
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(contentPadding)
         ) {
-            items(items = items.sortedByDescending { it.media.addedAtMs }, key = { it.media.id }) { item ->
-                FolderItemRow(
-                    item = item,
-                    isNew = newMediaBaselineMs > 0L && item.media.addedAtMs >= newMediaBaselineMs && item.media.id !in seenNewMediaIds,
-                    isLastPlayed = item.media.id == lastPlayedMediaId,
-                    onClick = { onOpenMedia(item.media) },
-                    onSend = { toggleSelection(item.media.uri) },
-                    selectionMode = selectionMode,
-                    isSelected = item.media.uri in selectedUris,
-                    onSelect = { toggleSelection(item.media.uri) },
-                    onDelete = { viewModel.refresh() },
-                    onToggleFavourite = { viewModel.toggleFavourite(item.media.id) }
+            if (selectionMode) {
+                androidx.compose.material3.Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("${selectedUris.size} ملف محدد", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        androidx.compose.material3.TextButton(onClick = { selectedUris.clear() }) { Text("إلغاء") }
+                        androidx.compose.material3.TextButton(onClick = {
+                            onSendMedia(items.filter { it.media.uri in selectedUris }.map { it.media })
+                        }) { Text("إرسال المحدد") }
+                    }
+                }
+                MediaBulkDeleteBar(
+                    mediaItems = items.filter { it.media.uri in selectedUris }.map { it.media },
+                    onDeleted = viewModel::refresh,
+                    onClearSelection = { selectedUris.clear() }
                 )
+            }
+            if (items.isEmpty()) {
+                EmptyState(
+                    title = stringResource(R.string.lib_empty_title),
+                    body = stringResource(R.string.lib_empty_body),
+                    icon = Icons.Filled.Movie,
+                    modifier = Modifier.fillMaxSize()
+                )
+                return@Column
+            }
+
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(bottom = 24.dp)
+            ) {
+                items(items = items.sortedByDescending { it.media.addedAtMs }, key = { it.media.id }) { item ->
+                    FolderItemRow(
+                        item = item,
+                        isNew = newMediaBaselineMs > 0L && item.media.addedAtMs >= newMediaBaselineMs && item.media.id !in seenNewMediaIds,
+                        isLastPlayed = item.media.id == lastPlayedMediaId,
+                        onClick = { onOpenMedia(item.media) },
+                        onSend = { toggleSelection(item.media.uri) },
+                        selectionMode = selectionMode,
+                        isSelected = item.media.uri in selectedUris,
+                        onSelect = { toggleSelection(item.media.uri) },
+                        onDelete = { viewModel.refresh() },
+                        onToggleFavourite = { viewModel.toggleFavourite(item.media.id) }
+                    )
+                }
             }
         }
     }

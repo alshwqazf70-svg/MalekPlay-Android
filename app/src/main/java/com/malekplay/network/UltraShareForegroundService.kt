@@ -32,6 +32,21 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.delay
 import java.io.IOException
 
+private fun resetRoomTransferPresentation(state: UltraShareServiceState): UltraShareServiceState = state.copy(
+    progress = null,
+    sendProgress = null,
+    receiveProgress = null,
+    receivedFile = null,
+    queueCompleted = 0,
+    queueTotal = 0,
+    queueCurrentName = null,
+    queueTotalBytes = 0L,
+    queueTransferredBytes = 0L,
+    lastTransferMetrics = null,
+    lastReceiveMetrics = null,
+    peerTransfers = emptyList()
+)
+
 data class UltraShareServiceState(
     val pairingSecret: String = "",
     val localAddresses: List<String> = emptyList(),
@@ -415,7 +430,11 @@ class UltraShareForegroundService : Service() {
                 if (receiveJob != null) return START_NOT_STICKY
                 activeBatchTransferPort = 0
                 startForegroundCompat()
-                updateState { current -> current.copy(
+                updateState { current ->
+                    val startsFreshRoom = current.activePeers.isEmpty() &&
+                        approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
+                    val roomState = if (startsFreshRoom) resetRoomTransferPresentation(current) else current
+                    roomState.copy(
                         pairingSecret = secret,
                         localAddresses = emptyList(),
                         receiving = true,
@@ -3106,11 +3125,14 @@ class UltraShareForegroundService : Service() {
         internal fun registerApprovedSendTarget(target: UltraShareApprovedSendTarget) {
             require(UltraShareCore.isValidPrivateLanHost(target.host))
             require(UltraShareCore.isValidPairingSecret(target.secret))
+            val startsFreshRoom = mutableState.value.activePeers.isEmpty() &&
+                approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
             synchronized(approvedSendTargetsByHost) {
                 approvedSendTargetsByHost[target.host] = target
             }
             mutableState.update { current ->
-                current.copy(
+                val roomState = if (startsFreshRoom) resetRoomTransferPresentation(current) else current
+                roomState.copy(
                     approvedSenderPeerHosts = approvedSendTargets().map { it.host },
                     reconnectableSenderPeerHosts = emptyList()
                 )
@@ -3149,7 +3171,10 @@ class UltraShareForegroundService : Service() {
             routeCandidates: List<UltraShareNegotiation.Candidate> = emptyList(),
             sessionId: String = java.util.UUID.randomUUID().toString()
         ) {
+            val startsFreshRoom = mutableState.value.activePeers.isEmpty() &&
+                approvedSendTargets().isEmpty() && sendJobsByPeer.isEmpty()
             mutableState.update { current ->
+                val roomState = if (startsFreshRoom) resetRoomTransferPresentation(current) else current
                 val session = UltraSharePeerSession(
                     sessionId = sessionId,
                     name = name.take(96),
@@ -3158,8 +3183,8 @@ class UltraShareForegroundService : Service() {
                     approvedAtMillis = System.currentTimeMillis(),
                     routeCandidates = routeCandidates.toList()
                 )
-                val updated = current.activePeers.filterNot { it.host == host } + session
-                current.copy(activePeers = updated, reconnectablePeers = emptyList())
+                val updated = roomState.activePeers.filterNot { it.host == host } + session
+                roomState.copy(activePeers = updated, reconnectablePeers = emptyList())
             }
         }
 

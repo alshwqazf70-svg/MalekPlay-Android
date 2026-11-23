@@ -583,7 +583,7 @@ fun UltraShareSessionRoom(
                     )
                 }
             }
-            if (isSendingRoom && state.queueEntries.isNotEmpty()) {
+            if (isSendingRoom && state.queueTotal > 0 && currentBatchEntries.isNotEmpty()) {
                 val sessionItems = currentBatchEntries.ifEmpty { state.queueEntries.takeLast(5) }
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text("عناصر جلسة النقل", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
@@ -662,8 +662,8 @@ fun UltraShareSessionRoom(
                     }
                 }
             }
-            if (state.queueEntries.isNotEmpty() && isSendingRoom) {
-                val summaryEntries = currentBatchEntries.ifEmpty { state.queueEntries }
+            if (state.queueTotal > 0 && currentBatchEntries.isNotEmpty() && isSendingRoom) {
+                val summaryEntries = currentBatchEntries
                 val completed = summaryEntries.count { it.status == UltraShareQueueStore.STATUS_COMPLETED }
                 val failed = summaryEntries.count { it.status == UltraShareQueueStore.STATUS_FAILED }
                 val sending = summaryEntries.count { it.status == UltraShareQueueStore.STATUS_SENDING }
