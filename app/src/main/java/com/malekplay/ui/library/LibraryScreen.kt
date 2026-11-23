@@ -217,8 +217,7 @@ fun LibraryScreen(
             if (searching) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(16.dp)).background(glass)                        .border(1.dp, glassStroke, RoundedCornerShape(16.dp))
-                        .padding(horizontal = 14.dp, vertical = 13.dp),
+                        .clip(RoundedCornerShape(16.dp)).background(glass)                        .border(1.dp, glassStroke, RoundedCornerShape(16.dp))                        .padding(horizontal = 14.dp, vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary)
@@ -357,14 +356,17 @@ fun LibraryScreen(
                     )
                 }
                 if (visibleItems.isEmpty()) {
-                    EmptyLibrary(
-                        searching = searching && query.isNotBlank(),
-                        filter = filter,
-                        onRefresh = viewModel::refresh
-                    )
+                    Box(Modifier.weight(1f)) {
+                        EmptyLibrary(
+                            searching = searching && query.isNotBlank(),
+                            filter = filter,
+                            onRefresh = viewModel::refresh
+                        )
+                    }
                 } else if (mode == ViewMode.GRID) {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 148.dp),
+                        modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -409,6 +411,7 @@ fun LibraryScreen(
                     }
                 } else {
                     LazyColumn(
+                        modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(9.dp)
                     ) {
@@ -437,8 +440,7 @@ fun LibraryScreen(
                                         }
                                     }
                             ) {                            PremiumVideoRow(
-                                item = item,
-                                onClick = { onVideoClick(item) },
+                                item = item,                                onClick = { onVideoClick(item) },
                                 onFavourite = { viewModel.toggleFavourite(item.media.id) },
                                 onAddToPlaylist = { playlistTarget = item.media },
                                 onDeleted = viewModel::refresh,
@@ -450,8 +452,6 @@ fun LibraryScreen(
                         }
                     }
                 }
-                }
-        }
             if (!settings.foldersFirst && folder == null && !searching) {
                 if (folders.isNotEmpty()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -469,6 +469,8 @@ fun LibraryScreen(
                     }
                 }
             }
+                }
+        }
         }
     }
     playlistTarget?.let { PlaylistPickerDialog(mediaId = it.id, onDismiss = { playlistTarget = null }) }
