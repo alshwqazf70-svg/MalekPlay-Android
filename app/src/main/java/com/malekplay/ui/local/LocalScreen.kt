@@ -495,7 +495,9 @@ fun LocalScreen(
                 onToggleSelection = ::toggleSelection,
                 onFavourite = { viewModel.toggleFavourite(it.media.id) },
                 onAddToPlaylist = { playlistTarget = it.media },
-                onDeleted = viewModel::refresh
+                onDeleted = viewModel::refresh,
+                manualReorderEnabled = settings.sortMode == SortMode.MANUAL,
+                onMoveManualItem = viewModel::moveManualItem
             )
             LocalTab.AUDIO -> MediaList(
                 items = sortedAudio,
@@ -509,7 +511,9 @@ fun LocalScreen(
                 onToggleSelection = ::toggleSelection,
                 onFavourite = { viewModel.toggleFavourite(it.media.id) },
                 onAddToPlaylist = { playlistTarget = it.media },
-                onDeleted = viewModel::refresh
+                onDeleted = viewModel::refresh,
+                manualReorderEnabled = settings.sortMode == SortMode.MANUAL,
+                onMoveManualItem = viewModel::moveManualItem
             )
         }
     }
