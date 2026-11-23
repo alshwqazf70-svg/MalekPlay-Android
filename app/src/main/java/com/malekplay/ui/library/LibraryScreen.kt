@@ -134,6 +134,11 @@ fun LibraryScreen(
         }
     }
 
+    androidx.compose.runtime.LaunchedEffect(settings.viewMode, visibleItems.map { it.media.id }) {
+        // Bounds are mode-specific; discard stale grid/list coordinates before a new layout.
+        itemBounds.clear()
+    }
+
     androidx.compose.runtime.LaunchedEffect(folder, searching, filter) {
         selectedUris.clear()
     }
