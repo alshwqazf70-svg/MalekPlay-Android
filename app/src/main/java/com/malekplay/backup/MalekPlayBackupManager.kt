@@ -350,6 +350,7 @@ class MalekPlayBackupManager @Inject constructor(
         .put("virtualizerStrength", s.virtualizerStrength)
         .put("loudnessGainDb", s.loudnessGainDb)
         .put("sortMode", s.sortMode.name)
+        .put("sortAscending", s.sortAscending)
         .put("viewMode", s.viewMode.name)
 
     private fun settingsFromJson(json: JSONObject): PlayerSettings = PlayerSettings(
@@ -393,6 +394,7 @@ class MalekPlayBackupManager @Inject constructor(
         loudnessGainDb = json.optInt("loudnessGainDb", 0).coerceIn(0, 30),
         sortMode = runCatching { SortMode.valueOf(json.optString("sortMode", "NEWEST")) }
             .getOrDefault(SortMode.NEWEST),
+        sortAscending = json.optBoolean("sortAscending", false),
         viewMode = runCatching { ViewMode.valueOf(json.optString("viewMode", "GRID")) }
             .getOrDefault(ViewMode.GRID)
     )
