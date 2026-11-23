@@ -446,7 +446,7 @@ fun LibraryScreen(
                     }
                 }
                 }
-            if (!settings.foldersFirst) {
+            if (!settings.foldersFirst && folder == null && !searching) {
                 if (folders.isNotEmpty()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("تصفح المجلدات", color = colors.onSurface, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
