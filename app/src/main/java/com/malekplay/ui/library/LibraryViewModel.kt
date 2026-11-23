@@ -190,6 +190,26 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.update { it.copy(sortAscending = ascending) } }
     }
 
+    fun setFoldersFirst(first: Boolean) {
+        viewModelScope.launch { settingsRepository.update { it.copy(foldersFirst = first) } }
+    }
+
+    fun moveManualItem(mediaId: String, targetIndex: Int, currentItems: List<LibraryItem>) {
+        if (mediaId.isBlank() || currentItems.isEmpty()) return
+        viewModelScope.launch {
+            settingsRepository.update { current ->
+                val currentIds = currentItems.map { it.media.id }
+                val ordered = (current.manualSortOrder.filter { it in currentIds } + currentIds.filterNot { it in current.manualSortOrder }).toMutableList()
+                val from = ordered.indexOf(mediaId)
+                if (from < 0) return@update current
+                val to = targetIndex.coerceIn(0, ordered.lastIndex)
+                val moved = ordered.removeAt(from)
+                ordered.add(to.coerceAtMost(ordered.size), moved)
+                current.copy(sortMode = SortMode.MANUAL, manualSortOrder = ordered)
+            }
+        }
+    }
+
     fun setViewMode(mode: ViewMode) {
         viewModelScope.launch { settingsRepository.update { it.copy(viewMode = mode) } }
     }
@@ -199,7 +219,8 @@ class LibraryViewModel @Inject constructor(
         items: List<LibraryItem>,
         mode: SortMode,
         ascending: Boolean = false,
-        lastPlayedMediaId: String? = null
+        lastPlayedMediaId: String? = null,
+        manualOrder: List<String> = emptyList()
     ): List<LibraryItem> {
         val sorted = when (mode) {
             SortMode.NEWEST -> items.sortedBy { it.media.addedAtMs }
@@ -209,6 +230,10 @@ class LibraryViewModel @Inject constructor(
             SortMode.SIZE -> items.sortedBy { it.media.sizeBytes }
             SortMode.TYPE -> items.sortedBy { it.media.mimeType.lowercase(Locale.ROOT) }
             SortMode.LAST_PLAYED -> items.sortedBy { if (it.media.id == lastPlayedMediaId) 0 else 1 }
+            SortMode.MANUAL -> {
+                val positions = manualOrder.withIndex().associate { it.value to it.index }
+                items.sortedBy { positions[it.media.id] ?: Int.MAX_VALUE }
+            }
         }
         val descendingByDefault = mode == SortMode.NEWEST || mode == SortMode.DURATION ||
             mode == SortMode.SIZE || mode == SortMode.LAST_PLAYED
@@ -223,5 +248,6 @@ class LibraryViewModel @Inject constructor(
         SortMode.DURATION -> items.sortedByDescending { it.itemCount }
         SortMode.TYPE -> items.sortedBy { it.name.lowercase(Locale.ROOT) }
         SortMode.LAST_PLAYED -> items.sortedByDescending { it.lastAddedMs }
+        SortMode.MANUAL -> items
     }
 }
