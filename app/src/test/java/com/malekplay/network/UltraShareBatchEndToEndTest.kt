@@ -119,6 +119,95 @@ class UltraShareBatchEndToEndTest {
         }
     }
     @Test
+    fun largeFileStreamsAcrossManyEncryptedChunksAndPreservesSha256() = runBlocking {
+        val host = NetworkInterface.getNetworkInterfaces().toList()
+            .asSequence().filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList().asSequence() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .firstOrNull { it.isSiteLocalAddress && !it.isLoopbackAddress }
+            ?.hostAddress ?: error("No private IPv4 interface available for the large-file transfer test.")
+        fun freePort(): Int = ServerSocket(0).use { it.localPort }
+
+        val root = kotlin.io.path.createTempDirectory("ultrashare-large-file").toFile()
+        val source = File(root, "large-stream.mp4")
+        val receivedDirectory = File(root, "received").apply { mkdirs() }
+        val controlPort = freePort()
+        val dataReady = CompletableDeferred<Int>()
+        val controlReady = CompletableDeferred<Unit>()
+        val receiverResult = CompletableDeferred<UltraShareBatchTransport.BatchOutcome>()
+        val secret = "731905284"
+        val expectedDigest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(1024 * 1024)
+        java.io.FileOutputStream(source).use { output ->
+            val header = byteArrayOf(0, 0, 0, 24) + "ftypisom".toByteArray()
+            output.write(header)
+            expectedDigest.update(header)
+            var written = header.size
+            val totalBytes = 24 * 1024 * 1024
+            while (written < totalBytes) {
+                val count = minOf(buffer.size, totalBytes - written)
+                for (index in 0 until count) buffer[index] = ((written + index) * 31).toByte()
+                output.write(buffer, 0, count)
+                expectedDigest.update(buffer, 0, count)
+                written += count
+            }
+        }
+        val expectedHash = expectedDigest.digest()
+
+        val receiver = launch(Dispatchers.IO) {
+            UltraShareBatchTransport.serveMany(
+                port = 0, pairingSecret = secret, destinationDirectory = receivedDirectory,
+                onListening = { if (!dataReady.isCompleted) dataReady.complete(it) },
+                onBatchFinished = { _, result -> if (!receiverResult.isCompleted) receiverResult.complete(result) }
+            )
+        }
+        val control = launch(Dispatchers.IO) {
+            UltraShareControlChannel.serveOnce(
+                pairingSecret = secret, port = controlPort,
+                onListening = { if (!controlReady.isCompleted) controlReady.complete(Unit) },
+                onRequest = { UltraShareControlChannel.Decision.ACCEPTED }
+            )
+        }
+        try {
+            withTimeout(5_000) { dataReady.await(); controlReady.await() }
+            assertEquals(
+                UltraShareControlChannel.Decision.ACCEPTED,
+                UltraShareControlChannel.request(host, secret, "Large-file regression", controlPort)
+            )
+            val sent = UltraShareBatchTransport.sendBatch(
+                resolver = RuntimeEnvironment.getApplication().contentResolver,
+                sources = listOf(
+                    UltraShareBatchTransport.Source(
+                        Uri.fromFile(source), source.name, "video/mp4", source.length()
+                    )
+                ),
+                host = host, port = dataReady.await(), pairingSecret = secret
+            )
+            val received = withTimeout(90_000) { receiverResult.await() }
+            assertEquals(UltraShareBatchProtocol.FileStatus.COMPLETED, sent.files.single().status)
+            assertEquals(UltraShareBatchProtocol.FileStatus.COMPLETED, received.files.single().status)
+            val published = File(receivedDirectory, source.name)
+            assertTrue("The large file was not published.", published.isFile)
+            assertEquals(source.length(), published.length())
+            val actualDigest = MessageDigest.getInstance("SHA-256")
+            File(published.path).inputStream().use { input ->
+                val verifyBuffer = ByteArray(1024 * 1024)
+                while (true) {
+                    val count = input.read(verifyBuffer)
+                    if (count < 0) break
+                    actualDigest.update(verifyBuffer, 0, count)
+                }
+            }
+            assertArrayEquals(expectedHash, actualDigest.digest())
+        } finally {
+            UltraShareControlChannel.closeSession(host)
+            control.cancelAndJoin()
+            receiver.cancelAndJoin()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun slowMediaStorePublicationDoesNotBlockTheNextQueuedReceiveSocket() = runBlocking {
         val host = NetworkInterface.getNetworkInterfaces().toList()
             .asSequence().filter { it.isUp && !it.isLoopback }
