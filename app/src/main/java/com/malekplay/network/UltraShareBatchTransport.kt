@@ -160,10 +160,18 @@ object UltraShareBatchTransport {
         val endToEndBytesPerSecond: Long
     )
 
+    data class ReceiveMetrics(
+        val receivedBytes: Long,
+        val receiveElapsedMs: Long,
+        val receiveBytesPerSecond: Long,
+        val publishElapsedMs: Long = 0L
+    )
+
     data class BatchOutcome(
         val batchId: String,
         val files: List<FileOutcome>,
-        val metrics: TransferMetrics? = null
+        val metrics: TransferMetrics? = null,
+        val receiveMetrics: ReceiveMetrics? = null
     )
 
     /**
@@ -1227,6 +1235,15 @@ object UltraShareBatchTransport {
         val batchEnd = readFrame(input, receiveKey, noncePrefix, receiveSequence++, 64, cipher = receiveCipher, keySpec = receiveKeySpec)
         require(batchEnd.contentEquals(byteArrayOf(TYPE_BATCH_END.toByte()))) { "نهاية الدفعة غير صالحة." }
         val resultPayload = encodeResults(manifest, outcomes)
+        val receiveElapsedNanos = (System.nanoTime() - receiveStartedAtNanos).coerceAtLeast(1L)
+        val receivedBytes = outcomes.filter {
+            it.status == UltraShareBatchProtocol.FileStatus.COMPLETED
+        }.sumOf { it.transferredBytes }
+        val receiveMetrics = ReceiveMetrics(
+            receivedBytes = receivedBytes,
+            receiveElapsedMs = receiveElapsedNanos / 1_000_000L,
+            receiveBytesPerSecond = (receivedBytes.toDouble() * 1_000_000_000.0 / receiveElapsedNanos).toLong()
+        )
         writeFrame(output, sendKey, noncePrefix, sendSequence, resultPayload, cipher = sendCipher, keySpec = sendKeySpec)
         UltraShareDiagnostics.event(
             "DATA_RECEIVE",
@@ -1247,7 +1264,7 @@ object UltraShareBatchTransport {
                 ).toLong()
             )
         )
-        return BatchOutcome(manifest.batchId, outcomes)
+        return BatchOutcome(manifest.batchId, outcomes, receiveMetrics = receiveMetrics)
         } catch (failure: SocketTimeoutException) {
             UltraShareDiagnostics.failure(
                 "DATA_RECEIVE_READ_TIMEOUT",

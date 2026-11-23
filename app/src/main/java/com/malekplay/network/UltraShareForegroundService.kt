@@ -57,6 +57,7 @@ data class UltraShareServiceState(
     val queueTotalBytes: Long = 0L,
     val queueTransferredBytes: Long = 0L,
     val lastTransferMetrics: UltraShareBatchTransport.TransferMetrics? = null,
+    val lastReceiveMetrics: UltraShareBatchTransport.ReceiveMetrics? = null,
     val pendingConnection: UltraShareControlChannel.Request? = null,
     val activePeers: List<UltraSharePeerSession> = emptyList(),
     /** Authenticated peers currently attached to the temporary bidirectional room. */
@@ -561,6 +562,10 @@ class UltraShareForegroundService : Service() {
                                     )
                                 },
                                 onBatchFinished = { peer, batch ->
+                                    val receiverPublishStartedAtNanos = System.nanoTime()
+                                    batch.receiveMetrics?.let { metrics ->
+                                        updateState { current -> current.copy(lastReceiveMetrics = metrics) }
+                                    }
                                     UltraShareDiagnostics.event(
                                         "TRANSFER", "V2_BATCH_RECEIVED",
                                         mapOf(
@@ -596,6 +601,13 @@ class UltraShareForegroundService : Service() {
                                         } catch (failure: Exception) {
                                             UltraShareDiagnostics.failure("RECEIVED_FILE_PUBLISH", failure, "peerHost=" + peer + ";file=" + received.fileName)
                                             updateState { current -> current.copy(error = failure.localizedMessage ?: "تعذر حفظ الملف المستلم.") }
+                                        }
+                                    }
+                                    val receiverPublishElapsedMs =
+                                        (System.nanoTime() - receiverPublishStartedAtNanos).coerceAtLeast(0L) / 1_000_000L
+                                    batch.receiveMetrics?.let { metrics ->
+                                        updateState { current ->
+                                            current.copy(lastReceiveMetrics = metrics.copy(publishElapsedMs = receiverPublishElapsedMs))
                                         }
                                     }
                                     updateState { current ->
