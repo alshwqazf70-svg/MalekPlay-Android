@@ -548,6 +548,7 @@ object UltraShareBatchTransport {
             // A fresh socket is bound to each candidate before connect; failed routes
             // are closed before the next route is attempted.
             configure(socket)
+            logSocketConfiguration(socket, "DATA_SEND", host)
             socket.soTimeout = HANDSHAKE_TIMEOUT_MS
             val input = DataInputStream(BufferedInputStream(socket.getInputStream(), BUFFER_BYTES))
             val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_BYTES))
@@ -757,6 +758,7 @@ object UltraShareBatchTransport {
         onProgress: (FileProgress) -> Unit
     ): BatchOutcome {
         configure(socket)
+        logSocketConfiguration(socket, "DATA_RECEIVE", socket.inetAddress.hostAddress.orEmpty())
         socket.soTimeout = HANDSHAKE_TIMEOUT_MS
         val input = DataInputStream(BufferedInputStream(socket.getInputStream(), BUFFER_BYTES))
         val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_BYTES))
@@ -1327,6 +1329,23 @@ object UltraShareBatchTransport {
         socket.receiveBufferSize = SOCKET_BUFFER_BYTES
         socket.tcpNoDelay = true
         socket.keepAlive = true
+    }
+
+    /** Records the effective OS socket settings so real-device throughput can be tuned from evidence. */
+    private fun logSocketConfiguration(socket: Socket, category: String, peerHost: String) {
+        UltraShareDiagnostics.event(
+            category,
+            "TCP_SOCKET_CONFIGURATION",
+            mapOf(
+                "peerHost" to peerHost,
+                "sendBufferBytes" to socket.sendBufferSize,
+                "receiveBufferBytes" to socket.receiveBufferSize,
+                "streamBufferBytes" to BUFFER_BYTES,
+                "chunkBytes" to CHUNK_BYTES,
+                "tcpNoDelay" to socket.tcpNoDelay,
+                "keepAlive" to socket.keepAlive
+            )
+        )
     }
 
     private fun writeFrame(
