@@ -101,6 +101,7 @@ fun LocalScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val colors = MaterialTheme.colorScheme
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val lastPlayedMediaId by viewModel.lastPlayedMediaId.collectAsStateWithLifecycle(initialValue = null)
     val folders by viewModel.folders.collectAsStateWithLifecycle()
     val videos by viewModel.videos.collectAsStateWithLifecycle()
     val audio by viewModel.audio.collectAsStateWithLifecycle()
@@ -119,17 +120,17 @@ fun LocalScreen(
     val searchResults by searchFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     // Sort potentially large collections on a worker thread, never during a UI frame.
     val sortedVideos by produceState(
-        initialValue = emptyList<LibraryItem>(), videos, settings.sortMode
+        initialValue = emptyList<LibraryItem>(), videos, settings.sortMode, settings.sortAscending, lastPlayedMediaId
     ) {
         value = withContext(Dispatchers.Default) {
-            viewModel.applySort(videos, settings.sortMode)
+            viewModel.applySort(videos, settings.sortMode, settings.sortAscending, lastPlayedMediaId)
         }
     }
     val sortedAudio by produceState(
-        initialValue = emptyList<LibraryItem>(), audio, settings.sortMode
+        initialValue = emptyList<LibraryItem>(), audio, settings.sortMode, settings.sortAscending, lastPlayedMediaId
     ) {
         value = withContext(Dispatchers.Default) {
-            viewModel.applySort(audio, settings.sortMode)
+            viewModel.applySort(audio, settings.sortMode, settings.sortAscending, lastPlayedMediaId)
         }
     }
 
@@ -347,15 +348,21 @@ fun LocalScreen(
                     Text(stringResource(R.string.sort_title))
                 }
                 DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text(if (settings.sortAscending) "الترتيب تصاعدي ↑" else "الترتيب تنازلي ↓") },
+                        onClick = { viewModel.setSortAscending(!settings.sortAscending) }
+                    )
                     listOf(
-                        SortMode.NEWEST to R.string.sort_newest,
-                        SortMode.OLDEST to R.string.sort_oldest,
-                        SortMode.NAME to R.string.sort_name,
-                        SortMode.DURATION to R.string.sort_duration,
-                        SortMode.SIZE to R.string.sort_size
-                    ).forEach { (mode, labelRes) ->
+                        SortMode.NEWEST to "تاريخ الإضافة",
+                        SortMode.OLDEST to "الأقدم إضافة",
+                        SortMode.NAME to "اسم الملف",
+                        SortMode.DURATION to "مدة الملف",
+                        SortMode.SIZE to "حجم الملف",
+                        SortMode.TYPE to "نوع الملف",
+                        SortMode.LAST_PLAYED to "آخر ملف تمت مشاهدته"
+                    ).forEach { (mode, label) ->
                         DropdownMenuItem(
-                            text = { Text(stringResource(labelRes)) },
+                            text = { Text((if (settings.sortMode == mode) "✓ " else "") + label) },
                             onClick = {
                                 viewModel.setSortMode(mode)
                                 sortMenu = false
