@@ -620,7 +620,7 @@ object UltraShareBatchTransport {
                     )
                 )
                 var transferred = offset
-                resolver.openInputStream(source.uri)?.use { raw ->
+                resolver.openInputStream(source.uri)?.let { raw ->
                     // readAtMost() already fills the reusable 1 MiB destination buffer.
                     // Avoid a second 1 MiB BufferedInputStream and its extra memory copy.
                     raw.use { stream ->
