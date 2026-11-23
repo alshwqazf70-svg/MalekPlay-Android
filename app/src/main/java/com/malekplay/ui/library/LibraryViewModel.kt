@@ -212,7 +212,7 @@ class LibraryViewModel @Inject constructor(
         }
         val descendingByDefault = mode == SortMode.NEWEST || mode == SortMode.DURATION ||
             mode == SortMode.SIZE || mode == SortMode.LAST_PLAYED
-        return if (ascending xor descendingByDefault) sorted else sorted.asReversed()
+        return if (ascending) sorted else if (descendingByDefault) sorted.asReversed() else sorted
     }
 
     fun applyFolderSort(items: List<MediaFolder>, mode: SortMode): List<MediaFolder> = when (mode) {
