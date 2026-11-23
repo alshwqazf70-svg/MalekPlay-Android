@@ -151,7 +151,20 @@ object UltraShareBatchTransport {
         val error: String? = null
     )
 
-    data class BatchOutcome(val batchId: String, val files: List<FileOutcome>)
+    data class TransferMetrics(
+        val transferredBytes: Long,
+        val payloadElapsedMs: Long,
+        val payloadBytesPerSecond: Long,
+        val receiptWaitElapsedMs: Long,
+        val endToEndElapsedMs: Long,
+        val endToEndBytesPerSecond: Long
+    )
+
+    data class BatchOutcome(
+        val batchId: String,
+        val files: List<FileOutcome>,
+        val metrics: TransferMetrics? = null
+    )
 
     /**
      * Starts one listener for all peers. Each accepted socket is handled in its own
@@ -384,7 +397,7 @@ object UltraShareBatchTransport {
         require(UltraShareCore.isValidPrivateLanHost(host))
         require(UltraShareCore.isValidPairingSecret(pairingSecret))
         if (!UltraShareControlChannel.hasAnyActiveSession(host)) {
-            throw IOException("انتهت قناة الموافقة؛ يجب إعادة الاتصال قبل بدء نقل V2.")
+            throw IOException("انتهت جلسة الاقتران؛ أعد ربط الجهازين لمتابعة النقل.")
         }
         val preparationStartedAtNanos = System.nanoTime()
         UltraShareDiagnostics.event(
@@ -721,6 +734,14 @@ object UltraShareBatchTransport {
             val endToEndElapsedNanos = (batchCompletedAtNanos - transferStartedAtNanos).coerceAtLeast(1L)
             val payloadElapsedMs = payloadElapsedNanos / 1_000_000L
             val endToEndElapsedMs = endToEndElapsedNanos / 1_000_000L
+            val transferMetrics = TransferMetrics(
+                transferredBytes = transferredBytes,
+                payloadElapsedMs = payloadElapsedMs,
+                payloadBytesPerSecond = (transferredBytes.toDouble() * 1_000_000_000.0 / payloadElapsedNanos).toLong(),
+                receiptWaitElapsedMs = (batchCompletedAtNanos - payloadTransferFinishedAtNanos).coerceAtLeast(0L) / 1_000_000L,
+                endToEndElapsedMs = endToEndElapsedMs,
+                endToEndBytesPerSecond = (transferredBytes.toDouble() * 1_000_000_000.0 / endToEndElapsedNanos).toLong()
+            )
             UltraShareDiagnostics.event(
                 "DATA_SEND",
                 "BATCH_SEND_COMPLETED",
@@ -735,13 +756,13 @@ object UltraShareBatchTransport {
                     "transferElapsedMs" to endToEndElapsedMs,
                     "transferBytesPerSecond" to (transferredBytes.toDouble() * 1_000_000_000.0 / endToEndElapsedNanos).toLong(),
                     "payloadTransferElapsedMs" to payloadElapsedMs,
-                    "payloadTransferBytesPerSecond" to (transferredBytes.toDouble() * 1_000_000_000.0 / payloadElapsedNanos).toLong(),
-                    "receiptWaitElapsedMs" to ((batchCompletedAtNanos - payloadTransferFinishedAtNanos).coerceAtLeast(0L) / 1_000_000L),
+                    "payloadTransferBytesPerSecond" to transferMetrics.payloadBytesPerSecond,
+                    "receiptWaitElapsedMs" to transferMetrics.receiptWaitElapsedMs,
                     "endToEndElapsedMs" to endToEndElapsedMs,
-                    "endToEndBytesPerSecond" to (transferredBytes.toDouble() * 1_000_000_000.0 / endToEndElapsedNanos).toLong()
+                    "endToEndBytesPerSecond" to transferMetrics.endToEndBytesPerSecond
                 )
             )
-            batchOutcome
+            batchOutcome.copy(metrics = transferMetrics)
             } finally {
                 noncePrefixToWipe?.fill(0)
                 sendKeyToWipe?.fill(0)
@@ -786,7 +807,7 @@ object UltraShareBatchTransport {
         val peerHost = socket.inetAddress.hostAddress.orEmpty()
         enforcePairingCooldown(peerHost)
         if (!UltraShareControlChannel.hasAnyActiveSession(peerHost)) {
-            throw IOException("لا توجد جلسة موافقة نشطة لهذا الجهاز.")
+            throw IOException("لا توجد جلسة اقتران نشطة لهذا الجهاز.")
         }
         val selectedPairingSecret = selectPeerPairingSecret(
             fallbackSecret = pairingSecret,

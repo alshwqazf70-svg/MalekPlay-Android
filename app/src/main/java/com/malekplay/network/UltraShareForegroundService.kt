@@ -56,6 +56,7 @@ data class UltraShareServiceState(
     val queueCurrentName: String? = null,
     val queueTotalBytes: Long = 0L,
     val queueTransferredBytes: Long = 0L,
+    val lastTransferMetrics: UltraShareBatchTransport.TransferMetrics? = null,
     val pendingConnection: UltraShareControlChannel.Request? = null,
     val activePeers: List<UltraSharePeerSession> = emptyList(),
     /** Authenticated peers currently attached to the temporary bidirectional room. */
@@ -2421,6 +2422,9 @@ class UltraShareForegroundService : Service() {
                                     )
                                 }
                                 updateNotification(currentState().sendProgress ?: sendProgress)
+                            }
+                            outcome.metrics?.let { metrics ->
+                                updateState { current -> current.copy(lastTransferMetrics = metrics) }
                             }
                             val outcomes = outcome.files.associateBy { it.fileId }
                             chunk.forEach { source ->

@@ -513,6 +513,36 @@ fun UltraShareSessionRoom(
                     tint = Color(0xFF65D6A2)
                 )
             }
+            state.lastTransferMetrics?.takeIf { !state.sending && isSendingRoom }?.let { metrics ->
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text(
+                        "تشخيص آخر دفعة نقل",
+                        color = MalekPlayColors.PurpleBright,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    Text(
+                        "سرعة إرسال البيانات: ${formatSessionTransferBytes(metrics.payloadBytesPerSecond)}/ث",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    Text(
+                        "زمن إرسال البيانات: ${formatSessionDuration(metrics.payloadElapsedMs / 1000L)} • انتظار تأكيد المستلم: ${formatSessionDuration(metrics.receiptWaitElapsedMs / 1000L)}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    Text(
+                        "الزمن الإجمالي: ${formatSessionDuration(metrics.endToEndElapsedMs / 1000L)} • السرعة الإجمالية: ${formatSessionTransferBytes(metrics.endToEndBytesPerSecond)}/ث",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
             if (overallFraction != null && isSendingRoom) {
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     LinearProgressIndicator(progress = { overallFraction }, modifier = Modifier.fillMaxWidth())
