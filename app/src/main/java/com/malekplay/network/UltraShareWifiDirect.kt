@@ -107,6 +107,7 @@ object UltraShareWifiDirect {
         private var clientPeerCheckInFlight = false
         private var clientPeerCheckRunnable: Runnable? = null
         private var clientPeerCheckTimeout: Runnable? = null
+        private var clientPeerCheckDeadlineElapsedMs = 0L
 
         private val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -2104,6 +2105,9 @@ object UltraShareWifiDirect {
                 clientPeerCheckRunnable != null
             ) return
             clientPeerCheckInFlight = true
+            if (clientPeerCheckDeadlineElapsedMs == 0L) {
+                clientPeerCheckDeadlineElapsedMs = android.os.SystemClock.elapsedRealtime() + 35_000L
+            }
             val completed = java.util.concurrent.atomic.AtomicBoolean(false)
             val timeout = Runnable {
                 if (!completed.compareAndSet(false, true)) return@Runnable
@@ -2156,6 +2160,7 @@ object UltraShareWifiDirect {
                         clientPeerCheckRunnable?.let(mainHandler::removeCallbacks)
                         clientPeerCheckRunnable = null
                         connectionInProgress = false
+                        clientPeerCheckDeadlineElapsedMs = 0L
                         connectionTimeout?.let(mainHandler::removeCallbacks)
                         connectionTimeout = null
                         if (shouldEmitWifiDirectConnected(wasConnected)) {
@@ -2208,7 +2213,9 @@ object UltraShareWifiDirect {
             if (closed || token != clientPeerCheckToken || wasConnected ||
                 clientPeerCheckRunnable != null
             ) return
-            if (attempt >= 8) {
+            val remainingMs = clientPeerCheckDeadlineElapsedMs - android.os.SystemClock.elapsedRealtime()
+            if (!shouldRetryWifiDirectPeerConfirmation(attempt) || remainingMs <= 0L) {
+                clientPeerCheckDeadlineElapsedMs = 0L
                 connectionInProgress = false
                 connectionTimeout?.let(mainHandler::removeCallbacks)
                 connectionTimeout = null
@@ -2217,9 +2224,9 @@ object UltraShareWifiDirect {
                 UltraShareDiagnostics.event(
                     "WIFI_DIRECT",
                     "CLIENT_GROUP_OWNER_CONFIRMATION_FAILED",
-                    mapOf("attempts" to attempt + 1, "groupFormed" to info.groupFormed)
+                    mapOf("attempts" to attempt + 1, "groupFormed" to info.groupFormed, "timeoutMs" to 35_000)
                 )
-                reportError("أنشأ Android مجموعة Wi-Fi Direct، لكن لم نتمكن من تأكيد أن الجهاز المتصل هو الجهاز الذي اخترته. أوقف الاتصال السابق وأعد الاقتران.")
+                reportError("أنشأ Android مجموعة Wi-Fi Direct، لكن لم نتمكن من تأكيد أن الجهاز المتصل هو الجهاز الذي اخترته خلال 35 ثانية. أوقف الاتصال السابق وأعد الاقتران.")
                 return
             }
             val retry = Runnable {
@@ -2229,7 +2236,7 @@ object UltraShareWifiDirect {
                 }
             }
             clientPeerCheckRunnable = retry
-            mainHandler.postDelayed(retry, 500L)
+            mainHandler.postDelayed(retry, minOf(500L, remainingMs))
         }
 
         private fun cancelClientPeerConfirmation() {
@@ -2239,6 +2246,7 @@ object UltraShareWifiDirect {
             clientPeerCheckTimeout?.let(mainHandler::removeCallbacks)
             clientPeerCheckTimeout = null
             clientPeerCheckInFlight = false
+            clientPeerCheckDeadlineElapsedMs = 0L
         }
 
         @SuppressLint("MissingPermission")
