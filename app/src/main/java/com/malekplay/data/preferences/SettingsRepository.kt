@@ -66,6 +66,8 @@ class SettingsRepository(private val context: Context) {
 
         val SORT_MODE = stringPreferencesKey("sort_mode")
         val SORT_ASCENDING = booleanPreferencesKey("sort_ascending")
+        val FOLDERS_FIRST = booleanPreferencesKey("folders_first")
+        val MANUAL_SORT_ORDER = stringPreferencesKey("manual_sort_order")
         val VIEW_MODE = stringPreferencesKey("view_mode")
     }
 
@@ -167,6 +169,8 @@ class SettingsRepository(private val context: Context) {
         sortMode = runCatching { SortMode.valueOf(this[Keys.SORT_MODE] ?: "NEWEST") }
             .getOrDefault(SortMode.NEWEST),
         sortAscending = this[Keys.SORT_ASCENDING] ?: false,
+        foldersFirst = this[Keys.FOLDERS_FIRST] ?: true,
+        manualSortOrder = this[Keys.MANUAL_SORT_ORDER]?.split("\\n")?.filter { it.isNotBlank() } ?: emptyList(),
         viewMode = runCatching { ViewMode.valueOf(this[Keys.VIEW_MODE] ?: "GRID") }
             .getOrDefault(ViewMode.GRID)
     )
@@ -204,6 +208,8 @@ class SettingsRepository(private val context: Context) {
 
         this[Keys.SORT_MODE] = s.sortMode.name
         this[Keys.SORT_ASCENDING] = s.sortAscending
+        this[Keys.FOLDERS_FIRST] = s.foldersFirst
+        this[Keys.MANUAL_SORT_ORDER] = s.manualSortOrder.distinct().joinToString("\\n")
         this[Keys.VIEW_MODE] = s.viewMode.name
     }
 
