@@ -5,6 +5,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.util.UUID
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class UltraShareMediaSignatureTest {
     @Test fun recognizesMp4ContainerAndRejectsRenamedExecutable() {
@@ -38,6 +40,35 @@ class UltraShareMediaSignatureTest {
         } finally { file.delete() }
     }
 
+
+
+    @Test fun blocksPdfAndAndroidPackageArchivesEvenWhenRenamedAsUnknownBinary() {
+        val disguisedPdf = File.createTempFile("ultrashare-disguised", ".bin")
+        val disguisedApk = File.createTempFile("ultrashare-disguised", ".bin")
+        val ordinaryZip = File.createTempFile("ultrashare-ordinary", ".zip")
+        fun writeZip(file: File, vararg entries: String) {
+            ZipOutputStream(file.outputStream()).use { output ->
+                entries.forEach { name ->
+                    output.putNextEntry(ZipEntry(name))
+                    output.write(byteArrayOf(1, 2, 3))
+                    output.closeEntry()
+                }
+            }
+        }
+        try {
+            disguisedPdf.writeBytes("%PDF-1.7\\nopaque".toByteArray(Charsets.US_ASCII))
+            writeZip(disguisedApk, "AndroidManifest.xml", "classes.dex")
+            writeZip(ordinaryZip, "readme.txt", "folder/data.bin")
+
+            assertFalse(UltraShareMediaSignature.isValid(disguisedPdf, "unknown.bin", "application/octet-stream"))
+            assertFalse(UltraShareMediaSignature.isValid(disguisedApk, "unknown.bin", "application/octet-stream"))
+            assertTrue(UltraShareMediaSignature.isValid(ordinaryZip, "archive.zip", "application/zip"))
+        } finally {
+            disguisedPdf.delete()
+            disguisedApk.delete()
+            ordinaryZip.delete()
+        }
+    }
 
     @Test fun mediaMimeValidationIsIndependentOfDeviceLocale() {
         val previousLocale = java.util.Locale.getDefault()

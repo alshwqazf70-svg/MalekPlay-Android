@@ -3,6 +3,7 @@ package com.malekplay.network
 import java.io.File
 import java.io.FileInputStream
 import java.util.Locale
+import java.util.zip.ZipFile
 
 /**
  * Checks container signatures, not user-supplied names or MIME declarations.
@@ -15,6 +16,43 @@ internal object UltraShareMediaSignature {
         "mp4", "m4v", "mkv", "mov", "webm", "avi", "3gp", "3g2", "mpg", "mpeg", "ts", "mts", "m2ts",
         "wmv", "flv", "ogv"
     )
+
+    private fun hasPdfSignature(file: File): Boolean = runCatching {
+        FileInputStream(file).use { input ->
+            val prefix = ByteArray(5)
+            var offset = 0
+            while (offset < prefix.size) {
+                val count = input.read(prefix, offset, prefix.size - offset)
+                if (count < 0) break
+                if (count > 0) offset += count
+            }
+            offset == prefix.size && prefix.contentEquals("%PDF-".toByteArray(Charsets.US_ASCII))
+        }
+    }.getOrDefault(false)
+
+    private fun isAndroidPackageArchive(file: File): Boolean {
+        val hasZipHeader = runCatching {
+            FileInputStream(file).use { input ->
+                input.read() == 0x50 && input.read() == 0x4b
+            }
+        }.getOrDefault(false)
+        if (!hasZipHeader) return false
+        return runCatching {
+            ZipFile(file).use { archive ->
+                var hasManifest = false
+                var hasPackagePayload = false
+                val entries = archive.entries()
+                while (entries.hasMoreElements() && !(hasManifest && hasPackagePayload)) {
+                    val name = entries.nextElement().name
+                    if (name == "AndroidManifest.xml") hasManifest = true
+                    if (name == "resources.arsc" || Regex("^classes(\\d+)?\\.dex$").matches(name)) {
+                        hasPackagePayload = true
+                    }
+                }
+                hasManifest && hasPackagePayload
+            }
+        }.getOrDefault(false)
+    }
 
     private fun extensionForMime(rawMime: String): String? = when (
         rawMime.substringBefore(';').trim().lowercase(Locale.ROOT)
@@ -56,6 +94,9 @@ internal object UltraShareMediaSignature {
 
     fun isValid(file: File, fileName: String, mimeType: String): Boolean {
         if (!UltraShareCore.isAllowedShareFile(fileName, mimeType) || !file.isFile || file.length() <= 0L) return false
+        // Enforce the APK/PDF block policy by content as well as declared name/MIME.
+        // A renamed PDF or APK must not bypass the receiver's independent validation.
+        if (hasPdfSignature(file) || isAndroidPackageArchive(file)) return false
         val suppliedExtension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
         val declaredFamily = mimeType.substringBefore('/').lowercase(Locale.ROOT)
         // Documents, archives and unknown binary payloads are opaque files.
