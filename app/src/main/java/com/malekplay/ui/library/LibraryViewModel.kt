@@ -191,7 +191,16 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun setSortAscending(ascending: Boolean) {
-        viewModelScope.launch { settingsRepository.update { it.copy(sortAscending = ascending) } }
+        viewModelScope.launch {
+            settingsRepository.update { current ->
+                val nextMode = when (current.sortMode) {
+                    SortMode.NEWEST, SortMode.OLDEST ->
+                        if (ascending) SortMode.OLDEST else SortMode.NEWEST
+                    else -> current.sortMode
+                }
+                current.copy(sortMode = nextMode, sortAscending = ascending)
+            }
+        }
     }
 
     fun setFoldersFirst(first: Boolean) {
