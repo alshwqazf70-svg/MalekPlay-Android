@@ -65,6 +65,7 @@ class SettingsRepository(private val context: Context) {
         val LOUDNESS = intPreferencesKey("loudness_gain_db")
 
         val SORT_MODE = stringPreferencesKey("sort_mode")
+        val SORT_ASCENDING = booleanPreferencesKey("sort_ascending")
         val VIEW_MODE = stringPreferencesKey("view_mode")
     }
 
@@ -165,6 +166,7 @@ class SettingsRepository(private val context: Context) {
 
         sortMode = runCatching { SortMode.valueOf(this[Keys.SORT_MODE] ?: "NEWEST") }
             .getOrDefault(SortMode.NEWEST),
+        sortAscending = this[Keys.SORT_ASCENDING] ?: false,
         viewMode = runCatching { ViewMode.valueOf(this[Keys.VIEW_MODE] ?: "GRID") }
             .getOrDefault(ViewMode.GRID)
     )
@@ -201,6 +203,7 @@ class SettingsRepository(private val context: Context) {
         this[Keys.LOUDNESS] = s.loudnessGainDb.coerceIn(0, 12)
 
         this[Keys.SORT_MODE] = s.sortMode.name
+        this[Keys.SORT_ASCENDING] = s.sortAscending
         this[Keys.VIEW_MODE] = s.viewMode.name
     }
 
