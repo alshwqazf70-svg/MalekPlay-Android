@@ -110,10 +110,10 @@ fun OnlineSubtitleSearchSheet(
                     }
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(season, { onSeasonChange(it.filter(Char::isDigit).take(2)) },
+                    OutlinedTextField(season, { onSeasonChange(SubtitleQueryCleaner.normalizeDigits(it.filter(Char::isDigit).take(2))) },
                         Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(50),
                         label = { Text("الموسم") })
-                    OutlinedTextField(episode, { onEpisodeChange(it.filter(Char::isDigit).take(3)) },
+                    OutlinedTextField(episode, { onEpisodeChange(SubtitleQueryCleaner.normalizeDigits(it.filter(Char::isDigit).take(3))) },
                         Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(50),
                         label = { Text("الحلقة") })
                 }
