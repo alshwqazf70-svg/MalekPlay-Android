@@ -532,7 +532,12 @@ fun UltraShareSessionRoom(
                         style = MaterialTheme.typography.labelSmall
                     )
                     Text(
-                        "زمن الاستقبال والتحقق: ${formatSessionDuration(metrics.receiveElapsedMs / 1000L)} • زمن الحفظ في التنزيلات: ${formatSessionDuration(metrics.publishElapsedMs / 1000L)}",
+                        "زمن الاستقبال والتحقق: ${formatSessionDuration(metrics.receiveElapsedMs / 1000L)} • زمن معالجة وحفظ الملفات بعد الاستقبال: ${formatSessionDuration(metrics.publishElapsedMs / 1000L)}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    Text(
+                        "وقت كتابة البيانات: ${formatSessionDuration(metrics.fileWriteElapsedMs / 1000L)} • تثبيت نقاط الاستئناف: ${formatSessionDuration(metrics.durabilityElapsedMs / 1000L)} • مرات التثبيت: ${metrics.durabilitySyncCount}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall
                     )

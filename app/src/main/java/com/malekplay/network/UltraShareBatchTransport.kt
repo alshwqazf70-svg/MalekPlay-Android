@@ -164,7 +164,10 @@ object UltraShareBatchTransport {
         val receivedBytes: Long,
         val receiveElapsedMs: Long,
         val receiveBytesPerSecond: Long,
-        val publishElapsedMs: Long = 0L
+        val publishElapsedMs: Long = 0L,
+        val fileWriteElapsedMs: Long = 0L,
+        val durabilityElapsedMs: Long = 0L,
+        val durabilitySyncCount: Int = 0
     )
 
     data class BatchOutcome(
@@ -971,6 +974,9 @@ object UltraShareBatchTransport {
 
         val outcomes = ArrayList<FileOutcome>(manifest.entries.size)
         val receiveStartedAtNanos = System.nanoTime()
+        var fileWriteElapsedNanos = 0L
+        var durabilityElapsedNanos = 0L
+        var durabilitySyncCount = 0
         for ((index, entry) in manifest.entries.withIndex()) {
             val (partial, offset) = partials.getValue(entry.id)
             val identity = transferStorageIdentity(entry)
@@ -1033,7 +1039,9 @@ object UltraShareBatchTransport {
                             require(length in 1..(CHUNK_BYTES - 8) && length + 7 == payloadLength)
                             require(transferred + length <= entry.sizeBytes)
                             streamedReceiveDigest?.update(reusablePlainChunk, 7, length)
+                            val fileWriteStartedAtNanos = System.nanoTime()
                             file.write(reusablePlainChunk, 7, length)
+                            fileWriteElapsedNanos += (System.nanoTime() - fileWriteStartedAtNanos).coerceAtLeast(0L)
                             transferred += length
                             if (transferred - lastCheckpointOffset >= RESUME_CHECKPOINT_INTERVAL_BYTES ||
                                 transferred == entry.sizeBytes
@@ -1041,10 +1049,13 @@ object UltraShareBatchTransport {
                                 // Ordering is intentional: data reaches stable storage before
                                 // the checkpoint that authorizes a future resume can replace
                                 // the previous checkpoint.
+                                val durabilityStartedAtNanos = System.nanoTime()
                                 file.fd.sync()
                                 writeUltraShareResumeCheckpointAtomically(
                                     checkpointTemp, checkpoint, entry.sizeBytes, digestHex, transferred
                                 )
+                                durabilityElapsedNanos += (System.nanoTime() - durabilityStartedAtNanos).coerceAtLeast(0L)
+                                durabilitySyncCount++
                                 lastCheckpointOffset = transferred
                                 UltraShareDiagnostics.event(
                                     "DATA_RECEIVE",
@@ -1082,7 +1093,15 @@ object UltraShareBatchTransport {
                             // final checkpoint. Avoid issuing the same expensive sync twice.
                             // On interruption, still sync any uncheckpointed tail, but the next
                             // resume will discard it and continue from the last durable checkpoint.
-                            if (transferred > lastCheckpointOffset) file.fd.sync()
+                            if (transferred > lastCheckpointOffset) {
+                                val durabilityStartedAtNanos = System.nanoTime()
+                                try {
+                                    file.fd.sync()
+                                } finally {
+                                    durabilityElapsedNanos += (System.nanoTime() - durabilityStartedAtNanos).coerceAtLeast(0L)
+                                    durabilitySyncCount++
+                                }
+                            }
                         } catch (syncFailure: IOException) {
                             UltraShareDiagnostics.failure(
                                 "DATA_RECEIVE_PARTIAL_SYNC",
@@ -1242,7 +1261,10 @@ object UltraShareBatchTransport {
         val receiveMetrics = ReceiveMetrics(
             receivedBytes = receivedBytes,
             receiveElapsedMs = receiveElapsedNanos / 1_000_000L,
-            receiveBytesPerSecond = (receivedBytes.toDouble() * 1_000_000_000.0 / receiveElapsedNanos).toLong()
+            receiveBytesPerSecond = (receivedBytes.toDouble() * 1_000_000_000.0 / receiveElapsedNanos).toLong(),
+            fileWriteElapsedMs = fileWriteElapsedNanos / 1_000_000L,
+            durabilityElapsedMs = durabilityElapsedNanos / 1_000_000L,
+            durabilitySyncCount = durabilitySyncCount
         )
         writeFrame(output, sendKey, noncePrefix, sendSequence, resultPayload, cipher = sendCipher, keySpec = sendKeySpec)
         UltraShareDiagnostics.event(
