@@ -186,10 +186,12 @@ fun LibraryScreen(
                     text = { Text(if (settings.foldersFirst) "المجلدات أولاً ✓" else "الملفات أولاً ✓") },
                     onClick = { viewModel.setFoldersFirst(!settings.foldersFirst) }
                 )
-                DropdownMenuItem(
-                    text = { Text(if (settings.sortAscending) "الترتيب: تصاعدي ↑" else "الترتيب: تنازلي ↓") },
-                    onClick = { viewModel.setSortAscending(!settings.sortAscending) }
-                )
+                if (settings.sortMode != SortMode.MANUAL) {
+                    DropdownMenuItem(
+                        text = { Text(if (settings.sortAscending) "الترتيب: تصاعدي ↑" else "الترتيب: تنازلي ↓") },
+                        onClick = { viewModel.setSortAscending(!settings.sortAscending) }
+                    )
+                }
                 SortMode.entries.forEach { mode ->
                     DropdownMenuItem(
                         text = { Text((if (settings.sortMode == mode) "✓ " else "") + when (mode) {
