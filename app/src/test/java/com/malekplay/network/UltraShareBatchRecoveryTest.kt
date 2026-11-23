@@ -104,6 +104,64 @@ class UltraShareBatchRecoveryTest {
     }
 
     @Test
+    fun largePartialResumeTruncatesOnlyUncommittedTailAtDurableCheckpoint() {
+        val directory = java.nio.file.Files.createTempDirectory("ultrashare-large-resume").toFile()
+        try {
+            val expectedSize = 24L * 1024L * 1024L
+            val durableOffset = 16L * 1024L * 1024L
+            val buffer = ByteArray(1024 * 1024)
+            val fullDigest = java.security.MessageDigest.getInstance("SHA-256")
+            val prefixDigest = java.security.MessageDigest.getInstance("SHA-256")
+            val partial = java.io.File(directory, "large.part")
+            val checkpoint = java.io.File(directory, "large.resume")
+            val checkpointTemp = java.io.File(directory, "large.resume.tmp")
+            java.io.FileOutputStream(partial).use { output ->
+                var written = 0L
+                while (written < expectedSize) {
+                    val count = minOf(buffer.size.toLong(), expectedSize - written).toInt()
+                    for (index in 0 until count) buffer[index] = ((written + index) * 17).toByte()
+                    fullDigest.update(buffer, 0, count)
+                    if (written < durableOffset) {
+                        val prefixCount = minOf(count.toLong(), durableOffset - written).toInt()
+                        prefixDigest.update(buffer, 0, prefixCount)
+                        output.write(buffer, 0, prefixCount)
+                    }
+                    written += count
+                }
+                output.write(ByteArray(1024 * 1024) { 0x5a })
+                output.fd.sync()
+            }
+            val digestHex = fullDigest.digest().joinToString("") { "%02x".format(it) }
+            writeUltraShareResumeCheckpointAtomically(
+                checkpointTemp, checkpoint, expectedSize, digestHex, durableOffset
+            )
+
+            assertEquals(
+                durableOffset,
+                resumableFileOffset(partial, checkpoint, expectedSize, digestHex)
+            )
+            assertEquals(durableOffset, partial.length())
+            val actualPrefixDigest = java.security.MessageDigest.getInstance("SHA-256")
+            partial.inputStream().use { input ->
+                val verifyBuffer = ByteArray(1024 * 1024)
+                var remaining = durableOffset
+                while (remaining > 0L) {
+                    val count = input.read(verifyBuffer, 0, minOf(verifyBuffer.size.toLong(), remaining).toInt())
+                    check(count > 0)
+                    actualPrefixDigest.update(verifyBuffer, 0, count)
+                    remaining -= count
+                }
+            }
+            assertEquals(
+                prefixDigest.digest().joinToString("") { "%02x".format(it) },
+                actualPrefixDigest.digest().joinToString("") { "%02x".format(it) }
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun perFileRecoveryContinuesAfterOneItemFails() = runBlocking {
         val visited = mutableListOf<Int>()
         val result = UltraShareBatchRecovery.execute(
