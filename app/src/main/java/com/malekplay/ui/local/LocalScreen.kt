@@ -120,17 +120,17 @@ fun LocalScreen(
     val searchResults by searchFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     // Sort potentially large collections on a worker thread, never during a UI frame.
     val sortedVideos by produceState(
-        initialValue = emptyList<LibraryItem>(), videos, settings.sortMode, settings.sortAscending, lastPlayedMediaId
+        initialValue = emptyList<LibraryItem>(), videos, settings.sortMode, settings.sortAscending, lastPlayedMediaId, settings.manualSortOrder
     ) {
         value = withContext(Dispatchers.Default) {
-            viewModel.applySort(videos, settings.sortMode, settings.sortAscending, lastPlayedMediaId)
+            viewModel.applySort(videos, settings.sortMode, settings.sortAscending, lastPlayedMediaId, settings.manualSortOrder)
         }
     }
     val sortedAudio by produceState(
-        initialValue = emptyList<LibraryItem>(), audio, settings.sortMode, settings.sortAscending, lastPlayedMediaId
+        initialValue = emptyList<LibraryItem>(), audio, settings.sortMode, settings.sortAscending, lastPlayedMediaId, settings.manualSortOrder
     ) {
         value = withContext(Dispatchers.Default) {
-            viewModel.applySort(audio, settings.sortMode, settings.sortAscending, lastPlayedMediaId)
+            viewModel.applySort(audio, settings.sortMode, settings.sortAscending, lastPlayedMediaId, settings.manualSortOrder)
         }
     }
 
@@ -349,6 +349,10 @@ fun LocalScreen(
                 }
                 DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                     DropdownMenuItem(
+                        text = { Text(if (settings.foldersFirst) "المجلدات أولاً ✓" else "الملفات أولاً ✓") },
+                        onClick = { viewModel.setFoldersFirst(!settings.foldersFirst) }
+                    )
+                    DropdownMenuItem(
                         text = { Text(if (settings.sortAscending) "الترتيب تصاعدي ↑" else "الترتيب تنازلي ↓") },
                         onClick = { viewModel.setSortAscending(!settings.sortAscending) }
                     )
@@ -359,7 +363,8 @@ fun LocalScreen(
                         SortMode.DURATION to "مدة الملف",
                         SortMode.SIZE to "حجم الملف",
                         SortMode.TYPE to "نوع الملف",
-                        SortMode.LAST_PLAYED to "آخر ملف تمت مشاهدته"
+                        SortMode.LAST_PLAYED to "آخر ملف تمت مشاهدته",
+                        SortMode.MANUAL to "ترتيب يدوي بالسحب"
                     ).forEach { (mode, label) ->
                         DropdownMenuItem(
                             text = { Text((if (settings.sortMode == mode) "✓ " else "") + label) },
