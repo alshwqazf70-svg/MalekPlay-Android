@@ -688,6 +688,9 @@ object UltraShareBatchTransport {
                 )
             }
             writeFrame(output, sendKey, noncePrefix, sendSequence++, byteArrayOf(TYPE_BATCH_END.toByte()), cipher = sendCipher, keySpec = sendKeySpec, encryptedBuffer = encryptedFrameBuffer)
+            // Stop the payload clock before waiting for remote SHA-256 verification and
+            // publication. This separates network/source throughput from receiver work.
+            val payloadTransferFinishedAtNanos = System.nanoTime()
             // The receiver verifies SHA-256 and publishes files before sending its final
             // receipt. Allow slower storage to finish, but never wait indefinitely.
             readPhase = "FINAL_RECEIPT"
@@ -712,6 +715,12 @@ object UltraShareBatchTransport {
                     )
                 }
             )
+            val batchCompletedAtNanos = System.nanoTime()
+            val transferredBytes = (manifest.totalBytes - resumedBytes).coerceAtLeast(0L)
+            val payloadElapsedNanos = (payloadTransferFinishedAtNanos - transferStartedAtNanos).coerceAtLeast(1L)
+            val endToEndElapsedNanos = (batchCompletedAtNanos - transferStartedAtNanos).coerceAtLeast(1L)
+            val payloadElapsedMs = payloadElapsedNanos / 1_000_000L
+            val endToEndElapsedMs = endToEndElapsedNanos / 1_000_000L
             UltraShareDiagnostics.event(
                 "DATA_SEND",
                 "BATCH_SEND_COMPLETED",
@@ -720,14 +729,16 @@ object UltraShareBatchTransport {
                     "batchId" to manifest.batchId,
                     "completedFiles" to batchOutcome.files.count { it.status == UltraShareBatchProtocol.FileStatus.COMPLETED },
                     "failedFiles" to batchOutcome.files.count { it.status != UltraShareBatchProtocol.FileStatus.COMPLETED },
-                    "transferredBytes" to (manifest.totalBytes - resumedBytes).coerceAtLeast(0L),
+                    "transferredBytes" to transferredBytes,
                     "resumedBytes" to resumedBytes,
-                    "transferElapsedMs" to ((System.nanoTime() - transferStartedAtNanos) / 1_000_000L),
-                    "transferBytesPerSecond" to (
-                        (manifest.totalBytes - resumedBytes).coerceAtLeast(0L).toDouble() *
-                            1_000_000_000.0 /
-                            (System.nanoTime() - transferStartedAtNanos).coerceAtLeast(1L)
-                    ).toLong()
+                    // Keep legacy transfer metrics end-to-end for existing diagnostics consumers.
+                    "transferElapsedMs" to endToEndElapsedMs,
+                    "transferBytesPerSecond" to (transferredBytes.toDouble() * 1_000_000_000.0 / endToEndElapsedNanos).toLong(),
+                    "payloadTransferElapsedMs" to payloadElapsedMs,
+                    "payloadTransferBytesPerSecond" to (transferredBytes.toDouble() * 1_000_000_000.0 / payloadElapsedNanos).toLong(),
+                    "receiptWaitElapsedMs" to ((batchCompletedAtNanos - payloadTransferFinishedAtNanos).coerceAtLeast(0L) / 1_000_000L),
+                    "endToEndElapsedMs" to endToEndElapsedMs,
+                    "endToEndBytesPerSecond" to (transferredBytes.toDouble() * 1_000_000_000.0 / endToEndElapsedNanos).toLong()
                 )
             )
             batchOutcome
