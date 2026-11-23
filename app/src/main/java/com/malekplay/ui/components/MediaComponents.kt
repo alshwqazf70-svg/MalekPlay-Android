@@ -315,13 +315,14 @@ fun MediaListRow(
     onSend: () -> Unit = {},
     selectionMode: Boolean = false,
     isSelected: Boolean = false,
+    enableLongPressSelection: Boolean = true,
     onSelect: () -> Unit = onSend
 ) {
     val media = item.media
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = { if (selectionMode) onSelect() else onPlay() }, onLongClick = onSelect),
+            .combinedClickable(onClick = { if (selectionMode) onSelect() else onPlay() }, onLongClick = if (enableLongPressSelection) onSelect else null),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = when { isSelected -> MaterialTheme.colorScheme.primaryContainer; isCurrent -> MaterialTheme.colorScheme.secondaryContainer; else -> MaterialTheme.colorScheme.surface }
