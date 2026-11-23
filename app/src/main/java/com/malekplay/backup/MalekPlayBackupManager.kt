@@ -351,6 +351,8 @@ class MalekPlayBackupManager @Inject constructor(
         .put("loudnessGainDb", s.loudnessGainDb)
         .put("sortMode", s.sortMode.name)
         .put("sortAscending", s.sortAscending)
+        .put("foldersFirst", s.foldersFirst)
+        .put("manualSortOrder", org.json.JSONArray(s.manualSortOrder))
         .put("viewMode", s.viewMode.name)
 
     private fun settingsFromJson(json: JSONObject): PlayerSettings = PlayerSettings(
@@ -395,6 +397,8 @@ class MalekPlayBackupManager @Inject constructor(
         sortMode = runCatching { SortMode.valueOf(json.optString("sortMode", "NEWEST")) }
             .getOrDefault(SortMode.NEWEST),
         sortAscending = json.optBoolean("sortAscending", false),
+        foldersFirst = json.optBoolean("foldersFirst", true),
+        manualSortOrder = json.optJSONArray("manualSortOrder")?.let { array -> List(array.length()) { array.optString(it) }.filter { it.isNotBlank() } } ?: emptyList(),
         viewMode = runCatching { ViewMode.valueOf(json.optString("viewMode", "GRID")) }
             .getOrDefault(ViewMode.GRID)
     )
