@@ -379,16 +379,24 @@ fun LibraryScreen(
                                      .pointerInput(visibleItems, settings.sortMode, selectionMode) {
                                         if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
                                         var targetIndex = -1
+                                        var didMove = false
                                         detectDragGesturesAfterLongPress(
-                                            onDragStart = { targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id } },
+                                            onDragStart = {
+                                                didMove = false
+                                                targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id }
+                                            },
                                             onDrag = { change, _ ->
+                                                didMove = true
                                                 change.consume()
                                                 val origin = itemBounds[item.media.id]?.topLeft ?: return@detectDragGesturesAfterLongPress
                                                 val point = origin + change.position
                                                 targetIndex = visibleItems.indexOfFirst { row -> itemBounds[row.media.id]?.contains(point) == true }
                                             },
                                             onDragEnd = {
-                                                if (settings.sortMode == SortMode.MANUAL && targetIndex >= 0) {
+                                                if (!didMove) {
+                                                    // A stationary long press remains available for multi-select.
+                                                    toggleSelection(item.media.uri)
+                                                } else if (settings.sortMode == SortMode.MANUAL && targetIndex >= 0) {
                                                     viewModel.moveManualItem(item.media.id, targetIndex, visibleItems)
                                                 }
                                             },
@@ -424,16 +432,24 @@ fun LibraryScreen(
                                     .pointerInput(visibleItems, settings.sortMode, selectionMode) {
                                         if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
                                         var targetIndex = -1
+                                        var didMove = false
                                         detectDragGesturesAfterLongPress(
-                                            onDragStart = { targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id } },
+                                            onDragStart = {
+                                                didMove = false
+                                                targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id }
+                                            },
                                             onDrag = { change, _ ->
+                                                didMove = true
                                                 change.consume()
                                                 val origin = itemBounds[item.media.id]?.topLeft ?: return@detectDragGesturesAfterLongPress
                                                 val point = origin + change.position
                                                 targetIndex = visibleItems.indexOfFirst { row -> itemBounds[row.media.id]?.contains(point) == true }
                                             },
                                             onDragEnd = {
-                                                if (settings.sortMode == SortMode.MANUAL && targetIndex >= 0) {
+                                                if (!didMove) {
+                                                    // A stationary long press remains available for multi-select.
+                                                    toggleSelection(item.media.uri)
+                                                } else if (settings.sortMode == SortMode.MANUAL && targetIndex >= 0) {
                                                     viewModel.moveManualItem(item.media.id, targetIndex, visibleItems)
                                                 }
                                             },
