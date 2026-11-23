@@ -124,6 +124,13 @@ class UltraShareWifiDirectPolicyTest {
     }
 
     @Test
+    fun staleClientGroupConfirmationCallbacksCannotMutateANewerAttempt() {
+        assertTrue(isCurrentWifiDirectPeerConfirmation(sessionClosed = false, currentToken = 7, callbackToken = 7))
+        assertFalse(isCurrentWifiDirectPeerConfirmation(sessionClosed = false, currentToken = 8, callbackToken = 7))
+        assertFalse(isCurrentWifiDirectPeerConfirmation(sessionClosed = true, currentToken = 7, callbackToken = 7))
+    }
+
+    @Test
     fun peerRefreshTimeoutAndCallbackCannotStartTwoConnectAttempts() {
         val finished = AtomicBoolean(false)
         assertTrue(claimWifiDirectPeerRefreshCompletion(finished))

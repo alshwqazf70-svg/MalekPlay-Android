@@ -2107,8 +2107,11 @@ object UltraShareWifiDirect {
             val completed = java.util.concurrent.atomic.AtomicBoolean(false)
             val timeout = Runnable {
                 if (!completed.compareAndSet(false, true)) return@Runnable
+                // A timeout from an older connection attempt must never clear the
+                // in-flight flag or timeout handle belonging to a newer attempt.
+                if (!isCurrentWifiDirectPeerConfirmation(closed, clientPeerCheckToken, token)) return@Runnable
+                if (clientPeerCheckTimeout === timeout) clientPeerCheckTimeout = null
                 clientPeerCheckInFlight = false
-                clientPeerCheckTimeout = null
                 scheduleClientPeerConfirmation(info, host, expectedAddress, token, attempt)
             }
             clientPeerCheckTimeout = timeout
@@ -2117,9 +2120,14 @@ object UltraShareWifiDirect {
                 manager.requestGroupInfo(channel) { group ->
                     if (!completed.compareAndSet(false, true)) return@requestGroupInfo
                     mainHandler.removeCallbacks(timeout)
-                    clientPeerCheckTimeout = null
+                    // Check ownership before touching shared request state: an OEM may
+                    // deliver this callback after cancellation and a newer pairing.
+                    if (!isCurrentWifiDirectPeerConfirmation(closed, clientPeerCheckToken, token)) {
+                        UltraShareDiagnostics.event("WIFI_DIRECT", "STALE_CLIENT_GROUP_INFO_CALLBACK_IGNORED")
+                        return@requestGroupInfo
+                    }
+                    if (clientPeerCheckTimeout === timeout) clientPeerCheckTimeout = null
                     clientPeerCheckInFlight = false
-                    if (closed || token != clientPeerCheckToken) return@requestGroupInfo
                     val actualAddress = group?.owner?.deviceAddress
                     // Wi-Fi Direct MAC addresses are not stable identifiers on every
                     // Android/OEM combination (notably newer Android group owners).
@@ -2617,6 +2625,12 @@ internal fun isConfirmedWifiDirectOwnerPeer(groupFormed: Boolean, isGroupOwner: 
     groupFormed && isGroupOwner && clientCount > 0
 
 /** Rejects delayed connection-info callbacks after a newer framework query or session closure. */
+internal fun isCurrentWifiDirectPeerConfirmation(
+    sessionClosed: Boolean,
+    currentToken: Int,
+    callbackToken: Int
+): Boolean = !sessionClosed && currentToken == callbackToken
+
 internal fun isCurrentWifiDirectInfoRequest(
     sessionClosed: Boolean,
     currentToken: Int,
