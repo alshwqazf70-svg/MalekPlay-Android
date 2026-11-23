@@ -2110,7 +2110,7 @@ object UltraShareWifiDirect {
                 // A timeout from an older connection attempt must never clear the
                 // in-flight flag or timeout handle belonging to a newer attempt.
                 if (!isCurrentWifiDirectPeerConfirmation(closed, clientPeerCheckToken, token)) return@Runnable
-                if (clientPeerCheckTimeout === timeout) clientPeerCheckTimeout = null
+                clientPeerCheckTimeout = null
                 clientPeerCheckInFlight = false
                 scheduleClientPeerConfirmation(info, host, expectedAddress, token, attempt)
             }
@@ -2126,7 +2126,7 @@ object UltraShareWifiDirect {
                         UltraShareDiagnostics.event("WIFI_DIRECT", "STALE_CLIENT_GROUP_INFO_CALLBACK_IGNORED")
                         return@requestGroupInfo
                     }
-                    if (clientPeerCheckTimeout === timeout) clientPeerCheckTimeout = null
+                    clientPeerCheckTimeout = null
                     clientPeerCheckInFlight = false
                     val actualAddress = group?.owner?.deviceAddress
                     // Wi-Fi Direct MAC addresses are not stable identifiers on every
