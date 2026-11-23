@@ -606,13 +606,17 @@ fun UltraShareSessionRoom(
                 val summaryEntries = currentBatchEntries.ifEmpty { state.queueEntries }
                 val completed = summaryEntries.count { it.status == UltraShareQueueStore.STATUS_COMPLETED }
                 val failed = summaryEntries.count { it.status == UltraShareQueueStore.STATUS_FAILED }
-                val waiting = summaryEntries.count {
-                    it.status == UltraShareQueueStore.STATUS_PENDING || it.status == UltraShareQueueStore.STATUS_SENDING
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    UltraShareQueueCount("مكتمل $completed", Color(0xFF65D6A2), Modifier.weight(1f))
-                    UltraShareQueueCount("جارٍ/منتظر $waiting", MalekPlayColors.PurpleBright, Modifier.weight(1f))
-                    UltraShareQueueCount("فشل $failed", MaterialTheme.colorScheme.error, Modifier.weight(1f))
+                val sending = summaryEntries.count { it.status == UltraShareQueueStore.STATUS_SENDING }
+                val waiting = summaryEntries.count { it.status == UltraShareQueueStore.STATUS_PENDING }
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        UltraShareQueueCount("مكتمل $completed", Color(0xFF65D6A2), Modifier.weight(1f))
+                        UltraShareQueueCount("جارٍ $sending", MalekPlayColors.PurpleBright, Modifier.weight(1f))
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        UltraShareQueueCount("انتظار $waiting", MaterialTheme.colorScheme.onSurfaceVariant, Modifier.weight(1f))
+                        UltraShareQueueCount("فشل $failed", MaterialTheme.colorScheme.error, Modifier.weight(1f))
+                    }
                 }
             }
             if (sendCompleted) {
