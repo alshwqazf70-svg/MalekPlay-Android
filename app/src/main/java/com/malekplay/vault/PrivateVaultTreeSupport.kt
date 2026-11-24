@@ -91,11 +91,17 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                             var parent = rootFolder
                             parts.forEachIndexed { index, part ->
                                 val isDirectory = item.isDirectory || index < parts.lastIndex
-                                parent = findChild(parent, part, destinationTree) ?: DocumentsContract.createDocument(
-                                    resolver, parent,
-                                    if (isDirectory) DocumentsContract.Document.MIME_TYPE_DIR else item.comment ?: "application/octet-stream",
-                                    part
-                                ) ?: error("تعذر إنشاء $part")
+                                val existing = findChild(parent, part, destinationTree)
+                                parent = if (existing != null) {
+                                    check(isDirectory) { "يوجد ملف بالاسم نفسه في مجلد الاستعادة: $part" }
+                                    existing
+                                } else {
+                                    DocumentsContract.createDocument(
+                                        resolver, parent,
+                                        if (isDirectory) DocumentsContract.Document.MIME_TYPE_DIR else item.comment ?: "application/octet-stream",
+                                        part
+                                    ) ?: error("تعذر إنشاء $part")
+                                }
                                 if (!isDirectory && index == parts.lastIndex) {
                                     resolver.openOutputStream(parent, "wt")?.use { zip.copyTo(it) }
                                         ?: error("تعذرت كتابة $part")

@@ -9,10 +9,12 @@ internal object PrivateVaultRecovery {
     fun recover(directory: File, committedIds: Set<String>) {
         directory.listFiles()?.forEach { file ->
             when {
+                file.name == "vault.index.new" -> file.delete()
                 file.name.endsWith(".pending") -> {
                     val id = file.name.removeSuffix(".pending")
                     if (validId.matches(id)) {
                         if (id !in committedIds) File(directory, "$id.mkv").delete()
+                        File(directory, "$id.tmp").delete()
                         file.delete()
                     }
                 }
@@ -26,6 +28,10 @@ internal object PrivateVaultRecovery {
                             file.delete()
                         }
                     }
+                }
+                file.name.endsWith(".tmp") -> {
+                    val id = file.name.removeSuffix(".tmp")
+                    if (validId.matches(id)) file.delete()
                 }
             }
         }

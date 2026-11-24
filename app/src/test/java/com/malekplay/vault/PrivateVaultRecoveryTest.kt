@@ -26,11 +26,13 @@ class PrivateVaultRecoveryTest {
     @Test
     fun uncommittedImportIsDiscardedAfterRestart() {
         val payload = File(directory, "$interrupted.mkv").apply { writeText("ciphertext") }
+        val temporary = File(directory, "$interrupted.tmp").apply { writeText("partial ciphertext") }
         val marker = File(directory, "$interrupted.pending").apply { writeText("pending") }
 
         PrivateVaultRecovery.recover(directory, emptySet())
 
         assertFalse(payload.exists())
+        assertFalse(temporary.exists())
         assertFalse(marker.exists())
     }
 
