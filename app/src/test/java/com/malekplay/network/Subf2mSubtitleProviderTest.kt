@@ -13,6 +13,24 @@ import org.robolectric.annotation.Config
 class Subf2mSubtitleProviderTest {
     private val provider = Subf2mSubtitleProvider()
 
+    @Test fun parsesLiveSearchResultTitleAnchorStructure() {
+        val html = """
+            <ul>
+              <li><div class="title">
+                <a href="/subtitles/chernobyl-first-season">Chernobyl - First Season (2019)</a>
+              </div></li>
+              <li><div class="title">
+                <a href="/subtitles/another-show">Another Show (2020)</a>
+              </div></li>
+            </ul>
+        """.trimIndent()
+        val results = provider.parseSearchResultCandidates(
+            html, "Chernobyl", 2019, 1
+        )
+        assertEquals(1, results.size)
+        assertEquals("/subtitles/chernobyl-first-season", results.single().first)
+    }
+
     @Test fun acceptsExactSeasonEpisodeReleaseNames() {
         assertTrue(provider.isExactEpisode("Show.S01E03.1080p.WEB-DL", 1, 3))
         assertTrue(provider.isExactEpisode("Show.1x03.720p", 1, 3))
@@ -155,7 +173,7 @@ class Subf2mSubtitleProviderTest {
 
     @Test fun resolvesCurrentDirectDownloadAnchorAndRelativeDownloadHref() {
         val detail = "https://subf2m.co/subtitles/example/arabic/12345"
-        val currentLayout = """<a class="btn download" href="/subtitles/example/arabic/12345/download">Download</a>"""
+        val currentLayout = """<a id="downloadButton" href="/subtitles/example/arabic/12345/download">Download</a>"""
         assertEquals(
             "https://subf2m.co/subtitles/example/arabic/12345/download",
             provider.resolveDownloadPageLink(currentLayout, detail)
