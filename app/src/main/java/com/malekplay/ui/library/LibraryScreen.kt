@@ -21,7 +21,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -46,9 +48,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.consume
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -378,30 +384,43 @@ fun LibraryScreen(
                                     .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
                                      .pointerInput(visibleItems, settings.sortMode, selectionMode) {
                                         if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
-                                        var targetIndex = -1
-                                        var didMove = false
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = {
-                                                didMove = false
-                                                targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id }
-                                            },
-                                            onDrag = { change, _ ->
-                                                didMove = true
-                                                change.consume()
-                                                val origin = itemBounds[item.media.id]?.topLeft ?: return@detectDragGesturesAfterLongPress
-                                                val point = origin + change.position
-                                                targetIndex = visibleItems.indexOfFirst { row -> itemBounds[row.media.id]?.contains(point) == true }
-                                            },
-                                            onDragEnd = {
-                                                if (!didMove) {
-                                                    // A stationary long press remains available for multi-select.
-                                                    toggleSelection(item.media.uri)
-                                                } else if (settings.sortMode == SortMode.MANUAL && targetIndex >= 0) {
+                                            // Observe the long-press in the Initial pass so the nested
+                                            // card's combinedClickable cannot steal the drag gesture.
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(
+                                                    requireUnconsumed = false,
+                                                    pass = PointerEventPass.Initial
+                                                )
+                                                val longPress = awaitLongPressOrCancellation(
+                                                    down.id,
+                                                    pass = PointerEventPass.Initial
+                                                ) ?: return@awaitEachGesture
+                                                var targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id }
+                                                var didMove = false
+                                                var released = false
+                                                while (!released) {
+                                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                                    val change = event.changes.firstOrNull { it.id == longPress.id }
+                                                        ?: break
+                                                    if (!change.pressed) {
+                                                        released = true
+                                                    } else if (change.positionChange() != Offset.Zero) {
+                                                        didMove = true
+                                                        change.consume()
+                                                        val origin = itemBounds[item.media.id]?.topLeft
+                                                        if (origin != null) {
+                                                            val point = origin + change.position
+                                                            val hit = visibleItems.indexOfFirst { row ->
+                                                                itemBounds[row.media.id]?.contains(point) == true
+                                                            }
+                                                            if (hit >= 0) targetIndex = hit
+                                                        }
+                                                    }
+                                                }
+                                                if (didMove && targetIndex >= 0) {
                                                     viewModel.moveManualItem(item.media.id, targetIndex, visibleItems)
                                                 }
-                                            },
-                                            onDragCancel = {}
-                                        )
+                                            }
                                         }
                                     }
                             ) {
@@ -431,30 +450,43 @@ fun LibraryScreen(
                                     .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
                                     .pointerInput(visibleItems, settings.sortMode, selectionMode) {
                                         if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
-                                        var targetIndex = -1
-                                        var didMove = false
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = {
-                                                didMove = false
-                                                targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id }
-                                            },
-                                            onDrag = { change, _ ->
-                                                didMove = true
-                                                change.consume()
-                                                val origin = itemBounds[item.media.id]?.topLeft ?: return@detectDragGesturesAfterLongPress
-                                                val point = origin + change.position
-                                                targetIndex = visibleItems.indexOfFirst { row -> itemBounds[row.media.id]?.contains(point) == true }
-                                            },
-                                            onDragEnd = {
-                                                if (!didMove) {
-                                                    // A stationary long press remains available for multi-select.
-                                                    toggleSelection(item.media.uri)
-                                                } else if (settings.sortMode == SortMode.MANUAL && targetIndex >= 0) {
+                                            // Observe the long-press in the Initial pass so the nested
+                                            // card's combinedClickable cannot steal the drag gesture.
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(
+                                                    requireUnconsumed = false,
+                                                    pass = PointerEventPass.Initial
+                                                )
+                                                val longPress = awaitLongPressOrCancellation(
+                                                    down.id,
+                                                    pass = PointerEventPass.Initial
+                                                ) ?: return@awaitEachGesture
+                                                var targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id }
+                                                var didMove = false
+                                                var released = false
+                                                while (!released) {
+                                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                                    val change = event.changes.firstOrNull { it.id == longPress.id }
+                                                        ?: break
+                                                    if (!change.pressed) {
+                                                        released = true
+                                                    } else if (change.positionChange() != Offset.Zero) {
+                                                        didMove = true
+                                                        change.consume()
+                                                        val origin = itemBounds[item.media.id]?.topLeft
+                                                        if (origin != null) {
+                                                            val point = origin + change.position
+                                                            val hit = visibleItems.indexOfFirst { row ->
+                                                                itemBounds[row.media.id]?.contains(point) == true
+                                                            }
+                                                            if (hit >= 0) targetIndex = hit
+                                                        }
+                                                    }
+                                                }
+                                                if (didMove && targetIndex >= 0) {
                                                     viewModel.moveManualItem(item.media.id, targetIndex, visibleItems)
                                                 }
-                                            },
-                                            onDragCancel = {}
-                                        )
+                                            }
                                         }
                                     }
                             ) {
