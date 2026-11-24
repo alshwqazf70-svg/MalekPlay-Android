@@ -1451,7 +1451,9 @@ fun VideoPlayerScreen(
                 episodeGuide = onlineSubtitleEpisodeGuide,
                 episodeGuideLoading = onlineSubtitleGuideLoading,
                 episodeGuideError = onlineSubtitleGuideError,
-                onLoadEpisodeGuide = { viewModel.loadOnlineSubtitleEpisodeGuide(onlineQuery) },
+                onLoadEpisodeGuide = {
+                    viewModel.loadOnlineSubtitleEpisodeGuide(onlineQuery, forceRefresh = onlineSubtitleEpisodeGuide != null)
+                },
                 language = onlineLanguage,
                 onLanguageChange = { onlineLanguage = it },
                 season = onlineSeason,
