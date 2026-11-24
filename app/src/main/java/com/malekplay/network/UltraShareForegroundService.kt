@@ -249,9 +249,6 @@ class UltraShareForegroundService : Service() {
         // Clear approvals written by older app versions; no peer trust survives a new service.
         UltraShareTrustedPeerStore.clear(this)
         UltraShareDiagnostics.initialize(this)
-        UltraShareControlChannel.setClientSessionReadyListener { host ->
-            startMeshClientSession(host)
-        }
         UltraShareDiagnostics.event("SERVICE", "CREATED")
         notificationHelper.ensureChannel()
         // Refresh only stale speed values; no state emission occurs while rates are current.
@@ -753,10 +750,6 @@ class UltraShareForegroundService : Service() {
                                     disconnectApprovedPeer(request.peerAddress)
                                     scheduleIdleDisconnect()
                                 },
-                                onSessionReady = { request ->
-                                    startMeshServerSession(request)
-                                }
-
                             ) { request ->
                                 // The receiver explicitly started a temporary invitation and
                                 // the peer has now completed the pairing-secret handshake.
@@ -2771,16 +2764,6 @@ class UltraShareForegroundService : Service() {
 
         while (true) {
             try {
-                if (UltraShareControlChannel.supportsClientApplicationFrames(activeHost)) {
-                    val remoteControlPeer = canonicalMeshPeerId(
-                        UltraShareControlChannel.sessionPeerId(activeHost)
-                    )
-                    val activeRoom = meshRoomCoordinator?.let { runCatching { it.state() }.getOrNull() }
-                    val isAuthorityJoinSession = remoteControlPeer != null &&
-                        (activeRoom == null || activeRoom.authorityPeerId == remoteControlPeer) &&
-                        !meshDirectEdges.containsKey(remoteControlPeer)
-                    if (isAuthorityJoinSession) ensureMeshClientJoined(activeHost)
-                }
                 val dataPort = UltraShareNegotiation.dataPortForHost(
                     activeHost, activeCandidates, UltraShareBatchTransport.DEFAULT_PORT
                 )
