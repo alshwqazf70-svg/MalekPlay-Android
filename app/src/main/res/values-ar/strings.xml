@@ -542,4 +542,40 @@
     <string name="vault_batch_deleted">تم حذف %1$d عناصر من الخزنة.</string>
     <string name="vault_media_playback_error">تعذر تشغيل هذا الملف المشفّر.</string>
 
+    <!-- تحسينات أقسام الموسيقى والمسلسلات والأفلام -->
+    <string name="music_search_hint">ابحث في الأغاني والألبومات والفنانين والأنواع</string>
+    <string name="music_summary_stats">%1$d أغنية · %2$d ألبوم · %3$d فنان</string>
+    <string name="music_resume_listening">متابعة الاستماع</string>
+    <string name="music_play_all">تشغيل الكل</string>
+    <string name="music_shuffle">عشوائي</string>
+    <string name="music_filter_all">الكل</string>
+    <string name="music_filter_favourites">المفضلة</string>
+    <string name="music_sort_default">الافتراضي</string>
+    <string name="music_sort_name">الاسم</string>
+    <string name="music_sort_newest">الأحدث</string>
+    <string name="music_sort_duration">المدة</string>
+    <string name="music_sort_artist">الفنان</string>
+    <string name="music_select_all">تحديد الكل</string>
+    <string name="music_add_to_playlist">إضافة لقائمة تشغيل</string>
+    <string name="music_selected_count">تم تحديد %1$d</string>
+    <string name="music_send_selected">إرسال</string>
+    <string name="music_clear_search">مسح البحث</string>
+
+    <string name="video_series_grouped">المسلسلات</string>
+    <string name="video_series_all_episodes">كل الحلقات</string>
+    <string name="video_series_seasons_episodes">%1$d مواسم · %2$d حلقة</string>
+    <string name="video_series_episodes_only">%1$d حلقة</string>
+    <string name="video_series_watched_progress">%1$d / %2$d مشاهَدة</string>
+    <string name="video_series_play_next">تشغيل التالي</string>
+    <string name="video_series_season_all">كل المواسم</string>
+    <string name="video_series_season_number">الموسم %1$d</string>
+    <string name="video_continue_watching">متابعة المشاهدة</string>
+    <string name="video_filter_unwatched">لم يُشاهد</string>
+    <string name="video_filter_in_progress">قيد المشاهدة</string>
+    <string name="video_filter_completed">مكتمل</string>
+    <string name="video_pick_random_movie">اختر لي فيلماً</string>
+    <string name="video_movies_stats">%1$d فيلم · %2$d قيد المشاهدة · %3$d مكتمل</string>
+    <string name="video_series_stats">%1$d مسلسل · %2$d حلقة</string>
+    <string name="video_sort_size">الحجم</string>
+
 </resources>

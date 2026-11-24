@@ -542,4 +542,40 @@
     <string name="vault_batch_deleted">Deleted %1$d items from the vault.</string>
     <string name="vault_media_playback_error">Could not play this encrypted media file.</string>
 
+    <!-- Music & Video Categories enhancements -->
+    <string name="music_search_hint">Search songs, albums, artists, or genres</string>
+    <string name="music_summary_stats">%1$d songs · %2$d albums · %3$d artists</string>
+    <string name="music_resume_listening">Continue listening</string>
+    <string name="music_play_all">Play all</string>
+    <string name="music_shuffle">Shuffle</string>
+    <string name="music_filter_all">All</string>
+    <string name="music_filter_favourites">Favourites</string>
+    <string name="music_sort_default">Default</string>
+    <string name="music_sort_name">Name</string>
+    <string name="music_sort_newest">Newest</string>
+    <string name="music_sort_duration">Duration</string>
+    <string name="music_sort_artist">Artist</string>
+    <string name="music_select_all">Select all</string>
+    <string name="music_add_to_playlist">Add to playlist</string>
+    <string name="music_selected_count">%1$d selected</string>
+    <string name="music_send_selected">Send</string>
+    <string name="music_clear_search">Clear search</string>
+
+    <string name="video_series_grouped">Series</string>
+    <string name="video_series_all_episodes">All episodes</string>
+    <string name="video_series_seasons_episodes">%1$d seasons · %2$d episodes</string>
+    <string name="video_series_episodes_only">%1$d episodes</string>
+    <string name="video_series_watched_progress">%1$d / %2$d watched</string>
+    <string name="video_series_play_next">Play next</string>
+    <string name="video_series_season_all">All seasons</string>
+    <string name="video_series_season_number">Season %1$d</string>
+    <string name="video_continue_watching">Continue watching</string>
+    <string name="video_filter_unwatched">Unwatched</string>
+    <string name="video_filter_in_progress">In progress</string>
+    <string name="video_filter_completed">Completed</string>
+    <string name="video_pick_random_movie">Surprise me</string>
+    <string name="video_movies_stats">%1$d movies · %2$d watching · %3$d watched</string>
+    <string name="video_series_stats">%1$d series · %2$d episodes</string>
+    <string name="video_sort_size">Size</string>
+
 </resources>
