@@ -168,6 +168,12 @@ fun OnlineSubtitleSearchSheet(
                             )
                         }
                     }
+                } else if (results.isNotEmpty()) {
+                    Text(
+                        "لم توفر نتائج المصادر أرقام مواسم أو حلقات مؤكدة. يمكنك إدخالها يدويًا دون تخمين.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("لغة الترجمة", style = MaterialTheme.typography.labelLarge)
