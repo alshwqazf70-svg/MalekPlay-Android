@@ -46,12 +46,11 @@ class Subf2mSubtitleProviderTest {
 
     @Test fun parsesRealSubF2mSearchResultMarkupAndSeasonOrdinal() {
         val html = """
-            <div class="search-result">
-              <h2 class="exact">Exact match</h2>
-              <ul>
-                <li><a href="/subtitles/chernobyl-first-season">Chernobyl - First Season</a></li>
-              </ul>
-            </div>
+            <ul>
+              <li><div class="title">
+                <a href="/subtitles/chernobyl-first-season">Chernobyl - First Season (2019)</a>
+              </div></li>
+            </ul>
         """.trimIndent()
         val matches = provider.parseSearchResultCandidates(
             html, "Chernobyl", 2019, 1
@@ -62,12 +61,11 @@ class Subf2mSubtitleProviderTest {
 
     @Test fun rejectsWrongSeasonSearchResult() {
         val html = """
-            <div class="search-result">
-              <h2 class="exact">Exact match</h2>
-              <ul>
-                <li><a href="/subtitles/show-second-season">Show - Second Season</a></li>
-              </ul>
-            </div>
+            <ul>
+              <li><div class="title">
+                <a href="/subtitles/show-second-season">Show - Second Season</a>
+              </div></li>
+            </ul>
         """.trimIndent()
         assertTrue(provider.parseSearchResultCandidates(html, "Show", null, 1).isEmpty())
     }
