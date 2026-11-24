@@ -322,6 +322,7 @@ class UltraShareControlChannelTest {
                     peerName = "Sender",
                     port = port,
                     peerId = peerId,
+                    notifyClientSessionReady = true,
                     onSessionReady = { readyHost -> explicitSessionReady.complete(readyHost) }
                 )
             )
@@ -355,6 +356,45 @@ class UltraShareControlChannelTest {
         }
     }
 
+
+    @Test
+    fun pairwiseApprovalDoesNotImplicitlyStartMeshSession() = runBlocking {
+        val port = ServerSocket(0).use { it.localPort }
+        val secret = "271828182"
+        val peerId = "0123456789abcdef0123456789abcdef"
+        val meshNotification = CompletableDeferred<String>()
+        UltraShareControlChannel.setClientSessionReadyListener { host ->
+            meshNotification.complete(host)
+        }
+        val server = async {
+            UltraShareControlChannel.serveOnce(
+                pairingSecret = secret,
+                port = port,
+                localPeerName = "Receiver",
+                localPeerId = "fedcba9876543210fedcba9876543210"
+            ) { UltraShareControlChannel.Decision.ACCEPTED }
+        }
+        delay(150)
+        try {
+            assertEquals(
+                UltraShareControlChannel.Decision.ACCEPTED,
+                UltraShareControlChannel.request(
+                    host = "127.0.0.1",
+                    pairingSecret = secret,
+                    peerName = "Direct peer",
+                    port = port,
+                    peerId = peerId
+                )
+            )
+            assertTrue(UltraShareControlChannel.isSessionActive("127.0.0.1"))
+            assertFalse("Mesh must require an explicit room opt-in", meshNotification.isCompleted)
+        } finally {
+            UltraShareControlChannel.setClientSessionReadyListener(null)
+            UltraShareControlChannel.closeSession("127.0.0.1")
+            UltraShareControlChannel.closeServerSession("127.0.0.1")
+            server.cancelAndJoin()
+        }
+    }
 
     @Test
     fun meshListenerAcceptsOnlyTheCredentialForTheAnnouncedMember() = runBlocking {
