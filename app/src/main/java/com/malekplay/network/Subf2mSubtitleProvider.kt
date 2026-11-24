@@ -35,6 +35,7 @@ internal class Subf2mSubtitleProvider {
         val queries = buildList {
             if (season != null) add("${title.trim()} - ${seasonOrdinal(season)} Season")
             add(title.trim())
+            if (!imdbId.isNullOrBlank()) add(imdbId)
             if (':' in title) add(title.substringBefore(':').trim())
         }.filter(String::isNotBlank).distinctBy { it.lowercase(Locale.ROOT) }
 
