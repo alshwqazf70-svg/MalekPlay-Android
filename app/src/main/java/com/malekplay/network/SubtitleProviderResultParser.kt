@@ -21,16 +21,15 @@ internal object SubtitleProviderResultParser {
     /** Confirms that SubDL's subtitle array belongs to the requested work, not just the first fuzzy hit. */
     fun subDlHasExactTitleMatch(results: JSONArray, title: String, year: Int?, mediaType: String): Boolean {
         val wanted = normalizeIdentityTitle(title)
-        if (wanted.isBlank()) return false
-        return (0 until results.length()).any { index ->
-            val item = results.optJSONObject(index) ?: return@any false
-            val candidateType = item.optString("type").trim().lowercase(Locale.ROOT)
-            val candidateYear = item.optInt("year").takeIf { it > 0 }
-            val names = listOf(item.optString("name"), item.optString("original_name"))
-            candidateType.isBlank().or(candidateType == mediaType.lowercase(Locale.ROOT)) &&
-                (year == null || candidateYear == null || candidateYear == year) &&
-                names.any { normalizeIdentityTitle(it) == wanted }
-        }
+        if (wanted.isBlank() || results.length() == 0) return false
+        // SubDL's v1 response attaches `subtitles` to results[0], not to every result.
+        val item = results.optJSONObject(0) ?: return false
+        val candidateType = item.optString("type").trim().lowercase(Locale.ROOT)
+        val candidateYear = item.optInt("year").takeIf { it > 0 }
+        val names = listOf(item.optString("name"), item.optString("original_name"))
+        (candidateType.isBlank() || candidateType == mediaType.lowercase(Locale.ROOT)) &&
+            (year == null || candidateYear == null || candidateYear == year) &&
+            names.any { normalizeIdentityTitle(it) == wanted }
     }
 
     /** Returns an IMDb identity only when SubDL confirms the exact normalized title/year/type. */
