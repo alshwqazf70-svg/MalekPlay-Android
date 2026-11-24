@@ -120,6 +120,39 @@ class Subf2mSubtitleProviderTest {
         assertEquals("https://subf2m.co/subtitles/chernobyl/arabic/3093578", results.single().downloadUrl)
     }
 
+    @Test fun rejectsMismatchedPageTitleWhenImdbIdentityIsUnavailable() {
+        val html = """
+            <html><head><title>Subtitles for Another Show - First Season</title></head><body>
+              <ul class="sublist">
+                <li class="item">
+                  <ul class="scrolllist"><li>Another.Show.S01E03.1080p</li></ul>
+                  <a class="download" href="/subtitles/another-show/arabic/3093579"></a>
+                </li>
+              </ul>
+            </body></html>
+        """.trimIndent()
+        assertTrue(provider.parseSubtitlePage(
+            html, "ar", "Chernobyl - First Season", 1, 3, null
+        ).isEmpty())
+    }
+
+    @Test fun matchingImdbIdentityCanConfirmAlternateTitle() {
+        val html = """
+            <html><head><title>Subtitles for Chernobyl - First Season</title></head><body>
+              <a class="imdb" href="https://www.imdb.com/title/tt7366338">Imdb</a>
+              <ul class="sublist">
+                <li class="item">
+                  <ul class="scrolllist"><li>Show.S01E03.1080p</li></ul>
+                  <a class="download" href="/subtitles/another-title/arabic/3093580"></a>
+                </li>
+              </ul>
+            </body></html>
+        """.trimIndent()
+        assertEquals(1, provider.parseSubtitlePage(
+            html, "ar", "Another Title", 1, 3, "tt7366338"
+        ).size)
+    }
+
     @Test fun rejectsDifferentImdbSeriesIdentity() {
         val html = """
             <html><head><title>Subtitles for Another Show</title></head><body>
