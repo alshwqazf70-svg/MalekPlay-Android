@@ -3,6 +3,7 @@ package com.malekplay.network
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import org.json.JSONArray
 
 class SubtitleProviderResultParserTest {
     @Test fun parsesProviderLanguageAliases() {
@@ -17,6 +18,17 @@ class SubtitleProviderResultParserTest {
         assertEquals("ass", SubtitleProviderResultParser.format(" ass "))
         assertEquals("vtt", SubtitleProviderResultParser.format("VTT"))
         assertNull(SubtitleProviderResultParser.format("zip"))
+    }
+
+    @Test fun selectsOnlyExactSubDlTitleYearAndMediaTypeForImdbIdentity() {
+        val results = JSONArray(
+            "[{\"name\":\"The Office\",\"original_name\":\"The Office\",\"year\":2005,\"type\":\"tv\",\"imdb_id\":\"tt0386676\"}," +
+            "{\"name\":\"The Office\",\"year\":2001,\"type\":\"tv\",\"imdb_id\":\"tt9999999\"}," +
+            "{\"name\":\"Office Space\",\"year\":1999,\"type\":\"movie\",\"imdb_id\":\"tt015 gần\"}]"
+        )
+        assertEquals("tt0386676", SubtitleProviderResultParser.subDlImdbId(results, "The Office", 2005, "tv"))
+        assertNull(SubtitleProviderResultParser.subDlImdbId(results, "The Office", 2020, "tv"))
+        assertNull(SubtitleProviderResultParser.subDlImdbId(results, "Office", null, "movie"))
     }
 
     @Test fun parsesSubDlUnpackedFileMetadataAndRejectsUnknownLanguage() {
