@@ -213,8 +213,6 @@ class PlayerViewModel @Inject constructor(
     val onlineSubtitleLoading: StateFlow<Boolean> = _onlineSubtitleLoading.asStateFlow()
     private val _onlineSubtitleError = MutableStateFlow<String?>(null)
     val onlineSubtitleError: StateFlow<String?> = _onlineSubtitleError.asStateFlow()
-    private val _wyzieWorkerUrl = MutableStateFlow(onlineSubtitleRepository.getWyzieWorkerUrl())
-    val wyzieWorkerUrl: StateFlow<String> = _wyzieWorkerUrl.asStateFlow()
     private val _onlineSubtitleCredentialsReady = MutableStateFlow(onlineSubtitleRepository.hasCredentials())
     val onlineSubtitleCredentialsReady: StateFlow<Boolean> = _onlineSubtitleCredentialsReady.asStateFlow()
 
@@ -1554,16 +1552,6 @@ class PlayerViewModel @Inject constructor(
                 android.widget.Toast.makeText(app, "تم حفظ بيانات OpenSubtitles بأمان", android.widget.Toast.LENGTH_SHORT).show()
             }
             .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ بيانات الخدمة" }
-    }
-
-    fun saveWyzieWorkerUrl(workerUrl: String) {
-        runCatching { onlineSubtitleRepository.saveWyzieWorkerUrl(workerUrl) }
-            .onSuccess {
-                _wyzieWorkerUrl.value = onlineSubtitleRepository.getWyzieWorkerUrl()
-                _onlineSubtitleError.value = null
-                android.widget.Toast.makeText(app, "تم حفظ رابط وسيط Wyzie. مفتاح API يبقى على الخادم.", android.widget.Toast.LENGTH_SHORT).show()
-            }
-            .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ رابط وسيط Wyzie" }
     }
 
     fun saveOnlineSubtitleProviderKeys(subdlKey: String, websiteKey: String) {
