@@ -37,8 +37,14 @@ internal object SubtitleResultPolicy {
     fun availableEpisodes(results: List<OnlineSubtitle>, season: Int): List<Int> = results.mapNotNull { result ->
         if (result.fullSeasonPack) return@mapNotNull null
         val parsed = parseReleaseEpisode(result.release)
-        val actualSeason = result.providerSeasonNumber?.takeIf { it > 0 } ?: parsed?.first
+        val providerSeason = result.providerSeasonNumber?.takeIf { it > 0 }
+        val actualSeason = providerSeason ?: parsed?.first
         if (actualSeason != season) return@mapNotNull null
+        // If the provider's season conflicts with the release tag, do not borrow
+        // an episode number from that contradictory tag.
+        if (providerSeason != null && parsed?.first != null &&
+            parsed.first != providerSeason && result.providerEpisodeNumber == null
+        ) return@mapNotNull null
         val actualEpisode = result.providerEpisodeNumber?.takeIf { it > 0 } ?: parsed?.second
             ?: return@mapNotNull null
         val end = result.providerEpisodeEnd?.takeIf { it > 0 }
