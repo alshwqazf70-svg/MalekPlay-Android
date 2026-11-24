@@ -4,7 +4,7 @@ import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
-import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.text.Normalizer
 import java.util.Locale
@@ -88,17 +88,21 @@ internal class TvMazeEpisodeGuideProvider(
         .callTimeout(25, TimeUnit.SECONDS)
         .build()
 ) {
-    private val cache = object : LinkedHashMap<String, TvEpisodeGuide>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TvEpisodeGuide>?): Boolean =
+    private data class CacheEntry(val guide: TvEpisodeGuide, val cachedAtMs: Long)
+    private val cache = object : LinkedHashMap<String, CacheEntry>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry>?): Boolean =
             size > 16
     }
 
     @Synchronized
-    fun search(title: String, year: Int?): TvEpisodeGuide? {
+    fun search(title: String, year: Int?, forceRefresh: Boolean = false): TvEpisodeGuide? {
         val cleanTitle = title.trim().take(150)
         if (cleanTitle.isBlank()) return null
         val cacheKey = cleanTitle.lowercase(Locale.ROOT) + "|" + (year ?: 0)
-        cache[cacheKey]?.let { return it }
+        val now = System.currentTimeMillis()
+        cache[cacheKey]?.let { entry ->
+            if (!forceRefresh && now - entry.cachedAtMs in 0..CACHE_TTL_MS) return entry.guide
+        }
 
         val searchUrl = HttpUrl.Builder().scheme("https").host("api.tvmaze.com")
             .addPathSegments("search/shows").addQueryParameter("q", cleanTitle).build()
@@ -110,7 +114,7 @@ internal class TvMazeEpisodeGuideProvider(
             .addPathSegment("episodes").build()
         val episodes = requestArray(episodesUrl) ?: return null
         val guide = TvMazeEpisodeGuideParser.parseEpisodes(show, episodes) ?: return null
-        cache[cacheKey] = guide
+        cache[cacheKey] = CacheEntry(guide, System.currentTimeMillis())
         return guide
     }
 
@@ -121,21 +125,32 @@ internal class TvMazeEpisodeGuideProvider(
             .get().build()
         client.newCall(request).execute().use { response ->
             if (response.code == 404) return null
-            if (response.code == 429) throw IOException("TVmaze rate limit reached; retry later")
+            if (response.code == 429) throw IOException("TVmaze rate limit reached; retry after a short pause")
             if (!response.isSuccessful) throw IOException("TVmaze request failed (HTTP ${response.code})")
             val body = response.body ?: return null
             if (body.contentLength() > MAX_RESPONSE_BYTES) {
                 throw IOException("TVmaze response exceeds the allowed size")
             }
-            val text = body.string()
-            if (text.toByteArray(Charsets.UTF_8).size > MAX_RESPONSE_BYTES) {
-                throw IOException("TVmaze response exceeds the allowed size")
+            val bytes = ByteArrayOutputStream()
+            body.byteStream().use { input ->
+                val buffer = ByteArray(8 * 1024)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > MAX_RESPONSE_BYTES) {
+                        throw IOException("TVmaze response exceeds the allowed size")
+                    }
+                    bytes.write(buffer, 0, count)
+                }
             }
-            return JSONArray(text)
+            return JSONArray(bytes.toByteArray().toString(Charsets.UTF_8))
         }
     }
 
     companion object {
         private const val MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+        private const val CACHE_TTL_MS = 6L * 60L * 60L * 1000L
     }
 }
