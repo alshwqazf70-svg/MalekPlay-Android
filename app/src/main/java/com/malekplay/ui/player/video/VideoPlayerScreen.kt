@@ -451,6 +451,10 @@ fun VideoPlayerScreen(
         mutableStateOf(subtitleQuery.episode?.toString().orEmpty())
     }
 
+    LaunchedEffect(currentVideoId, currentVideoTitle) {
+        viewModel.clearOnlineSubtitleEpisodeGuide()
+    }
+
     LaunchedEffect(videoUpscalingError) {
         videoUpscalingError?.let {
             Toast.makeText(context, it, Toast.LENGTH_LONG).show()
