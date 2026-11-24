@@ -19,11 +19,18 @@ import java.util.zip.ZipOutputStream
 data class VaultFolderResult(
     val entry: PrivateVaultEntry,
     val fileCount: Int,
-    val deletedSourceUris: List<String>
+    val deletedSourceUris: List<String>,
+    val sourceNodeCount: Int,
+    val deletedSourceNodeCount: Int
 ) {
     val deletedSourceFiles: Int get() = deletedSourceUris.size
-    val sourceFullyMoved: Boolean get() = deletedSourceFiles == fileCount
+    val sourceFullyMoved: Boolean get() = deletedSourceNodeCount == sourceNodeCount
 }
+
+private data class SourceDeletionResult(
+    val mediaUris: List<String>,
+    val deletedNodeCount: Int
+)
 
 /** SAF folder archive import/export. Archive paths remain inside authenticated ciphertext. */
 class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultRepository) {
@@ -68,8 +75,11 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         } finally {
             tempArchive.delete()
         }
-        val deleted = if (moveSource) deleteNodesAfterEncryption(nodes) else emptyList()
-        return VaultFolderResult(stored, files.size, deleted)
+        val deletion = if (moveSource) deleteNodesAfterEncryption(nodes)
+            else SourceDeletionResult(emptyList(), 0)
+        return VaultFolderResult(
+            stored, files.size, deletion.mediaUris, nodes.size, deletion.deletedNodeCount
+        )
     }
 
     fun restoreFolder(entry: PrivateVaultEntry, destinationTree: Uri, password: CharArray) {
@@ -160,14 +170,18 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         return result
     }
 
-    private fun deleteNodesAfterEncryption(nodes: List<Node>): List<String> {
+    private fun deleteNodesAfterEncryption(nodes: List<Node>): SourceDeletionResult {
         val deleted = mutableListOf<String>()
+        var deletedNodeCount = 0
         nodes.asReversed().forEach { node ->
             val success = runCatching { DocumentsContract.deleteDocument(resolver, node.uri) }
                 .getOrElse { runCatching { resolver.delete(node.uri, null, null) > 0 }.getOrDefault(false) }
-            if (success && !node.directory) deleted += libraryMediaId(node.uri)
+            if (success) {
+                deletedNodeCount++
+                if (!node.directory) deleted += libraryMediaId(node.uri)
+            }
         }
-        return deleted
+        return SourceDeletionResult(deleted, deletedNodeCount)
     }
 
     private fun rootDocumentUri(tree: Uri) = DocumentsContract.buildDocumentUriUsingTree(
