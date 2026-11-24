@@ -144,6 +144,13 @@ fun OnlineSubtitleSearchSheet(
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold
                         )
+                        if (episodeGuideError != null) {
+                            Text(
+                                episodeGuideError,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
                                 "مصدر البيانات: TVmaze",
