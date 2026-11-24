@@ -8,6 +8,14 @@ import org.junit.Test
 
 class UltraShareWifiDirectPolicyTest {
     @Test
+    fun staleOwnerGroupInfoCannotReplaceConnectionInfoFormationConfirmation() {
+        assertTrue(isFormedWifiDirectOwnerGroup(groupFormed = true, connectionInfoSaysOwner = true))
+        assertFalse(isFormedWifiDirectOwnerGroup(groupFormed = false, connectionInfoSaysOwner = true))
+        assertFalse(isFormedWifiDirectOwnerGroup(groupFormed = true, connectionInfoSaysOwner = false))
+        assertFalse(isFormedWifiDirectOwnerGroup(groupFormed = false, connectionInfoSaysOwner = false))
+    }
+
+    @Test
     fun delayedGroupCreationRetryCannotSupersedeANewerGroupAttempt() {
         assertTrue(isCurrentWifiDirectGroupRetry(false, 9, 9))
         assertFalse(isCurrentWifiDirectGroupRetry(false, 10, 9))
