@@ -490,7 +490,6 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             .appendQueryParameter("filename", displayName.take(240))
             .appendQueryParameter("languages", "AR,EN")
             .appendQueryParameter("type", "tv")
-            .appendQueryParameter("episode_scope", "exact")
             .appendQueryParameter("subs_per_page", "30")
             .build().toString()
         val payload = execute(
@@ -503,6 +502,15 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         if (payload.has("status") && !payload.optBoolean("status")) {
             error(payload.optString("error").takeIf { it.isNotBlank() }
                 ?: "رفضت خدمة SubDL v2 طلب مطابقة اسم الملف")
+        }
+        val match = payload.optJSONObject("match")
+        if (match != null) {
+            val matchedSeason = match.optInt("season", -1)
+            val matchedEpisode = match.optInt("episode", -1)
+            if (match.optBoolean("full_season") ||
+                (matchedSeason > 0 && matchedSeason != season) ||
+                (matchedEpisode > 0 && matchedEpisode != episode)
+            ) return emptyList()
         }
         val subtitles = payload.optJSONArray("subtitles") ?: return emptyList()
         return buildList {
