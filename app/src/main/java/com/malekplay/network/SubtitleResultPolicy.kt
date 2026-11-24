@@ -5,6 +5,24 @@ internal object SubtitleResultPolicy {
     fun combineCandidates(candidateResults: Iterable<List<OnlineSubtitle>>): List<OnlineSubtitle> =
         candidateResults.flatten().distinctBy { it.provider + ":" + it.sourceId }
 
+    /**
+     * A provider's episode filters can be overly strict or incomplete. Retry with
+     * the title alone only when an episode-scoped search returned no candidates.
+     */
+    fun <T> withEpisodeFallback(
+        season: Int?,
+        episode: Int?,
+        episodeSearch: () -> List<T>,
+        titleSearch: () -> List<T>
+    ): List<T> {
+        val scopedResults = episodeSearch()
+        return if (scopedResults.isNotEmpty() || (season == null && episode == null)) {
+            scopedResults
+        } else {
+            titleSearch()
+        }
+    }
+
     fun rankAndFilter(
         results: List<OnlineSubtitle>,
         languageFilter: String,
