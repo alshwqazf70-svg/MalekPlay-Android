@@ -767,9 +767,6 @@ class UltraShareViewModel @Inject constructor(
                                         releaseLegacyWifiNetwork()
                                     }
                                 },
-                                onSessionReady = { readyHost ->
-                                    UltraShareForegroundService.startMeshSession(context, readyHost)
-                                }
                             )
                             UltraShareDiagnostics.event(
                                 "CONTROL_CHANNEL",
