@@ -51,6 +51,7 @@ internal class Subf2mSubtitleProvider {
                     candidates.putIfAbsent(path, resultTitle)
                 }
             }
+            if (candidates.isNotEmpty()) break
         }
 
         val results = mutableListOf<OnlineSubtitle>()
