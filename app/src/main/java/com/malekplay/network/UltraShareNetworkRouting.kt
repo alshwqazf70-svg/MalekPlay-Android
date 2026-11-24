@@ -104,6 +104,10 @@ internal object UltraShareNetworkRouting {
     internal fun <T> orderedRoutesWithDefaultFallback(networks: List<T>): List<T?> =
         networks.distinct().map { it } + listOf(null)
 
+    /** P2P invitation addresses require a confirmed Network; never guess the default WLAN. */
+    internal fun shouldUseDefaultRouteFallback(isP2pInvitation: Boolean): Boolean =
+        !isP2pInvitation
+
     /**
      * True when a candidate IPv4 address belongs to this device, not a remote peer.
      * This prevents connecting to our own receiver socket when stale/incorrect QR
