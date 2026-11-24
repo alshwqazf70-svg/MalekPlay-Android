@@ -196,4 +196,43 @@ class SubtitleResultPolicyTest {
             SubtitleResultPolicy.rankAndFilter(results, "ar", 1, 3).map { it.release })
     }
 
+    @Test
+    fun exposesOnlyProviderConfirmedSeasonsAndEpisodeFiles() {
+        val results = listOf(
+            item("ar", "Show S01E01 Arabic"),
+            item("en", "Show 1x02 English"),
+            item("ar", "Show season 2 pack").copy(
+                providerSeasonNumber = 2, fullSeasonPack = true
+            ),
+            item("ar", "Show generic release").copy(
+                providerSeasonNumber = 3, providerEpisodeNumber = 4
+            ),
+            item("ar", "Show ambiguous range").copy(
+                providerSeasonNumber = 3, providerEpisodeNumber = 5, providerEpisodeEnd = 7
+            )
+        )
+        assertEquals(listOf(1, 2, 3), SubtitleResultPolicy.availableSeasons(results))
+        assertEquals(listOf(1, 2), SubtitleResultPolicy.availableEpisodes(results, 1))
+        assertEquals(emptyList<Int>(), SubtitleResultPolicy.availableEpisodes(results, 2))
+        assertEquals(listOf(4), SubtitleResultPolicy.availableEpisodes(results, 3))
+    }
+
+    @Test
+    fun providerEpisodeMetadataTakesPrecedenceOverReleaseTextForPicker() {
+        val item = item("ar", "Show S02E09 Arabic").copy(
+            providerSeasonNumber = 1,
+            providerEpisodeNumber = 3
+        )
+        assertEquals(listOf(1, 2), SubtitleResultPolicy.availableSeasons(listOf(item)))
+        assertEquals(listOf(3), SubtitleResultPolicy.availableEpisodes(listOf(item), 1))
+        assertEquals(emptyList<Int>(), SubtitleResultPolicy.availableEpisodes(listOf(item), 2))
+    }
+
+    @Test
+    fun seasonOnlyReleaseCanExposeSeasonButNeverInventAnEpisode() {
+        val item = item("ar", "Show Season 4 Complete")
+        assertEquals(listOf(4), SubtitleResultPolicy.availableSeasons(listOf(item)))
+        assertEquals(emptyList<Int>(), SubtitleResultPolicy.availableEpisodes(listOf(item), 4))
+    }
+
 }
