@@ -1,6 +1,7 @@
 package com.malekplay.ui.vault
 
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -73,6 +74,35 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             finally { busy = false }
         }
     }
+    val moveFilesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) scope.launch {
+            busy = true
+            var encryptedCount = 0
+            val deletedUris = mutableListOf<String>()
+            try {
+                uris.forEach { uri ->
+                    runCatching {
+                        context.contentResolver.takePersistableUriPermission(
+                            uri,
+                            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        )
+                    }
+                    withContext(Dispatchers.IO) { repository.importUri(uri, password.toCharArray()) }
+                    encryptedCount++
+                    val deleted = withContext(Dispatchers.IO) {
+                        runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
+                            .getOrElse { runCatching { context.contentResolver.delete(uri, null, null) > 0 }.getOrDefault(false) }
+                    }
+                    if (deleted) deletedUris += uri.toString()
+                }
+                libraryViewModel.removeMovedMediaUris(deletedUris)
+                refresh()
+                message = "شُفّر $encryptedCount ملفاً؛ حُذفت أصول ${deletedUris.size} ملفاً بعد التحقق، وبقيت أصول الملفات التي رفض مزود التخزين حذفها."
+            } catch (failure: Exception) {
+                message = failure.localizedMessage ?: "توقفت عملية النقل؛ النسخ التي شُفرت تبقى محفوظة بالخزنة."
+            } finally { busy = false }
+        }
+    }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         if (uri != null) scope.launch {
             busy = true
@@ -139,6 +169,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text(entries.size.toString() + " ملف مشفّر", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(onClick = { importPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Icon(Icons.Filled.Add, contentDescription = null); Text("إضافة ملفات") }
+                TextButton(onClick = { moveFilesPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Text("نقل ملفات") }
                 TextButton(onClick = { moveFolderSelection = false; folderPicker.launch(null) }, enabled = !busy) { Text("نسخ مجلد") }
                 TextButton(onClick = { moveFolderSelection = true; folderPicker.launch(null) }, enabled = !busy) { Text("نقل مجلد") }
             }
