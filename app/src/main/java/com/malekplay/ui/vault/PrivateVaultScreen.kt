@@ -129,7 +129,6 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         if (browserPath.size > 1) {
             browserPath.removeAt(browserPath.lastIndex)
             val parentId = browserPath.last().first
-            selectedUris.clear()
             scope.launch { loadBrowserFolder(parentId) }
         } else {
             browserOpen = false
@@ -255,8 +254,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = {
-                    selectedUris.clear()
-                    selectedUris.addAll(browserItems.filterNot { it.isDirectory }.map { it.uri.toString() })
+                    selectedUris.addAll(browserItems.filterNot { it.isDirectory }.map { it.uri.toString() }.filterNot { it in selectedUris })
                 }, enabled = !browserLoading && browserItems.any { !it.isDirectory }) { Text("تحديد الملفات") }
                 TextButton(onClick = { selectedUris.clear() }, enabled = selectedUris.isNotEmpty()) { Text("إلغاء التحديد") }
             }
@@ -275,7 +273,6 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                 Modifier.fillMaxWidth().clickable(enabled = !busy) {
                                     if (item.isDirectory) {
                                         browserPath.add(item.documentId to item.displayName)
-                                        selectedUris.clear()
                                         scope.launch { loadBrowserFolder(item.documentId) }
                                     } else {
                                         if (checked) selectedUris.remove(item.uri.toString())
