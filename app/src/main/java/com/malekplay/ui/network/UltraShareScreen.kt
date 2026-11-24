@@ -475,7 +475,7 @@ class LegacyUltraShareViewModel @Inject constructor(
                         UltraShareNetworkRouting.findNetworksForHost(context, candidate))
                         .distinctBy { it.toString() }
                     val routeCandidates: List<android.net.Network?> =
-                        explicitRoutes + if (shouldUseDefaultRouteFallback(p2pInvitation)) listOf(null) else emptyList()
+                        explicitRoutes + if (!p2pInvitation) listOf(null) else emptyList()
                     if (routeCandidates.isEmpty()) {
                         candidateFailure = java.io.IOException(
                             "لا يوجد مسار Wi-Fi Direct موثق لهذا العنوان؛ لم نرسل الاتصال عبر شبكة WLAN افتراضية."
