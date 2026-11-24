@@ -57,8 +57,9 @@ internal object SubtitleResultPolicy {
             val firstEpisode = match.groupValues[2].toIntOrNull()
             val lastSeason = match.groupValues[3].takeIf { it.isNotBlank() }?.toIntOrNull() ?: firstSeason
             val lastEpisode = match.groupValues[4].toIntOrNull()
-            firstSeason == season && lastSeason == season &&
-                firstEpisode != null && lastEpisode != null && lastEpisode > firstEpisode
+            (firstSeason == season || lastSeason == season) &&
+                firstEpisode != null && lastEpisode != null &&
+                (firstSeason != lastSeason || lastEpisode > firstEpisode)
         }
         val xRange = xEpisodeRange.findAll(normalized).any { match ->
             val firstSeason = match.groupValues[1].toIntOrNull()
@@ -82,12 +83,10 @@ internal object SubtitleResultPolicy {
     fun availableEpisodes(results: List<OnlineSubtitle>, season: Int): List<Int> = results.mapNotNull { result ->
         if (result.fullSeasonPack || isSeasonPackRelease(result.release)) return@mapNotNull null
         val parsed = parseReleaseEpisode(result.release)
-        if (parsed?.second != null && parsed.first == season &&
-            isMultiEpisodeRange(result.release, season)
-        ) return@mapNotNull null
         val providerSeason = result.providerSeasonNumber?.takeIf { it > 0 }
         val actualSeason = providerSeason ?: parsed?.first
         if (actualSeason != season) return@mapNotNull null
+        if (isMultiEpisodeRange(result.release, season)) return@mapNotNull null
         // If the provider's season conflicts with the release tag, do not borrow
         // an episode number from that contradictory tag.
         if (providerSeason != null && parsed?.first != null &&
