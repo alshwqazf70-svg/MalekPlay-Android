@@ -455,7 +455,7 @@ fun LibraryScreen(
                                 val latestItems by rememberUpdatedState(visibleItems)
                                 Box(
                                     Modifier.fillMaxWidth()
-                                        .animateItem()
+                                        .then(if (isDragging) Modifier else Modifier.animateItem())
                                         .graphicsLayer {
                                             translationX = dragOffset.x
                                             translationY = dragOffset.y
@@ -559,7 +559,7 @@ fun LibraryScreen(
                                 val latestItems by rememberUpdatedState(visibleItems)
                                 Box(
                                     Modifier.fillMaxWidth()
-                                        .animateItem()
+                                        .then(if (isDragging) Modifier else Modifier.animateItem())
                                         .graphicsLayer {
                                             translationX = dragOffset.x
                                             translationY = dragOffset.y
