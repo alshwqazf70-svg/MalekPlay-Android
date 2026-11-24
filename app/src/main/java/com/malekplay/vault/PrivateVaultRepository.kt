@@ -104,6 +104,29 @@ class PrivateVaultRepository(context: Context) {
         } finally { verified.delete() }
     }
 
+    /** Decrypts and authenticates a folder archive into app-private storage only. */
+    @Synchronized fun exportToFile(id: String, destination: File, password: CharArray) {
+        requireValidId(id)
+        check(readIndex(password).any { it.id == id }) { "Vault item not found." }
+        val encrypted = payload(id)
+        check(encrypted.isFile) { "Encrypted file is missing." }
+        val verified = File(directory, "restore-${UUID.randomUUID()}.tmp")
+        try {
+            FileInputStream(encrypted).use { source ->
+                FileOutputStream(verified).use { sink ->
+                    PrivateVaultCrypto.decrypt(source, sink, password)
+                    sink.fd.sync()
+                }
+            }
+            FileInputStream(verified).use { source ->
+                FileOutputStream(destination).use { sink ->
+                    source.copyTo(sink)
+                    sink.fd.sync()
+                }
+            }
+        } finally { verified.delete() }
+    }
+
     @Synchronized fun delete(id: String, password: CharArray) {
         requireValidId(id)
         val current = readIndex(password)
