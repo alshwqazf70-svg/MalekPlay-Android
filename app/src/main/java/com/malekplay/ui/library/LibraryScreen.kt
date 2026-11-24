@@ -53,10 +53,11 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -379,8 +380,18 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         gridItems(visibleItems, key = { it.media.id }) { item ->
+                            var dragOffset by remember(item.media.id) { mutableStateOf(Offset.Zero) }
+                            var isDragging by remember(item.media.id) { mutableStateOf(false) }
                             Box(
                                 Modifier.fillMaxWidth()
+                                    .graphicsLayer {
+                                        translationX = dragOffset.x
+                                        translationY = dragOffset.y
+                                        val liftScale = if (isDragging) 1.045f else 1f
+                                        scaleX = liftScale
+                                        scaleY = liftScale
+                                    }
+                                    .zIndex(if (isDragging) 1f else 0f)
                                     .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
                                      .pointerInput(visibleItems, settings.sortMode, selectionMode) {
                                         if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
@@ -391,10 +402,9 @@ fun LibraryScreen(
                                                     requireUnconsumed = false,
                                                     pass = PointerEventPass.Initial
                                                 )
-                                                val longPress = awaitLongPressOrCancellation(
-                                                    down.id,
-                                                    pass = PointerEventPass.Initial
-                                                ) ?: return@awaitEachGesture
+                                                val longPress = awaitLongPressOrCancellation(down.id)
+                                                    ?: return@awaitEachGesture
+                                                isDragging = true
                                                 var targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id }
                                                 var didMove = false
                                                 var released = false
@@ -406,6 +416,7 @@ fun LibraryScreen(
                                                         released = true
                                                     } else if (change.positionChange() != Offset.Zero) {
                                                         didMove = true
+                                                        dragOffset += change.positionChange()
                                                         change.consume()
                                                         val origin = itemBounds[item.media.id]?.topLeft
                                                         if (origin != null) {
@@ -420,6 +431,8 @@ fun LibraryScreen(
                                                 if (didMove && targetIndex >= 0) {
                                                     viewModel.moveManualItem(item.media.id, targetIndex, visibleItems)
                                                 }
+                                                dragOffset = Offset.Zero
+                                                isDragging = false
                                             }
                                         }
                                     }
@@ -445,8 +458,18 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(9.dp)
                     ) {
                         items(visibleItems, key = { it.media.id }) { item ->
+                            var dragOffset by remember(item.media.id) { mutableStateOf(Offset.Zero) }
+                            var isDragging by remember(item.media.id) { mutableStateOf(false) }
                             Box(
                                 Modifier.fillMaxWidth()
+                                    .graphicsLayer {
+                                        translationX = dragOffset.x
+                                        translationY = dragOffset.y
+                                        val liftScale = if (isDragging) 1.035f else 1f
+                                        scaleX = liftScale
+                                        scaleY = liftScale
+                                    }
+                                    .zIndex(if (isDragging) 1f else 0f)
                                     .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
                                     .pointerInput(visibleItems, settings.sortMode, selectionMode) {
                                         if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
