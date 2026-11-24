@@ -76,18 +76,70 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         onBack()
     }
 
-    BackHandler(enabled = true) { leaveVault() }
-
-    fun refresh() {
-        scope.launch {
-            busy = true
-            try {
-                val result = withContext(Dispatchers.IO) { repository.list(password.toCharArray()) }
-                entries.clear(); entries.addAll(result); unlocked = true; message = null
-            } catch (failure: Exception) {
-                unlocked = false; message = failure.localizedMessage ?: "تعذر فتح الخزنة"
-            } finally { busy = false }
+    suspend fun refresh() {
+        try {
+            val result = withContext(Dispatchers.IO) { repository.list(password.toCharArray()) }
+            entries.clear()
+            entries.addAll(result)
+            unlocked = true
+            message = null
+        } catch (failure: Exception) {
+            unlocked = false
+            message = failure.localizedMessage ?: "تعذر فتح الخزنة"
         }
+    }
+
+    suspend fun loadBrowserFolder(documentId: String) {
+        val tree = browserTreeUri ?: return
+        browserLoading = true
+        try {
+            val result = withContext(Dispatchers.IO) { treeSupport.listBrowserChildren(tree, documentId) }
+            browserItems.clear()
+            browserItems.addAll(result)
+        } catch (failure: Exception) {
+            message = failure.localizedMessage ?: "تعذر قراءة المجلد"
+        } finally {
+            browserLoading = false
+        }
+    }
+
+    fun openBrowser() {
+        val tree = browserTreeUri ?: return
+        scope.launch {
+            val rootId = DocumentsContract.getTreeDocumentId(tree)
+            browserPath.clear()
+            browserPath.add(rootId to "التخزين")
+            selectedUris.clear()
+            browserOpen = true
+            loadBrowserFolder(rootId)
+        }
+    }
+
+    val browserRootPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        if (uri != null) {
+            val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
+            browserTreeUri = uri
+            vaultPrefs.edit().putString("source_tree_uri", uri.toString()).apply()
+            openBrowser()
+        }
+    }
+
+    fun backFromBrowser() {
+        if (browserPath.size > 1) {
+            browserPath.removeAt(browserPath.lastIndex)
+            val parentId = browserPath.last().first
+            selectedUris.clear()
+            scope.launch { loadBrowserFolder(parentId) }
+        } else {
+            browserOpen = false
+            browserItems.clear()
+            selectedUris.clear()
+        }
+    }
+
+    BackHandler(enabled = true) {
+        if (browserOpen) backFromBrowser() else leaveVault()
     }
 
     val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
