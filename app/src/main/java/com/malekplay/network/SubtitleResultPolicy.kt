@@ -104,12 +104,6 @@ internal object SubtitleResultPolicy {
     ): List<OnlineSubtitle> {
         val wanted = languageFilter.split(',').map(SubtitleQueryCleaner::normalizeLanguage)
             .filter { it == "ar" || it == "en" }.toSet().ifEmpty { setOf("ar", "en") }
-        val episodePattern = if (season != null && episode != null) {
-            Regex("""(?i)(?:\bS0?${season}E0?${episode}\b|\b${season}x0?${episode}\b)""")
-        } else null
-        val explicitEpisodePattern = Regex(
-            """(?i)\bS(\d{1,2})[ ._-]*E(\d{1,3})\b|\b(\d{1,2})x(\d{1,3})\b"""
-        )
         return results.filter { result ->
             if (SubtitleQueryCleaner.normalizeLanguage(result.language) !in wanted) return@filter false
             if (season == null || episode == null) return@filter true
@@ -118,20 +112,38 @@ internal object SubtitleResultPolicy {
             if (result.fullSeasonPack || isSeasonPackRelease(result.release) ||
                 isMultiEpisodeRange(result.release, season, episode)
             ) return@filter false
-            if (result.providerSeasonNumber != null && result.providerSeasonNumber != season) return@filter false
-            if (result.providerEpisodeNumber != null && result.providerEpisodeNumber != episode) return@filter false
+            val providerSeason = result.providerSeasonNumber?.takeIf { it > 0 }
+            val providerEpisode = result.providerEpisodeNumber?.takeIf { it > 0 }
+            if (providerSeason != null && providerSeason != season) return@filter false
+            if (providerEpisode != null && providerEpisode != episode) return@filter false
             if (result.providerEpisodeEnd != null &&
-                (result.providerEpisodeNumber == null || result.providerEpisodeEnd != result.providerEpisodeNumber)) return@filter false
-            val explicit = explicitEpisodePattern.find(result.release) ?: return@filter true
-            val groups = explicit.groupValues
-            val actualSeason = (groups[1].ifBlank { groups[3] }).toIntOrNull()
-            val actualEpisode = (groups[2].ifBlank { groups[4] }).toIntOrNull()
-            // Keep unnumbered broad-search hits as fallbacks, but reject explicit neighbouring episodes.
-            actualSeason == season && actualEpisode == episode
+                (providerEpisode == null || result.providerEpisodeEnd != providerEpisode)
+            ) return@filter false
+
+            val releaseEpisode = parseReleaseEpisode(result.release)
+            if (releaseEpisode != null) {
+                // A release that names a different season is not a generic fallback.
+                if (providerSeason == null && releaseEpisode.first != season) return@filter false
+                // Season-only names do not identify a single episode.
+                if (releaseEpisode.second == null && providerEpisode == null) return@filter false
+                // Respect explicit episode numbering unless the provider supplied a
+                // separate, authoritative episode number.
+                if (providerEpisode == null && releaseEpisode.second != null &&
+                    releaseEpisode.second != episode
+                ) return@filter false
+            }
+            // Truly unnumbered title-search hits remain a fallback when providers omit tags.
+            true
         }.sortedWith(compareBy<OnlineSubtitle>(
-            { if (episodePattern == null ||
-                (it.providerSeasonNumber == season && it.providerEpisodeNumber == episode) ||
-                episodePattern.containsMatchIn(it.release)) 0 else 1 },
+            {
+                val releaseEpisode = if (season != null && episode != null) {
+                    parseReleaseEpisode(it.release)
+                } else null
+                if (season == null || episode == null ||
+                    (it.providerSeasonNumber == season && it.providerEpisodeNumber == episode) ||
+                    (releaseEpisode?.first == season && releaseEpisode.second == episode)
+                ) 0 else 1
+            },
             { if (SubtitleQueryCleaner.normalizeLanguage(it.language) == "ar") 0 else 1 },
             { -it.downloads }
         ))
