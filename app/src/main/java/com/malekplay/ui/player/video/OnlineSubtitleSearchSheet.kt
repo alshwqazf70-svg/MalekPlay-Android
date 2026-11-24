@@ -63,19 +63,16 @@ fun OnlineSubtitleSearchSheet(
     onSearch: () -> Unit, onDownload: (OnlineSubtitle) -> Unit,
     onDownloadAndTranslate: (OnlineSubtitle) -> Unit, onCancelTranslation: () -> Unit,
     onSaveProviderKeys: (String, String) -> Unit,
-    savedWyzieWorkerUrl: String,
-    onSaveWyzieWorkerUrl: (String) -> Unit, onDismiss: () -> Unit
+    onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val uriHandler = LocalUriHandler.current
     var credentialsExpanded by remember { mutableStateOf(false) }
     var subdlKey by remember { mutableStateOf("") }
-    var wyzieWorkerUrl by remember { mutableStateOf("") }
     var websiteKey by remember { mutableStateOf("") }
     var downloadingKey by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(loading) { if (!loading) downloadingKey = null }
-    LaunchedEffect(savedWyzieWorkerUrl) { wyzieWorkerUrl = savedWyzieWorkerUrl }
     androidx.compose.runtime.CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
             Column(
@@ -151,33 +148,17 @@ fun OnlineSubtitleSearchSheet(
                         else "إعدادات API الاختيارية ومفاتيح المزودين")
                 }
                 if (credentialsExpanded) {
-                    Text("Wyzie يعمل عبر وسيط آمن. لا تضع مفتاح Wyzie هنا؛ المفتاح يبقى داخل Cloudflare Worker كـ Secret.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        TextButton(onClick = { uriHandler.openUri("https://sub.wyzie.io/redeem") }) {
-                            Text("الحصول على مفتاح Wyzie")
-                        }
                         TextButton(onClick = { uriHandler.openUri("https://subdl.com/developers") }) {
                             Text("الحصول على مفتاح SubDL")
                         }
+                        TextButton(onClick = { uriHandler.openUri("https://subtitles.website") }) {
+                            Text("المصدر العام الاحتياطي")
+                        }
                     }
-                    OutlinedTextField(
-                        wyzieWorkerUrl,
-                        { wyzieWorkerUrl = it },
-                        Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("رابط وسيط Wyzie (Cloudflare Worker)") },
-                        placeholder = { Text("https://malekplayer-wyzie-proxy.example.workers.dev") }
-                    )
-                    Button(
-                        onClick = { onSaveWyzieWorkerUrl(wyzieWorkerUrl.trim()) },
-                        enabled = wyzieWorkerUrl.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("حفظ رابط وسيط Wyzie") }
                     OutlinedTextField(subdlKey, { subdlKey = it }, Modifier.fillMaxWidth(),
                         singleLine = true, label = { Text("مفتاح SubDL") })
                     OutlinedTextField(websiteKey, { websiteKey = it }, Modifier.fillMaxWidth(),
@@ -359,6 +340,6 @@ private fun providerLabel(provider: String): String = when (provider) {
     "subtitleSearchEngine" -> "subtitles.website"
     "subdl" -> "SubDL"
     "opensubtitles" -> "OpenSubtitles (قديم)"
-    "wyzie" -> "Wyzie Subs"
+    "subf2m" -> "Subf2m"
     else -> provider
 }
