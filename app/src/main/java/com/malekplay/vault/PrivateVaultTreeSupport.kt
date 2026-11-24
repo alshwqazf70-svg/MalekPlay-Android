@@ -7,6 +7,9 @@ import android.provider.MediaStore
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.IOException
 import java.util.UUID
 import java.util.zip.ZipEntry
@@ -24,7 +27,9 @@ data class VaultFolderResult(
 
 /** SAF folder archive import/export. Archive paths remain inside authenticated ciphertext. */
 class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultRepository) {
-    private val resolver: ContentResolver = context.applicationContext.contentResolver
+    private val appContext = context.applicationContext
+    private val resolver: ContentResolver = appContext.contentResolver
+    init { appContext.cacheDir.listFiles()?.filter { it.name.startsWith(".malek-vault-") }?.forEach { it.delete() } }
     private data class Node(val uri: Uri, val name: String, val relativePath: String, val directory: Boolean)
 
     fun importFolder(treeUri: Uri, password: CharArray, moveSource: Boolean): VaultFolderResult {
@@ -32,11 +37,9 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         val files = nodes.filterNot { it.directory }
         require(files.isNotEmpty()) { "المجلد المحدد لا يحتوي على ملفات." }
         val rootName = queryDisplayName(rootDocumentUri(treeUri)).ifBlank { "مجلد خاص" }
-        val tempUri = DocumentsContract.createDocument(
-            resolver, rootDocumentUri(treeUri), "application/zip", ".malek-vault-${UUID.randomUUID()}.zip"
-        ) ?: error("تعذر إنشاء أرشيف مؤقت داخل المجلد.")
+        val tempArchive = File(appContext.cacheDir, ".malek-vault-${UUID.randomUUID()}.zip")
         val stored = try {
-            resolver.openOutputStream(tempUri, "wt")?.use { raw ->
+            FileOutputStream(tempArchive).use { raw ->
                 ZipOutputStream(raw).use { zip ->
                     nodes.filter { it.directory }.forEach { node ->
                         val path = safeArchivePath(node.relativePath)
@@ -54,10 +57,10 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                         zip.closeEntry()
                     }
                 }
-            } ?: error("تعذرت الكتابة إلى المجلد المحدد.")
-            vault.importUri(tempUri, password, rootName, FOLDER_ARCHIVE_MIME)
+            }
+            FileInputStream(tempArchive).use { vault.importStream(rootName, FOLDER_ARCHIVE_MIME, it, password) }
         } finally {
-            runCatching { DocumentsContract.deleteDocument(resolver, tempUri) }
+            tempArchive.delete()
         }
         val deleted = if (moveSource) deleteNodesAfterEncryption(nodes) else emptyList()
         return VaultFolderResult(stored, files.size, deleted)
