@@ -1600,8 +1600,13 @@ class PlayerViewModel @Inject constructor(
                 throw cancelled
             } catch (error: Exception) {
                 if (requestId == onlineSubtitleGuideRequestId && currentMediaId == targetMediaId) {
-                    _onlineSubtitleGuideError.value =
+                    _onlineSubtitleGuideError.value = if (
+                        forceRefresh && _onlineSubtitleEpisodeGuide.value != null
+                    ) {
+                        "تعذر تحديث دليل الحلقات الآن؛ نعرض النسخة السابقة المحفوظة."
+                    } else {
                         "تعذر تحميل دليل الحلقات الآن. يمكنك متابعة البحث وإدخال الموسم والحلقة يدويًا."
+                    }
                 }
             } finally {
                 if (requestId == onlineSubtitleGuideRequestId) {
