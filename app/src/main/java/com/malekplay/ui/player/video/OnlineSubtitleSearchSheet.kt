@@ -1,5 +1,6 @@
 package com.malekplay.ui.player.video
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import com.malekplay.network.OnlineSubtitle
 import com.malekplay.network.SubtitleQueryCleaner
 import com.malekplay.network.SubtitleResultPolicy
+import com.malekplay.network.TvEpisodeGuide
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +62,8 @@ fun OnlineSubtitleSearchSheet(
     season: String, onSeasonChange: (String) -> Unit,
     episode: String, onEpisodeChange: (String) -> Unit,
     results: List<OnlineSubtitle>, loading: Boolean, error: String?,
+    episodeGuide: TvEpisodeGuide?, episodeGuideLoading: Boolean, episodeGuideError: String?,
+    onLoadEpisodeGuide: () -> Unit,
     translationLoading: Boolean, translationCompletedCues: Int, translationTotalCues: Int,
     onSearch: () -> Unit, onDownload: (OnlineSubtitle) -> Unit,
     onDownloadAndTranslate: (OnlineSubtitle) -> Unit, onCancelTranslation: () -> Unit,
@@ -120,60 +124,143 @@ fun OnlineSubtitleSearchSheet(
                         Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(50),
                         label = { Text("الحلقة") })
                 }
-                if (availableSeasons.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("المواسم التي ظهرت في نتائج المصادر", style = MaterialTheme.typography.labelLarge)
+                Button(
+                    onClick = onLoadEpisodeGuide,
+                    enabled = query.isNotBlank() && !episodeGuideLoading,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    if (episodeGuideLoading) {
+                        CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.size(8.dp))
+                    }
+                    Text(if (episodeGuide == null) "استعراض مواسم وحلقات المسلسل" else "تحديث دليل الحلقات")
+                }
+                if (episodeGuide != null) {
+                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text(
+                            "دليل الحلقات: ${episodeGuide.showName}" +
+                                (episodeGuide.showYear?.let { " ($it)" } ?: ""),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            "بيانات المواسم والحلقات مقدمة من TVmaze · مرخصة CC BY-SA 4.0",
+                            modifier = Modifier.clickable { uriHandler.openUri("https://www.tvmaze.com") },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                         Row(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            availableSeasons.forEach { availableSeason ->
+                            episodeGuide.seasons.forEach { guideSeason ->
                                 FilterChip(
-                                    selected = season == availableSeason.toString(),
+                                    selected = season == guideSeason.number.toString(),
                                     onClick = {
-                                        onSeasonChange(availableSeason.toString())
+                                        onSeasonChange(guideSeason.number.toString())
                                         onEpisodeChange("")
                                     },
-                                    label = { Text("الموسم $availableSeason") }
+                                    label = { Text("الموسم ${guideSeason.number}") }
                                 )
                             }
                         }
                         if (selectedSeasonNumber != null) {
-                            if (availableEpisodes.isNotEmpty()) {
-                                Text("الحلقات التي حددتها المصادر لهذا الموسم", style = MaterialTheme.typography.labelLarge)
+                            val guideSeason = episodeGuide.seasons.firstOrNull {
+                                it.number == selectedSeasonNumber
+                            }
+                            if (guideSeason != null) {
+                                Text("حلقات الموسم ${guideSeason.number}", style = MaterialTheme.typography.labelLarge)
                                 Row(
                                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    availableEpisodes.forEach { availableEpisode ->
+                                    guideSeason.episodes.forEach { guideEpisode ->
                                         FilterChip(
-                                            selected = episode == availableEpisode.toString(),
-                                            onClick = { onEpisodeChange(availableEpisode.toString()) },
-                                            label = { Text("الحلقة $availableEpisode") }
+                                            selected = episode == guideEpisode.toString(),
+                                            onClick = { onEpisodeChange(guideEpisode.toString()) },
+                                            label = { Text("الحلقة $guideEpisode") }
                                         )
                                     }
                                 }
                             } else {
                                 Text(
-                                    "لم تُرجع المصادر أرقام حلقات مؤكدة لهذا الموسم. يمكنك إدخال رقم الحلقة يدويًا؛ لن نخمنه.",
+                                    "هذا الموسم غير موجود في دليل المسلسل. يمكنك إدخال رقمه وحلقته يدويًا.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         } else {
                             Text(
-                                "اختر الموسم لعرض الحلقات التي ظهرت فعليًا في نتائج البحث.",
+                                "اختر موسمًا لعرض جميع الحلقات المسجلة له في الدليل.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                } else if (results.isNotEmpty()) {
-                    Text(
-                        "لم توفر نتائج المصادر أرقام مواسم أو حلقات مؤكدة. يمكنك إدخالها يدويًا دون تخمين.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                } else {
+                    if (episodeGuideError != null) {
+                        Text(
+                            episodeGuideError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (availableSeasons.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("المواسم التي ظهرت في نتائج الترجمات", style = MaterialTheme.typography.labelLarge)
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                availableSeasons.forEach { availableSeason ->
+                                    FilterChip(
+                                        selected = season == availableSeason.toString(),
+                                        onClick = {
+                                            onSeasonChange(availableSeason.toString())
+                                            onEpisodeChange("")
+                                        },
+                                        label = { Text("الموسم $availableSeason") }
+                                    )
+                                }
+                            }
+                            if (selectedSeasonNumber != null) {
+                                if (availableEpisodes.isNotEmpty()) {
+                                    Text("الحلقات التي حددتها المصادر للترجمات", style = MaterialTheme.typography.labelLarge)
+                                    Row(
+                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        availableEpisodes.forEach { availableEpisode ->
+                                            FilterChip(
+                                                selected = episode == availableEpisode.toString(),
+                                                onClick = { onEpisodeChange(availableEpisode.toString()) },
+                                                label = { Text("الحلقة $availableEpisode") }
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Text(
+                                        "لا توجد أرقام حلقات مؤكدة في نتائج الترجمات لهذا الموسم. استخدم دليل الحلقات أو أدخل الرقم يدويًا.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    "يمكنك تحميل دليل المسلسل لعرض الحلقات حتى إن لم تتوفر لها ترجمات بعد.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else if (results.isNotEmpty()) {
+                        Text(
+                            "لم توفر النتائج أرقام مواسم أو حلقات مؤكدة. يمكنك تحميل دليل المسلسل أو إدخالها يدويًا دون تخمين.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("لغة الترجمة", style = MaterialTheme.typography.labelLarge)
