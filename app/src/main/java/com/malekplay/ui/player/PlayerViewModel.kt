@@ -244,6 +244,18 @@ class PlayerViewModel @Inject constructor(
     val onlineSubtitleError: StateFlow<String?> = _onlineSubtitleError.asStateFlow()
     private val _onlineSubtitleCredentialsReady = MutableStateFlow(onlineSubtitleRepository.hasCredentials())
     val onlineSubtitleCredentialsReady: StateFlow<Boolean> = _onlineSubtitleCredentialsReady.asStateFlow()
+    private val _onlineSubtitleKeyStatus = MutableStateFlow(
+        onlineSubtitleRepository.hasSubdlKey() to onlineSubtitleRepository.hasWebsiteKey()
+    )
+    val onlineSubtitleKeyStatus: StateFlow<Pair<Boolean, Boolean>> = _onlineSubtitleKeyStatus.asStateFlow()
+    private val _onlineSubtitlePreviewKey = MutableStateFlow<String?>(null)
+    val onlineSubtitlePreviewKey: StateFlow<String?> = _onlineSubtitlePreviewKey.asStateFlow()
+    private val _onlineSubtitlePreviewLines = MutableStateFlow<List<String>>(emptyList())
+    val onlineSubtitlePreviewLines: StateFlow<List<String>> = _onlineSubtitlePreviewLines.asStateFlow()
+    private val _onlineSubtitlePreviewLoading = MutableStateFlow(false)
+    val onlineSubtitlePreviewLoading: StateFlow<Boolean> = _onlineSubtitlePreviewLoading.asStateFlow()
+    private val _onlineSubtitlePreviewError = MutableStateFlow<String?>(null)
+    val onlineSubtitlePreviewError: StateFlow<String?> = _onlineSubtitlePreviewError.asStateFlow()
 
     private val _subtitleTranslationAvailable = MutableStateFlow(false)
     val subtitleTranslationAvailable: StateFlow<Boolean> = _subtitleTranslationAvailable.asStateFlow()
@@ -1671,10 +1683,55 @@ class PlayerViewModel @Inject constructor(
     fun saveOnlineSubtitleProviderKeys(subdlKey: String, websiteKey: String) {
         runCatching { onlineSubtitleRepository.saveProviderApiKeys(subdlKey, websiteKey) }
             .onSuccess {
+                _onlineSubtitleKeyStatus.value =
+                    onlineSubtitleRepository.hasSubdlKey() to onlineSubtitleRepository.hasWebsiteKey()
                 _onlineSubtitleError.value = null
                 android.widget.Toast.makeText(app, "تم حفظ مفاتيح مزودي الترجمة بأمان", android.widget.Toast.LENGTH_SHORT).show()
             }
             .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ مفاتيح مزودي الترجمة" }
+    }
+
+    fun clearOnlineSubtitlePreview() {
+        _onlineSubtitlePreviewKey.value = null
+        _onlineSubtitlePreviewLines.value = emptyList()
+        _onlineSubtitlePreviewLoading.value = false
+        _onlineSubtitlePreviewError.value = null
+    }
+
+    fun previewOnlineSubtitle(subtitle: OnlineSubtitle) {
+        val key = subtitle.provider + ":" + subtitle.sourceId
+        if (_onlineSubtitlePreviewKey.value == key && _onlineSubtitlePreviewLines.value.isNotEmpty()) {
+            clearOnlineSubtitlePreview()
+            return
+        }
+        val targetMediaId = currentMediaId
+        viewModelScope.launch {
+            _onlineSubtitlePreviewKey.value = key
+            _onlineSubtitlePreviewLines.value = emptyList()
+            _onlineSubtitlePreviewLoading.value = true
+            _onlineSubtitlePreviewError.value = null
+            try {
+                val lines = withContext(Dispatchers.IO) {
+                    onlineSubtitleRepository.previewSubtitleLines(subtitle, maxCues = 6)
+                }
+                if (currentMediaId == targetMediaId && _onlineSubtitlePreviewKey.value == key) {
+                    _onlineSubtitlePreviewLines.value = lines
+                    if (lines.isEmpty()) {
+                        _onlineSubtitlePreviewError.value = "لم نعثر على أسطر نصية قابلة للمعاينة."
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (currentMediaId == targetMediaId && _onlineSubtitlePreviewKey.value == key) {
+                    _onlineSubtitlePreviewError.value = error.message ?: "تعذر تحميل المعاينة"
+                }
+            } finally {
+                if (_onlineSubtitlePreviewKey.value == key) {
+                    _onlineSubtitlePreviewLoading.value = false
+                }
+            }
+        }
     }
 
     fun clearOnlineSubtitleEpisodeGuide() {

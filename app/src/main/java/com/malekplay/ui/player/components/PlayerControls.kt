@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
@@ -390,38 +392,67 @@ fun PlayerCenterControls(
     }
 }
 
-/** Floating pill used for brightness / volume / seek feedback. */
+/** Floating pill used for brightness / volume / zoom feedback. */
 @Composable
 fun GestureIndicator(
     text: String,
     progress: Float? = null,
+    icon: ImageVector? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.shadow(18.dp, RoundedCornerShape(18.dp),
-            ambientColor = PlayerChrome.ProgressGlow, spotColor = PlayerChrome.ProgressGlow),
-        shape = RoundedCornerShape(18.dp),
+        modifier = modifier.shadow(
+            20.dp,
+            RoundedCornerShape(20.dp),
+            ambientColor = PlayerChrome.ProgressGlow,
+            spotColor = PlayerChrome.ProgressGlow
+        ),
+        shape = RoundedCornerShape(20.dp),
         color = PlayerChrome.SurfaceStrong,
         border = androidx.compose.foundation.BorderStroke(1.dp, PlayerChrome.ProgressGlow)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 13.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            Text(text, color = Color.White, fontSize = 14.sp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (icon != null) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = PlayerChrome.ProgressActive,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Text(
+                    text = text,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                )
+            }
             if (progress != null) {
-                Spacer(Modifier.height(8.dp))
                 Box(
                     Modifier
-                        .width(110.dp)
-                        .height(4.dp)
-                        .background(PlayerChrome.ProgressInactive, RoundedCornerShape(50))
+                        .width(124.dp)
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(PlayerChrome.ProgressInactive)
                 ) {
                     Box(
                         Modifier
                             .fillMaxWidth(progress.coerceIn(0f, 1f))
-                            .height(4.dp)
-                            .background(PlayerChrome.ProgressActive, RoundedCornerShape(50))
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(PlayerChrome.ProgressActive, Color(0xFFE0B3FF))
+                                )
+                            )
                     )
                 }
             }
@@ -429,27 +460,130 @@ fun GestureIndicator(
     }
 }
 
-/** Big translucent label shown while double-tap seeking. */
+/** Big translucent label shown while horizontal-swipe seeking. */
 @Composable
 fun SeekPulse(
     label: String,
     isForward: Boolean,
+    deltaLabel: String? = null,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier.shadow(18.dp, CircleShape, ambientColor = PlayerChrome.ProgressGlow, spotColor = PlayerChrome.ProgressGlow)
-            .clip(CircleShape)
-            .background(Brush.horizontalGradient(listOf(Color(0xE82B1A3C), Color(0xE8121019))))
-            .border(1.dp, PlayerChrome.ProgressGlow, CircleShape)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Column(
+        modifier = modifier
+            .shadow(
+                18.dp,
+                RoundedCornerShape(22.dp),
+                ambientColor = PlayerChrome.ProgressGlow,
+                spotColor = PlayerChrome.ProgressGlow
+            )
+            .clip(RoundedCornerShape(22.dp))
+            .background(Brush.horizontalGradient(listOf(Color(0xEB2B1A3C), Color(0xEB121019))))
+            .border(1.dp, PlayerChrome.ProgressGlow, RoundedCornerShape(22.dp))
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        if (!isForward) {
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = null, tint = Color.White)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (!isForward) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = null, tint = Color.White)
+            }
+            Text(
+                text = label,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+            )
+            if (isForward) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Color.White)
+            }
         }
-        Text(label, color = Color.White, fontSize = 14.sp)
-        if (isForward) {
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Color.White)
+        if (!deltaLabel.isNullOrBlank()) {
+            Text(
+                text = deltaLabel,
+                color = PlayerChrome.ProgressActive,
+                fontSize = 12.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+            )
+        }
+    }
+}
+
+/** Side ripple pill shown on single or consecutive double-tap seek jumps. */
+@Composable
+fun DoubleTapSeekPulse(
+    secondsDelta: Int,
+    isForward: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.shadow(
+            18.dp,
+            CircleShape,
+            ambientColor = PlayerChrome.ProgressGlow,
+            spotColor = PlayerChrome.ProgressGlow
+        ),
+        shape = CircleShape,
+        color = PlayerChrome.SurfaceStrong,
+        border = androidx.compose.foundation.BorderStroke(1.dp, PlayerChrome.ProgressGlow)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = if (isForward) Icons.Filled.FastForward else Icons.Filled.FastRewind,
+                contentDescription = null,
+                tint = PlayerChrome.ProgressActive,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                text = if (isForward) "+${secondsDelta}s" else "-${secondsDelta}s",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+            )
+        }
+    }
+}
+
+/** Top floating capsule shown during 2.5x long-press speed boost. */
+@Composable
+fun SpeedBoostPill(
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.shadow(
+            16.dp,
+            CircleShape,
+            ambientColor = PlayerChrome.ProgressGlow,
+            spotColor = PlayerChrome.ProgressGlow
+        ),
+        shape = CircleShape,
+        color = PlayerChrome.SurfaceStrong,
+        border = androidx.compose.foundation.BorderStroke(1.dp, PlayerChrome.ProgressGlow)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.FastForward,
+                contentDescription = null,
+                tint = PlayerChrome.ProgressActive,
+                modifier = Modifier.size(16.dp)
+            )
+            Text(
+                text = label,
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+            )
         }
     }
 }

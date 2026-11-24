@@ -96,6 +96,7 @@
     <string name="player_lock">Lock controls</string>
     <string name="player_unlock">Unlock controls</string>
     <string name="player_locked_hint">Controls locked — tap the lock to unlock</string>
+    <string name="player_zoom_reset">Reset zoom</string>
     <string name="player_play">Play</string>
     <string name="player_pause">Pause</string>
     <string name="mini_player_audio_now_playing">Now playing</string>

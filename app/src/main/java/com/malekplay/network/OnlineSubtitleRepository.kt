@@ -151,12 +151,46 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         !key.isNullOrBlank() && !user?.first.isNullOrBlank() && !user?.second.isNullOrBlank()
     }.getOrDefault(false)
 
+    fun hasSubdlKey(): Boolean = runCatching {
+        !vault.load(SUBDL_KEY_SLOT)?.first.isNullOrBlank()
+    }.getOrDefault(false)
+
+    fun hasWebsiteKey(): Boolean = runCatching {
+        !vault.load(WEBSITE_KEY_SLOT)?.first.isNullOrBlank()
+    }.getOrDefault(false)
+
     fun saveProviderApiKeys(subdlKey: String, websiteKey: String) {
         if (subdlKey.isNotBlank()) vault.save(SUBDL_KEY_SLOT, subdlKey.trim(), "api-key")
         if (websiteKey.isNotBlank()) vault.save(WEBSITE_KEY_SLOT, websiteKey.trim(), "api-key")
         automaticSearchCache.clear()
         publicSearchCache.clear()
     }
+
+    /** Downloads (or reuses cached) subtitle and extracts clean cue lines for quick preview. */
+    suspend fun previewSubtitleLines(subtitle: OnlineSubtitle, maxCues: Int = 5): List<String> =
+        withContext(Dispatchers.IO) {
+            val uri = download(subtitle)
+            val path = uri.path ?: error("تعذر الوصول إلى ملف المعاينة")
+            val file = File(path)
+            val decoded = SrtSubtitleParser.decode(file.readBytes())
+            val blocks = SrtSubtitleParser.splitBlocks(decoded, file.extension)
+            val markup = Regex("""<[^>]+>|\{\\[^}]*}""")
+            blocks.asSequence()
+                .mapNotNull { block ->
+                    val lines = block.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                    val timingIdx = SrtSubtitleParser.timingLineIndex(lines)
+                    val timing = if (timingIdx >= 0) lines[timingIdx].substringBefore("-->").trim() else null
+                    val bodyStart = if (timingIdx >= 0) timingIdx + 1 else 0
+                    val text = lines.drop(bodyStart)
+                        .joinToString(" ") { markup.replace(it, "").trim() }
+                        .trim()
+                    if (text.isBlank()) null
+                    else if (timing != null) "[$timing] $text"
+                    else text
+                }
+                .take(maxCues.coerceIn(1, 12))
+                .toList()
+        }
 
     /**
      * Searches a public guest endpoint first. No account, API key, or setup is required

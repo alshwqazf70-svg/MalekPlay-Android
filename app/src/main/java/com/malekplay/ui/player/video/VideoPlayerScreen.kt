@@ -29,6 +29,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -43,14 +44,25 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BrightnessHigh
+import androidx.compose.material.icons.filled.BrightnessLow
+import androidx.compose.material.icons.filled.BrightnessMedium
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
@@ -85,6 +97,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -122,6 +135,7 @@ import com.malekplay.player.effects.GoogleMediaEnhancementState
 import com.malekplay.safety.ParentalControlManager
 import com.malekplay.ui.videos.VideoKindClassifier
 import com.malekplay.ui.videos.EpisodeSortKey
+import com.malekplay.ui.player.components.DoubleTapSeekPulse
 import com.malekplay.ui.player.components.EqualizerSheet
 import com.malekplay.ui.player.components.GestureIndicator
 import com.malekplay.ui.player.components.PlayerControlRail
@@ -130,6 +144,7 @@ import com.malekplay.ui.player.components.PlayerSeekRow
 import com.malekplay.ui.player.components.PlayerTopBar
 import com.malekplay.ui.player.components.SeekPulse
 import com.malekplay.ui.player.components.SleepTimerDialog
+import com.malekplay.ui.player.components.SpeedBoostPill
 import com.malekplay.ui.player.components.SpeedPickerDialog
 import com.malekplay.ui.player.components.StatsSheet
 import com.malekplay.ui.player.components.SubtitleStyleSheet
@@ -165,6 +180,14 @@ private const val DOUBLE_TAP_TIMEOUT_MS = 300L
 private const val FULL_SWIPE_SEEK_MS = 120_000L
 private const val DOUBLE_TAP_SEEK_MS = 10_000L
 private const val SPEED_BOOST = 2.5f
+
+private data class GestureHudState(
+    val text: String,
+    val progress: Float?,
+    val icon: ImageVector
+)
+
+private enum class DragAxis { HORIZONTAL, VERTICAL }
 
 @UnstableApi
 @Composable
@@ -232,6 +255,11 @@ fun VideoPlayerScreen(
     val onlineSubtitleGuideError by viewModel.onlineSubtitleGuideError.collectAsStateWithLifecycle()
     val onlineSubtitleLoading by viewModel.onlineSubtitleLoading.collectAsStateWithLifecycle()
     val onlineSubtitleError by viewModel.onlineSubtitleError.collectAsStateWithLifecycle()
+    val onlineSubtitleKeyStatus by viewModel.onlineSubtitleKeyStatus.collectAsStateWithLifecycle()
+    val onlineSubtitlePreviewKey by viewModel.onlineSubtitlePreviewKey.collectAsStateWithLifecycle()
+    val onlineSubtitlePreviewLines by viewModel.onlineSubtitlePreviewLines.collectAsStateWithLifecycle()
+    val onlineSubtitlePreviewLoading by viewModel.onlineSubtitlePreviewLoading.collectAsStateWithLifecycle()
+    val onlineSubtitlePreviewError by viewModel.onlineSubtitlePreviewError.collectAsStateWithLifecycle()
     val subtitleTranslationAvailable by viewModel.subtitleTranslationAvailable.collectAsStateWithLifecycle()
     val subtitleTranslationLoading by viewModel.subtitleTranslationLoading.collectAsStateWithLifecycle()
     val subtitleTranslationCompletedCues by viewModel.subtitleTranslationCompletedCues.collectAsStateWithLifecycle()
@@ -384,7 +412,11 @@ fun VideoPlayerScreen(
     var aspect by remember { mutableIntStateOf(AspectMode.FIT.ordinal) }
     val aspectMode = AspectMode.entries[aspect]
     var videoZoom by remember { mutableFloatStateOf(1f) }
+    var videoPanX by remember { mutableFloatStateOf(0f) }
+    var videoPanY by remember { mutableFloatStateOf(0f) }
     val latestVideoZoom by rememberUpdatedState(videoZoom)
+    val latestVideoPanX by rememberUpdatedState(videoPanX)
+    val latestVideoPanY by rememberUpdatedState(videoPanY)
 
     var showSpeed by remember { mutableStateOf(false) }
     var showSleep by remember { mutableStateOf(false) }
@@ -424,6 +456,8 @@ fun VideoPlayerScreen(
 
     LaunchedEffect(currentVideoId) {
         videoZoom = 1f
+        videoPanX = 0f
+        videoPanY = 0f
     }
 
     LaunchedEffect(dlnaPlayback.errorMessage) {
@@ -518,9 +552,39 @@ fun VideoPlayerScreen(
     }
 
     // --------------------------------------------------------- gesture layer
-    var indicator by remember { mutableStateOf<Pair<String, Float?>?>(null) }
+    var indicator by remember { mutableStateOf<GestureHudState?>(null) }
     var seekDeltaMs by remember { mutableLongStateOf(0L) }
     var boostActive by remember { mutableStateOf(false) }
+    var unlockPromptVisible by remember { mutableStateOf(false) }
+    var doubleTapRippleSeconds by remember { mutableIntStateOf(0) }
+    var doubleTapRippleForward by remember { mutableStateOf(true) }
+    var doubleTapRippleSeq by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(doubleTapRippleSeq) {
+        if (doubleTapRippleSeq > 0) {
+            delay(850L)
+            doubleTapRippleSeconds = 0
+        }
+    }
+
+    LaunchedEffect(locked, unlockPromptVisible) {
+        if (locked && unlockPromptVisible) {
+            delay(3_000L)
+            unlockPromptVisible = false
+        }
+    }
+
+    fun brightnessIconFor(value: Float): ImageVector = when {
+        value < 0.33f -> Icons.Filled.BrightnessLow
+        value < 0.67f -> Icons.Filled.BrightnessMedium
+        else -> Icons.Filled.BrightnessHigh
+    }
+
+    fun volumeIconFor(value: Float): ImageVector = when {
+        value <= 0.01f -> Icons.Filled.VolumeOff
+        value < 0.45f -> Icons.Filled.VolumeDown
+        else -> Icons.Filled.VolumeUp
+    }
 
     fun pushSeek(deltaFraction: Float) {
         seekDeltaMs += (deltaFraction * FULL_SWIPE_SEEK_MS).toLong()
@@ -542,17 +606,51 @@ fun VideoPlayerScreen(
     }
 
     val gestureModifier = if (locked) {
-        Modifier
+        Modifier.pointerInput(locked) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                down.consume()
+                unlockPromptVisible = true
+            }
+        }
     } else {
         Modifier.pointerInput(settings) {
             detectPlayerGestures(
                 onTap = { chromeVisible = !chromeVisible },
-                onPinch = { factor -> videoZoom = PlayerZoomPolicy.scaleBy(latestVideoZoom, factor) },
+                onPinch = { factor, panDx, panDy ->
+                    val nextZoom = PlayerZoomPolicy.scaleBy(latestVideoZoom, factor)
+                    videoZoom = nextZoom
+                    if (nextZoom <= 1.01f) {
+                        videoPanX = 0f
+                        videoPanY = 0f
+                    } else {
+                        val maxX = size.width * (nextZoom - 1f) * 0.5f
+                        val maxY = size.height * (nextZoom - 1f) * 0.5f
+                        videoPanX = (latestVideoPanX + panDx).coerceIn(-maxX, maxX)
+                        videoPanY = (latestVideoPanY + panDy).coerceIn(-maxY, maxY)
+                    }
+                    indicator = GestureHudState(
+                        text = String.format(java.util.Locale.US, "%.1fx", nextZoom),
+                        progress = ((nextZoom - PlayerZoomPolicy.MIN_SCALE) /
+                            (PlayerZoomPolicy.MAX_SCALE - PlayerZoomPolicy.MIN_SCALE)).coerceIn(0f, 1f),
+                        icon = Icons.Filled.ZoomIn
+                    )
+                },
+                onPinchEnd = {
+                    indicator = null
+                },
                 onDoubleTap = { fraction ->
                     when (settings.gestureDoubleTap) {
                         GestureAction.SEEK -> {
                             val forward = fraction >= 0.5f
                             seekByPlayback(if (forward) DOUBLE_TAP_SEEK_MS else -DOUBLE_TAP_SEEK_MS)
+                            doubleTapRippleSeconds = if (doubleTapRippleSeconds > 0 && doubleTapRippleForward == forward) {
+                                doubleTapRippleSeconds + (DOUBLE_TAP_SEEK_MS / 1000L).toInt()
+                            } else {
+                                (DOUBLE_TAP_SEEK_MS / 1000L).toInt()
+                            }
+                            doubleTapRippleForward = forward
+                            doubleTapRippleSeq++
                         }
                         GestureAction.PLAY_PAUSE -> togglePlayback()
                         else -> Unit
@@ -562,19 +660,17 @@ fun VideoPlayerScreen(
                     if (settings.gestureLongPress == GestureAction.SPEED_BOOST && !boostActive) {
                         boostActive = true
                         viewModel.setSpeed(SPEED_BOOST)
-                        indicator = boostLabel to null
                     }
                 },
                 onLongPressEnd = {
                     if (boostActive) {
                         boostActive = false
                         viewModel.setSpeed(settings.defaultSpeed)
-                        indicator = null
                     }
                 },
                 onDragStart = { chromeVisible = false },
-                onDrag = { startXFraction, dxFraction, dyFraction ->
-                    if (abs(dxFraction) > abs(dyFraction)) {
+                onDrag = { axis, startXFraction, dxFraction, dyFraction ->
+                    if (axis == DragAxis.HORIZONTAL) {
                         if (settings.gestureSwipeHorizontal == GestureAction.SEEK) {
                             pushSeek(dxFraction)
                         }
@@ -586,14 +682,22 @@ fun VideoPlayerScreen(
                         }
                         when (action) {
                             GestureAction.BRIGHTNESS -> {
-                                if (settings.rememberBrightness) {
-                                    applyBrightness(brightness + dyFraction)
-                                    indicator = brightnessLabel to brightness
-                                }
+                                applyBrightness(brightness + dyFraction)
+                                val pct = (brightness * 100f).toInt().coerceIn(1, 100)
+                                indicator = GestureHudState(
+                                    text = "$brightnessLabel  $pct%",
+                                    progress = brightness,
+                                    icon = brightnessIconFor(brightness)
+                                )
                             }
                             GestureAction.VOLUME -> {
                                 applyVolume(volume + dyFraction)
-                                indicator = volumeLabel to volume
+                                val pct = (volume * 100f).toInt().coerceIn(0, 100)
+                                indicator = GestureHudState(
+                                    text = "$volumeLabel  $pct%",
+                                    progress = volume,
+                                    icon = volumeIconFor(volume)
+                                )
                             }
                             // Vertical seek follows the finger's vertical movement.
                             GestureAction.SEEK -> pushSeek(dyFraction)
@@ -906,6 +1010,8 @@ fun VideoPlayerScreen(
                 view.resizeMode = aspectMode.resizeMode
                 view.scaleX = videoZoom
                 view.scaleY = videoZoom
+                view.translationX = videoPanX
+                view.translationY = videoPanY
                 applySubtitleStyle(view, settings)
                 playerView = view
             },
@@ -927,7 +1033,14 @@ fun VideoPlayerScreen(
             )
         }
 
-        AnimatedVisibility(visible = seekDeltaMs != 0L) {
+        AnimatedVisibility(
+            visible = seekDeltaMs != 0L,
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            val deltaSec = (seekDeltaMs / 1000L)
+            val absSec = abs(deltaSec)
+            val sign = if (deltaSec >= 0L) "+" else "-"
+            val deltaText = String.format(java.util.Locale.US, "%s%02d:%02d", sign, absSec / 60, absSec % 60)
             SeekPulse(
                 label = buildString {
                     val target = (positionMs + seekDeltaMs).coerceIn(
@@ -939,14 +1052,86 @@ fun VideoPlayerScreen(
                     append(formatDuration(durationMs))
                 },
                 isForward = seekDeltaMs >= 0,
-                modifier = Modifier.align(Alignment.Center)
+                deltaLabel = deltaText
             )
         }
 
-        indicator?.let { (text, progress) ->
+        AnimatedVisibility(
+            visible = doubleTapRippleSeconds > 0,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(if (doubleTapRippleForward) Alignment.CenterEnd else Alignment.CenterStart)
+                .padding(horizontal = 28.dp)
+        ) {
+            DoubleTapSeekPulse(
+                secondsDelta = doubleTapRippleSeconds,
+                isForward = doubleTapRippleForward
+            )
+        }
+
+        AnimatedVisibility(
+            visible = boostActive,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 18.dp)
+        ) {
+            SpeedBoostPill(label = boostLabel)
+        }
+
+        AnimatedVisibility(
+            visible = videoZoom > 1.04f && !inPip && !locked,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 64.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = PlayerChrome.SurfaceStrong,
+                border = BorderStroke(1.dp, PlayerChrome.ProgressGlow),
+                modifier = Modifier.clickable {
+                    videoZoom = 1f
+                    videoPanX = 0f
+                    videoPanY = 0f
+                }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ZoomIn,
+                        contentDescription = null,
+                        tint = PlayerChrome.ProgressActive,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = String.format(java.util.Locale.US, "%.1fx • %s", videoZoom, stringResource(R.string.player_zoom_reset)),
+                        color = Color.White,
+                        fontSize = 12.sp
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.78f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+
+        indicator?.let { hud ->
             GestureIndicator(
-                text = text,
-                progress = progress,
+                text = hud.text,
+                progress = hud.progress,
+                icon = hud.icon,
                 modifier = Modifier.align(Alignment.Center)
             )
         }
@@ -1098,18 +1283,42 @@ fun VideoPlayerScreen(
         }
 
         if (locked) {
-            IconButton(
-                onClick = { locked = false },
+            AnimatedVisibility(
+                visible = unlockPromptVisible || chromeVisible,
+                enter = fadeIn(),
+                exit = fadeOut(),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
-                    .padding(8.dp)
+                    .padding(12.dp)
             ) {
-                Icon(
-                    Icons.Filled.Lock,
-                    contentDescription = stringResource(R.string.player_unlock),
-                    tint = Color.White
-                )
+                Surface(
+                    shape = CircleShape,
+                    color = PlayerChrome.SurfaceStrong,
+                    border = BorderStroke(1.dp, PlayerChrome.ProgressGlow),
+                    modifier = Modifier.clickable {
+                        locked = false
+                        unlockPromptVisible = false
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.LockOpen,
+                            contentDescription = stringResource(R.string.player_unlock),
+                            tint = PlayerChrome.ProgressActive,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.player_unlock),
+                            color = Color.White,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
             }
         }
 
@@ -1595,7 +1804,19 @@ fun VideoPlayerScreen(
                 onDownloadAndTranslate = viewModel::downloadAndTranslateOnlineSubtitleToArabic,
                 onCancelTranslation = viewModel::cancelSubtitleTranslation,
                 onSaveProviderKeys = viewModel::saveOnlineSubtitleProviderKeys,
-                onDismiss = { if (!onlineSubtitleLoading) showOnlineSubtitles = false }
+                hasSubdlKey = onlineSubtitleKeyStatus.first,
+                hasWebsiteKey = onlineSubtitleKeyStatus.second,
+                previewKey = onlineSubtitlePreviewKey,
+                previewLines = onlineSubtitlePreviewLines,
+                previewLoading = onlineSubtitlePreviewLoading,
+                previewError = onlineSubtitlePreviewError,
+                onPreviewSubtitle = viewModel::previewOnlineSubtitle,
+                onDismiss = {
+                    if (!onlineSubtitleLoading) {
+                        viewModel.clearOnlineSubtitlePreview()
+                        showOnlineSubtitles = false
+                    }
+                }
             )
         }
 
@@ -1878,9 +2099,10 @@ private suspend fun PointerInputScope.detectPlayerGestures(
     onDoubleTap: (Float) -> Unit,
     onLongPressStart: () -> Unit,
     onLongPressEnd: () -> Unit,
-    onPinch: (Float) -> Unit,
+    onPinch: (Float, Float, Float) -> Unit,
+    onPinchEnd: () -> Unit,
     onDragStart: () -> Unit,
-    onDrag: (Float, Float, Float) -> Unit,
+    onDrag: (DragAxis, Float, Float, Float) -> Unit,
     onDragEnd: () -> Unit
 ) = coroutineScope {
     var lastTapMs = 0L
@@ -1893,9 +2115,11 @@ private suspend fun PointerInputScope.detectPlayerGestures(
         var longPressed = false
         var longPressTriggered = false
         var dragging = false
+        var lockedAxis: DragAxis? = null
         var pinching = false
         var previousPinchDistance = 0f
-        var origin = down.position
+        var previousCentroid: androidx.compose.ui.geometry.Offset? = null
+        val origin = down.position
         var previous = down.position
 
         val longPressJob = launch {
@@ -1915,6 +2139,7 @@ private suspend fun PointerInputScope.detectPlayerGestures(
             if (pressedPointers.size >= 2) {
                 pinching = true
                 dragging = false
+                lockedAxis = null
                 lastTapMs = 0L
                 tapJob?.cancel()
                 longPressJob.cancel()
@@ -1927,10 +2152,18 @@ private suspend fun PointerInputScope.detectPlayerGestures(
                 val deltaX = first.x - second.x
                 val deltaY = first.y - second.y
                 val distance = sqrt(deltaX * deltaX + deltaY * deltaY)
+                val centroid = androidx.compose.ui.geometry.Offset(
+                    (first.x + second.x) * 0.5f,
+                    (first.y + second.y) * 0.5f
+                )
+                val prevCentroid = previousCentroid
+                val panDx = if (prevCentroid != null) centroid.x - prevCentroid.x else 0f
+                val panDy = if (prevCentroid != null) centroid.y - prevCentroid.y else 0f
                 if (previousPinchDistance > 0f && distance > 0f) {
-                    onPinch(distance / previousPinchDistance)
+                    onPinch(distance / previousPinchDistance, panDx, panDy)
                 }
                 previousPinchDistance = distance
+                previousCentroid = centroid
                 pressedPointers.forEach { it.consume() }
                 continue
             }
@@ -1947,6 +2180,7 @@ private suspend fun PointerInputScope.detectPlayerGestures(
                     abs(dyTotal) > viewConfiguration.touchSlop)
             ) {
                 dragging = true
+                lockedAxis = if (abs(dxTotal) >= abs(dyTotal)) DragAxis.HORIZONTAL else DragAxis.VERTICAL
                 lastTapMs = 0L
                 longPressJob.cancel()
                 if (longPressed) {
@@ -1964,7 +2198,8 @@ private suspend fun PointerInputScope.detectPlayerGestures(
                 val dx = change.position.x - previous.x
                 val dy = change.position.y - previous.y
                 previous = change.position
-                onDrag(origin.x / width, dx / width, -dy / height)
+                val axis = lockedAxis ?: if (abs(dx) >= abs(dy)) DragAxis.HORIZONTAL else DragAxis.VERTICAL
+                onDrag(axis, origin.x / width, dx / width, -dy / height)
                 change.consume()
             }
         }
@@ -1976,7 +2211,7 @@ private suspend fun PointerInputScope.detectPlayerGestures(
         }
 
         when {
-            pinching -> Unit
+            pinching -> onPinchEnd()
             dragging -> onDragEnd()
             longPressTriggered -> Unit
             else -> {

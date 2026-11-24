@@ -96,6 +96,7 @@
     <string name="player_lock">قفل عناصر التحكم</string>
     <string name="player_unlock">فتح عناصر التحكم</string>
     <string name="player_locked_hint">عناصر التحكم مقفلة — اضغط القفل للفتح</string>
+    <string name="player_zoom_reset">إعادة ضبط</string>
     <string name="player_play">تشغيل</string>
     <string name="player_pause">إيقاف مؤقت</string>
     <string name="mini_player_audio_now_playing">يتم تشغيل الموسيقى الآن</string>
