@@ -229,6 +229,13 @@ class SubtitleResultPolicyTest {
     }
 
     @Test
+    fun conflictingReleaseSeasonCannotSupplyAnUnverifiedEpisode() {
+        val item = item("ar", "Show S02E09 Arabic").copy(providerSeasonNumber = 1)
+        assertEquals(listOf(1), SubtitleResultPolicy.availableSeasons(listOf(item)))
+        assertEquals(emptyList<Int>(), SubtitleResultPolicy.availableEpisodes(listOf(item), 1))
+    }
+
+    @Test
     fun seasonOnlyReleaseCanExposeSeasonButNeverInventAnEpisode() {
         val item = item("ar", "Show Season 4 Complete")
         assertEquals(listOf(4), SubtitleResultPolicy.availableSeasons(listOf(item)))
