@@ -367,7 +367,12 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
                 Text(entries.size.toString() + " عنصر مشفّر", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Button(onClick = { importPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Icon(Icons.Filled.Add, contentDescription = null); Text("نسخ ملفات") }
+                    Button(
+                        onClick = { if (browserTreeUri == null) browserRootPicker.launch(null) else openBrowser() },
+                        enabled = !busy,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary)
+                    ) { Icon(Icons.Filled.Add, contentDescription = null); Text("إضافة ملفات") }
                     TextButton(onClick = { moveFilesPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Text("نقل ملفات") }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -406,8 +411,15 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { password = ""; confirmation = ""; entries.clear(); unlocked = false; pendingExport = null; pendingFolderRestore = null }, modifier = Modifier.align(Alignment.End)) { Text("قفل الخزنة") }
         }
-        if (busy) Text("جارٍ تنفيذ العملية…", color = MaterialTheme.colorScheme.primary)
-        message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        if (busy) {
+            Text(if (importTotal > 0) "جارٍ تشفير الملفات: $importProgress / $importTotal" else "جارٍ تنفيذ العملية…",
+                color = MaterialTheme.colorScheme.primary)
+            if (importTotal > 0) LinearProgressIndicator(
+                progress = { importProgress.toFloat() / importTotal.coerceAtLeast(1) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        message?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
     }
 }
 
