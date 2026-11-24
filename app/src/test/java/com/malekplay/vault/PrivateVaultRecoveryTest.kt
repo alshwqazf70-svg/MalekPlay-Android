@@ -24,6 +24,15 @@ class PrivateVaultRecoveryTest {
     }
 
     @Test
+    fun interruptedIndexReplacementIsRemovedAfterRestart() {
+        val incompleteIndex = File(directory, "vault.index.new").apply { writeText("partial ciphertext") }
+
+        PrivateVaultRecovery.recover(directory, emptySet())
+
+        assertFalse(incompleteIndex.exists())
+    }
+
+    @Test
     fun plaintextIndexAndRestoreTemporariesAreRemovedAfterRestart() {
         val indexPlain = File(directory, "index-550e8400-e29b-41d4-a716-446655440000.tmp")
             .apply { writeText("private file names") }
