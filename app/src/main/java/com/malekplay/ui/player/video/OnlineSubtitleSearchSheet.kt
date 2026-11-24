@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.malekplay.network.OnlineSubtitle
 import com.malekplay.network.SubtitleQueryCleaner
+import com.malekplay.network.SubtitleResultPolicy
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,6 +72,11 @@ fun OnlineSubtitleSearchSheet(
     var subdlKey by remember { mutableStateOf("") }
     var websiteKey by remember { mutableStateOf("") }
     var downloadingKey by remember { mutableStateOf<String?>(null) }
+    val availableSeasons = SubtitleResultPolicy.availableSeasons(results)
+    val selectedSeasonNumber = season.toIntOrNull()
+    val availableEpisodes = selectedSeasonNumber?.let {
+        SubtitleResultPolicy.availableEpisodes(results, it)
+    }.orEmpty()
 
     LaunchedEffect(loading) { if (!loading) downloadingKey = null }
     androidx.compose.runtime.CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
@@ -113,6 +119,55 @@ fun OnlineSubtitleSearchSheet(
                     OutlinedTextField(episode, { onEpisodeChange(SubtitleQueryCleaner.normalizeDigits(it.filter(Char::isDigit).take(3))) },
                         Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(50),
                         label = { Text("الحلقة") })
+                }
+                if (availableSeasons.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("المواسم التي ظهرت في نتائج المصادر", style = MaterialTheme.typography.labelLarge)
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            availableSeasons.forEach { availableSeason ->
+                                FilterChip(
+                                    selected = season == availableSeason.toString(),
+                                    onClick = {
+                                        onSeasonChange(availableSeason.toString())
+                                        onEpisodeChange("")
+                                    },
+                                    label = { Text("الموسم $availableSeason") }
+                                )
+                            }
+                        }
+                        if (selectedSeasonNumber != null) {
+                            if (availableEpisodes.isNotEmpty()) {
+                                Text("الحلقات التي حددتها المصادر لهذا الموسم", style = MaterialTheme.typography.labelLarge)
+                                Row(
+                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    availableEpisodes.forEach { availableEpisode ->
+                                        FilterChip(
+                                            selected = episode == availableEpisode.toString(),
+                                            onClick = { onEpisodeChange(availableEpisode.toString()) },
+                                            label = { Text("الحلقة $availableEpisode") }
+                                        )
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    "لم تُرجع المصادر أرقام حلقات مؤكدة لهذا الموسم. يمكنك إدخال رقم الحلقة يدويًا؛ لن نخمنه.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            Text(
+                                "اختر الموسم لعرض الحلقات التي ظهرت فعليًا في نتائج البحث.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("لغة الترجمة", style = MaterialTheme.typography.labelLarge)
