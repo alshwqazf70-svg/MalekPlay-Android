@@ -59,51 +59,65 @@ internal class Subf2mSubtitleProvider {
             for ((languagePath, languageCode) in languages) {
                 val pageUrl = "$BASE$path/$languagePath"
                 val page = runCatching { getText(pageUrl, BASE) }.getOrNull() ?: continue
-                val pageImdb = IMDB.find(page)?.groupValues?.get(1)
-                if (!imdbId.isNullOrBlank() && pageImdb != null && pageImdb != imdbId) continue
-                val pageTitle = PAGE_TITLE.find(page)?.groupValues?.get(1)
-                    ?.let { decodeHtml(stripTags(it)).removePrefix("Subtitles for ").trim() }
-                if (!pageTitle.isNullOrBlank() &&
-                    !similarTitle(title, pageTitle) &&
-                    pageImdb != imdbId
-                ) continue
-
-                val starts = ITEM_START.findAll(page).toList()
-                for (index in starts.indices) {
-                    val start = starts[index].range.first
-                    val end = if (index + 1 < starts.size) starts[index + 1].range.first else page.length
-                    val block = page.substring(start, end)
-                    val release = extractRelease(block)
-                    if (release.isBlank()) continue
-                    if (season != null && episode != null && !isExactEpisode(release, season, episode)) continue
-                    val releaseInfo = listOf(release, extractComment(block))
-                        .filter(String::isNotBlank).joinToString(" · ").take(500)
-                    val link = DOWNLOAD_LINK.find(block)?.groupValues?.get(1)
-                        ?.let(::decodeHtml) ?: continue
-                    val detailUrl = resolveSiteUrl(link) ?: continue
-                    val id = detailUrl.substringBefore('?').trimEnd('/').substringAfterLast('/')
-                    if (!id.matches(Regex("[0-9]{1,16}"))) continue
-                    val identity = "$languageCode:$id"
-                    if (results.any { it.sourceId == identity }) continue
-                    results += OnlineSubtitle(
-                        fileId = 0L,
-                        language = languageCode,
-                        release = releaseInfo.ifBlank { resultTitle },
-                        downloads = 0,
-                        format = "srt",
-                        sourceId = identity,
-                        provider = PROVIDER,
-                        downloadUrl = detailUrl,
-                        seasonNumber = season,
-                        episodeNumber = episode
-                    )
-                    if (results.size >= MAX_RESULTS) return results
-                }
+                results += parseSubtitlePage(
+                    page, languageCode, resultTitle, season, episode, imdbId
+                )
+                if (results.size >= MAX_RESULTS) return results
             }
             val languagesFound = results.map { it.language }.toSet()
             if (languagesFound.containsAll(setOf("ar", "en"))) return results
         }
         return results
+    }
+
+    internal fun parseSubtitlePage(
+        page: String,
+        languageCode: String,
+        resultTitle: String,
+        season: Int?,
+        episode: Int?,
+        imdbId: String?
+    ): List<OnlineSubtitle> {
+        val pageImdb = IMDB.find(page)?.groupValues?.get(1)
+        if (!imdbId.isNullOrBlank() && pageImdb != null && pageImdb != imdbId) return emptyList()
+        val pageTitle = PAGE_TITLE.find(page)?.groupValues?.get(1)
+            ?.let { decodeHtml(stripTags(it)).removePrefix("Subtitles for ").trim() }
+        if (!pageTitle.isNullOrBlank() &&
+            !similarTitle(resultTitle.substringBefore(" ("), pageTitle) &&
+            pageImdb != imdbId
+        ) return emptyList()
+
+        val parsed = mutableListOf<OnlineSubtitle>()
+        val starts = ITEM_START.findAll(page).toList()
+        for (index in starts.indices) {
+            val start = starts[index].range.first
+            val end = if (index + 1 < starts.size) starts[index + 1].range.first else page.length
+            val block = page.substring(start, end)
+            val release = extractRelease(block)
+            if (release.isBlank()) continue
+            if (season != null && episode != null && !isExactEpisode(release, season, episode)) continue
+            val releaseInfo = listOf(release, extractComment(block))
+                .filter(String::isNotBlank).joinToString(" · ").take(500)
+            val link = DOWNLOAD_LINK.find(block)?.groupValues?.get(1)
+                ?.let(::decodeHtml) ?: continue
+            val detailUrl = resolveSiteUrl(link) ?: continue
+            val id = detailUrl.substringBefore('?').trimEnd('/').substringAfterLast('/')
+            if (!id.matches(Regex("[0-9]{1,16}"))) continue
+            parsed += OnlineSubtitle(
+                fileId = 0L,
+                language = languageCode,
+                release = releaseInfo.ifBlank { resultTitle },
+                downloads = 0,
+                format = "srt",
+                sourceId = "$languageCode:$id",
+                provider = PROVIDER,
+                downloadUrl = detailUrl,
+                seasonNumber = season,
+                episodeNumber = episode
+            )
+            if (parsed.size >= MAX_RESULTS) break
+        }
+        return parsed.distinctBy { it.sourceId }
     }
 
     fun download(detailUrl: String): ByteArray {
