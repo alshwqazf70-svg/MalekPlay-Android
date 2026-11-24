@@ -108,12 +108,25 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                     }
                     if (deleted) deletedUris += PrivateVaultTreeSupport.libraryMediaId(uri)
                 }
-                libraryViewModel.reconcileMovedMediaUris(deletedUris)
-                refresh()
                 message = "شُفّر $encryptedCount ملفاً؛ حُذفت أصول ${deletedUris.size} ملفاً بعد التحقق، وبقيت أصول الملفات التي رفض مزود التخزين حذفها."
             } catch (failure: Exception) {
                 message = failure.localizedMessage ?: "توقفت عملية النقل؛ النسخ التي شُفرت تبقى محفوظة بالخزنة."
-            } finally { busy = false }
+            } finally {
+                // Reconcile even after a later item fails: earlier sources may
+                // already have been deleted successfully in this same batch.
+                libraryViewModel.reconcileMovedMediaUris(deletedUris)
+                if (encryptedCount > 0) {
+                    val operationMessage = message
+                    runCatching {
+                        val latest = withContext(Dispatchers.IO) { repository.list(password.toCharArray()) }
+                        entries.clear()
+                        entries.addAll(latest)
+                        unlocked = true
+                        message = operationMessage
+                    }
+                }
+                busy = false
+            }
         }
     }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
