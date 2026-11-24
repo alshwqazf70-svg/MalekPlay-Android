@@ -96,6 +96,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                     if (deleted) deletedUris += uri.toString()
                 }
                 libraryViewModel.removeMovedMediaUris(deletedUris)
+                if (deletedUris.isNotEmpty()) libraryViewModel.refresh()
                 refresh()
                 message = "شُفّر $encryptedCount ملفاً؛ حُذفت أصول ${deletedUris.size} ملفاً بعد التحقق، وبقيت أصول الملفات التي رفض مزود التخزين حذفها."
             } catch (failure: Exception) {
@@ -111,6 +112,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 val result = withContext(Dispatchers.IO) { treeSupport.importFolder(uri, password.toCharArray(), moveSource = moveFolderSelection) }
                 moveFolderSelection = false
                 libraryViewModel.removeMovedMediaUris(result.deletedSourceUris)
+                if (result.deletedSourceFiles > 0) libraryViewModel.refresh()
                 refresh()
                 message = if (result.sourceFullyMoved && result.deletedSourceFiles > 0) "تم تشفير المجلد ونقل ${result.deletedSourceFiles} ملفاً مع الحفاظ على البنية الداخلية." else if (result.deletedSourceFiles > 0) "شُفّر المجلد؛ نُقلت ${result.deletedSourceFiles} من ${result.fileCount} ملفات فقط، وبقيت أصول أخرى." else "تم تشفير المجلد مع ${result.fileCount} ملفاً؛ بقيت الأصول الأصلية."
             } catch (failure: Exception) { message = failure.localizedMessage ?: "تعذر استيراد المجلد" }
