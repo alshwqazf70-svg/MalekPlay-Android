@@ -13,14 +13,14 @@ internal object SubtitleResultPolicy {
         season: Int?,
         episode: Int?,
         episodeSearch: () -> List<T>,
-        titleSearch: () -> List<T>
+        titleSearch: () -> List<T>,
+        shouldFallback: (List<T>) -> Boolean = { it.isEmpty() }
     ): List<T> {
         val scopedResults = episodeSearch()
-        return if (scopedResults.isNotEmpty() || (season == null && episode == null)) {
-            scopedResults
-        } else {
-            titleSearch()
-        }
+        if (season == null && episode == null) return scopedResults
+        if (!shouldFallback(scopedResults)) return scopedResults
+        // Preserve exact episode hits and augment them with broader title hits.
+        return scopedResults + titleSearch()
     }
 
     fun rankAndFilter(
