@@ -339,10 +339,16 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                     failures += (failure.localizedMessage ?: "تعذر تشفير الملف")
                                 } finally { importProgress++ }
                             }
-                            refresh()
-                            message = if (failures.isEmpty()) "تم تشفير وإضافة $completed ملفاً إلى الخزنة." else
-                                "تم حفظ $completed ملفاً، وتعذر حفظ ${failures.size}. ${failures.first()}"
-                            selectedUris.clear()
+                            try {
+                                refresh()
+                                message = if (failures.isEmpty()) "تم تشفير وإضافة $completed ملفاً إلى الخزنة." else
+                                    "تم حفظ $completed ملفاً، وتعذر حفظ ${failures.size}. ${failures.first()}"
+                                selectedUris.clear()
+                            } catch (failure: kotlinx.coroutines.CancellationException) {
+                                throw failure
+                            } catch (failure: Exception) {
+                                message = "اكتمل تشفير $completed ملفاً، لكن تعذر تحديث قائمة الخزنة: ${failure.localizedMessage ?: "خطأ غير معروف"}"
+                            }
                         } finally { busy = false }
                     }
                 },
