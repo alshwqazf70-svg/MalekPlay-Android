@@ -116,6 +116,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     // Download redirects are followed manually so every hop is checked before
     // connecting and credentials are never forwarded to a different host.
     private val subf2mProvider = Subf2mSubtitleProvider()
+    private val tvMazeEpisodeGuideProvider = TvMazeEpisodeGuideProvider()
     private val downloadClient = client.newBuilder()
         .followRedirects(false)
         .followSslRedirects(false)
@@ -127,6 +128,13 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     private data class CachedOpenSubtitlesToken(val value: String, val expiresAtMs: Long)
     private val tokenLock = Any()
     @Volatile private var cachedOpenSubtitlesToken: CachedOpenSubtitlesToken? = null
+
+    /** Fetches a separately sourced, exact-title TV episode guide; does not affect subtitle providers. */
+    fun searchTvEpisodeGuide(title: String): TvEpisodeGuide? {
+        val cleaned = SubtitleQueryCleaner.clean(title)
+        require(cleaned.title.isNotBlank()) { "أدخل اسم المسلسل أولاً" }
+        return tvMazeEpisodeGuideProvider.search(cleaned.title, cleaned.year)
+    }
 
     fun saveCredentials(apiKey: String, username: String, password: String) {
         require(apiKey.isNotBlank() && username.isNotBlank() && password.isNotBlank())
