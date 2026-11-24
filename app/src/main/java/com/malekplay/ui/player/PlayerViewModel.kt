@@ -1585,7 +1585,7 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             _onlineSubtitleGuideLoading.value = true
             _onlineSubtitleGuideError.value = null
-            _onlineSubtitleEpisodeGuide.value = null
+            if (!forceRefresh) _onlineSubtitleEpisodeGuide.value = null
             try {
                 val guide = withContext(Dispatchers.IO) {
                     onlineSubtitleRepository.searchTvEpisodeGuide(title, forceRefresh)
