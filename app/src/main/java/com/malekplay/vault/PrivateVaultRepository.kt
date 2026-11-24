@@ -36,6 +36,8 @@ class PrivateVaultRepository(context: Context) {
         val id = UUID.randomUUID().toString()
         val target = payload(id)
         val temp = File(directory, "$id.tmp")
+        val pending = File(directory, "$id.pending")
+        var committed = false
         try {
             val input = resolver.openInputStream(uri) ?: error("Cannot read selected file.")
             input.use { source ->
@@ -52,15 +54,21 @@ class PrivateVaultRepository(context: Context) {
                     override fun write(buffer: ByteArray, offset: Int, length: Int) = Unit
                 }, password)
             }
+            FileOutputStream(pending).use { it.fd.sync() }
             check(temp.renameTo(target)) { "Could not finalize encrypted file." }
             val current = readIndex(password)
             check(current.size < maxEntries) { "Vault item limit reached." }
             val entry = PrivateVaultEntry(id, name, mime, target.length())
-            try { persistIndex(current + entry, password) }
-            catch (failure: Throwable) { target.delete(); throw failure }
+            persistIndex(current + entry, password)
+            committed = true
+            pending.delete()
             return entry
         } catch (failure: Throwable) {
             temp.delete()
+            if (!committed) {
+                target.delete()
+                pending.delete()
+            }
             throw failure
         }
     }
@@ -125,13 +133,46 @@ class PrivateVaultRepository(context: Context) {
                 check(input.readInt() == indexMagic) { "Invalid vault index." }
                 val count = input.readInt()
                 require(count in 0..maxEntries) { "Invalid vault index size." }
-                return List(count) {
+                val entries = List(count) {
                     val id = input.readUTF()
                     requireValidId(id)
                     PrivateVaultEntry(id, input.readUTF(), input.readUTF(), input.readLong())
-                }.also { check(input.read() == -1) { "Unexpected vault index data." } }
+                }
+                check(input.read() == -1) { "Unexpected vault index data." }
+                recoverInterruptedMutations(entries)
+                return entries
             }
         } finally { plain.delete() }
+    }
+
+    /**
+     * Resolve interrupted payload/index transitions after the encrypted index has
+     * authenticated successfully. A committed import keeps its payload; an
+     * uncommitted import is discarded. Interrupted deletes are rolled back or
+     * completed according to the authoritative index.
+     */
+    private fun recoverInterruptedMutations(entries: List<PrivateVaultEntry>) {
+        val committedIds = entries.mapTo(mutableSetOf()) { it.id }
+        directory.listFiles()?.forEach { file ->
+            when {
+                file.name.endsWith(".pending") -> {
+                    val id = file.name.removeSuffix(".pending")
+                    if (id.matches(Regex("[0-9a-fA-F-]{36}"))) {
+                        if (id !in committedIds) payload(id).delete()
+                        file.delete()
+                    }
+                }
+                file.name.endsWith(".delete") -> {
+                    val id = file.name.removeSuffix(".delete")
+                    if (id.matches(Regex("[0-9a-fA-F-]{36}"))) {
+                        val staged = file
+                        val target = payload(id)
+                        if (id in committedIds && !target.exists()) staged.renameTo(target)
+                        else if (id !in committedIds) staged.delete()
+                    }
+                }
+            }
+        }
     }
 
     private fun persistIndex(entries: List<PrivateVaultEntry>, password: CharArray) {
