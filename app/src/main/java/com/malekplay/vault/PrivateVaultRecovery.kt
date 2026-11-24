@@ -10,6 +10,10 @@ internal object PrivateVaultRecovery {
         directory.listFiles()?.forEach { file ->
             when {
                 file.name == "vault.index.new" -> file.delete()
+                // These files contain decrypted index metadata or restored plaintext.
+                // A process kill bypasses finally blocks, so remove them on next unlock.
+                file.name.startsWith("index-") && file.name.endsWith(".tmp") -> file.delete()
+                file.name.startsWith("restore-") && file.name.endsWith(".tmp") -> file.delete()
                 file.name.endsWith(".pending") -> {
                     val id = file.name.removeSuffix(".pending")
                     if (validId.matches(id)) {
