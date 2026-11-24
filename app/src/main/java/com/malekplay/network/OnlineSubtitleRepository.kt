@@ -197,12 +197,32 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         val publicAttempt = runCatching { searchPublic(cleaned.title, cleaned.year, season, episode) }
         val accountEnabled = hasCredentials()
         val accountAttempt = if (accountEnabled) {
-            runCatching { search(providerTitle, providerLanguages, season, episode, mediaUri) }
+            runCatching {
+                SubtitleResultPolicy.withEpisodeFallback(
+                    season,
+                    episode,
+                    episodeSearch = {
+                        search(providerTitle, providerLanguages, season, episode, mediaUri)
+                    },
+                    titleSearch = {
+                        search(providerTitle, providerLanguages, null, null, mediaUri)
+                    }
+                )
+            }
         } else null
         val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
         val subdlEnabled = !subdlKey.isNullOrBlank()
         val subdlAttempt = if (subdlEnabled) runCatching {
-            searchSubDl(cleaned.title, providerLanguages, season, episode, cleaned.year, requireNotNull(subdlKey))
+            SubtitleResultPolicy.withEpisodeFallback(
+                season,
+                episode,
+                episodeSearch = {
+                    searchSubDl(cleaned.title, providerLanguages, season, episode, cleaned.year, requireNotNull(subdlKey))
+                },
+                titleSearch = {
+                    searchSubDl(cleaned.title, providerLanguages, null, null, cleaned.year, requireNotNull(subdlKey))
+                }
+            )
         } else null
         val combined = (
             publicAttempt.getOrDefault(emptyList()) +
@@ -216,7 +236,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             accountAttempt?.exceptionOrNull(),
             subdlAttempt?.exceptionOrNull()
         )
-        if (combined.isEmpty() && failures.size == enabledProviderCount) {
+        if (combined.isEmpty() && failures.isNotEmpty()) {
+            // Do not disguise provider authentication/quota/network failures as
+            // an ordinary "no matching subtitles" result when every usable
+            // provider returned no candidates.
             throw failures.last()
         }
         automaticSearchCache.put(queryKey, combined)
