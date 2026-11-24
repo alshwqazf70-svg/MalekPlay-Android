@@ -267,7 +267,7 @@ fun KidsModeScreen(
                     } else {
                         Button(
                             onClick = {
-                                if (manager.saveAllowedMediaIds(selected)) {
+                                if (runCatching { manager.setAllowedMediaIds(selected) }.isSuccess) {
                                     saveError = false
                                     onBack()
                                 } else {

@@ -799,6 +799,50 @@ fun UltraShareExperienceScreen(
             }
         }
 
+        if (hasConnectedPeer && page != UltraSharePage.TRANSFERS) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF16A34A).copy(alpha = 0.14f),
+                border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.40f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF22C55E),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "متصل بـ ${connectedDevicesCount.coerceAtLeast(1)} جهاز • جاهز للنقل المباشر",
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { page = UltraSharePage.TRANSFERS }) {
+                        Text("الغرفة", fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(
+                        onClick = {
+                            (state.activePeers.map { it.host } + state.approvedSenderPeerHosts)
+                                .distinct()
+                                .forEach { viewModel.disconnectPeer(it) }
+                            if (state.receiving) stopReceivingGroup()
+                        }
+                    ) {
+                        Text("فصل", color = colors.error)
+                    }
+                }
+            }
+        }
+
         if (selectedUris.isNotEmpty()) {
             ElevatedCard(
                 modifier = Modifier

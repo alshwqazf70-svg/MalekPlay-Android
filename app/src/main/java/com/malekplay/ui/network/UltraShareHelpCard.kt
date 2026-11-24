@@ -1,6 +1,7 @@
 package com.malekplay.ui.network
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,13 +35,16 @@ import androidx.compose.ui.unit.dp
 fun UltraShareHelpCard() {
     var expanded by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
+    val cardShape = RoundedCornerShape(18.dp)
     ElevatedCard(
-        shape = RoundedCornerShape(18.dp),
+        shape = cardShape,
         colors = CardDefaults.elevatedCardColors(
             containerColor = colors.surfaceContainer.copy(alpha = 0.90f)
         ),
-        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.40f)),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, colors.outlineVariant.copy(alpha = 0.40f), cardShape)
+            .animateContentSize()
     ) {
         Column(
             modifier = Modifier
