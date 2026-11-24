@@ -26,7 +26,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-private class SubtitleHttpException(val statusCode: Int, message: String) : IOException(message)
+internal class SubtitleHttpException(val statusCode: Int, message: String) : IOException(message)
 
 /** Validates every subtitle download hop before the client opens its next connection. */
 internal fun isSafeSubtitleDownloadUrl(rawUrl: String, allowedDomain: String? = null): Boolean =
@@ -242,7 +242,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             // Do not disguise provider authentication/quota/network failures as
             // an ordinary "no matching subtitles" result when every usable
             // provider returned no candidates.
-            throw failures.last()
+            val actionableFailure = failures.firstOrNull {
+                it is SubtitleHttpException && it.statusCode in setOf(401, 403, 429)
+            } ?: failures.last()
+            throw actionableFailure
         }
         automaticSearchCache.put(queryKey, combined)
         return combined
