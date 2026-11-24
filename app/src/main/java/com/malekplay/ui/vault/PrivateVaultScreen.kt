@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.dp
 import com.malekplay.vault.PrivateVaultEntry
 import com.malekplay.vault.PrivateVaultRepository
 import com.malekplay.vault.PrivateVaultTreeSupport
+import com.malekplay.ui.library.LibraryViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,6 +35,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val repository = remember(context) { PrivateVaultRepository(context) }
     val treeSupport = remember(context, repository) { PrivateVaultTreeSupport(context, repository) }
+    val libraryViewModel: LibraryViewModel = hiltViewModel()
     val scope = rememberCoroutineScope()
     var password by remember { mutableStateOf("") }
     var confirmation by remember { mutableStateOf("") }
@@ -43,6 +46,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     val entries = remember { mutableStateListOf<PrivateVaultEntry>() }
     var pendingExport by remember { mutableStateOf<PrivateVaultEntry?>(null) }
     var pendingFolderRestore by remember { mutableStateOf<PrivateVaultEntry?>(null) }
+    var moveFolderSelection by remember { mutableStateOf(false) }
 
     fun refresh() {
         scope.launch {
@@ -74,9 +78,11 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             busy = true
             try {
                 runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
-                val result = withContext(Dispatchers.IO) { treeSupport.importFolder(uri, password.toCharArray(), moveSource = false) }
+                val result = withContext(Dispatchers.IO) { treeSupport.importFolder(uri, password.toCharArray(), moveSource = moveFolderSelection) }
+                moveFolderSelection = false
+                libraryViewModel.removeMovedMediaUris(result.deletedSourceUris)
                 refresh()
-                message = "تم تشفير المجلد ${result.entry.displayName} مع ${result.fileCount} ملفاً، مع الحفاظ على بنيته الداخلية. الملفات الأصلية لم تُحذف."
+                message = if (result.sourceFullyMoved && result.deletedSourceFiles > 0) "تم تشفير المجلد ونقل ${result.deletedSourceFiles} ملفاً مع الحفاظ على البنية الداخلية." else if (result.deletedSourceFiles > 0) "شُفّر المجلد؛ نُقلت ${result.deletedSourceFiles} من ${result.fileCount} ملفات فقط، وبقيت أصول أخرى." else "تم تشفير المجلد مع ${result.fileCount} ملفاً؛ بقيت الأصول الأصلية."
             } catch (failure: Exception) { message = failure.localizedMessage ?: "تعذر استيراد المجلد" }
             finally { busy = false }
         }
@@ -133,9 +139,10 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text(entries.size.toString() + " ملف مشفّر", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(onClick = { importPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Icon(Icons.Filled.Add, contentDescription = null); Text("إضافة ملفات") }
-                TextButton(onClick = { folderPicker.launch(null) }, enabled = !busy) { Text("استيراد مجلد") }
+                TextButton(onClick = { moveFolderSelection = false; folderPicker.launch(null) }, enabled = !busy) { Text("نسخ مجلد") }
+                TextButton(onClick = { moveFolderSelection = true; folderPicker.launch(null) }, enabled = !busy) { Text("نقل مجلد") }
             }
-            Text("الإضافة تنشئ نسخة مشفّرة ولا تحذف الملف الأصلي تلقائياً؛ لم نفعّل الحذف حتى لا تفقد بياناتك.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("النقل لا يحذف الأصول إلا بعد نجاح التشفير؛ وإذا رفض مزود الملفات الحذف فتبقى الأصول الأصلية.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(entries, key = { it.id }) { entry ->
                     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
