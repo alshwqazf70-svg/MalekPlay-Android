@@ -220,7 +220,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 ?.takeIf { it.isNotBlank() }
                 ?: error("Wyzie يحتاج إلى نشر وسيط Cloudflare Worker وإدخال رابطه في إعدادات البحث")
             val imdbId = if (subdlEnabled) {
-                searchSubDlTvIdentity(cleaned.title, cleaned.year, requireNotNull(subdlKey))
+                searchSubDlTvIdentity(
+                    cleaned.title, cleaned.year, requireNotNull(subdlKey),
+                    if (season != null || episode != null) "tv" else "movie"
+                )
             } else null
             if (imdbId.isNullOrBlank()) {
                 error("تعذر تحديد معرف IMDb للمسلسل. احفظ مفتاح SubDL أولاً لتحديد هوية العمل.")
@@ -432,13 +435,14 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
      * to return subtitles for that release, not a neighbouring episode.
      */
     /**
-     * Resolves the parent TV show's IMDb id through SubDL's documented v2 title search.
-     * OpenSubtitles recommends parent_imdb_id together with season and episode.
+     * Resolves the movie or TV show's IMDb id through SubDL's documented v2 title search.
      */
-    private fun searchSubDlTvIdentity(title: String, year: Int?, apiKey: String): String? {
+    private fun searchSubDlTvIdentity(
+        title: String, year: Int?, apiKey: String, mediaType: String = "tv"
+    ): String? {
         val url = Uri.parse(SUBDL_V2_MOVIES_API).buildUpon()
             .appendQueryParameter("q", (title + (year?.let { " $it" } ?: "")).take(180))
-            .appendQueryParameter("type", "tv")
+            .appendQueryParameter("type", mediaType)
             .build().toString()
         val payload = execute(
             Request.Builder().url(url)
@@ -491,36 +495,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         return buildList {
             for (index in 0 until payload.length()) {
                 val item = payload.optJSONObject(index) ?: continue
-                val languageCode = SubtitleProviderResultParser.language(item.optString("language"))
-                if (languageCode !in setOf("ar", "en")) continue
-                val format = SubtitleProviderResultParser.format(item.optString("format")) ?: continue
-                val downloadUrl = item.optString("url").takeIf { it.isNotBlank() } ?: continue
-                if (!isSafeSubtitleDownloadUrl(downloadUrl, "sub.wyzie.io")) continue
-                val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
-                val match = item.optJSONObject("match")
-                val reasons = match?.optJSONArray("reasons")
-                val reasonList = (0 until (reasons?.length() ?: 0)).mapNotNull { reasons?.optString(it) }
-                if (reasonList.any { it == "wrong_episode" || it == "wrong_season" }) continue
-                val rank = item.optJSONObject("rank")
-                val score = match?.optInt("score", -1)?.takeIf { it >= 0 }
-                    ?: rank?.optInt("score", -1)?.takeIf { it >= 0 }
-                val release = SubtitleProviderResultParser.release(
-                    item.optString("release").ifBlank { item.optString("fileName") },
-                    item.optString("media", "Subtitle")
-                )
-                add(OnlineSubtitle(
-                    fileId = id.toLongOrNull() ?: 0L,
-                    language = languageCode,
-                    release = release,
-                    downloads = SubtitleProviderResultParser.downloadCount(item.optInt("downloadCount")),
-                    format = format,
-                    sourceId = id,
-                    provider = WYZIE_PROVIDER,
-                    downloadUrl = downloadUrl,
-                    matchScore = score,
-                    seasonNumber = season,
-                    episodeNumber = episode
-                ))
+                val parsed = SubtitleProviderResultParser.wyzieSubtitle(item, season, episode)
+                    ?: continue
+                add(parsed)
             }
         }.distinctBy { it.sourceId }
             .sortedWith(compareByDescending<OnlineSubtitle> { it.matchScore ?: -1 }.thenByDescending { it.downloads })
