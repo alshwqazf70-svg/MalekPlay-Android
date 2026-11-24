@@ -90,6 +90,27 @@ class SubtitleResultPolicyTest {
         assertEquals(0, results.size)
     }
 
+    @Test fun providerEpisodeMetadataRejectsWrongSeasonAndEpisodeEvenWithoutReleaseTags() {
+        val exact = item("ar", "plain exact").copy(providerSeasonNumber = 1, providerEpisodeNumber = 3)
+        val wrongEpisode = item("ar", "wrong episode").copy(providerSeasonNumber = 1, providerEpisodeNumber = 4)
+        val wrongSeason = item("ar", "wrong season").copy(providerSeasonNumber = 2, providerEpisodeNumber = 3)
+        assertEquals(listOf("plain exact"), SubtitleResultPolicy.rankAndFilter(
+            listOf(wrongEpisode, wrongSeason, exact), "ar", 1, 3).map { it.release })
+    }
+
+    @Test fun wholeSeasonPacksAreNotPresentedAsSingleEpisodeSubtitles() {
+        val pack = item("ar", "Show Season 1").copy(providerSeasonNumber = 1, fullSeasonPack = true)
+        assertEquals(emptyList<String>(), SubtitleResultPolicy.rankAndFilter(
+            listOf(pack), "ar", 1, 3).map { it.release })
+    }
+
+    @Test fun providerConfirmedEpisodeRanksAheadOfUnnumberedFallback() {
+        val fallback = item("ar", "Show Arabic")
+        val exact = item("en", "Generic release").copy(providerSeasonNumber = 1, providerEpisodeNumber = 3)
+        assertEquals(listOf("Generic release", "Show Arabic"), SubtitleResultPolicy.rankAndFilter(
+            listOf(fallback, exact), "ar,en", 1, 3).map { it.release })
+    }
+
     @Test fun cacheEvictsLeastRecentlyUsedEntry() {
         val cache = SubtitleSearchResultCache(2)
         cache.put("one", listOf(item("ar", "1")))
