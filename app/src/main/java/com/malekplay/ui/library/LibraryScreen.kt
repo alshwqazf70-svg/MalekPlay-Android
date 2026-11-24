@@ -480,10 +480,9 @@ fun LibraryScreen(
                                                     requireUnconsumed = false,
                                                     pass = PointerEventPass.Initial
                                                 )
-                                                val longPress = awaitLongPressOrCancellation(
-                                                    down.id,
-                                                    pass = PointerEventPass.Initial
-                                                ) ?: return@awaitEachGesture
+                                                val longPress = awaitLongPressOrCancellation(down.id)
+                                                    ?: return@awaitEachGesture
+                                                isDragging = true
                                                 var targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id }
                                                 var didMove = false
                                                 var released = false
@@ -495,6 +494,7 @@ fun LibraryScreen(
                                                         released = true
                                                     } else if (change.positionChange() != Offset.Zero) {
                                                         didMove = true
+                                                        dragOffset += change.positionChange()
                                                         change.consume()
                                                         val origin = itemBounds[item.media.id]?.topLeft
                                                         if (origin != null) {
@@ -509,6 +509,8 @@ fun LibraryScreen(
                                                 if (didMove && targetIndex >= 0) {
                                                     viewModel.moveManualItem(item.media.id, targetIndex, visibleItems)
                                                 }
+                                                dragOffset = Offset.Zero
+                                                isDragging = false
                                             }
                                         }
                                     }
