@@ -137,6 +137,48 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         }
     }
 
+    /**
+     * Lists one level of a persisted SAF tree for the vault's in-app browser.
+     * The caller owns navigation; this method never recursively scans or mutates sources.
+     */
+    fun listBrowserChildren(treeUri: Uri, parentDocumentId: String? = null): List<VaultBrowserItem> {
+        val parentId = parentDocumentId ?: DocumentsContract.getTreeDocumentId(treeUri)
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED
+        )
+        val result = mutableListOf<VaultBrowserItem>()
+        resolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val sizeCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+            val modifiedCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            while (cursor.moveToNext()) {
+                val id = cursor.getString(idCol) ?: continue
+                val name = cursor.getString(nameCol)?.takeIf { it.isNotBlank() } ?: continue
+                val mime = cursor.getString(mimeCol) ?: "application/octet-stream"
+                val directory = mime == DocumentsContract.Document.MIME_TYPE_DIR
+                val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
+                result += VaultBrowserItem(
+                    documentId = id,
+                    uri = uri,
+                    displayName = name,
+                    mimeType = mime,
+                    isDirectory = directory,
+                    sizeBytes = if (sizeCol >= 0 && !cursor.isNull(sizeCol)) cursor.getLong(sizeCol) else 0L,
+                    lastModified = if (modifiedCol >= 0 && !cursor.isNull(modifiedCol)) cursor.getLong(modifiedCol) else 0L
+                )
+                require(result.size <= MAX_NODES) { "المجلد يحتوي على عناصر أكثر من الحد المسموح." }
+            }
+        } ?: throw IOException("تعذر قراءة محتويات المجلد.")
+        return result.sortedWith(compareBy<VaultBrowserItem> { !it.isDirectory }.thenBy { it.displayName.lowercase() })
+    }
+
     private fun enumerate(treeUri: Uri): List<Node> {
         val result = mutableListOf<Node>()
         fun walk(parent: Uri, prefix: String, depth: Int) {
