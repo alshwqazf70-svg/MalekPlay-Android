@@ -586,8 +586,11 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                             fallbackTitle = title,
                             providerSeason = file.optInt("season").takeIf { it > 0 } ?: parent.optInt("season").takeIf { it > 0 },
                             providerEpisode = file.optInt("episode").takeIf { it > 0 } ?: parent.optInt("episode").takeIf { it > 0 },
-                            providerEpisodeEnd = file.optInt("episode_end").takeIf { it > 0 } ?: parent.optInt("episode_end").takeIf { it > 0 },
-                            fullSeasonPack = file.optBoolean("full_season") || parent.optBoolean("full_season")
+                            providerEpisodeEnd = file.optInt("episode").takeIf { it > 0 }?.let {
+                                file.optInt("episode_end").takeIf { it > 0 } ?: it
+                            } ?: parent.optInt("episode_end").takeIf { it > 0 },
+                            fullSeasonPack = if (file.has("full_season")) file.optBoolean("full_season")
+                                else parent.optBoolean("full_season")
                         ) ?: continue
                         add(parsed)
                     }
