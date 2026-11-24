@@ -179,12 +179,9 @@ internal class Subf2mSubtitleProvider {
     }
 
     private fun resolveSiteUrl(raw: String, base: String = BASE): String? = runCatching {
-        val uri = Uri.parse(base).buildUpon().encodedPath(
-            if (raw.startsWith("https://")) Uri.parse(raw).encodedPath ?: "/" else raw
-        ).build()
-        val resolved = Uri.parse(base).resolve(raw) ?: uri
-        if (resolved.scheme != "https" || !isAllowedHost(resolved.host) ||
-            resolved.userInfo != null || resolved.port !in listOf(-1, 443)
+        val resolved = java.net.URI(base).resolve(raw).toURL().toURI()
+        if (!resolved.scheme.equals("https", true) || !isAllowedHost(resolved.host) ||
+            resolved.rawUserInfo != null || resolved.port !in listOf(-1, 443)
         ) null else resolved.toString()
     }.getOrNull()
 
