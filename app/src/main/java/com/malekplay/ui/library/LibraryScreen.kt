@@ -51,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.positionChange
@@ -108,6 +109,9 @@ fun LibraryScreen(
     val selectedUris = remember { mutableStateListOf<Uri>() }
     val itemBounds = remember { mutableStateMapOf<String, Rect>() }
     val selectionMode = selectedUris.isNotEmpty()
+    LaunchedEffect(settings.sortMode) {
+        if (settings.sortMode == SortMode.MANUAL) selectedUris.clear()
+    }
     fun toggleSelection(uri: Uri) { if (uri in selectedUris) selectedUris.remove(uri) else selectedUris.add(uri) }
     var assistantQuery by remember { mutableStateOf("") }
     var assistantSubmittedQuery by remember { mutableStateOf("") }
@@ -381,62 +385,73 @@ fun LibraryScreen(
                     ) {
                         gridItems(visibleItems, key = { it.media.id }) { item ->
                             var dragOffset by remember(item.media.id) { mutableStateOf(Offset.Zero) }
-                            var isDragging by remember(item.media.id) { mutableStateOf(false) }
-                            Box(
-                                Modifier.fillMaxWidth()
-                                    .graphicsLayer {
-                                        translationX = dragOffset.x
-                                        translationY = dragOffset.y
-                                        val liftScale = if (isDragging) 1.045f else 1f
-                                        scaleX = liftScale
-                                        scaleY = liftScale
-                                    }
-                                    .zIndex(if (isDragging) 1f else 0f)
-                                    .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
-                                     .pointerInput(visibleItems, settings.sortMode, selectionMode) {
-                                        if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
-                                            // Observe the long-press in the Initial pass so the nested
-                                            // card's combinedClickable cannot steal the drag gesture.
-                                            awaitEachGesture {
-                                                val down = awaitFirstDown(
-                                                    requireUnconsumed = false,
-                                                    pass = PointerEventPass.Initial
-                                                )
-                                                val longPress = awaitLongPressOrCancellation(down.id)
-                                                    ?: return@awaitEachGesture
-                                                isDragging = true
-                                                var targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id }
-                                                var didMove = false
-                                                var released = false
-                                                while (!released) {
-                                                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                                                    val change = event.changes.firstOrNull { it.id == longPress.id }
-                                                        ?: break
-                                                    if (!change.pressed) {
-                                                        released = true
-                                                    } else if (change.positionChange() != Offset.Zero) {
-                                                        didMove = true
-                                                        dragOffset += change.positionChange()
-                                                        change.consume()
-                                                        val origin = itemBounds[item.media.id]?.topLeft
-                                                        if (origin != null) {
-                                                            val point = origin + change.position
-                                                            val hit = visibleItems.indexOfFirst { row ->
-                                                                itemBounds[row.media.id]?.contains(point) == true
+                                var isDragging by remember(item.media.id) { mutableStateOf(false) }
+                                var dragPointerRoot by remember(item.media.id) { mutableStateOf(Offset.Zero) }
+                                var grabOffset by remember(item.media.id) { mutableStateOf(Offset.Zero) }
+                                var itemPositionRoot by remember(item.media.id) { mutableStateOf(Offset.Zero) }
+                                val latestItems by rememberUpdatedState(visibleItems)
+                                Box(
+                                    Modifier.fillMaxWidth()
+                                        .animateItem()
+                                        .graphicsLayer {
+                                            translationX = dragOffset.x
+                                            translationY = dragOffset.y
+                                            val liftScale = if (isDragging) 1.055f else 1f
+                                            scaleX = liftScale
+                                            scaleY = liftScale
+                                            shadowElevation = if (isDragging) 22.dp.toPx() else 0f
+                                        }
+                                        .zIndex(if (isDragging) 10f else 0f)
+                                        .onGloballyPositioned {
+                                            itemPositionRoot = it.positionInRoot()
+                                            itemBounds[item.media.id] = it.boundsInRoot()
+                                            if (isDragging) dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
+                                        }
+                                        .pointerInput(item.media.id, settings.sortMode, selectionMode) {
+                                            if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
+                                                awaitEachGesture {
+                                                    val down = awaitFirstDown(
+                                                        requireUnconsumed = false,
+                                                        pass = PointerEventPass.Initial
+                                                    )
+                                                    val longPress = awaitLongPressOrCancellation(down.id)
+                                                        ?: return@awaitEachGesture
+                                                    isDragging = true
+                                                    grabOffset = longPress.position
+                                                    dragPointerRoot = itemPositionRoot + longPress.position
+                                                    var lastTarget = latestItems.indexOfFirst { it.media.id == item.media.id }
+                                                    var released = false
+                                                    try {
+                                                        while (!released) {
+                                                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                                                            val change = event.changes.firstOrNull { it.id == longPress.id }
+                                                                ?: break
+                                                            if (!change.pressed) {
+                                                                released = true
+                                                            } else {
+                                                                val delta = change.positionChange()
+                                                                if (delta != Offset.Zero) {
+                                                                    dragPointerRoot += delta
+                                                                    dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
+                                                                    change.consume()
+                                                                }
+                                                                val hit = latestItems.indexOfFirst { row ->
+                                                                    itemBounds[row.media.id]?.contains(dragPointerRoot) == true
+                                                                }
+                                                                if (hit >= 0 && hit != lastTarget) {
+                                                                    lastTarget = hit
+                                                                    viewModel.moveManualItem(item.media.id, hit, latestItems)
+                                                                }
                                                             }
-                                                            if (hit >= 0) targetIndex = hit
                                                         }
+                                                    } finally {
+                                                        dragOffset = Offset.Zero
+                                                        isDragging = false
                                                     }
                                                 }
-                                                if (didMove && targetIndex >= 0) {
-                                                    viewModel.moveManualItem(item.media.id, targetIndex, visibleItems)
-                                                }
-                                                dragOffset = Offset.Zero
-                                                isDragging = false
                                             }
                                         }
-                                    }
-                            ) {
+                                ) {
                             MediaGridCard(
                                 item = item,
                                 onPlay = { onVideoClick(item) },
@@ -459,62 +474,73 @@ fun LibraryScreen(
                     ) {
                         items(visibleItems, key = { it.media.id }) { item ->
                             var dragOffset by remember(item.media.id) { mutableStateOf(Offset.Zero) }
-                            var isDragging by remember(item.media.id) { mutableStateOf(false) }
-                            Box(
-                                Modifier.fillMaxWidth()
-                                    .graphicsLayer {
-                                        translationX = dragOffset.x
-                                        translationY = dragOffset.y
-                                        val liftScale = if (isDragging) 1.035f else 1f
-                                        scaleX = liftScale
-                                        scaleY = liftScale
-                                    }
-                                    .zIndex(if (isDragging) 1f else 0f)
-                                    .onGloballyPositioned { itemBounds[item.media.id] = it.boundsInRoot() }
-                                    .pointerInput(visibleItems, settings.sortMode, selectionMode) {
-                                        if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
-                                            // Observe the long-press in the Initial pass so the nested
-                                            // card's combinedClickable cannot steal the drag gesture.
-                                            awaitEachGesture {
-                                                val down = awaitFirstDown(
-                                                    requireUnconsumed = false,
-                                                    pass = PointerEventPass.Initial
-                                                )
-                                                val longPress = awaitLongPressOrCancellation(down.id)
-                                                    ?: return@awaitEachGesture
-                                                isDragging = true
-                                                var targetIndex = visibleItems.indexOfFirst { row -> row.media.id == item.media.id }
-                                                var didMove = false
-                                                var released = false
-                                                while (!released) {
-                                                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                                                    val change = event.changes.firstOrNull { it.id == longPress.id }
-                                                        ?: break
-                                                    if (!change.pressed) {
-                                                        released = true
-                                                    } else if (change.positionChange() != Offset.Zero) {
-                                                        didMove = true
-                                                        dragOffset += change.positionChange()
-                                                        change.consume()
-                                                        val origin = itemBounds[item.media.id]?.topLeft
-                                                        if (origin != null) {
-                                                            val point = origin + change.position
-                                                            val hit = visibleItems.indexOfFirst { row ->
-                                                                itemBounds[row.media.id]?.contains(point) == true
+                                var isDragging by remember(item.media.id) { mutableStateOf(false) }
+                                var dragPointerRoot by remember(item.media.id) { mutableStateOf(Offset.Zero) }
+                                var grabOffset by remember(item.media.id) { mutableStateOf(Offset.Zero) }
+                                var itemPositionRoot by remember(item.media.id) { mutableStateOf(Offset.Zero) }
+                                val latestItems by rememberUpdatedState(visibleItems)
+                                Box(
+                                    Modifier.fillMaxWidth()
+                                        .animateItem()
+                                        .graphicsLayer {
+                                            translationX = dragOffset.x
+                                            translationY = dragOffset.y
+                                            val liftScale = if (isDragging) 1.055f else 1f
+                                            scaleX = liftScale
+                                            scaleY = liftScale
+                                            shadowElevation = if (isDragging) 22.dp.toPx() else 0f
+                                        }
+                                        .zIndex(if (isDragging) 10f else 0f)
+                                        .onGloballyPositioned {
+                                            itemPositionRoot = it.positionInRoot()
+                                            itemBounds[item.media.id] = it.boundsInRoot()
+                                            if (isDragging) dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
+                                        }
+                                        .pointerInput(item.media.id, settings.sortMode, selectionMode) {
+                                            if (settings.sortMode == SortMode.MANUAL && !selectionMode) {
+                                                awaitEachGesture {
+                                                    val down = awaitFirstDown(
+                                                        requireUnconsumed = false,
+                                                        pass = PointerEventPass.Initial
+                                                    )
+                                                    val longPress = awaitLongPressOrCancellation(down.id)
+                                                        ?: return@awaitEachGesture
+                                                    isDragging = true
+                                                    grabOffset = longPress.position
+                                                    dragPointerRoot = itemPositionRoot + longPress.position
+                                                    var lastTarget = latestItems.indexOfFirst { it.media.id == item.media.id }
+                                                    var released = false
+                                                    try {
+                                                        while (!released) {
+                                                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                                                            val change = event.changes.firstOrNull { it.id == longPress.id }
+                                                                ?: break
+                                                            if (!change.pressed) {
+                                                                released = true
+                                                            } else {
+                                                                val delta = change.positionChange()
+                                                                if (delta != Offset.Zero) {
+                                                                    dragPointerRoot += delta
+                                                                    dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
+                                                                    change.consume()
+                                                                }
+                                                                val hit = latestItems.indexOfFirst { row ->
+                                                                    itemBounds[row.media.id]?.contains(dragPointerRoot) == true
+                                                                }
+                                                                if (hit >= 0 && hit != lastTarget) {
+                                                                    lastTarget = hit
+                                                                    viewModel.moveManualItem(item.media.id, hit, latestItems)
+                                                                }
                                                             }
-                                                            if (hit >= 0) targetIndex = hit
                                                         }
+                                                    } finally {
+                                                        dragOffset = Offset.Zero
+                                                        isDragging = false
                                                     }
                                                 }
-                                                if (didMove && targetIndex >= 0) {
-                                                    viewModel.moveManualItem(item.media.id, targetIndex, visibleItems)
-                                                }
-                                                dragOffset = Offset.Zero
-                                                isDragging = false
                                             }
                                         }
-                                    }
-                            ) {
+                                ) {
                             PremiumVideoRow(
                                 item = item,
                                 onClick = { onVideoClick(item) },
