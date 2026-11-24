@@ -314,7 +314,8 @@ internal class Subf2mSubtitleProvider {
             Regex("(?i)\\b0*\\$season\\s*x\\s*0*\\$episode\\b"),
             Regex("(?i)\\bseason\\s*0*\\$season\\s*[- ]\\s*0*\\$episode\\b")
         )
-        return patterns.any { it.containsMatchIn(release) }
+        return patterns.any { it.containsMatchIn(release) } &&
+            !SubtitleResultPolicy.isMultiEpisodeRange(release, season, episode)
     }
 
     private fun stripTags(value: String): String = TAGS.replace(value, " ")
