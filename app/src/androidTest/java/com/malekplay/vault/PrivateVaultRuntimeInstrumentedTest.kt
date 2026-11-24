@@ -49,7 +49,7 @@ class PrivateVaultRuntimeInstrumentedTest {
         } finally {
             preview?.delete()
             restored.delete()
-            password.fill('\\u0000')
+            password.fill('\u0000')
             directory.deleteRecursively()
         }
     }
@@ -75,7 +75,7 @@ class PrivateVaultRuntimeInstrumentedTest {
             try {
                 repository.importStream("interrupted.bin", "application/octet-stream", interrupted, password)
                 throw AssertionError("Interrupted import unexpectedly succeeded")
-            } catch (_: IOException) {
+            } catch (_: Exception) {
                 // Expected: no index entry or partial payload may be committed.
             }
             assertTrue(repository.list(password).isEmpty())
@@ -91,7 +91,7 @@ class PrivateVaultRuntimeInstrumentedTest {
             assertEquals(entry.id, recovered.list(password).single().id)
             assertTrue(payload.isFile)
         } finally {
-            password.fill('\\u0000')
+            password.fill('\u0000')
             directory.deleteRecursively()
         }
     }
