@@ -73,6 +73,7 @@ import com.malekplay.domain.model.MediaItem
 import com.malekplay.ui.home.HomeScreen
 import com.malekplay.ui.videos.VideoCategoryScreen
 import com.malekplay.ui.local.LocalScreen
+import com.malekplay.ui.vault.PrivateVaultScreen
 import com.malekplay.ui.music.MusicScreen
 import com.malekplay.ui.network.NetworkScreen
 import com.malekplay.ui.network.UltraShareExperienceScreen
@@ -229,8 +230,13 @@ fun MalekPlayNavHost(
                     onOpenFolder = { path -> navController.navigate(Screen.Folder.create(path)) },
                     onSendMedia = { media -> openTransferForUris(media.map { it.uri }) },
                     onOpenSettings = { navController.navigate(Screen.Settings.route) },
+                    onOpenVault = { navController.navigate(Screen.PrivateVault.route) },
                     contentPadding = padding
                 )
+            }
+
+            composable(Screen.PrivateVault.route) {
+                PrivateVaultScreen(onBack = { navController.popBackStack() })
             }
 
             composable(Screen.Music.route) {

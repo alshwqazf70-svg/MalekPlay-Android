@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -100,6 +101,7 @@ fun LocalScreen(
     onOpenMedia: (MediaItem) -> Unit,
     onOpenFolder: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenVault: () -> Unit = {},
     contentPadding: PaddingValues,
     onSendMedia: (List<MediaItem>) -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel()
@@ -234,6 +236,9 @@ fun LocalScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            IconButton(onClick = onOpenVault) {
+                Icon(Icons.Filled.Lock, contentDescription = "الخزنة الخاصة", tint = MaterialTheme.colorScheme.primary)
             }
             IconButton(onClick = { viewModel.refresh() }) {
                 Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.lib_refresh))
