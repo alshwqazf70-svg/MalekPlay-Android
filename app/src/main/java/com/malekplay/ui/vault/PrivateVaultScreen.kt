@@ -22,6 +22,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.malekplay.vault.PrivateVaultEntry
 import com.malekplay.vault.PrivateVaultRepository
+import com.malekplay.vault.PrivateVaultTreeSupport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,6 +32,7 @@ import java.util.Locale
 fun PrivateVaultScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val repository = remember(context) { PrivateVaultRepository(context) }
+    val treeSupport = remember(context, repository) { PrivateVaultTreeSupport(context, repository) }
     val scope = rememberCoroutineScope()
     var password by remember { mutableStateOf("") }
     var confirmation by remember { mutableStateOf("") }
@@ -40,6 +42,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     var message by remember { mutableStateOf<String?>(null) }
     val entries = remember { mutableStateListOf<PrivateVaultEntry>() }
     var pendingExport by remember { mutableStateOf<PrivateVaultEntry?>(null) }
+    var pendingFolderRestore by remember { mutableStateOf<PrivateVaultEntry?>(null) }
 
     fun refresh() {
         scope.launch {
@@ -63,6 +66,30 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 }
                 refresh()
             } catch (failure: Exception) { message = failure.localizedMessage ?: "تعذر استيراد الملفات" }
+            finally { busy = false }
+        }
+    }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        if (uri != null) scope.launch {
+            busy = true
+            try {
+                runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+                val result = withContext(Dispatchers.IO) { treeSupport.importFolder(uri, password.toCharArray(), moveSource = false) }
+                refresh()
+                message = "تم تشفير المجلد ${result.entry.displayName} مع ${result.fileCount} ملفاً، مع الحفاظ على بنيته الداخلية. الملفات الأصلية لم تُحذف."
+            } catch (failure: Exception) { message = failure.localizedMessage ?: "تعذر استيراد المجلد" }
+            finally { busy = false }
+        }
+    }
+    val folderRestorePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        val entry = pendingFolderRestore; pendingFolderRestore = null
+        if (uri != null && entry != null) scope.launch {
+            busy = true
+            try {
+                runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+                withContext(Dispatchers.IO) { treeSupport.restoreFolder(entry, uri, password.toCharArray()) }
+                message = "تمت استعادة المجلد وبنيته الداخلية. النسخة المشفرة ما زالت محفوظة بالخزنة."
+            } catch (failure: Exception) { message = failure.localizedMessage ?: "تعذرت استعادة المجلد" }
             finally { busy = false }
         }
     }
@@ -106,6 +133,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text(entries.size.toString() + " ملف مشفّر", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(onClick = { importPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Icon(Icons.Filled.Add, contentDescription = null); Text("إضافة ملفات") }
+                TextButton(onClick = { folderPicker.launch(null) }, enabled = !busy) { Text("استيراد مجلد") }
             }
             Text("الإضافة تنشئ نسخة مشفّرة ولا تحذف الملف الأصلي تلقائياً؛ لم نفعّل الحذف حتى لا تفقد بياناتك.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -116,7 +144,11 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                 Text(entry.displayName, style = MaterialTheme.typography.titleSmall)
                                 Text(entry.mimeType + " • " + formatBytes(entry.sizeBytes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            TextButton(onClick = { pendingExport = entry; exportPicker.launch(entry.displayName) }, enabled = !busy) { Text("استعادة") }
+                            if (entry.mimeType == PrivateVaultTreeSupport.FOLDER_ARCHIVE_MIME) {
+                                TextButton(onClick = { pendingFolderRestore = entry; folderRestorePicker.launch(null) }, enabled = !busy) { Text("استعادة مجلد") }
+                            } else {
+                                TextButton(onClick = { pendingExport = entry; exportPicker.launch(entry.displayName) }, enabled = !busy) { Text("استعادة") }
+                            }
                             IconButton(onClick = {
                                 scope.launch {
                                     busy = true
