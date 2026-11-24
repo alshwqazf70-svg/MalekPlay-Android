@@ -220,7 +220,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     searchSubDl(cleaned.title, providerLanguages, season, episode, cleaned.year, requireNotNull(subdlKey))
                 },
                 titleSearch = {
-                    searchSubDl(cleaned.title, providerLanguages, null, null, cleaned.year, requireNotNull(subdlKey))
+                    searchSubDl(
+                        cleaned.title, providerLanguages, null, null, cleaned.year,
+                        requireNotNull(subdlKey), tvSearch = season != null || episode != null
+                    )
                 }
             )
         } else null
@@ -230,7 +233,6 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 subdlAttempt?.getOrDefault(emptyList()).orEmpty()
             ).distinctBy { it.provider + ":" + it.sourceId }
 
-        val enabledProviderCount = 1 + (if (accountEnabled) 1 else 0) + (if (subdlEnabled) 1 else 0)
         val failures = listOfNotNull(
             publicAttempt.exceptionOrNull(),
             accountAttempt?.exceptionOrNull(),
@@ -398,7 +400,13 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     }
 
     private fun searchSubDl(
-        title: String, language: String, season: Int?, episode: Int?, year: Int?, apiKey: String
+        title: String,
+        language: String,
+        season: Int?,
+        episode: Int?,
+        year: Int?,
+        apiKey: String,
+        tvSearch: Boolean = season != null || episode != null
     ): List<OnlineSubtitle> {
         val languages = language.split(',').map(SubtitleQueryCleaner::normalizeLanguage)
             .filter { it in setOf("ar", "en") }.joinToString(",") { it.uppercase(Locale.ROOT) }
@@ -406,7 +414,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             .appendQueryParameter("api_key", apiKey)
             .appendQueryParameter("film_name", title.take(150))
             .apply {
-                if (season != null || episode != null) appendQueryParameter("type", "tv")
+                if (tvSearch || season != null || episode != null) appendQueryParameter("type", "tv")
                 if (year != null) appendQueryParameter("year", year.toString())
             }
             .appendQueryParameter("languages", languages.ifBlank { "AR,EN" })
