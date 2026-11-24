@@ -464,7 +464,7 @@ fun LibraryScreen(
                                                         requireUnconsumed = false,
                                                         pass = PointerEventPass.Initial
                                                     )
-                                                    val longPress = awaitLongPressOrCancellation(down.id)
+                                                    val longPress = awaitLongPressOrCancellation(down.id, pass = PointerEventPass.Initial)
                                                         ?: return@awaitEachGesture
                                                     isDragging = true
                                                     grabOffset = longPress.position
