@@ -145,7 +145,6 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         publicSearchCache.clear()
     }
 
-    /** Stores only the public Worker URL. The Wyzie API key remains a server-side secret. */
     /**
      * Searches a public guest endpoint first. No account, API key, or setup is required
      * for the user. The provider documents a small daily guest quota, so failures are
