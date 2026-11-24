@@ -11,7 +11,9 @@ data class PrivateVaultEntry(val id: String, val displayName: String, val mimeTy
 /** Encrypted app-private vault. Import copies; it never deletes a source implicitly. */
 class PrivateVaultRepository(context: Context) {
     private val resolver = context.applicationContext.contentResolver
-    private val directory = File(context.applicationContext.filesDir, "private_vault").apply { mkdirs() }
+    private val directory = File(context.applicationContext.filesDir, "private_vault").apply {
+        check(isDirectory || mkdirs()) { "تعذر إنشاء مساحة الخزنة الخاصة." }
+    }
     private val indexFile = File(directory, "vault.index.enc")
     private val backupIndex = File(directory, "vault.index.bak")
     init { if (!indexFile.exists() && backupIndex.exists()) backupIndex.renameTo(indexFile) }
@@ -147,7 +149,9 @@ class PrivateVaultRepository(context: Context) {
         }
     }
 
-    private fun requireValidId(id: String) = require(id.matches(Regex("[0-9a-fA-F-]{36}"))) { "Invalid vault item." }
+    private fun requireValidId(id: String) = require(
+        id.matches(Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
+    ) { "Invalid vault item." }
     private fun payload(id: String) = File(directory, "$id.mkv")
 
     private fun queryName(uri: Uri): String {
@@ -175,8 +179,15 @@ class PrivateVaultRepository(context: Context) {
                 val entries = List(count) {
                     val id = input.readUTF()
                     requireValidId(id)
-                    PrivateVaultEntry(id, input.readUTF(), input.readUTF(), input.readLong())
+                    val displayName = input.readUTF()
+                    val mimeType = input.readUTF()
+                    val sizeBytes = input.readLong()
+                    require(displayName.isNotBlank() && mimeType.isNotBlank() && sizeBytes >= 0L) {
+                        "Invalid vault item metadata."
+                    }
+                    PrivateVaultEntry(id, displayName, mimeType, sizeBytes)
                 }
+                require(entries.map { it.id }.toSet().size == entries.size) { "Duplicate vault item identifier." }
                 check(input.read() == -1) { "Unexpected vault index data." }
                 PrivateVaultRecovery.recover(directory, entries.mapTo(mutableSetOf()) { it.id })
                 return entries
