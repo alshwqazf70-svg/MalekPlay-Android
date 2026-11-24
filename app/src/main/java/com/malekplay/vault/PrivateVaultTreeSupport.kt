@@ -228,17 +228,39 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
     }
 
     private fun deleteNodesAfterEncryption(nodes: List<Node>): SourceDeletionResult {
-        val deleted = mutableListOf<String>()
-        var deletedNodeCount = 0
+        // Delete deepest descendants first. Provider return values alone are not
+        // proof that a document disappeared; verify each source before reporting
+        // it as moved or removing it from the media library.
         nodes.asReversed().forEach { node ->
-            val success = runCatching { DocumentsContract.deleteDocument(resolver, node.uri) }
-                .getOrElse { runCatching { resolver.delete(node.uri, null, null) > 0 }.getOrDefault(false) }
-            if (success) {
-                deletedNodeCount++
-                if (!node.directory) deleted += libraryMediaId(node.uri)
-            }
+            runCatching { DocumentsContract.deleteDocument(resolver, node.uri) }
+                .getOrElse { runCatching { resolver.delete(node.uri, null, null) }.getOrDefault(0) }
         }
-        return SourceDeletionResult(deleted, deletedNodeCount)
+        val remaining = nodes.filter { documentStillExists(it.uri) }
+        val deletedMedia = nodes.asSequence()
+            .filterNot { it.directory }
+            .filterNot { it in remaining }
+            .map { libraryMediaId(it.uri) }
+            .toList()
+        return SourceDeletionResult(deletedMedia, nodes.size - remaining.size)
+    }
+
+    /**
+     * A failed/unsupported query is treated conservatively as "still exists".
+     * This prevents claiming a move or hiding a library item when provider state
+     * cannot be verified after a delete request.
+     */
+    private fun documentStillExists(uri: Uri): Boolean = try {
+        resolver.query(
+            uri,
+            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            cursor == null || cursor.moveToFirst()
+        } ?: true
+    } catch (_: Exception) {
+        true
     }
 
     private fun rootDocumentUri(tree: Uri) = DocumentsContract.buildDocumentUriUsingTree(
