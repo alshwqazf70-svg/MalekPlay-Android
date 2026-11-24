@@ -30,9 +30,10 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
     private val appContext = context.applicationContext
     private val resolver: ContentResolver = appContext.contentResolver
     init {
-        val staleBefore = System.currentTimeMillis() - 24L * 60 * 60 * 1000
+        // These are app-private plaintext ZIP work files. A new support instance
+        // is created when entering the vault; remove leftovers from killed sessions.
         appContext.cacheDir.listFiles()?.filter {
-            (it.name.startsWith(".malek-vault-") || it.name.startsWith(".malek-restore-")) && it.lastModified() < staleBefore
+            it.name.startsWith(".malek-vault-") || it.name.startsWith(".malek-restore-")
         }?.forEach { it.delete() }
     }
     private data class Node(val uri: Uri, val name: String, val relativePath: String, val directory: Boolean)
