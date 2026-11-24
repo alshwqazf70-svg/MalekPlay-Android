@@ -1554,6 +1554,15 @@ class PlayerViewModel @Inject constructor(
             .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ بيانات الخدمة" }
     }
 
+    fun saveWyzieWorkerUrl(workerUrl: String) {
+        runCatching { onlineSubtitleRepository.saveWyzieWorkerUrl(workerUrl) }
+            .onSuccess {
+                _onlineSubtitleError.value = null
+                android.widget.Toast.makeText(app, "تم حفظ رابط وسيط Wyzie. مفتاح API يبقى على الخادم.", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ رابط وسيط Wyzie" }
+    }
+
     fun saveOnlineSubtitleProviderKeys(subdlKey: String, websiteKey: String) {
         runCatching { onlineSubtitleRepository.saveProviderApiKeys(subdlKey, websiteKey) }
             .onSuccess {
