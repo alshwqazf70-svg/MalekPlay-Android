@@ -259,6 +259,20 @@ class SubtitleResultPolicyTest {
     }
 
     @Test
+    fun validatesNamedSeasonEpisodeTagsAndRejectsSeasonOnlyFallbacks() {
+        val results = listOf(
+            item("ar", "Show Season 2 Episode 3 Arabic"),
+            item("ar", "Show Season 1 Episode 4 Arabic"),
+            item("ar", "Show Season 1 Complete"),
+            item("ar", "Show Season 1 Episode 3 Arabic")
+        )
+        assertEquals(
+            listOf("Show Season 1 Episode 3 Arabic"),
+            SubtitleResultPolicy.rankAndFilter(results, "ar", 1, 3).map { it.release }
+        )
+    }
+
+    @Test
     fun rejectsSeasonPackNamesEvenWhenProviderOmitsPackMetadata() {
         val packs = listOf(
             item("ar", "Show Full Season"),
