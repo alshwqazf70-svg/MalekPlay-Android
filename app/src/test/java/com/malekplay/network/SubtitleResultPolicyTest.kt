@@ -113,4 +113,43 @@ class SubtitleResultPolicyTest {
         )
     }
 
+    @Test
+    fun episodeSearchAugmentsEnglishOnlyHitsWithBroaderArabicResults() {
+        val results = SubtitleResultPolicy.withEpisodeFallback(
+            season = 1,
+            episode = 3,
+            episodeSearch = { listOf(item("en", "Show S01E03 English")) },
+            titleSearch = { listOf(item("ar", "Show The Last Airbender Arabic")) },
+            shouldFallback = { scoped ->
+                !scoped.map { SubtitleQueryCleaner.normalizeLanguage(it.language) }
+                    .toSet().containsAll(setOf("ar", "en"))
+            }
+        )
+        assertEquals(
+            listOf("Show S01E03 English", "Show The Last Airbender Arabic"),
+            results.map { it.release }
+        )
+        assertEquals(
+            listOf("Show The Last Airbender Arabic"),
+            SubtitleResultPolicy.rankAndFilter(results, "ar", 1, 3).map { it.release }
+        )
+    }
+
+    @Test
+    fun completeBilingualEpisodeResultsDoNotTriggerBroadFallback() {
+        var broadCalls = 0
+        val results = SubtitleResultPolicy.withEpisodeFallback(
+            season = 1,
+            episode = 3,
+            episodeSearch = { listOf(item("ar", "Arabic"), item("en", "English")) },
+            titleSearch = { broadCalls++; emptyList() },
+            shouldFallback = { scoped ->
+                !scoped.map { SubtitleQueryCleaner.normalizeLanguage(it.language) }
+                    .toSet().containsAll(setOf("ar", "en"))
+            }
+        )
+        assertEquals(0, broadCalls)
+        assertEquals(2, results.size)
+    }
+
 }
