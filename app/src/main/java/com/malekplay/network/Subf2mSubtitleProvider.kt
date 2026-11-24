@@ -353,6 +353,6 @@ internal class Subf2mSubtitleProvider {
         private val COMMENT = Regex("(?is)<div[^>]*class=['\"][^'\"]*\\bcomment-col\\b[^'\"]*['\"][^>]*>.*?<p[^>]*>(.*?)</p>")
         private val DOWNLOAD_LINK = Regex("""(?is)<a\b(?=[^>]*class=['"][^'"]*\bdownload\b)(?=[^>]*href=['"]([^'"]+)['"])[^>]*>""")
         private val DOWNLOAD_BUTTON = Regex("""(?is)<a\b(?=[^>]*id=['"]downloadButton['"])(?=[^>]*href=['"]([^'"]+)['"])[^>]*>""")
-        private val DOWNLOAD_HREF = Regex("""(?is)<a\b(?=[^>]*href=['"]([^'"]*/download(?:\?[^'"]*)?)['"])[^>]*>""")
+        private val DOWNLOAD_HREF = Regex("""(?is)<a\b(?=[^>]*href=['"]([^'"]*/download[^'"]*)['"])[^>]*>""")
     }
 }
