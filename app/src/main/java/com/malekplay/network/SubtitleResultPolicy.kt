@@ -33,10 +33,33 @@ internal object SubtitleResultPolicy {
         result.providerSeasonNumber?.takeIf { it > 0 } ?: parseReleaseEpisode(result.release)?.first
     }.distinct().sorted()
 
+    /** Reject releases that describe a season pack or more than one episode. */
+    internal fun isSeasonPackRelease(release: String): Boolean = Regex(
+        """(?i)\b(?:full\s+season|season\s+pack|all\s+episodes|complete\s+season\s*0*\d+|season\s*0*\d+\s*(?:complete|pack|batch)|s0*\d{1,2}\s*(?:complete|pack))\b"""
+    ).containsMatchIn(release)
+
+    internal fun isMultiEpisodeRange(release: String, season: Int, episode: Int): Boolean {
+        val seasonEpisodeRange = Regex(
+            """(?i)\bS0*${season}E0*${episode}\s*(?:-|–|—|\bto\b|\bthrough\b|E)\s*(?:S0*${season})?E?0*\d{1,3}\b"""
+        )
+        val xEpisodeRange = Regex(
+            """(?i)\b0*${season}x0*${episode}\s*(?:-|–|—|\bto\b|\bthrough\b)\s*(?:0*${season}x)?0*\d{1,3}\b"""
+        )
+        val namedEpisodeRange = Regex(
+            """(?i)\bSeason\s*0*${season}\s+Episodes?\s*0*${episode}\s*(?:-|–|—|\bto\b|\bthrough\b)\s*(?:Episode\s*)?0*\d{1,3}\b"""
+        )
+        return seasonEpisodeRange.containsMatchIn(release) ||
+            xEpisodeRange.containsMatchIn(release) ||
+            namedEpisodeRange.containsMatchIn(release)
+    }
+
     /** Returns only individually identified episode files for the selected season. */
     fun availableEpisodes(results: List<OnlineSubtitle>, season: Int): List<Int> = results.mapNotNull { result ->
-        if (result.fullSeasonPack) return@mapNotNull null
+        if (result.fullSeasonPack || isSeasonPackRelease(result.release)) return@mapNotNull null
         val parsed = parseReleaseEpisode(result.release)
+        if (parsed?.second != null && parsed.first == season &&
+            isMultiEpisodeRange(result.release, season, parsed.second)
+        ) return@mapNotNull null
         val providerSeason = result.providerSeasonNumber?.takeIf { it > 0 }
         val actualSeason = providerSeason ?: parsed?.first
         if (actualSeason != season) return@mapNotNull null
@@ -88,7 +111,9 @@ internal object SubtitleResultPolicy {
             if (season == null || episode == null) return@filter true
             // Provider metadata is authoritative: never show a known neighbouring episode
             // or a whole-season archive as though it were a single-episode subtitle.
-            if (result.fullSeasonPack) return@filter false
+            if (result.fullSeasonPack || isSeasonPackRelease(result.release) ||
+                isMultiEpisodeRange(result.release, season, episode)
+            ) return@filter false
             if (result.providerSeasonNumber != null && result.providerSeasonNumber != season) return@filter false
             if (result.providerEpisodeNumber != null && result.providerEpisodeNumber != episode) return@filter false
             if (result.providerEpisodeEnd != null &&
