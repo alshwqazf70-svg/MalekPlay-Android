@@ -153,6 +153,20 @@ class Subf2mSubtitleProviderTest {
         ).size)
     }
 
+    @Test fun resolvesCurrentDirectDownloadAnchorAndRelativeDownloadHref() {
+        val detail = "https://subf2m.co/subtitles/example/arabic/12345"
+        val currentLayout = """<a class="btn download" href="/subtitles/example/arabic/12345/download">Download</a>"""
+        assertEquals(
+            "https://subf2m.co/subtitles/example/arabic/12345/download",
+            provider.resolveDownloadPageLink(currentLayout, detail)
+        )
+        val legacyLayout = """<div class="download"><a href="/subtitles/example/arabic/12345/download">Download</a></div>"""
+        assertEquals(
+            "https://subf2m.co/subtitles/example/arabic/12345/download",
+            provider.resolveDownloadPageLink(legacyLayout, detail)
+        )
+    }
+
     @Test fun rejectsDifferentImdbSeriesIdentity() {
         val html = """
             <html><head><title>Subtitles for Another Show</title></head><body>
