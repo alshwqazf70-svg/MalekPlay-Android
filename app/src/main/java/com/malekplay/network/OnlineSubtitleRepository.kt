@@ -512,6 +512,8 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 (matchedEpisode > 0 && matchedEpisode != episode)
             ) return emptyList()
         }
+        val matchedSeason = match?.optInt("season")?.takeIf { it > 0 }
+        val matchedEpisode = match?.optInt("episode")?.takeIf { it > 0 }
         val subtitles = payload.optJSONArray("subtitles") ?: return emptyList()
         return buildList {
             for (index in 0 until subtitles.length()) {
@@ -523,10 +525,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     formatName = item.optString("format"),
                     downloads = item.optInt("downloads"),
                     fallbackTitle = displayName,
-                    providerSeason = item.optInt("season").takeIf { it > 0 },
-                    providerEpisode = item.optInt("episode").takeIf { it > 0 } ?: item.optInt("episode_from").takeIf { it > 0 },
+                    providerSeason = item.optInt("season").takeIf { it > 0 } ?: matchedSeason,
+                    providerEpisode = item.optInt("episode").takeIf { it > 0 } ?: item.optInt("episode_from").takeIf { it > 0 } ?: matchedEpisode,
                     providerEpisodeEnd = item.optInt("episode_end").takeIf { it > 0 },
-                    fullSeasonPack = item.optBoolean("full_season")
+                    fullSeasonPack = item.optBoolean("full_season") || match?.optBoolean("full_season") == true
                 ) ?: continue
                 add(parsedSubtitle)
             }
