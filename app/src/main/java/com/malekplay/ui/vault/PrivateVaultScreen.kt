@@ -77,16 +77,11 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     }
 
     suspend fun refresh() {
-        try {
-            val result = withContext(Dispatchers.IO) { repository.list(password.toCharArray()) }
-            entries.clear()
-            entries.addAll(result)
-            unlocked = true
-            message = null
-        } catch (failure: Exception) {
-            unlocked = false
-            message = failure.localizedMessage ?: "تعذر فتح الخزنة"
-        }
+        val result = withContext(Dispatchers.IO) { repository.list(password.toCharArray()) }
+        entries.clear()
+        entries.addAll(result)
+        unlocked = true
+        message = null
     }
 
     suspend fun loadBrowserFolder(documentId: String) {
@@ -96,6 +91,8 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             val result = withContext(Dispatchers.IO) { treeSupport.listBrowserChildren(tree, documentId) }
             browserItems.clear()
             browserItems.addAll(result)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (failure: Exception) {
             message = failure.localizedMessage ?: "تعذر قراءة المجلد"
         } finally {
@@ -117,11 +114,20 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
 
     val browserRootPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         if (uri != null) {
-            val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
-            browserTreeUri = uri
-            vaultPrefs.edit().putString("source_tree_uri", uri.toString()).apply()
-            openBrowser()
+            val readFlag = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            val persisted = runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, readFlag)
+            }
+            if (persisted.isSuccess) {
+                browserTreeUri?.takeIf { it != uri }?.let { oldUri ->
+                    runCatching { context.contentResolver.releasePersistableUriPermission(oldUri, readFlag) }
+                }
+                browserTreeUri = uri
+                vaultPrefs.edit().putString("source_tree_uri", uri.toString()).apply()
+                openBrowser()
+            } else {
+                message = "لم يمنح مزود الملفات صلاحية دائمة للمجلد. اختر مجلداً آخر ثم حاول مجدداً."
+            }
         }
     }
 
@@ -137,7 +143,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
         }
     }
 
-    BackHandler(enabled = true) {
+    BackHandler(enabled = !busy) {
         if (browserOpen) backFromBrowser() else leaveVault()
     }
 
@@ -236,7 +242,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            IconButton(onClick = { if (browserOpen) backFromBrowser() else leaveVault() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع") }
+            IconButton(onClick = { if (browserOpen) backFromBrowser() else leaveVault() }, enabled = !busy) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع") }
             Text("الخزنة الخاصة", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
             Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         }
@@ -271,7 +277,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                         val checked = selectedUris.contains(item.uri.toString())
                         Card(Modifier.fillMaxWidth()) {
                             Row(
-                                Modifier.fillMaxWidth().clickable(enabled = !busy) {
+                                Modifier.fillMaxWidth().clickable(enabled = !busy && !browserLoading) {
                                     if (item.isDirectory) {
                                         browserPath.add(item.documentId to item.displayName)
                                         scope.launch { loadBrowserFolder(item.documentId) }
@@ -327,6 +333,8 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                                 try {
                                     withContext(Dispatchers.IO) { repository.importUri(uri, password.toCharArray()) }
                                     completed++
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                    throw cancelled
                                 } catch (failure: Exception) {
                                     failures += (failure.localizedMessage ?: "تعذر تشفير الملف")
                                 } finally { importProgress++ }
@@ -407,7 +415,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 }
             }
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = { password = ""; confirmation = ""; entries.clear(); unlocked = false; pendingExport = null; pendingFolderRestore = null }, modifier = Modifier.align(Alignment.End)) { Text("قفل الخزنة") }
+            TextButton(onClick = { password = ""; confirmation = ""; entries.clear(); unlocked = false; pendingExport = null; pendingFolderRestore = null }, enabled = !busy, modifier = Modifier.align(Alignment.End)) { Text("قفل الخزنة") }
         }
         if (busy) {
             Text(if (importTotal > 0) "جارٍ تشفير الملفات: $importProgress / $importTotal" else "جارٍ تنفيذ العملية…",
