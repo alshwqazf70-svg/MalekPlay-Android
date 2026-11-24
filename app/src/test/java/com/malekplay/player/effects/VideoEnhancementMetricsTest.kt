@@ -24,6 +24,36 @@ class VideoEnhancementMetricsTest {
         assertEquals("not_started", reset.lastPipelineStage)
     }
 
+    @Test fun playbackSessionResetKeepsConfigurationOfPersistentMedia3Shader() {
+        VideoEnhancementMetrics.reset()
+        VideoEnhancementMetrics.recordProgramCreated()
+        VideoEnhancementMetrics.recordConfigured(1920, 1080)
+        VideoEnhancementMetrics.recordDrawFrameEntered()
+        VideoEnhancementMetrics.recordDrawFrameSucceeded()
+        VideoEnhancementMetrics.recordPipelineProcessed(
+            denoise = true,
+            detail = true,
+            presentationTimeUs = 33_000L
+        )
+
+        VideoEnhancementMetrics.resetPlaybackSession()
+        val reset = VideoEnhancementMetrics.snapshot()
+        assertEquals(1L, reset.programCreations)
+        assertEquals(1L, reset.configureCalls)
+        assertEquals(1920, reset.lastConfiguredWidth)
+        assertEquals(1080, reset.lastConfiguredHeight)
+        assertEquals(0L, reset.drawFrameCalls)
+        assertEquals(0L, reset.drawFrameSuccesses)
+        assertEquals(0L, reset.processedDraws)
+        assertEquals("configured", reset.lastPipelineStage)
+
+        // The same Media3 program continues drawing without a second configure().
+        VideoEnhancementMetrics.recordDrawFrameEntered()
+        VideoEnhancementMetrics.recordDrawFrameSucceeded()
+        assertEquals(1L, VideoEnhancementMetrics.snapshot().configureCalls)
+        assertEquals(1L, VideoEnhancementMetrics.snapshot().drawFrameSuccesses)
+    }
+
     @Test fun failureDiagnosticsRetainNestedMedia3CauseChain() {
         VideoEnhancementMetrics.reset()
         val root = IllegalArgumentException("EGL context creation failed")
