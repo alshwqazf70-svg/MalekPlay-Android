@@ -268,7 +268,7 @@ internal class Subf2mSubtitleProvider {
             ?.let { decodeHtml(stripTags(it)) }.orEmpty()
 
     private fun matchesTitle(wanted: String, candidate: String, year: Int?, season: Int?): Boolean {
-        if (year != null && season == null) {
+        if (year != null) {
             val candidateYear = YEAR.find(candidate)?.groupValues?.get(1)?.toIntOrNull()
             if (candidateYear != null && candidateYear != year) return false
         }
