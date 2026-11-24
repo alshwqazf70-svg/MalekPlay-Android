@@ -344,12 +344,15 @@ internal class Subf2mSubtitleProvider {
         private val YEAR = Regex("\\((\\d{4})\\)")
         private val IMDB = Regex("(?i)imdb\\.com/title/(tt\\d+)")
         private val PAGE_TITLE = Regex("(?is)<title[^>]*>(.*?)</title>")
-        private val SEARCH_LINK = Regex("(?is)<div[^>]*class=['\"][^'\"]*\\btitle\\b[^'\"]*['\"][^>]*>\\s*<a[^>]*href=['\"](/subtitles/[^'\"]+)['\"][^>]*>(.*?)</a>")
+        private val SEARCH_RESULT_OPEN = Regex("(?is)<div[^>]*class=['\"][^'\"]*\\bsearch-result\\b[^'\"]*['\"][^>]*>")
+        private val RESULT_HEADING = Regex("(?is)<h2[^>]*class=['\"][^'\"]*\\b(?:exact|close|popular)\\b[^'\"]*['\"]")
+        private val RESULT_LIST_OPEN = Regex("(?is)<ul[^>]*>")
+        private val RESULT_ANCHOR = Regex("(?is)<a\\b[^>]*href=['\"](/subtitles/[^'\"]+)['\"][^>]*>(.*?)</a>")
         private val ITEM_START = Regex("(?is)<li\\b[^>]*class=['\"][^'\"]*\\bitem\\b[^'\"]*['\"][^>]*>")
         private val SCROLL_LIST = Regex("(?is)<ul[^>]*class=['\"][^'\"]*\\bscrolllist\\b[^'\"]*['\"][^>]*>(.*?)</ul>")
         private val INNER_LI = Regex("(?is)<li[^>]*>(.*?)</li>")
         private val COMMENT = Regex("(?is)<div[^>]*class=['\"][^'\"]*\\bcomment-col\\b[^'\"]*['\"][^>]*>.*?<p[^>]*>(.*?)</p>")
         private val DOWNLOAD_LINK = Regex("(?is)<a\\b(?=[^>]*class=['\"][^'\"]*\\bdownload\\b)(?=[^>]*href=['\"]([^'\"]+)['\"])[^>]*>")
-        private val DOWNLOAD_BUTTON = Regex("(?is)<a\\b(?=[^>]*id=['\"]downloadButton['\"])(?=[^>]*href=['\"]([^'\"]+)['\"])[^>]*>")
+        private val DOWNLOAD_BUTTON = Regex("(?is)<div[^>]*class=['\"][^'\"]*\\bdownload\\b[^'\"]*['\"][^>]*>.*?<a\\b[^>]*href=['\"]([^'\"]+)['\"]")
     }
 }
