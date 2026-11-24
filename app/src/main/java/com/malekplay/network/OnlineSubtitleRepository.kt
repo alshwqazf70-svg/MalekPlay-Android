@@ -643,13 +643,23 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         return buildList {
             for (i in 0 until data.length()) {
                 val a = data.optJSONObject(i)?.optJSONObject("attributes") ?: continue
+                val feature = a.optJSONObject("feature_details")
+                val providerSeason = feature?.optInt("season_number", -1) ?: -1
+                val providerEpisode = feature?.optInt("episode_number", -1) ?: -1
+                val providerRelease = a.optString("release", "Subtitle")
+                val release = if (providerSeason > 0 && providerEpisode > 0 &&
+                    !Regex("""(?i)\bS\d{1,2}E\d{1,3}\b|\b\d{1,2}x\d{1,3}\b""")
+                        .containsMatchIn(providerRelease)
+                ) {
+                    providerRelease + " S%02dE%02d".format(Locale.ROOT, providerSeason, providerEpisode)
+                } else providerRelease
                 val files = a.optJSONArray("files") ?: continue
                 for (j in 0 until files.length()) {
                     val f = files.optJSONObject(j) ?: continue
                     val id = f.optLong("file_id")
                     val ext = f.optString("file_name").substringAfterLast('.', "").lowercase(Locale.ROOT)
                     if (id > 0 && ext in FORMATS) add(
-                        OnlineSubtitle(id, a.optString("language"), a.optString("release", "Subtitle"),
+                        OnlineSubtitle(id, a.optString("language"), release,
                             a.optInt("download_count"), ext)
                     )
                 }
