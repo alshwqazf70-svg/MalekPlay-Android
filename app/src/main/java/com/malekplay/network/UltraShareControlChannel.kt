@@ -235,7 +235,7 @@ object UltraShareControlChannel {
         networks: List<Network> = emptyList(),
         peerId: String? = null,
         onSessionClosed: (String) -> Unit = {},
-        notifyClientSessionReady: Boolean = true,
+        notifyClientSessionReady: Boolean = false,
         onSessionReady: (String) -> Unit = {},
         expectedPeerId: String? = null
     ): Decision = withContext(Dispatchers.IO) {
