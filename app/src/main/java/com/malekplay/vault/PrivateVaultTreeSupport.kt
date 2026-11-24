@@ -140,7 +140,8 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
     private fun deleteNodesAfterEncryption(nodes: List<Node>): List<String> {
         val deleted = mutableListOf<String>()
         nodes.asReversed().forEach { node ->
-            val success = runCatching { DocumentsContract.deleteDocument(resolver, node.uri) }.getOrDefault(false)
+            val success = runCatching { DocumentsContract.deleteDocument(resolver, node.uri) }
+                .getOrElse { runCatching { resolver.delete(node.uri, null, null) > 0 }.getOrDefault(false) }
             if (success && !node.directory) deleted += libraryMediaId(node.uri)
         }
         return deleted
@@ -179,9 +180,9 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
     }
 
     private fun safeArchivePath(raw: String): String {
-        val normalized = raw.replace('\\', '/').trim('/')
+        val normalized = raw.replace('\\', '/')
         require(!normalized.startsWith('/') && !normalized.contains(':')) { "مسار أرشيف غير آمن." }
-        val parts = normalized.split('/').filter { it.isNotEmpty() }
+        val parts = normalized.trim('/').split('/').filter { it.isNotEmpty() }
         require(parts.none { it == "." || it == ".." }) { "مسار أرشيف غير آمن." }
         return parts.joinToString("/") { safeSegment(it) }
     }
