@@ -1572,7 +1572,7 @@ class PlayerViewModel @Inject constructor(
             _onlineSubtitleResults.value = emptyList()
             try {
                 // The database media id is not necessarily a URI. Prefer the actual
-                // Media3 item's local content/file URI so OpenSubtitles can hash it.
+                // Media3 item's local content/file URI so SubDL can match the release filename.
                 val sourceUri = _controller.value?.currentMediaItem?.localConfiguration?.uri
                     ?.takeIf { it.scheme == "file" || it.scheme == "content" }
                     ?: currentMediaId?.let { raw ->
