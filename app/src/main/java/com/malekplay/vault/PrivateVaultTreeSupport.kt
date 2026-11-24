@@ -14,8 +14,9 @@ import java.util.zip.ZipOutputStream
 data class VaultFolderResult(
     val entry: PrivateVaultEntry,
     val fileCount: Int,
-    val deletedSourceFiles: Int
+    val deletedSourceUris: List<String>
 ) {
+    val deletedSourceFiles: Int get() = deletedSourceUris.size
     val sourceFullyMoved: Boolean get() = deletedSourceFiles == fileCount
 }
 
@@ -56,7 +57,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         } finally {
             runCatching { DocumentsContract.deleteDocument(resolver, tempUri) }
         }
-        val deleted = if (moveSource) deleteNodesAfterEncryption(nodes) else 0
+        val deleted = if (moveSource) deleteNodesAfterEncryption(nodes) else emptyList()
         return VaultFolderResult(stored, files.size, deleted)
     }
 
@@ -134,11 +135,11 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         return result
     }
 
-    private fun deleteNodesAfterEncryption(nodes: List<Node>): Int {
-        var deleted = 0
+    private fun deleteNodesAfterEncryption(nodes: List<Node>): List<String> {
+        val deleted = mutableListOf<String>()
         nodes.asReversed().forEach { node ->
             val success = runCatching { DocumentsContract.deleteDocument(resolver, node.uri) }.getOrDefault(false)
-            if (success && !node.directory) deleted++
+            if (success && !node.directory) deleted += node.uri.toString()
         }
         return deleted
     }
