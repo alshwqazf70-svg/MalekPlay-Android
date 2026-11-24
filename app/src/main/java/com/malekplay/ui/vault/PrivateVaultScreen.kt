@@ -138,7 +138,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 moveFolderSelection = false
                 libraryViewModel.reconcileMovedMediaUris(result.deletedSourceUris)
                 refresh()
-                message = if (result.sourceFullyMoved && result.deletedSourceFiles > 0) "تم تشفير المجلد ونقل ${result.deletedSourceFiles} ملفاً مع الحفاظ على البنية الداخلية." else if (result.deletedSourceFiles > 0) "شُفّر المجلد؛ نُقلت ${result.deletedSourceFiles} من ${result.fileCount} ملفات فقط، وبقيت أصول أخرى." else "تم تشفير المجلد مع ${result.fileCount} ملفاً؛ بقيت الأصول الأصلية."
+                message = if (result.sourceFullyMoved && result.fileCount > 0) "تم تشفير المجلد ونقل ${result.deletedSourceFiles} ملفاً مع إزالة عناصر المصدر التابعة." else if (result.deletedSourceFiles > 0) "شُفّر المجلد؛ نُقلت ${result.deletedSourceFiles} من ${result.fileCount} ملفات، وبقيت بعض عناصر المصدر." else "تم تشفير المجلد مع ${result.fileCount} ملفاً؛ بقيت الأصول الأصلية أو تعذر حذفها."
             } catch (failure: Exception) { message = failure.localizedMessage ?: "تعذر استيراد المجلد" }
             finally { busy = false }
         }
