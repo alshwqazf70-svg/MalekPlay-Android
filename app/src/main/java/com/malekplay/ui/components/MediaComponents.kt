@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
 import androidx.compose.material3.ProgressIndicatorDefaults
+import com.malekplay.core.ui.theme.contrastingOnColor
 import com.malekplay.core.ui.util.formatBytes
 import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.domain.model.LibraryItem
@@ -322,8 +323,14 @@ fun MediaListRow(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
+                shape = RoundedCornerShape(16.dp)
+            )
             .combinedClickable(onClick = { if (selectionMode) onSelect() else onPlay() }, onLongClick = if (enableLongPressSelection) onSelect else null),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = when { isSelected -> MaterialTheme.colorScheme.primaryContainer; isCurrent -> MaterialTheme.colorScheme.secondaryContainer; else -> MaterialTheme.colorScheme.surface }
         )
@@ -442,7 +449,7 @@ fun MediaGridCard(
                 cornerRadius = 0.dp,
                 contentScale = ContentScale.Crop
             )
-            if (selectionMode || isSelected) Surface(modifier = Modifier.align(Alignment.TopEnd).padding(9.dp), shape = CircleShape, color = if (isSelected) colors.primary else Color.Black.copy(alpha = 0.68f)) { Icon(Icons.Filled.CheckCircle, contentDescription = if (isSelected) "محدد" else "تحديد", tint = Color.White, modifier = Modifier.padding(5.dp).size(22.dp)) }
+            if (selectionMode || isSelected) Surface(modifier = Modifier.align(Alignment.TopEnd).padding(9.dp), shape = CircleShape, color = if (isSelected) colors.primary else Color.Black.copy(alpha = 0.68f)) { Icon(Icons.Filled.CheckCircle, contentDescription = if (isSelected) "محدد" else "تحديد", tint = if (isSelected) contrastingOnColor(colors.primary) else Color.White, modifier = Modifier.padding(5.dp).size(22.dp)) }
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                 listOf(Color(0x18000000), Color.Transparent, Color(0xAA08060D))
             )))
@@ -479,12 +486,12 @@ fun MediaGridCard(
                 modifier = Modifier.align(Alignment.Center).size(48.dp)
                     .shadow(12.dp, CircleShape, ambientColor = colors.primary.copy(alpha = 0.60f), spotColor = colors.primary.copy(alpha = 0.34f))
                     .clip(CircleShape)
-                    .background(Brush.linearGradient(listOf(colors.primaryContainer, colors.primary)))
+                    .background(Brush.linearGradient(listOf(colors.primary, colors.secondary)))
                     .border(1.dp, Color.White.copy(alpha = 0.42f), CircleShape)
                     .clickable(onClick = { if (selectionMode) onSelect() else onPlay() }),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = "تشغيل", tint = Color.White, modifier = Modifier.size(28.dp))
+                Icon(Icons.Filled.PlayArrow, contentDescription = "تشغيل", tint = contrastingOnColor(colors.primary), modifier = Modifier.size(28.dp))
             }
             if (item.isInProgress) {
                 LinearProgressIndicator(

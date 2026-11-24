@@ -69,6 +69,7 @@ import com.malekplay.R
 import com.malekplay.backup.MalekPlayBackupManager
 import com.malekplay.core.ui.theme.AppThemeMode
 import com.malekplay.core.ui.theme.MalekPlayColors
+import com.malekplay.core.ui.theme.contrastingOnColor
 import com.malekplay.core.ui.util.formatSpeed
 import com.malekplay.domain.model.GestureAction
 import com.malekplay.safety.ParentalControlManager
@@ -248,7 +249,9 @@ fun SettingsScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+                AppearancePreviewCard()
+                Spacer(modifier = Modifier.height(14.dp))
                 Text(
                     text = stringResource(R.string.settings_accent),
                     style = MaterialTheme.typography.labelLarge,
@@ -256,25 +259,29 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     MalekPlayColors.Accents.forEach { (id, color) ->
                         val selected = settings.accent == id
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(38.dp)
                                 .clip(CircleShape)
                                 .background(color)
                                 .then(
                                     if (selected) {
                                         Modifier.border(
-                                            width = 2.dp,
+                                            width = 2.5.dp,
                                             color = MaterialTheme.colorScheme.onSurface,
                                             shape = CircleShape
                                         )
                                     } else {
-                                        Modifier
+                                        Modifier.border(
+                                            width = 1.dp,
+                                            color = MaterialTheme.colorScheme.outlineVariant,
+                                            shape = CircleShape
+                                        )
                                     }
                                 )
                                 .clickable { viewModel.update { it.copy(accent = id) } },
@@ -284,7 +291,7 @@ fun SettingsScreen(
                                 Icon(
                                     imageVector = Icons.Filled.Check,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.surface,
+                                    tint = contrastingOnColor(color),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -569,6 +576,85 @@ fun SettingsScreen(
 }
 
 // ----------------------------------------------------------------- sections
+
+@Composable
+private fun AppearancePreviewCard() {
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                        MaterialTheme.colorScheme.surface
+                    )
+                )
+            )
+            .border(1.dp, primary.copy(alpha = 0.35f), shape)
+            .padding(14.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "MalekPlayer Cinema UI",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = stringResource(R.string.home_library_tagline),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(
+                            androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                listOf(primary, secondary)
+                            )
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "4K HDR",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = contrastingOnColor(primary)
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.62f)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(
+                            androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                listOf(primary, secondary)
+                            )
+                        )
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun SettingsSection(

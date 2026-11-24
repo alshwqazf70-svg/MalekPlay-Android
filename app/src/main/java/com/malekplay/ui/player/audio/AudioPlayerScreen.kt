@@ -86,6 +86,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.malekplay.R
+import com.malekplay.core.ui.theme.contrastingOnColor
 import com.malekplay.core.ui.util.formatDuration
 import com.malekplay.core.ui.util.formatSpeed
 import com.malekplay.core.ui.util.titleWithoutExtension
@@ -251,12 +252,28 @@ fun AudioPlayerScreen(
             .background(
                 Brush.verticalGradient(
                     listOf(
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f),
                         MaterialTheme.colorScheme.surfaceContainerHigh,
-                        MaterialTheme.colorScheme.surface
+                        MaterialTheme.colorScheme.background
                     )
                 )
             )
     ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 36.dp)
+                .size(280.dp)
+                .background(
+                    Brush.radialGradient(
+                        listOf(
+                            accent.copy(alpha = 0.24f),
+                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -464,7 +481,7 @@ fun AudioPlayerScreen(
                             contentDescription = stringResource(
                                 if (isPlaying) R.string.player_pause else R.string.player_play
                             ),
-                            tint = MaterialTheme.colorScheme.onPrimary,
+                            tint = contrastingOnColor(accent),
                             modifier = Modifier.size(38.dp)
                         )
                     }

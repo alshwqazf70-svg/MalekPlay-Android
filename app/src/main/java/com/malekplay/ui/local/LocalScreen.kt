@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -76,7 +77,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.malekplay.R
-import com.malekplay.core.ui.theme.MalekPlayColors
+import com.malekplay.core.ui.theme.contrastingOnColor
+import com.malekplay.core.ui.theme.tintedSurface
 import com.malekplay.core.ui.util.MediaPermissions
 import com.malekplay.domain.model.LibraryItem
 import com.malekplay.domain.model.MediaItem
@@ -213,7 +215,11 @@ fun LocalScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(colors.surfaceContainerHigh, colors.background, colors.surface)
+                    listOf(
+                        colors.primaryContainer.copy(alpha = 0.24f),
+                        colors.background,
+                        colors.surface
+                    )
                 )
             )
             .padding(contentPadding)
@@ -310,35 +316,45 @@ fun LocalScreen(
         Spacer(Modifier.height(10.dp))
 
         // ------------------------------------------------------------- tabs
-        Row(
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            shape = RoundedCornerShape(15.dp),
+            color = colors.surfaceContainerHigh.copy(alpha = 0.85f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.55f))
         ) {
-            LocalTab.entries.forEach { choice ->
-                val label = when (choice) {
-                    LocalTab.FOLDERS -> stringResource(R.string.lib_title_folders)
-                    LocalTab.VIDEOS -> stringResource(R.string.profile_videos)
-                    LocalTab.AUDIO -> stringResource(R.string.profile_songs)
-                }
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(11.dp))
-                        .clickableLocal { tab = choice },
-                    color = if (tab == choice) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = RoundedCornerShape(11.dp)
-                ) {
-                    Text(
-                        label,
-                        modifier = Modifier.padding(vertical = 10.dp),
-                        textAlign = TextAlign.Center,
-                        color = if (tab == choice) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelLarge
-                    )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                LocalTab.entries.forEach { choice ->
+                    val selected = tab == choice
+                    val label = when (choice) {
+                        LocalTab.FOLDERS -> stringResource(R.string.lib_title_folders)
+                        LocalTab.VIDEOS -> stringResource(R.string.profile_videos)
+                        LocalTab.AUDIO -> stringResource(R.string.profile_songs)
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(11.dp))
+                            .clickableLocal { tab = choice },
+                        color = if (selected) colors.primary else Color.Transparent,
+                        shape = RoundedCornerShape(11.dp)
+                    ) {
+                        Text(
+                            label,
+                            modifier = Modifier.padding(vertical = 9.dp),
+                            textAlign = TextAlign.Center,
+                            color = if (selected) contrastingOnColor(colors.primary)
+                            else colors.onSurfaceVariant,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
                 }
             }
         }
@@ -539,6 +555,11 @@ private fun LibraryHero(
     audioCount: Int
 ) {
     val totalMedia = videoCount + audioCount
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val deepStop = tintedSurface(primary, Color.Black, 0.30f)
+    val ink = contrastingOnColor(primary)
+    val metricBg = if (ink == Color.White) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.08f)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -546,13 +567,10 @@ private fun LibraryHero(
             .clip(RoundedCornerShape(24.dp))
             .background(
                 Brush.linearGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.78f),
-                        MalekPlayColors.Amethyst.copy(alpha = 0.88f)
-                    )
+                    colors = listOf(deepStop, primary, secondary)
                 )
             )
+            .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(24.dp))
             .padding(horizontal = 18.dp, vertical = 17.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -560,21 +578,21 @@ private fun LibraryHero(
                 text = stringResource(R.string.home_hero_title),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = ink
             )
             Text(
                 text = stringResource(R.string.home_hero_subtitle),
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.84f)
+                color = ink.copy(alpha = 0.84f)
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                LibraryMetric(totalMedia.toString(), stringResource(R.string.home_total_media), Modifier.weight(1f))
-                LibraryMetric(folderCount.toString(), stringResource(R.string.lib_title_folders), Modifier.weight(1f))
-                LibraryMetric(videoCount.toString(), stringResource(R.string.profile_videos), Modifier.weight(1f))
-                LibraryMetric(audioCount.toString(), stringResource(R.string.profile_songs), Modifier.weight(1f))
+                LibraryMetric(totalMedia.toString(), stringResource(R.string.home_total_media), ink, metricBg, Modifier.weight(1f))
+                LibraryMetric(folderCount.toString(), stringResource(R.string.lib_title_folders), ink, metricBg, Modifier.weight(1f))
+                LibraryMetric(videoCount.toString(), stringResource(R.string.profile_videos), ink, metricBg, Modifier.weight(1f))
+                LibraryMetric(audioCount.toString(), stringResource(R.string.profile_songs), ink, metricBg, Modifier.weight(1f))
             }
         }
     }
@@ -584,24 +602,26 @@ private fun LibraryHero(
 private fun LibraryMetric(
     value: String,
     label: String,
+    ink: Color,
+    chipColor: Color,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
-            .background(Color.White.copy(alpha = 0.14f))
+            .background(chipColor)
             .padding(horizontal = 7.dp, vertical = 9.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = value,
-            color = Color.White,
+            color = ink,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )
         Text(
             text = label,
-            color = Color.White.copy(alpha = 0.86f),
+            color = ink.copy(alpha = 0.86f),
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1
         )
