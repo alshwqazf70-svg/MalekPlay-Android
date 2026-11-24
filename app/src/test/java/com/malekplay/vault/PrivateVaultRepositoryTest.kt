@@ -136,7 +136,7 @@ class PrivateVaultRepositoryTest {
                 it.name.endsWith(".tmp") || it.name.endsWith(".pending") || it.name.endsWith(".mkv")
             })
         } finally {
-            password.fill('\\u0000')
+            password.fill('\u0000')
             vaultDirectory.deleteRecursively()
         }
     }
@@ -171,7 +171,7 @@ class PrivateVaultRepositoryTest {
             assertTrue(!File(vaultDirectory, "${orphanId}.tmp").exists())
             assertTrue(!File(vaultDirectory, "${orphanId}.mkv").exists())
         } finally {
-            password.fill('\\u0000')
+            password.fill('\u0000')
             vaultDirectory.deleteRecursively()
         }
     }
