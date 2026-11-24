@@ -130,10 +130,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     @Volatile private var cachedOpenSubtitlesToken: CachedOpenSubtitlesToken? = null
 
     /** Fetches a separately sourced, exact-title TV episode guide; does not affect subtitle providers. */
-    fun searchTvEpisodeGuide(title: String): TvEpisodeGuide? {
+    fun searchTvEpisodeGuide(title: String, forceRefresh: Boolean = false): TvEpisodeGuide? {
         val cleaned = SubtitleQueryCleaner.clean(title)
         require(cleaned.title.isNotBlank()) { "أدخل اسم المسلسل أولاً" }
-        return tvMazeEpisodeGuideProvider.search(cleaned.title, cleaned.year)
+        return tvMazeEpisodeGuideProvider.search(cleaned.title, cleaned.year, forceRefresh)
     }
 
     fun saveCredentials(apiKey: String, username: String, password: String) {
