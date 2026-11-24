@@ -244,12 +244,15 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          LOG_FILE="/tmp/jvm-unit-test.log"
           for attempt in 1 2 3; do
             echo "JVM test attempt ${attempt}/3"
-            if ./gradlew --build-cache --stacktrace --max-workers=2 :app:testDebugUnitTest; then
+            if ./gradlew --build-cache --console=plain --stacktrace --max-workers=2 :app:testDebugUnitTest 2>&1 | tee "${LOG_FILE}"; then
               exit 0
             fi
             if [ "${attempt}" -eq 3 ]; then
+              TAIL_OUT=$(tail -n 60 "${LOG_FILE}" | tr '\r' ' ')
+              echo "::error title=JVM unit test failure::${TAIL_OUT//$'\n'/%0A}"
               echo "JVM tests failed after three attempts; preserving the real test failure."
               exit 1
             fi
