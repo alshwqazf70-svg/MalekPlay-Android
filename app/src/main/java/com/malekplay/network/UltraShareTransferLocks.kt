@@ -22,7 +22,7 @@ internal class UltraShareTransferLocks(context: Context) {
             if (isReceiving) receivingCount++ else sendingCount++
             runCatching {
                 if (wifiLock?.isHeld != true) {
-                    val manager = appContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                    val manager = appContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
                     wifiLock = manager.createWifiLock(
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) WifiManager.WIFI_MODE_FULL_LOW_LATENCY
                         else WifiManager.WIFI_MODE_FULL_HIGH_PERF,
