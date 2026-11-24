@@ -134,11 +134,15 @@ class PrivateVaultRepository(context: Context) {
         val source = payload(id)
         val staged = File(directory, "$id.delete")
         check(source.renameTo(staged)) { "Could not stage encrypted item deletion." }
+        var indexCommitted = false
         try {
             persistIndex(current.filterNot { it.id == id }, password)
-            check(staged.delete()) { "Index updated but encrypted payload cleanup failed." }
+            indexCommitted = true
+            // The index is authoritative now. If physical cleanup fails, leave the
+            // staged payload for PrivateVaultRecovery instead of resurrecting it.
+            staged.delete()
         } catch (failure: Throwable) {
-            if (staged.exists()) staged.renameTo(source)
+            if (!indexCommitted && staged.exists()) staged.renameTo(source)
             throw failure
         }
     }
