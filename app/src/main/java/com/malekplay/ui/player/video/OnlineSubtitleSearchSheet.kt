@@ -159,9 +159,9 @@ fun OnlineSubtitleSearchSheet(
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                "الرخصة: CC BY-SA 4.0",
+                                "الرخصة: CC BY-SA",
                                 modifier = Modifier.clickable {
-                                    uriHandler.openUri("https://creativecommons.org/licenses/by-sa/4.0/")
+                                    uriHandler.openUri("https://www.tvmaze.com/api")
                                 },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary
