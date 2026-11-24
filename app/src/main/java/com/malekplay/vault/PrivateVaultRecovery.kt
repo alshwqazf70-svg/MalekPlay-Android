@@ -4,7 +4,7 @@ import java.io.File
 
 /** File-system recovery policy for vault payload/index transactions. */
 internal object PrivateVaultRecovery {
-    private val validId = Regex("[0-9a-fA-F-]{36}")
+    private val validId = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
     fun recover(directory: File, committedIds: Set<String>) {
         directory.listFiles()?.forEach { file ->
