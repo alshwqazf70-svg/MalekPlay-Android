@@ -174,9 +174,24 @@ internal class Subf2mSubtitleProvider {
             .get().build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("تعذر الاتصال بـSubF2M (HTTP ${response.code})")
-            val body = response.body?.string().orEmpty()
-            require(body.length <= MAX_HTML_CHARS) { "صفحة SubF2M أكبر من الحد المسموح" }
-            return body
+            val responseBody = response.body ?: return ""
+            if (responseBody.contentLength() > MAX_HTML_BYTES) {
+                error("صفحة SubF2M أكبر من الحد المسموح")
+            }
+            val bytes = responseBody.byteStream().use { input ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    require(total <= MAX_HTML_BYTES) { "صفحة SubF2M أكبر من الحد المسموح" }
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            }
+            return bytes.toString(Charsets.UTF_8)
         }
     }
 
@@ -242,8 +257,9 @@ internal class Subf2mSubtitleProvider {
     }
 
     private fun stripTags(value: String): String = TAGS.replace(value, " ")
+    @Suppress("DEPRECATION")
     private fun decodeHtml(value: String): String =
-        Html.fromHtml(value, Html.FROM_HTML_MODE_LEGACY).toString().replace(Regex("\\s+"), " ").trim()
+        Html.fromHtml(value).toString().replace(Regex("\\s+"), " ").trim()
 
     private fun looksLikeHtml(bytes: ByteArray): Boolean {
         val head = bytes.take(256).toByteArray().toString(Charsets.UTF_8).trimStart()
@@ -256,7 +272,7 @@ internal class Subf2mSubtitleProvider {
         private const val CDN_HOST = "isubcdn.com"
         private const val BASE = "https://subf2m.co"
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MalekPlayer"
-        private const val MAX_HTML_CHARS = 3 * 1024 * 1024
+        private const val MAX_HTML_BYTES = 3 * 1024 * 1024
         private const val MAX_BYTES = 8 * 1024 * 1024
         private const val MAX_TITLE_RESULTS = 3
         private const val MAX_RESULTS = 40
