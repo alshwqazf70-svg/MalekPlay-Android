@@ -44,13 +44,13 @@ internal object SubtitleResultPolicy {
     internal fun isMultiEpisodeRange(release: String, season: Int): Boolean {
         val normalized = normalizeEpisodeRelease(release)
         val seasonEpisodeRange = Regex(
-            """(?i)\\bS0*(\\d{1,2})E0*(\\d{1,3})\\s*(?:-|–|—|\\bto\\b|\\bthrough\\b|\\band\\b|&|,|\\+|E)\\s*(?:S0*(\\d{1,2}))?E?0*(\\d{1,3})\\b"""
+            """(?i)\bS0*(\d{1,2})E0*(\d{1,3})\s*(?:-|–|—|\bto\b|\bthrough\b|\band\b|&|,|\+|E)\s*(?:S0*(\d{1,2}))?E?0*(\d{1,3})\b"""
         )
         val xEpisodeRange = Regex(
-            """(?i)\\b0*(\\d{1,2})x0*(\\d{1,3})\\s*(?:-|–|—|\\bto\\b|\\bthrough\\b)\\s*(?:(0*\\d{1,2})x)?0*(\\d{1,3})\\b"""
+            """(?i)\b0*(\d{1,2})x0*(\d{1,3})\s*(?:-|–|—|\bto\b|\bthrough\b)\s*(?:(0*\d{1,2})x)?0*(\d{1,3})\b"""
         )
         val namedEpisodeRange = Regex(
-            """(?i)\\bSeason\\s*0*(\\d{1,2})\\s+Episodes?\\s*0*(\\d{1,3})\\s*(?:-|–|—|\\bto\\b|\\bthrough\\b)\\s*(?:Episode\\s*)?0*(\\d{1,3})\\b"""
+            """(?i)\bSeason\s*0*(\d{1,2})\s+Episodes?\s*0*(\d{1,3})\s*(?:-|–|—|\bto\b|\bthrough\b)\s*(?:Episode\s*)?0*(\d{1,3})\b"""
         )
         val seasonRange = seasonEpisodeRange.findAll(normalized).any { match ->
             val firstSeason = match.groupValues[1].toIntOrNull()

@@ -310,9 +310,9 @@ internal class Subf2mSubtitleProvider {
 
     internal fun isExactEpisode(release: String, season: Int, episode: Int): Boolean {
         val patterns = listOf(
-            Regex("(?i)\\bs0*\\$season\\s*e0*\\$episode\\b"),
-            Regex("(?i)\\b0*\\$season\\s*x\\s*0*\\$episode\\b"),
-            Regex("(?i)\\bseason\\s*0*\\$season\\s*[- ]\\s*0*\\$episode\\b")
+            Regex("(?i)\\bs0*$season\\s*e0*$episode\\b"),
+            Regex("(?i)\\b0*$season\\s*x\\s*0*$episode\\b"),
+            Regex("(?i)\\bseason\\s*0*$season\\s*[- ]\\s*0*$episode\\b")
         )
         return patterns.any { it.containsMatchIn(release) } &&
             !SubtitleResultPolicy.isMultiEpisodeRange(release, season)

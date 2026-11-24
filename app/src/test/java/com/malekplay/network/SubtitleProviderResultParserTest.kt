@@ -3,8 +3,13 @@ package com.malekplay.network
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import org.junit.runner.RunWith
 import org.json.JSONArray
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [29])
 class SubtitleProviderResultParserTest {
     @Test fun parsesProviderLanguageAliases() {
         assertEquals("ar", SubtitleProviderResultParser.language("Arabic"))

@@ -310,7 +310,7 @@ class PrivateVaultRepository(context: Context) {
             }
             val legacyPwd = session.legacyPasswordCopy()
             val current = try {
-                readIndexInternal(key, legacyPwd)
+                readIndexInternal(key, legacyPwd, runRecovery = false)
             } finally {
                 legacyPwd?.fill('\u0000')
             }
@@ -605,7 +605,11 @@ class PrivateVaultRepository(context: Context) {
         }
     }
 
-    private fun readIndexInternal(masterKey: ByteArray, password: CharArray?): List<PrivateVaultEntry> {
+    private fun readIndexInternal(
+        masterKey: ByteArray,
+        password: CharArray?,
+        runRecovery: Boolean = true
+    ): List<PrivateVaultEntry> {
         check(indexFile.isFile) { "Vault has not been created." }
         val plain = File(directory, "index-${UUID.randomUUID()}.tmp")
         try {
@@ -637,11 +641,13 @@ class PrivateVaultRepository(context: Context) {
                 check(input.read() == -1) { "Unexpected vault index data." }
                 entries to (magic == legacyIndexMagic)
             }
-            PrivateVaultRecovery.recover(
-                directory,
-                entries.mapTo(mutableSetOf()) { it.id },
-                pruneOrphanThumbs = true
-            )
+            if (runRecovery) {
+                PrivateVaultRecovery.recover(
+                    directory,
+                    entries.mapTo(mutableSetOf()) { it.id },
+                    pruneOrphanThumbs = true
+                )
+            }
             if (!needsSizeMigration) return entries
 
             // Older builds stored ciphertext length in sizeBytes. Recalculate the
