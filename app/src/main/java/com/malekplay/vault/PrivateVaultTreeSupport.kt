@@ -82,7 +82,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                             var parent = rootFolder
                             parts.forEachIndexed { index, part ->
                                 val isDirectory = item.isDirectory || index < parts.lastIndex
-                                parent = findChild(parent, part) ?: DocumentsContract.createDocument(
+                                parent = findChild(parent, part, destinationTree) ?: DocumentsContract.createDocument(
                                     resolver, parent,
                                     if (isDirectory) DocumentsContract.Document.MIME_TYPE_DIR else "application/octet-stream",
                                     part
@@ -158,8 +158,8 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         return ""
     }
 
-    private fun findChild(parent: Uri, name: String): Uri? {
-        val children = DocumentsContract.buildChildDocumentsUri(parent.authority, DocumentsContract.getDocumentId(parent))
+    private fun findChild(parent: Uri, name: String, treeUri: Uri): Uri? {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, DocumentsContract.getDocumentId(parent))
         resolver.query(
             children,
             arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
@@ -169,7 +169,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
             val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
             while (cursor.moveToNext()) {
                 if (cursor.getString(nameCol) == name) {
-                    return DocumentsContract.buildDocumentUri(parent.authority, cursor.getString(idCol))
+                    return DocumentsContract.buildDocumentUriUsingTree(treeUri, cursor.getString(idCol))
                 }
             }
         }
