@@ -144,12 +144,22 @@ fun OnlineSubtitleSearchSheet(
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold
                         )
-                        Text(
-                            "بيانات المواسم والحلقات مقدمة من TVmaze · مرخصة CC BY-SA 4.0",
-                            modifier = Modifier.clickable { uriHandler.openUri("https://www.tvmaze.com") },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "مصدر البيانات: TVmaze",
+                                modifier = Modifier.clickable { uriHandler.openUri("https://www.tvmaze.com") },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                "الرخصة: CC BY-SA 4.0",
+                                modifier = Modifier.clickable {
+                                    uriHandler.openUri("https://creativecommons.org/licenses/by-sa/4.0/")
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                         Row(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
