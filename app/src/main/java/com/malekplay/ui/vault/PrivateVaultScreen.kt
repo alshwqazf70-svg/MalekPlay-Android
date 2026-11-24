@@ -241,7 +241,111 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             Text("الخزنة الخاصة", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
             Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         }
-        if (!unlocked) {
+        if (browserOpen) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                IconButton(onClick = { backFromBrowser() }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع")
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("اختيار ملفات للخزنة", style = MaterialTheme.typography.titleLarge)
+                    Text(browserPath.joinToString("  ›  ") { it.second }, style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text("\${selectedUris.size} محدد", color = MaterialTheme.colorScheme.primary)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = {
+                    selectedUris.clear()
+                    selectedUris.addAll(browserItems.filterNot { it.isDirectory }.map { it.uri.toString() })
+                }, enabled = !browserLoading && browserItems.any { !it.isDirectory }) { Text("تحديد الملفات") }
+                TextButton(onClick = { selectedUris.clear() }, enabled = selectedUris.isNotEmpty()) { Text("إلغاء التحديد") }
+            }
+            if (browserLoading) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+            } else if (browserItems.isEmpty()) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("هذا المجلد فارغ أو لا يحتوي على عناصر يمكن عرضها.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(browserItems, key = { it.documentId }) { item ->
+                        val checked = selectedUris.contains(item.uri.toString())
+                        Card(Modifier.fillMaxWidth()) {
+                            Row(
+                                Modifier.fillMaxWidth().clickable(enabled = !busy) {
+                                    if (item.isDirectory) {
+                                        browserPath.add(item.documentId to item.displayName)
+                                        selectedUris.clear()
+                                        scope.launch { loadBrowserFolder(item.documentId) }
+                                    } else {
+                                        if (checked) selectedUris.remove(item.uri.toString())
+                                        else selectedUris.add(item.uri.toString())
+                                    }
+                                }.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (item.isDirectory) {
+                                    Icon(Icons.Filled.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(48.dp))
+                                } else if (item.mimeType.startsWith("image/") || item.mimeType.startsWith("video/")) {
+                                    AsyncImage(model = item.uri, contentDescription = null,
+                                        modifier = Modifier.size(width = 76.dp, height = 58.dp), contentScale = ContentScale.Crop)
+                                } else {
+                                    Icon(Icons.Filled.InsertDriveFile, contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(48.dp))
+                                }
+                                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                    Text(item.displayName, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.titleSmall)
+                                    Text(if (item.isDirectory) "مجلد" else formatBytes(item.sizeBytes),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                                }
+                                if (!item.isDirectory) {
+                                    Checkbox(checked = checked, onCheckedChange = { value ->
+                                        if (value) selectedUris.add(item.uri.toString())
+                                        else selectedUris.remove(item.uri.toString())
+                                    })
+                                } else {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "فتح المجلد",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Button(
+                onClick = {
+                    val chosen = selectedUris.toList().map(Uri::parse)
+                    if (chosen.isNotEmpty()) scope.launch {
+                        busy = true
+                        browserOpen = false
+                        importTotal = chosen.size
+                        importProgress = 0
+                        var completed = 0
+                        val failures = mutableListOf<String>()
+                        try {
+                            chosen.forEach { uri ->
+                                try {
+                                    withContext(Dispatchers.IO) { repository.importUri(uri, password.toCharArray()) }
+                                    completed++
+                                } catch (failure: Exception) {
+                                    failures += (failure.localizedMessage ?: "تعذر تشفير الملف")
+                                } finally { importProgress++ }
+                            }
+                            refresh()
+                            message = if (failures.isEmpty()) "تم تشفير وإضافة $completed ملفاً إلى الخزنة." else
+                                "تم حفظ $completed ملفاً، وتعذر حفظ \${failures.size}. \${failures.first()}"
+                            selectedUris.clear()
+                        } finally { busy = false }
+                    }
+                },
+                enabled = !busy && !browserLoading && selectedUris.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary)
+            ) { Text("إضافة الآن (\${selectedUris.size})") }
+        } else if (!unlocked) {
             Text(if (configured) "أدخل كلمة المرور لفتح ملفاتك الخاصة." else "أنشئ كلمة مرور من 8 أحرف على الأقل. سيُشفّر محتوى الملفات وفهرسها داخل مساحة التطبيق.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(password, { password = it }, modifier = Modifier.fillMaxWidth(), label = { Text("كلمة المرور") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
             if (!configured) OutlinedTextField(confirmation, { confirmation = it }, modifier = Modifier.fillMaxWidth(), label = { Text("تأكيد كلمة المرور") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
