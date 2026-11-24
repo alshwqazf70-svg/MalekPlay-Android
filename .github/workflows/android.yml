@@ -250,8 +250,18 @@ jobs:
             if ./gradlew --build-cache --console=plain --max-workers=2 :app:testDebugUnitTest 2>&1 | tee "${LOG_FILE}"; then
               exit 0
             fi
-            ERR_LINES=$(grep -E "(^e: |^> .*error|FAILURE:|Execution failed for task)" "${LOG_FILE}" | head -n 40 | tr '\r' ' ')
-            TEST_FAILURES=$(python3 -c 'import glob, xml.etree.ElementTree as ET; out = []; [out.append(f"{tc.attrib.get(\"classname\")}.{tc.attrib.get(\"name\")}: " + " | ".join(((tc.find("failure") if tc.find("failure") is not None else tc.find("error")).attrib.get("message") or ((tc.find("failure") if tc.find("failure") is not None else tc.find("error")).text or "")).strip().splitlines()[:3])) for p in sorted(glob.glob("app/build/test-results/testDebugUnitTest/TEST-*.xml")) for tc in ET.parse(p).getroot().findall("testcase") if tc.find("failure") is not None or tc.find("error") is not None]; print("\n".join(out[:25]))' 2>/dev/null || true)
+            ERR_LINES=$(grep -E "(^e: |FAILED|There were failing tests|FAILURE:|Execution failed for task)" "${LOG_FILE}" | head -n 40 | tr '\r' ' ')
+            TEST_FAILURES=$(python3 -c 'import glob, xml.etree.ElementTree as ET
+out = []
+for p in sorted(glob.glob("app/build/test-results/testDebugUnitTest/TEST-*.xml")):
+    root = ET.parse(p).getroot()
+    for tc in root.findall("testcase"):
+        f = tc.find("failure")
+        if f is None: f = tc.find("error")
+        if f is not None:
+            msg = (f.attrib.get("message") or f.text or "").strip().splitlines()[:3]
+            out.append(tc.attrib.get("classname", "") + "." + tc.attrib.get("name", "") + ": " + " | ".join(msg))
+print("\n".join(out[:25]))' || true)
             if [ -n "${TEST_FAILURES}" ]; then
               echo "::error title=Failed unit tests::${TEST_FAILURES//$'\n'/%0A}"
               echo "Unit test failures detected; failing without retrying."
