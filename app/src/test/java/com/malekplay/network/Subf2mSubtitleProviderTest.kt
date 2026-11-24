@@ -26,6 +26,52 @@ class Subf2mSubtitleProviderTest {
         assertFalse(provider.isExactEpisode("Show.S01E030.1080p", 1, 3))
     }
 
+    @Test fun parsesRealSubF2mSearchResultMarkupAndSeasonOrdinal() {
+        val html = """
+            <div class="search-result">
+              <h2 class="exact">Exact match</h2>
+              <ul>
+                <li><a href="/subtitles/chernobyl-first-season">Chernobyl - First Season</a></li>
+              </ul>
+            </div>
+        """.trimIndent()
+        val matches = provider.parseSearchResultCandidates(
+            html, "Chernobyl", 2019, 1
+        )
+        assertEquals(1, matches.size)
+        assertEquals("/subtitles/chernobyl-first-season", matches.single().first)
+    }
+
+    @Test fun rejectsWrongSeasonSearchResult() {
+        val html = """
+            <div class="search-result">
+              <h2 class="exact">Exact match</h2>
+              <ul>
+                <li><a href="/subtitles/show-second-season">Show - Second Season</a></li>
+              </ul>
+            </div>
+        """.trimIndent()
+        assertTrue(provider.parseSearchResultCandidates(html, "Show", null, 1).isEmpty())
+    }
+
+    @Test fun resolvesActualSubF2mDownloadContainerLinkSafely() {
+        val html = """
+            <div class="download">
+              <a href="/download/subtitle/3093578">Download</a>
+            </div>
+        """.trimIndent()
+        assertEquals(
+            "https://subf2m.co/download/subtitle/3093578",
+            provider.resolveDownloadPageLink(
+                html, "https://subf2m.co/subtitles/chernobyl/arabic/3093578"
+            )
+        )
+        val hostile = """<div class="download"><a href="https://evil.example/file.zip">Download</a></div>"""
+        assertEquals(null, provider.resolveDownloadPageLink(
+            hostile, "https://subf2m.co/subtitles/chernobyl/arabic/3093578"
+        ))
+    }
+
     @Test fun parsesArabicEpisodeAndRejectsWrongEpisodeEvenIfCommentMentionsRequestedOne() {
         val html = """
             <html><head><title>Subtitles for Chernobyl - First Season</title></head><body>
