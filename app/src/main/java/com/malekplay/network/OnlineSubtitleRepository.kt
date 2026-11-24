@@ -503,6 +503,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             error(payload.optString("error").takeIf { it.isNotBlank() }
                 ?: "رفضت خدمة SubDL v2 طلب مطابقة اسم الملف")
         }
+        val identityResults = payload.optJSONArray("results") ?: return emptyList()
+        if (!SubtitleProviderResultParser.subDlHasExactTitleMatch(identityResults, parsed.title, parsed.year, "tv")) {
+            return emptyList()
+        }
         val match = payload.optJSONObject("match")
         if (match != null) {
             val matchedSeason = match.optInt("season", -1)
