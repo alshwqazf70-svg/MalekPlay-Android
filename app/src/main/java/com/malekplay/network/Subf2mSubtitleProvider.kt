@@ -33,6 +33,7 @@ internal class Subf2mSubtitleProvider {
             "يجب تحديد الموسم والحلقة معاً للبحث عن ترجمة المسلسل"
         }
         val queries = buildList {
+            if (season != null) add("${title.trim()} - ${seasonOrdinal(season)} Season")
             add(title.trim())
             if (':' in title) add(title.substringBefore(':').trim())
         }.filter(String::isNotBlank).distinctBy { it.lowercase(Locale.ROOT) }
@@ -44,11 +45,17 @@ internal class Subf2mSubtitleProvider {
                 .appendQueryParameter("l", "")
                 .build().toString()
             val html = getText(searchUrl)
-            SEARCH_LINK.findAll(html).forEach { match ->
-                val path = decodeHtml(match.groupValues[1])
-                if (!path.startsWith("/subtitles/") || path.contains("..")) return@forEach
+            val resultBlock = SEARCH_RESULT.find(html)?.groupValues?.get(1) ?: continue
+            val recognizedHeading = RESULT_HEADING.containsMatchIn(resultBlock)
+            if (!recognizedHeading) continue
+            val resultList = RESULT_LIST.find(resultBlock)?.groupValues?.get(1) ?: continue
+            RESULT_ANCHOR.findAll(resultList).forEach { match ->
+                val rawPath = decodeHtml(match.groupValues[1])
+                if (!rawPath.startsWith("/subtitles/") || rawPath.contains("..")) return@forEach
                 val resultTitle = decodeHtml(stripTags(match.groupValues[2]))
-                if (matchesTitle(title, resultTitle, year, season)) candidates.putIfAbsent(path, resultTitle)
+                if (matchesTitle(title, resultTitle, year, season)) {
+                    candidates.putIfAbsent(rawPath.trimEnd('/'), resultTitle)
+                }
             }
             if (candidates.isNotEmpty()) break
         }
@@ -57,7 +64,7 @@ internal class Subf2mSubtitleProvider {
         val languages = listOf("arabic" to "ar", "english" to "en")
         for ((path, resultTitle) in candidates.entries.take(MAX_TITLE_RESULTS)) {
             for ((languagePath, languageCode) in languages) {
-                val pageUrl = "$BASE$path/$languagePath"
+                val pageUrl = "$BASE${path}/$languagePath"
                 val page = runCatching { getText(pageUrl, BASE) }.getOrNull() ?: continue
                 val parsedPage = parseSubtitlePage(
                     page, languageCode, resultTitle, season, episode, imdbId
@@ -72,6 +79,9 @@ internal class Subf2mSubtitleProvider {
         }
         return results
     }
+
+    private fun seasonOrdinal(season: Int): String =
+        SEASON_ORDINALS.getOrNull(season) ?: "Season $season"
 
     internal fun parseSubtitlePage(
         page: String,
@@ -237,13 +247,17 @@ internal class Subf2mSubtitleProvider {
             ?.let { decodeHtml(stripTags(it)) }.orEmpty()
 
     private fun matchesTitle(wanted: String, candidate: String, year: Int?, season: Int?): Boolean {
-        if (year != null) {
+        if (year != null && season == null) {
             val candidateYear = YEAR.find(candidate)?.groupValues?.get(1)?.toIntOrNull()
             if (candidateYear != null && candidateYear != year) return false
         }
         if (season != null) {
             val parsed = seasonNumber(candidate)
             if (parsed != null && parsed != season) return false
+            val ordinal = SEASON_ORDINALS.getOrNull(season)
+            if (ordinal != null && Regex("(?i)\\b${ordinal}\\s+season\\b").containsMatchIn(candidate).not() &&
+                parsed != null && parsed != season
+            ) return false
         }
         return similarTitle(wanted, candidate)
     }
@@ -264,8 +278,12 @@ internal class Subf2mSubtitleProvider {
         .replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
 
     private fun seasonNumber(value: String): Int? {
-        val match = Regex("(?i)(?:season|series|s)\\s*0*(\\d{1,2})").find(value)
-        return match?.groupValues?.get(1)?.toIntOrNull()
+        val numeric = Regex("(?i)(?:season|series|s)\\s*0*(\\d{1,2})").find(value)
+            ?.groupValues?.get(1)?.toIntOrNull()
+        if (numeric != null) return numeric
+        return SEASON_ORDINALS.indexOfFirst { ordinal ->
+            ordinal.isNotBlank() && Regex("(?i)\\b${ordinal}\\s+season\\b").containsMatchIn(value)
+        }.takeIf { it > 0 }
     }
 
     internal fun isExactEpisode(release: String, season: Int, episode: Int): Boolean {
@@ -298,6 +316,12 @@ internal class Subf2mSubtitleProvider {
         private const val MAX_TITLE_RESULTS = 3
         private const val MAX_RESULTS = 40
         private const val MAX_REDIRECTS = 5
+        private val SEASON_ORDINALS = listOf(
+            "", "First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh",
+            "Eighth", "Ninth", "Tenth", "Eleventh", "Twelfth", "Thirteenth",
+            "Fourteenth", "Fifteenth", "Sixteenth", "Seventeenth", "Eighteenth",
+            "Nineteenth", "Twentieth"
+        )
         private val TAGS = Regex("(?is)<[^>]+>")
         private val YEAR = Regex("\\((\\d{4})\\)")
         private val IMDB = Regex("(?i)imdb\\.com/title/(tt\\d+)")
