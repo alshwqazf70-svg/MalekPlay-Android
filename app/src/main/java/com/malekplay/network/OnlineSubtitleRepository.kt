@@ -56,7 +56,12 @@ data class OnlineSubtitle(
     val matchScore: Int? = null,
     /** Season/episode requested by the user; describes the search scope, not provider verification. */
     val seasonNumber: Int? = null,
-    val episodeNumber: Int? = null
+    val episodeNumber: Int? = null,
+    /** Provider-confirmed episode metadata, separate from the requested search scope. */
+    val providerSeasonNumber: Int? = null,
+    val providerEpisodeNumber: Int? = null,
+    val providerEpisodeEnd: Int? = null,
+    val fullSeasonPack: Boolean = false
 )
 
 /** Collision-resistant, filesystem-safe cache token for untrusted provider identifiers. */
@@ -522,7 +527,11 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                     languageCode = item.optString("lang").ifBlank { item.optString("language") },
                     formatName = item.optString("format"),
                     downloads = item.optInt("downloads"),
-                    fallbackTitle = displayName
+                    fallbackTitle = displayName,
+                    providerSeason = item.optInt("season").takeIf { it > 0 },
+                    providerEpisode = item.optInt("episode").takeIf { it > 0 },
+                    providerEpisodeEnd = item.optInt("episode_end").takeIf { it > 0 },
+                    fullSeasonPack = item.optBoolean("full_season")
                 ) ?: continue
                 add(parsedSubtitle)
             }
@@ -574,7 +583,11 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                             languageCode = file.optString("language").ifBlank { file.optString("lang") },
                             formatName = file.optString("format"),
                             downloads = file.optInt("downloads"),
-                            fallbackTitle = title
+                            fallbackTitle = title,
+                            providerSeason = file.optInt("season").takeIf { it > 0 } ?: parent.optInt("season").takeIf { it > 0 },
+                            providerEpisode = file.optInt("episode").takeIf { it > 0 } ?: parent.optInt("episode").takeIf { it > 0 },
+                            providerEpisodeEnd = file.optInt("episode_end").takeIf { it > 0 } ?: parent.optInt("episode_end").takeIf { it > 0 },
+                            fullSeasonPack = file.optBoolean("full_season") || parent.optBoolean("full_season")
                         ) ?: continue
                         add(parsed)
                     }
@@ -585,7 +598,11 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                         languageCode = parent.optString("language").ifBlank { parent.optString("lang") },
                         formatName = parent.optString("format"),
                         downloads = parent.optInt("downloads"),
-                        fallbackTitle = title
+                        fallbackTitle = title,
+                        providerSeason = parent.optInt("season").takeIf { it > 0 },
+                        providerEpisode = parent.optInt("episode").takeIf { it > 0 },
+                        providerEpisodeEnd = parent.optInt("episode_end").takeIf { it > 0 },
+                        fullSeasonPack = parent.optBoolean("full_season")
                     ) ?: continue
                     add(parsed)
                 }
