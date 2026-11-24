@@ -174,40 +174,10 @@ class PrivateVaultRepository(context: Context) {
                     PrivateVaultEntry(id, input.readUTF(), input.readUTF(), input.readLong())
                 }
                 check(input.read() == -1) { "Unexpected vault index data." }
-                recoverInterruptedMutations(entries)
+                PrivateVaultRecovery.recover(directory, entries.mapTo(mutableSetOf()) { it.id })
                 return entries
             }
         } finally { plain.delete() }
-    }
-
-    /**
-     * Resolve interrupted payload/index transitions after the encrypted index has
-     * authenticated successfully. A committed import keeps its payload; an
-     * uncommitted import is discarded. Interrupted deletes are rolled back or
-     * completed according to the authoritative index.
-     */
-    private fun recoverInterruptedMutations(entries: List<PrivateVaultEntry>) {
-        val committedIds = entries.mapTo(mutableSetOf()) { it.id }
-        directory.listFiles()?.forEach { file ->
-            when {
-                file.name.endsWith(".pending") -> {
-                    val id = file.name.removeSuffix(".pending")
-                    if (id.matches(Regex("[0-9a-fA-F-]{36}"))) {
-                        if (id !in committedIds) payload(id).delete()
-                        file.delete()
-                    }
-                }
-                file.name.endsWith(".delete") -> {
-                    val id = file.name.removeSuffix(".delete")
-                    if (id.matches(Regex("[0-9a-fA-F-]{36}"))) {
-                        val staged = file
-                        val target = payload(id)
-                        if (id in committedIds && !target.exists()) staged.renameTo(target)
-                        else if (id !in committedIds) staged.delete()
-                    }
-                }
-            }
-        }
     }
 
     private fun persistIndex(entries: List<PrivateVaultEntry>, password: CharArray) {
