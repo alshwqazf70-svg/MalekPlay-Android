@@ -139,6 +139,68 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
                     GLES20.glDeleteTextures(1, intArrayOf(resizedOutput), 0)
                 }
             }
+
+            // Quantitative image-quality checks on synthetic source frames. These
+            // run the exact production shader on the device GLES driver and compare
+            // input/output pixels, rather than trusting draw counters.
+            val noiseSource = grayscaleNoisePattern(SIZE, SIZE, seed = 1337)
+            mutableEffect.update(
+                VideoEnhancementPipelineConfig(
+                    denoiseEnabled = true,
+                    denoiseStrength = 0.44f
+                )
+            )
+            val denoised = renderPixels(
+                passthrough, framebuffer, noiseSource, SIZE, SIZE, 20L
+            )
+            val inputNoise = lumaStdDev(noiseSource, SIZE, SIZE, border = 2)
+            val outputNoise = lumaStdDev(denoised, SIZE, SIZE, border = 2)
+            assertTrue(
+                "Denoise did not measurably reduce flat-field noise: input=$inputNoise output=$outputNoise",
+                outputNoise < inputNoise * 0.92
+            )
+
+            val textureSource = checkerboardPattern(SIZE, SIZE, low = 116, high = 140)
+            mutableEffect.update(
+                VideoEnhancementPipelineConfig(
+                    detailEnabled = true,
+                    detailStrength = 1.12f,
+                    contrastBoost = 0.19f,
+                    clarityStrength = 0.27f
+                )
+            )
+            val detailed = renderPixels(
+                passthrough, framebuffer, textureSource, SIZE, SIZE, 21L
+            )
+            val sourceTextureContrast = neighborContrast(textureSource, SIZE, SIZE, border = 2)
+            val outputTextureContrast = neighborContrast(detailed, SIZE, SIZE, border = 2)
+            assertTrue(
+                "Detail stage did not increase fine-texture contrast: input=$sourceTextureContrast output=$outputTextureContrast",
+                outputTextureContrast > sourceTextureContrast * 1.05
+            )
+
+            // A hard edge is a worst-case ringing probe. The output may sharpen
+            // the transition, but must not develop a large bright overshoot.
+            val edgeSource = verticalEdgePattern(SIZE, SIZE, left = 0, right = 220)
+            val edgeOutput = renderPixels(
+                passthrough, framebuffer, edgeSource, SIZE, SIZE, 22L
+            )
+            val edgeMax = maxRgb(edgeOutput)
+            val edgeMin = minRgb(edgeOutput)
+            assertTrue("Sharpening introduced a bright edge halo: max=$edgeMax", edgeMax <= 232)
+            assertTrue("Sharpening introduced invalid negative/clipped output", edgeMin >= 0)
+
+            // A flat coloured patch must not acquire a visible RGB tint.
+            val colorSource = solidColorPattern(SIZE, SIZE, 96, 132, 176)
+            val colorOutput = renderPixels(
+                passthrough, framebuffer, colorSource, SIZE, SIZE, 23L
+            )
+            val channelDeltas = meanChannelDeltas(colorSource, colorOutput)
+            assertTrue(
+                "Enhancement shifted neutral colour channels: deltas=$channelDeltas",
+                channelDeltas.all { it <= 2.0 }
+            )
+
             assertEquals("Unexpected GL error after pixel readback", GLES20.GL_NO_ERROR, GLES20.glGetError())
         } finally {
             runCatching { passthrough?.release() }
@@ -155,6 +217,178 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
             if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
             EGL14.eglTerminate(display)
         }
+    }
+
+    private fun renderPixels(
+        program: BaseGlShaderProgram,
+        framebuffer: Int,
+        source: ByteArray,
+        width: Int,
+        height: Int,
+        timestampUs: Long
+    ): ByteArray {
+        val input = createTexture(source, width, height)
+        try {
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, framebuffer)
+            GLES20.glViewport(0, 0, width, height)
+            val configured = program.configure(width, height)
+            assertEquals(width, configured.width)
+            assertEquals(height, configured.height)
+            program.drawFrame(input, timestampUs)
+            GLES20.glFinish()
+            return readPixels(width, height)
+        } finally {
+            GLES20.glDeleteTextures(1, intArrayOf(input), 0)
+        }
+    }
+
+    private fun grayscaleNoisePattern(width: Int, height: Int, seed: Int): ByteArray {
+        val random = kotlin.random.Random(seed)
+        val pixels = ByteArray(width * height * 4)
+        for (index in 0 until width * height) {
+            val value = (128 + random.nextInt(-20, 21)).coerceIn(0, 255)
+            val offset = index * 4
+            pixels[offset] = value.toByte()
+            pixels[offset + 1] = value.toByte()
+            pixels[offset + 2] = value.toByte()
+            pixels[offset + 3] = 0xff.toByte()
+        }
+        return pixels
+    }
+
+    private fun checkerboardPattern(
+        width: Int,
+        height: Int,
+        low: Int,
+        high: Int
+    ): ByteArray {
+        val pixels = ByteArray(width * height * 4)
+        for (y in 0 until height) for (x in 0 until width) {
+            val value = if ((x + y) % 2 == 0) low else high
+            val offset = (y * width + x) * 4
+            pixels[offset] = value.toByte()
+            pixels[offset + 1] = value.toByte()
+            pixels[offset + 2] = value.toByte()
+            pixels[offset + 3] = 0xff.toByte()
+        }
+        return pixels
+    }
+
+    private fun verticalEdgePattern(
+        width: Int,
+        height: Int,
+        left: Int,
+        right: Int
+    ): ByteArray {
+        val pixels = ByteArray(width * height * 4)
+        for (y in 0 until height) for (x in 0 until width) {
+            val value = if (x < width / 2) left else right
+            val offset = (y * width + x) * 4
+            pixels[offset] = value.toByte()
+            pixels[offset + 1] = value.toByte()
+            pixels[offset + 2] = value.toByte()
+            pixels[offset + 3] = 0xff.toByte()
+        }
+        return pixels
+    }
+
+    private fun solidColorPattern(
+        width: Int,
+        height: Int,
+        red: Int,
+        green: Int,
+        blue: Int
+    ): ByteArray {
+        val pixels = ByteArray(width * height * 4)
+        for (index in 0 until width * height) {
+            val offset = index * 4
+            pixels[offset] = red.toByte()
+            pixels[offset + 1] = green.toByte()
+            pixels[offset + 2] = blue.toByte()
+            pixels[offset + 3] = 0xff.toByte()
+        }
+        return pixels
+    }
+
+    private fun lumaStdDev(
+        pixels: ByteArray,
+        width: Int,
+        height: Int,
+        border: Int
+    ): Double {
+        val values = ArrayList<Double>()
+        for (y in border until height - border) for (x in border until width - border) {
+            val offset = (y * width + x) * 4
+            values += 0.2126 * (pixels[offset].toInt() and 0xff) +
+                0.7152 * (pixels[offset + 1].toInt() and 0xff) +
+                0.0722 * (pixels[offset + 2].toInt() and 0xff)
+        }
+        val mean = values.average()
+        return kotlin.math.sqrt(values.sumOf { (it - mean) * (it - mean) } / values.size)
+    }
+
+    private fun neighborContrast(
+        pixels: ByteArray,
+        width: Int,
+        height: Int,
+        border: Int
+    ): Double {
+        var total = 0.0
+        var count = 0
+        for (y in border until height - border) for (x in border until width - border - 1) {
+            val first = (y * width + x) * 4
+            val second = first + 4
+            val firstLuma = 0.2126 * (pixels[first].toInt() and 0xff) +
+                0.7152 * (pixels[first + 1].toInt() and 0xff) +
+                0.0722 * (pixels[first + 2].toInt() and 0xff)
+            val secondLuma = 0.2126 * (pixels[second].toInt() and 0xff) +
+                0.7152 * (pixels[second + 1].toInt() and 0xff) +
+                0.0722 * (pixels[second + 2].toInt() and 0xff)
+            total += kotlin.math.abs(firstLuma - secondLuma)
+            count++
+        }
+        return total / count
+    }
+
+    private fun maxRgb(pixels: ByteArray): Int {
+        var maximum = 0
+        for (index in pixels.indices step 4) {
+            maximum = maxOf(
+                maximum,
+                pixels[index].toInt() and 0xff,
+                pixels[index + 1].toInt() and 0xff,
+                pixels[index + 2].toInt() and 0xff
+            )
+        }
+        return maximum
+    }
+
+    private fun minRgb(pixels: ByteArray): Int {
+        var minimum = 255
+        for (index in pixels.indices step 4) {
+            minimum = minOf(
+                minimum,
+                pixels[index].toInt() and 0xff,
+                pixels[index + 1].toInt() and 0xff,
+                pixels[index + 2].toInt() and 0xff
+            )
+        }
+        return minimum
+    }
+
+    private fun meanChannelDeltas(first: ByteArray, second: ByteArray): List<Double> {
+        val sums = DoubleArray(3)
+        var pixels = 0
+        for (index in first.indices step 4) {
+            for (channel in 0..2) {
+                sums[channel] += kotlin.math.abs(
+                    (first[index + channel].toInt() and 0xff) -
+                        (second[index + channel].toInt() and 0xff)
+                )
+            }
+            pixels++
+        }
+        return sums.map { it / pixels }
     }
 
     private fun chooseConfig(display: EGLDisplay): EGLConfig {
@@ -254,7 +488,7 @@ class VideoEnhancementPipelinePixelInstrumentedTest {
         }
 
     private companion object {
-        const val SIZE = 8
+        const val SIZE = 64
         const val MIN_VISIBLE_CHANNEL_DELTA = 2
     }
 }
