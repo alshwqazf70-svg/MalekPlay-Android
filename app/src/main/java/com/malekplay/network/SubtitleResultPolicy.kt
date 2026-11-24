@@ -47,8 +47,8 @@ internal object SubtitleResultPolicy {
             if (result.fullSeasonPack) return@filter false
             if (result.providerSeasonNumber != null && result.providerSeasonNumber != season) return@filter false
             if (result.providerEpisodeNumber != null && result.providerEpisodeNumber != episode) return@filter false
-            if (result.providerEpisodeNumber != null && result.providerEpisodeEnd != null &&
-                result.providerEpisodeEnd != result.providerEpisodeNumber) return@filter false
+            if (result.providerEpisodeEnd != null &&
+                (result.providerEpisodeNumber == null || result.providerEpisodeEnd != result.providerEpisodeNumber)) return@filter false
             val explicit = explicitEpisodePattern.find(result.release) ?: return@filter true
             val groups = explicit.groupValues
             val actualSeason = (groups[1].ifBlank { groups[3] }).toIntOrNull()
