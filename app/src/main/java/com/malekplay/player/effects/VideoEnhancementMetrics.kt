@@ -136,22 +136,43 @@ object VideoEnhancementMetrics {
         lastRenderedFirstFrameTimeMs = lastRenderedFirstFrameTimeMs
     )
 
+    /**
+     * Resets per-media-item frame statistics while retaining process-lifetime
+     * GL program/configuration facts. Media3 may keep the same shader program
+     * configured across item transitions, so clearing configureCalls or the
+     * last configured dimensions here would falsely report an unconfigured
+     * shader while drawFrame() continues to run.
+     */
+    fun resetPlaybackSession() {
+        resetFrameStatistics(preserveConfiguration = true)
+    }
+
+    /** Full reset reserved for isolated tests and explicit diagnostics teardown. */
     fun reset() {
+        resetFrameStatistics(preserveConfiguration = false)
+    }
+
+    private fun resetFrameStatistics(preserveConfiguration: Boolean) {
         processedDraws.set(0L)
         drawsByEffect.clear()
-        // Program objects can outlive a media-item transition; keep this process-lifetime count.
         lastEffectName = "none"
         lastPresentationTimeUs = -1L
         lastFailure = null
-        configureCalls.set(0L)
         drawFrameCalls.set(0L)
         drawFrameSuccesses.set(0L)
-        lastConfiguredWidth = 0
-        lastConfiguredHeight = 0
-        lastPipelineStage = "not_started"
+        lastPipelineStage = if (preserveConfiguration && configureCalls.get() > 0L) {
+            "configured"
+        } else {
+            "not_started"
+        }
         renderedFirstFrames.set(0L)
         lastRenderedOutputType = "none"
         lastRenderedFirstFrameTimeMs = -1L
+        if (!preserveConfiguration) {
+            configureCalls.set(0L)
+            lastConfiguredWidth = 0
+            lastConfiguredHeight = 0
+        }
     }
 
     data class Snapshot(
