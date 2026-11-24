@@ -18,6 +18,21 @@ internal object SubtitleProviderResultParser {
 
     fun downloadCount(value: Int): Int = value.coerceAtLeast(0)
 
+    /** Confirms that SubDL's subtitle array belongs to the requested work, not just the first fuzzy hit. */
+    fun subDlHasExactTitleMatch(results: JSONArray, title: String, year: Int?, mediaType: String): Boolean {
+        val wanted = normalizeIdentityTitle(title)
+        if (wanted.isBlank()) return false
+        return (0 until results.length()).any { index ->
+            val item = results.optJSONObject(index) ?: return@any false
+            val candidateType = item.optString("type").trim().lowercase(Locale.ROOT)
+            val candidateYear = item.optInt("year").takeIf { it > 0 }
+            val names = listOf(item.optString("name"), item.optString("original_name"))
+            candidateType.isBlank().or(candidateType == mediaType.lowercase(Locale.ROOT)) &&
+                (year == null || candidateYear == null || candidateYear == year) &&
+                names.any { normalizeIdentityTitle(it) == wanted }
+        }
+    }
+
     /** Returns an IMDb identity only when SubDL confirms the exact normalized title/year/type. */
     fun subDlImdbId(results: JSONArray, title: String, year: Int?, mediaType: String): String? {
         val wanted = normalizeIdentityTitle(title)
