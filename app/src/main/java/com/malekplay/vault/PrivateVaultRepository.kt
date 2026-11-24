@@ -46,15 +46,12 @@ class PrivateVaultRepository(context: Context) {
             }
             // Re-open and authenticate the completed ciphertext before it can enter
             // the index or before a caller is allowed to delete the original source.
-            val verification = File(directory, "verify-$id.tmp")
-            try {
-                FileInputStream(temp).use { encrypted ->
-                    FileOutputStream(verification).use { plaintext ->
-                        PrivateVaultCrypto.decrypt(encrypted, plaintext, password)
-                        plaintext.fd.sync()
-                    }
-                }
-            } finally { verification.delete() }
+            FileInputStream(temp).use { encrypted ->
+                PrivateVaultCrypto.decrypt(encrypted, object : OutputStream() {
+                    override fun write(value: Int) = Unit
+                    override fun write(buffer: ByteArray, offset: Int, length: Int) = Unit
+                }, password)
+            }
             check(temp.renameTo(target)) { "Could not finalize encrypted file." }
             val current = readIndex(password)
             check(current.size < maxEntries) { "Vault item limit reached." }
