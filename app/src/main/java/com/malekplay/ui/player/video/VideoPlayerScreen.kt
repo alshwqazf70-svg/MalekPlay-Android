@@ -222,7 +222,6 @@ fun VideoPlayerScreen(
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val playerError by viewModel.playerError.collectAsStateWithLifecycle()
     val onlineSubtitleResults by viewModel.onlineSubtitleResults.collectAsStateWithLifecycle()
-    val wyzieWorkerUrl by viewModel.wyzieWorkerUrl.collectAsStateWithLifecycle()
     val onlineSubtitleLoading by viewModel.onlineSubtitleLoading.collectAsStateWithLifecycle()
     val onlineSubtitleError by viewModel.onlineSubtitleError.collectAsStateWithLifecycle()
     val subtitleTranslationAvailable by viewModel.subtitleTranslationAvailable.collectAsStateWithLifecycle()
@@ -1465,8 +1464,6 @@ fun VideoPlayerScreen(
                 onDownloadAndTranslate = viewModel::downloadAndTranslateOnlineSubtitleToArabic,
                 onCancelTranslation = viewModel::cancelSubtitleTranslation,
                 onSaveProviderKeys = viewModel::saveOnlineSubtitleProviderKeys,
-                savedWyzieWorkerUrl = wyzieWorkerUrl,
-                onSaveWyzieWorkerUrl = viewModel::saveWyzieWorkerUrl,
                 onDismiss = { if (!onlineSubtitleLoading) showOnlineSubtitles = false }
             )
         }
