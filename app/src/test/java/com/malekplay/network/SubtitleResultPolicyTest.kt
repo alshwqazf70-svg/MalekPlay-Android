@@ -260,6 +260,17 @@ class SubtitleResultPolicyTest {
             emptyList<String>(),
             SubtitleResultPolicy.rankAndFilter(results, "ar", 1, 3).map { it.release }
         )
+        val rangeWithProviderEpisodeAtEnd = item("ar", "Show.S01E02-E03 provider")
+            .copy(providerSeasonNumber = 1, providerEpisodeNumber = 3)
+        assertEquals(
+            emptyList<String>(),
+            SubtitleResultPolicy.rankAndFilter(listOf(rangeWithProviderEpisodeAtEnd), "ar", 1, 3)
+                .map { it.release }
+        )
+        assertEquals(
+            emptyList<Int>(),
+            SubtitleResultPolicy.availableEpisodes(listOf(rangeWithProviderEpisodeAtEnd), 1)
+        )
     }
 
     @Test
