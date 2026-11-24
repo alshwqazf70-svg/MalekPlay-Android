@@ -418,6 +418,7 @@ fun MediaGridCard(
     onSend: () -> Unit = {},
     selectionMode: Boolean = false,
     isSelected: Boolean = false,
+    enableLongPressSelection: Boolean = true,
     onSelect: () -> Unit = onSend
 ) {
     val shape = RoundedCornerShape(20.dp)
@@ -430,7 +431,10 @@ fun MediaGridCard(
             .border(2.dp, Brush.linearGradient(if (isSelected) listOf(colors.onPrimaryContainer, colors.primary) else listOf(colors.primary.copy(alpha = 0.54f), colors.outlineVariant.copy(alpha = 0.55f), colors.secondary.copy(alpha = 0.34f))), shape)
     ) {
         Box(
-            modifier = Modifier.fillMaxWidth().aspectRatio(0.92f).combinedClickable(onClick = { if (selectionMode) onSelect() else onPlay() }, onLongClick = onSelect)
+            modifier = Modifier.fillMaxWidth().aspectRatio(0.92f).combinedClickable(
+                onClick = { if (selectionMode) onSelect() else onPlay() },
+                onLongClick = if (enableLongPressSelection) onSelect else null
+            )
         ) {
             MediaThumbnail(
                 media = item.media,
