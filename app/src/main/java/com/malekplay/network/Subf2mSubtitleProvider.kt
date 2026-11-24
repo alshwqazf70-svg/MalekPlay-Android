@@ -59,9 +59,12 @@ internal class Subf2mSubtitleProvider {
             for ((languagePath, languageCode) in languages) {
                 val pageUrl = "$BASE$path/$languagePath"
                 val page = runCatching { getText(pageUrl, BASE) }.getOrNull() ?: continue
-                results += parseSubtitlePage(
+                val parsedPage = parseSubtitlePage(
                     page, languageCode, resultTitle, season, episode, imdbId
                 )
+                parsedPage.forEach { candidate ->
+                    if (results.none { it.sourceId == candidate.sourceId }) results += candidate
+                }
                 if (results.size >= MAX_RESULTS) return results
             }
             val languagesFound = results.map { it.language }.toSet()
