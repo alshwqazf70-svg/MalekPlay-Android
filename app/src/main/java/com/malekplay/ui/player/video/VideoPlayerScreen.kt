@@ -222,6 +222,9 @@ fun VideoPlayerScreen(
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val playerError by viewModel.playerError.collectAsStateWithLifecycle()
     val onlineSubtitleResults by viewModel.onlineSubtitleResults.collectAsStateWithLifecycle()
+    val onlineSubtitleEpisodeGuide by viewModel.onlineSubtitleEpisodeGuide.collectAsStateWithLifecycle()
+    val onlineSubtitleGuideLoading by viewModel.onlineSubtitleGuideLoading.collectAsStateWithLifecycle()
+    val onlineSubtitleGuideError by viewModel.onlineSubtitleGuideError.collectAsStateWithLifecycle()
     val onlineSubtitleLoading by viewModel.onlineSubtitleLoading.collectAsStateWithLifecycle()
     val onlineSubtitleError by viewModel.onlineSubtitleError.collectAsStateWithLifecycle()
     val subtitleTranslationAvailable by viewModel.subtitleTranslationAvailable.collectAsStateWithLifecycle()
@@ -1441,7 +1444,14 @@ fun VideoPlayerScreen(
         if (showOnlineSubtitles) {
             OnlineSubtitleSearchSheet(
                 query = onlineQuery,
-                onQueryChange = { onlineQuery = it },
+                onQueryChange = {
+                    onlineQuery = it
+                    viewModel.clearOnlineSubtitleEpisodeGuide()
+                },
+                episodeGuide = onlineSubtitleEpisodeGuide,
+                episodeGuideLoading = onlineSubtitleGuideLoading,
+                episodeGuideError = onlineSubtitleGuideError,
+                onLoadEpisodeGuide = { viewModel.loadOnlineSubtitleEpisodeGuide(onlineQuery) },
                 language = onlineLanguage,
                 onLanguageChange = { onlineLanguage = it },
                 season = onlineSeason,
