@@ -26,6 +26,7 @@ class SubtitleProviderResultParserTest {
             "{\"name\":\"Dune\",\"year\":2021,\"type\":\"movie\"}]"
         )
         assertEquals(true, SubtitleProviderResultParser.subDlHasExactTitleMatch(results, "Dune Part Two", 2024, "movie"))
+        assertEquals(true, SubtitleProviderResultParser.subDlHasExactTitleMatch(results, "Dune Part Two", 2024, "any"))
         assertEquals(false, SubtitleProviderResultParser.subDlHasExactTitleMatch(results, "Dune", 2024, "movie"))
         assertEquals(false, SubtitleProviderResultParser.subDlHasExactTitleMatch(results, "Dune Part Two", 2024, "tv"))
         val subtitlesBelongToFirstOnly = JSONArray("[{\"name\":\"Dune\",\"year\":2021,\"type\":\"movie\"},{\"name\":\"Dune Part Two\",\"year\":2024,\"type\":\"movie\"}]")
