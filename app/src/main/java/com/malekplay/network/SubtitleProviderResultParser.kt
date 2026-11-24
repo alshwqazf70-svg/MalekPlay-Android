@@ -1,6 +1,7 @@
 package com.malekplay.network
 
 import java.util.Locale
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** Pure normalization shared by provider payload adapters and JVM regression tests. */
@@ -16,6 +17,31 @@ internal object SubtitleProviderResultParser {
         primary.trim().takeIf { it.isNotBlank() } ?: fallback.trim().ifBlank { "Subtitle" }
 
     fun downloadCount(value: Int): Int = value.coerceAtLeast(0)
+
+    /** Returns an IMDb identity only when SubDL confirms the exact normalized title/year/type. */
+    fun subDlImdbId(results: JSONArray, title: String, year: Int?, mediaType: String): String? {
+        val wanted = normalizeIdentityTitle(title)
+        if (wanted.isBlank()) return null
+        for (index in 0 until results.length()) {
+            val item = results.optJSONObject(index) ?: continue
+            val candidateType = item.optString("type").trim().lowercase(Locale.ROOT)
+            if (candidateType.isNotBlank() && candidateType != mediaType.lowercase(Locale.ROOT)) continue
+            val candidateYear = item.optInt("year").takeIf { it > 0 }
+            if (year != null && candidateYear != null && candidateYear != year) continue
+            val names = listOf(item.optString("name"), item.optString("original_name"))
+            if (names.none { normalizeIdentityTitle(it) == wanted }) continue
+            val id = item.optString("imdb_id")
+            if (id.matches(Regex("tt\\d{5,12}"))) return id
+        }
+        return null
+    }
+
+    private fun normalizeIdentityTitle(value: String): String =
+        java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{Mn}+"), "")
+            .lowercase(Locale.ROOT)
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+            .trim().replace(Regex("\\s+"), " ")
 
     fun subDlSubtitle(
         url: String,
