@@ -160,6 +160,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         require(cleaned.title.isNotBlank()) { "أدخل اسم الفيلم أو المسلسل" }
         val resolvedSeason = season ?: cleaned.season
         val resolvedEpisode = episode ?: cleaned.episode
+        require((resolvedSeason == null) == (resolvedEpisode == null)) {
+            "أدخل الموسم والحلقة معاً للبحث عن ترجمة المسلسلات"
+        }
         val providerTitle = cleaned.title + (cleaned.year?.let { " $it" } ?: "")
         val queryKey = buildString {
             append(providerTitle.trim().lowercase(Locale.ROOT))
@@ -235,11 +238,10 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         }.toSet()
         val needsBackup = primaryResults.isEmpty() ||
             !primaryLanguages.containsAll(setOf("ar", "en"))
-        val imdbId = if (needsBackup && subdlKey != null) runCatching {
-            searchSubDlTvIdentity(
-                cleaned.title, cleaned.year, subdlKey,
-                if (season != null || episode != null) "tv" else "movie"
-            )
+        // An IMDb ID is only safe for episode-scoped TV searches. For title-only
+        // searches, movie and series identities can share the same display title.
+        val imdbId = if (needsBackup && subdlKey != null && season != null && episode != null) runCatching {
+            searchSubDlTvIdentity(cleaned.title, cleaned.year, subdlKey, "tv")
         }.getOrNull() else null
         val subf2mAttempt = if (needsBackup) runCatching {
             subf2mProvider.search(cleaned.title, cleaned.year, season, episode, imdbId)
@@ -571,7 +573,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                 ?: "رفضت خدمة SubDL طلب البحث")
         }
         val identityResults = payload.optJSONArray("results") ?: return emptyList()
-        val requestedType = if (tvSearch || season != null || episode != null) "tv" else "movie"
+        val requestedType = if (tvSearch || season != null || episode != null) "tv" else "any"
         if (!SubtitleProviderResultParser.subDlHasExactTitleMatch(identityResults, title, year, requestedType)) {
             return emptyList()
         }
