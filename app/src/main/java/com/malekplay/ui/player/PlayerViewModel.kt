@@ -1591,7 +1591,10 @@ class PlayerViewModel @Inject constructor(
             } catch (error: Exception) {
                 if (currentMediaId == targetMediaId) {
                     _onlineSubtitleError.value = when (error) {
-                        is java.io.IOException -> "تعذر الاتصال بخدمات الترجمة. تحقق من الإنترنت ثم أعد المحاولة."
+                        is com.malekplay.network.SubtitleHttpException ->
+                            error.message ?: "رفض مزود الترجمة طلب البحث"
+                        is java.io.IOException ->
+                            "تعذر الاتصال بخدمات الترجمة. تحقق من الإنترنت ثم أعد المحاولة."
                         else -> error.message ?: "تعذر البحث عن الترجمة"
                     }
                 }
