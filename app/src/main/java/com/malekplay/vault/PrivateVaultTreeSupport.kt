@@ -32,6 +32,17 @@ private data class SourceDeletionResult(
     val deletedNodeCount: Int
 )
 
+/** One row in the private vault's read-only SAF source browser. */
+data class VaultBrowserItem(
+    val documentId: String,
+    val uri: Uri,
+    val displayName: String,
+    val mimeType: String,
+    val isDirectory: Boolean,
+    val sizeBytes: Long,
+    val lastModified: Long
+)
+
 /** SAF folder archive import/export. Archive paths remain inside authenticated ciphertext. */
 class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultRepository) {
     private val appContext = context.applicationContext
