@@ -181,7 +181,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     displayName = name,
                     mimeType = mime,
                     isDirectory = directory,
-                    sizeBytes = if (sizeCol >= 0 && !cursor.isNull(sizeCol)) cursor.getLong(sizeCol) else 0L,
+                    sizeBytes = if (sizeCol >= 0 && !cursor.isNull(sizeCol)) cursor.getLong(sizeCol).takeIf { it >= 0L } ?: -1L else -1L,
                     lastModified = if (modifiedCol >= 0 && !cursor.isNull(modifiedCol)) cursor.getLong(modifiedCol) else 0L
                 )
                 require(result.size <= MAX_NODES) { "المجلد يحتوي على عناصر أكثر من الحد المسموح." }

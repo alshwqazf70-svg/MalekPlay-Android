@@ -110,6 +110,73 @@ class PrivateVaultRepositoryTest {
         }
     }
     @Test
+    fun interruptedImportLeavesNoVisibleEntryOrPartialPayload() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val vaultDirectory = File(context.filesDir, "private_vault")
+        vaultDirectory.deleteRecursively()
+        val password = "interrupted-import-password".toCharArray()
+
+        try {
+            val repository = PrivateVaultRepository(context)
+            repository.create(password)
+            val brokenInput = object : java.io.InputStream() {
+                private var delivered = 0
+                override fun read(): Int {
+                    if (delivered >= 8192) throw java.io.IOException("simulated source interruption")
+                    delivered++
+                    return 0x5A
+                }
+            }
+
+            assertThrows(Exception::class.java) {
+                repository.importStream("interrupted.bin", "application/octet-stream", brokenInput, password)
+            }
+            assertTrue(repository.list(password).isEmpty())
+            assertTrue(vaultDirectory.listFiles().orEmpty().none {
+                it.name.endsWith(".tmp") || it.name.endsWith(".pending") || it.name.endsWith(".mkv")
+            })
+        } finally {
+            password.fill('\\u0000')
+            vaultDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun recoveryRestoresInterruptedDeleteAndRemovesUncommittedImportArtifacts() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val vaultDirectory = File(context.filesDir, "private_vault")
+        vaultDirectory.deleteRecursively()
+        val password = "transaction-recovery-password".toCharArray()
+        val orphanId = UUID.randomUUID().toString()
+
+        try {
+            val repository = PrivateVaultRepository(context)
+            repository.create(password)
+            val entry = repository.importStream(
+                "keep.bin", "application/octet-stream",
+                ByteArrayInputStream(byteArrayOf(1, 3, 3, 7)), password
+            )
+            val committedPayload = File(vaultDirectory, "${entry.id}.mkv")
+            assertTrue(committedPayload.renameTo(File(vaultDirectory, "${entry.id}.delete")))
+
+            File(vaultDirectory, "${orphanId}.pending").writeBytes(byteArrayOf(1))
+            File(vaultDirectory, "${orphanId}.tmp").writeBytes(byteArrayOf(2))
+            File(vaultDirectory, "${orphanId}.mkv").writeBytes(byteArrayOf(3))
+
+            val recovered = PrivateVaultRepository(context)
+            assertEquals(entry.id, recovered.list(password).single().id)
+            assertTrue(committedPayload.isFile)
+            assertTrue(!File(vaultDirectory, "${entry.id}.delete").exists())
+            assertTrue(!File(vaultDirectory, "${orphanId}.pending").exists())
+            assertTrue(!File(vaultDirectory, "${orphanId}.tmp").exists())
+            assertTrue(!File(vaultDirectory, "${orphanId}.mkv").exists())
+        } finally {
+            password.fill('\\u0000')
+            vaultDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun migratesLegacyCiphertextSizeToOriginalPlaintextSize() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val vaultDirectory = File(context.filesDir, "private_vault")

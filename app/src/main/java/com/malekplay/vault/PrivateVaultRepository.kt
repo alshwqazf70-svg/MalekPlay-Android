@@ -10,8 +10,10 @@ data class PrivateVaultEntry(val id: String, val displayName: String, val mimeTy
 
 /** Encrypted app-private vault. Import copies; it never deletes a source implicitly. */
 class PrivateVaultRepository(context: Context) {
-    private val resolver = context.applicationContext.contentResolver
-    private val directory = File(context.applicationContext.filesDir, "private_vault").apply {
+    private val appContext = context.applicationContext
+    private val resolver = appContext.contentResolver
+    private val cacheDirectory = appContext.cacheDir
+    private val directory = File(appContext.filesDir, "private_vault").apply {
         check(isDirectory || mkdirs()) { "تعذر إنشاء مساحة الخزنة الخاصة." }
     }
     private val indexFile = File(directory, "vault.index.enc")
@@ -27,6 +29,32 @@ class PrivateVaultRepository(context: Context) {
         persistIndex(emptyList(), password)
     }
     @Synchronized fun list(password: CharArray): List<PrivateVaultEntry> = readIndex(password)
+
+    /**
+     * Creates a short-lived plaintext image preview in the app cache.
+     * Only small image entries are eligible; callers must delete the returned file
+     * when the row leaves composition or the vault is locked.
+     */
+    @Synchronized fun createImagePreviewFile(id: String, password: CharArray): File? {
+        requireValidId(id)
+        val entry = readIndex(password).firstOrNull { it.id == id } ?: return null
+        if (!entry.mimeType.startsWith("image/") || entry.sizeBytes !in 1L..(24L * 1024L * 1024L)) return null
+        val encrypted = payload(id)
+        if (!encrypted.isFile) return null
+        val preview = File(cacheDirectory, ".malek-vault-preview-$id-${UUID.randomUUID()}.img")
+        try {
+            FileInputStream(encrypted).use { source ->
+                FileOutputStream(preview).use { sink ->
+                    PrivateVaultCrypto.decrypt(source, sink, password)
+                    sink.fd.sync()
+                }
+            }
+            return preview
+        } catch (failure: Throwable) {
+            preview.delete()
+            throw failure
+        }
+    }
 
     @Synchronized fun importUri(
         uri: Uri,
@@ -187,7 +215,7 @@ class PrivateVaultRepository(context: Context) {
                     val displayName = input.readUTF()
                     val mimeType = input.readUTF()
                     val sizeBytes = input.readLong()
-                    require(displayName.isNotBlank() && mimeType.isNotBlank() && sizeBytes >= 0L) {
+                    require(displayName.isNotBlank() && mimeType.isNotBlank() && sizeBytes >= -1L) {
                         "Invalid vault item metadata."
                     }
                     PrivateVaultEntry(id, displayName, mimeType, sizeBytes)
@@ -203,11 +231,17 @@ class PrivateVaultRepository(context: Context) {
             // original plaintext length once, then commit the corrected metadata.
             val migrated = entries.map { entry ->
                 val encrypted = payload(entry.id)
-                if (!encrypted.isFile) entry else entry.copy(
-                    sizeBytes = FileInputStream(encrypted).use { source ->
-                        val counter = CountingOutputStream()
-                        PrivateVaultCrypto.decrypt(source, counter, password)
-                        counter.bytesWritten
+                if (!encrypted.isFile) entry.copy(sizeBytes = -1L) else entry.copy(
+                    sizeBytes = try {
+                        FileInputStream(encrypted).use { source ->
+                            val counter = CountingOutputStream()
+                            PrivateVaultCrypto.decrypt(source, counter, password)
+                            counter.bytesWritten
+                        }
+                    } catch (_: Exception) {
+                        // A damaged or missing old payload must not make every
+                        // other healthy vault entry inaccessible during migration.
+                        -1L
                     }
                 )
             }

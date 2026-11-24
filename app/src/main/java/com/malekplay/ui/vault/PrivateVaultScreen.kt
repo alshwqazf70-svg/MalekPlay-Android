@@ -2,6 +2,7 @@ package com.malekplay.ui.vault
 
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +21,8 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +40,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 @Composable
@@ -165,11 +169,14 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                     }
                     withContext(Dispatchers.IO) { repository.importUri(uri, password.toCharArray()) }
                     encryptedCount++
-                    val deleted = withContext(Dispatchers.IO) {
+                    val deleteRequested = withContext(Dispatchers.IO) {
                         runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
                             .getOrElse { runCatching { context.contentResolver.delete(uri, null, null) > 0 }.getOrDefault(false) }
                     }
-                    if (deleted) deletedUris += PrivateVaultTreeSupport.libraryMediaId(uri)
+                    val sourceVerifiedGone = deleteRequested && withContext(Dispatchers.IO) {
+                        !sourceStillExists(context, uri)
+                    }
+                    if (sourceVerifiedGone) deletedUris += PrivateVaultTreeSupport.libraryMediaId(uri)
                 }
                 message = "شُفّر $encryptedCount ملفاً؛ حُذفت أصول ${deletedUris.size} ملفاً بعد التحقق، وبقيت أصول الملفات التي رفض مزود التخزين حذفها."
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -390,10 +397,34 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             Text("النقل لا يحذف الأصول إلا بعد نجاح التشفير؛ وإذا رفض مزود الملفات الحذف فتبقى الأصول الأصلية.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(entries, key = { it.id }) { entry ->
+                    var previewFile by remember(entry.id) { mutableStateOf<File?>(null) }
+                    LaunchedEffect(entry.id, unlocked) {
+                        previewFile = withContext(Dispatchers.IO) {
+                            repository.createImagePreviewFile(entry.id, password.toCharArray())
+                        }
+                    }
+                    DisposableEffect(previewFile) {
+                        onDispose { previewFile?.delete() }
+                    }
                     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(entry.displayName, style = MaterialTheme.typography.titleSmall)
+                            if (previewFile != null) {
+                                AsyncImage(
+                                    model = previewFile,
+                                    contentDescription = "معاينة ${entry.displayName}",
+                                    modifier = Modifier.size(width = 72.dp, height = 64.dp),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Filled.InsertDriveFile,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                            }
+                            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                Text(entry.displayName, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(entry.mimeType + " • " + formatBytes(entry.sizeBytes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (entry.mimeType == PrivateVaultTreeSupport.FOLDER_ARCHIVE_MIME) {
@@ -453,6 +484,19 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             )
         }
     }
+}
+
+private fun sourceStillExists(context: android.content.Context, uri: Uri): Boolean = try {
+    context.contentResolver.query(
+        uri,
+        arrayOf(OpenableColumns.DISPLAY_NAME),
+        null,
+        null,
+        null
+    )?.use { cursor -> cursor.moveToFirst() } ?: true
+} catch (_: Exception) {
+    // Providers that cannot verify deletion are treated as still present.
+    true
 }
 
 private fun formatBytes(bytes: Long): String = when {
