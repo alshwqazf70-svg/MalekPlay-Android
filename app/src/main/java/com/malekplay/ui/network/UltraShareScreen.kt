@@ -311,9 +311,6 @@ class LegacyUltraShareViewModel @Inject constructor(
                                             ?: "MalekPlayer Android",
                                         network = route,
                                         peerId = UltraShareDiscovery.localPeerId(context),
-                                        onSessionReady = { readyHost ->
-                                            UltraShareForegroundService.startMeshSession(context, readyHost)
-                                        }
                                     )
                                 }
                                 if (decision == UltraShareControlChannel.Decision.REJECTED) {
@@ -472,9 +469,6 @@ class LegacyUltraShareViewModel @Inject constructor(
                                             ?: "MalekPlayer Android",
                                         network = route,
                                         peerId = UltraShareDiscovery.localPeerId(context),
-                                        onSessionReady = { readyHost ->
-                                            UltraShareForegroundService.startMeshSession(context, readyHost)
-                                        }
                                     )
                                 }
                                 if (decision == UltraShareControlChannel.Decision.REJECTED) {
