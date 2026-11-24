@@ -2,6 +2,8 @@ package com.malekplay.vault
 
 import android.content.ContentResolver
 import android.content.Context
+import android.content.ContentUris
+import android.provider.MediaStore
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
@@ -139,7 +141,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         val deleted = mutableListOf<String>()
         nodes.asReversed().forEach { node ->
             val success = runCatching { DocumentsContract.deleteDocument(resolver, node.uri) }.getOrDefault(false)
-            if (success && !node.directory) deleted += node.uri.toString()
+            if (success && !node.directory) deleted += libraryMediaId(node.uri)
         }
         return deleted
     }
@@ -188,6 +190,20 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
         .filter { it.code >= 32 }.take(240).takeUnless { it == "." || it == ".." }.orEmpty()
 
     companion object {
+        /** Converts Android's MediaDocumentsProvider IDs to the exact MediaStore URI used by the library. */
+        fun libraryMediaId(uri: Uri): String {
+            if (uri.authority != "com.android.providers.media.documents") return uri.toString()
+            val documentId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull() ?: return uri.toString()
+            val type = documentId.substringBefore(':')
+            val id = documentId.substringAfter(':', "").toLongOrNull() ?: return uri.toString()
+            val collection = when (type) {
+                "video" -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                "audio" -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                else -> return uri.toString()
+            }
+            return ContentUris.withAppendedId(collection, id).toString()
+        }
+
         const val FOLDER_ARCHIVE_MIME = "application/vnd.malekplay.private-vault-folder"
         private const val MAX_DEPTH = 64
         private const val MAX_NODES = 20_000
