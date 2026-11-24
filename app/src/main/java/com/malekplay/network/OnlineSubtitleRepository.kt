@@ -145,6 +145,9 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     }
 
     /** Stores only the public Worker URL. The Wyzie API key remains a server-side secret. */
+    fun getWyzieWorkerUrl(): String =
+        runCatching { vault.load(WYZIE_WORKER_URL_SLOT)?.first.orEmpty() }.getOrDefault("")
+
     fun saveWyzieWorkerUrl(rawUrl: String) {
         val value = rawUrl.trim().trimEnd('/')
         require(value.isNotBlank()) { "أدخل رابط وسيط Wyzie المنشور" }
