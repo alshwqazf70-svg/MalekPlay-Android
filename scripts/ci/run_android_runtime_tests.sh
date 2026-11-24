@@ -84,7 +84,7 @@ run_suite() {
 case "$suite" in
   core)
     run_suite "app-smoke-database" \
-      "com.malekplay.MainNavigationSmokeTest,com.malekplay.RoomMigrationInstrumentedTest" 300
+      "com.malekplay.MainNavigationSmokeTest,com.malekplay.RoomMigrationInstrumentedTest,com.malekplay.vault.PrivateVaultRuntimeInstrumentedTest" 420
     ;;
   network)
     run_suite "network" \
@@ -96,7 +96,7 @@ case "$suite" in
     ;;
   all)
     run_suite "app-smoke-database" \
-      "com.malekplay.MainNavigationSmokeTest,com.malekplay.RoomMigrationInstrumentedTest" 300
+      "com.malekplay.MainNavigationSmokeTest,com.malekplay.RoomMigrationInstrumentedTest,com.malekplay.vault.PrivateVaultRuntimeInstrumentedTest" 420
     run_suite "network" \
       "com.malekplay.network.NetworkCredentialVaultInstrumentedTest,com.malekplay.network.UltraShareNetworkRuntimeInstrumentedTest" 600
     run_suite "gpu-video" \

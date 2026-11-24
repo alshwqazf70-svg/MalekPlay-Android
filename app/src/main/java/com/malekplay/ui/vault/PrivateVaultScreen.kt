@@ -492,17 +492,17 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     }
 }
 
-private fun sourceStillExists(context: android.content.Context, uri: Uri): Boolean = try {
-    context.contentResolver.query(
-        uri,
-        arrayOf(OpenableColumns.DISPLAY_NAME),
-        null,
-        null,
+private fun sourceStillExists(context: android.content.Context, uri: Uri): Boolean {
+    fun hasRows(projection: Array<String>): Boolean? = try {
+        context.contentResolver.query(uri, projection, null, null, null)?.use { it.moveToFirst() }
+    } catch (_: Exception) {
         null
-    )?.use { cursor -> cursor.moveToFirst() } ?: true
-} catch (_: Exception) {
-    // Providers that cannot verify deletion are treated as still present.
-    true
+    }
+    // A provider that cannot answer either standard projection is treated as
+    // still present; never hide a library item based on an unverified delete.
+    return hasRows(arrayOf(OpenableColumns.DISPLAY_NAME))
+        ?: hasRows(arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
+        ?: true
 }
 
 private fun formatBytes(bytes: Long): String = when {

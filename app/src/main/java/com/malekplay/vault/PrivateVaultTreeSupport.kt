@@ -163,7 +163,26 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
             DocumentsContract.Document.COLUMN_LAST_MODIFIED
         )
         val result = mutableListOf<VaultBrowserItem>()
-        resolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+        // Some third-party DocumentsProviders reject optional metadata columns.
+        // Retry with the required identity columns before treating the folder as unreadable.
+        val cursor = try {
+            resolver.query(childrenUri, projection, null, null, null)
+        } catch (_: Exception) {
+            null
+        } ?: try {
+            resolver.query(
+                childrenUri,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE
+                ),
+                null, null, null
+            )
+        } catch (_: Exception) {
+            null
+        } ?: throw IOException("تعذر قراءة محتويات المجلد.")
+        cursor.use { cursor ->
             val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
             val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
             val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
@@ -186,7 +205,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                 )
                 require(result.size <= MAX_NODES) { "المجلد يحتوي على عناصر أكثر من الحد المسموح." }
             }
-        } ?: throw IOException("تعذر قراءة محتويات المجلد.")
+        }
         return result.sortedWith(compareBy<VaultBrowserItem> { !it.isDirectory }.thenBy { it.displayName.lowercase() })
     }
 
@@ -249,18 +268,15 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
      * This prevents claiming a move or hiding a library item when provider state
      * cannot be verified after a delete request.
      */
-    private fun documentStillExists(uri: Uri): Boolean = try {
-        resolver.query(
-            uri,
-            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
-            null,
-            null,
+    private fun documentStillExists(uri: Uri): Boolean {
+        fun hasRows(projection: Array<String>): Boolean? = try {
+            resolver.query(uri, projection, null, null, null)?.use { it.moveToFirst() }
+        } catch (_: Exception) {
             null
-        )?.use { cursor ->
-            cursor == null || cursor.moveToFirst()
-        } ?: true
-    } catch (_: Exception) {
-        true
+        }
+        return hasRows(arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
+            ?: hasRows(arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
+            ?: true
     }
 
     private fun rootDocumentUri(tree: Uri) = DocumentsContract.buildDocumentUriUsingTree(
