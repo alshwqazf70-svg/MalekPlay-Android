@@ -110,6 +110,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         .build()
     // Download redirects are followed manually so every hop is checked before
     // connecting and credentials are never forwarded to a different host.
+    private val subf2mProvider = Subf2mSubtitleProvider()
     private val downloadClient = client.newBuilder()
         .followRedirects(false)
         .followSslRedirects(false)
@@ -145,22 +146,6 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     }
 
     /** Stores only the public Worker URL. The Wyzie API key remains a server-side secret. */
-    fun getWyzieWorkerUrl(): String =
-        runCatching { vault.load(WYZIE_WORKER_URL_SLOT)?.first.orEmpty() }.getOrDefault("")
-
-    fun saveWyzieWorkerUrl(rawUrl: String) {
-        val value = rawUrl.trim().trimEnd('/')
-        require(value.isNotBlank()) { "أدخل رابط وسيط Wyzie المنشور" }
-        val uri = java.net.URI(value)
-        require(uri.scheme.equals("https", true) && !uri.host.isNullOrBlank() &&
-            uri.rawUserInfo == null && uri.port in listOf(-1, 443) &&
-            uri.rawQuery == null && uri.rawFragment == null &&
-            (uri.path.isNullOrBlank() || uri.path == "/")
-        ) { "رابط وسيط Wyzie يجب أن يكون HTTPS أساسياً دون مسار أو بيانات دخول" }
-        vault.save(WYZIE_WORKER_URL_SLOT, value, "worker-url")
-        automaticSearchCache.clear()
-    }
-
     /**
      * Searches a public guest endpoint first. No account, API key, or setup is required
      * for the user. The provider documents a small daily guest quota, so failures are
@@ -213,40 +198,24 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
     ): List<OnlineSubtitle> {
         automaticSearchCache.get(queryKey)?.let { return it }
 
-        // Fetch both supported languages once so language-filter changes stay local.
-        val providerLanguages = "ar,en"
-        val publicAttempt = runCatching { searchPublic(cleaned.title, cleaned.year, season, episode) }
-        val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }.getOrNull()
-        val subdlEnabled = !subdlKey.isNullOrBlank()
-        val wyzieAttempt = runCatching {
-            val workerUrl = vault.load(WYZIE_WORKER_URL_SLOT)?.first
-                ?.takeIf { it.isNotBlank() }
-                ?: error("Wyzie يحتاج إلى نشر وسيط Cloudflare Worker وإدخال رابطه في إعدادات البحث")
-            val imdbId = if (subdlEnabled) {
-                searchSubDlTvIdentity(
-                    cleaned.title, cleaned.year, requireNotNull(subdlKey),
-                    if (season != null || episode != null) "tv" else "movie"
-                )
-            } else null
-            if (imdbId.isNullOrBlank()) {
-                error("تعذر تحديد معرف IMDb للمسلسل. احفظ مفتاح SubDL أولاً لتحديد هوية العمل.")
-            }
-            searchWyzie(workerUrl, imdbId, season, episode, providerLanguages, mediaUri)
-        }
-        val subdlAttempt = if (subdlEnabled) runCatching {
+        // SubDL is primary. SubF2M is queried only when SubDL fails or lacks
+        // either Arabic or English candidates; the public index remains tertiary.
+        val subdlKey = runCatching { vault.load(SUBDL_KEY_SLOT)?.first }
+            .getOrNull()?.takeIf { it.isNotBlank() }
+        val subdlAttempt = if (subdlKey != null) runCatching {
             val exactFileResults = runCatching {
-                searchSubDlFilename(mediaUri, season, episode, requireNotNull(subdlKey))
+                searchSubDlFilename(mediaUri, season, episode, subdlKey)
             }.getOrDefault(emptyList())
             val titleResults = SubtitleResultPolicy.withEpisodeFallback(
                 season,
                 episode,
                 episodeSearch = {
-                    searchSubDl(cleaned.title, providerLanguages, season, episode, cleaned.year, requireNotNull(subdlKey))
+                    searchSubDl(cleaned.title, "ar,en", season, episode, cleaned.year, subdlKey)
                 },
                 titleSearch = {
                     searchSubDl(
-                        cleaned.title, providerLanguages, null, null, cleaned.year,
-                        requireNotNull(subdlKey), tvSearch = season != null || episode != null
+                        cleaned.title, "ar,en", null, null, cleaned.year,
+                        subdlKey, tvSearch = season != null || episode != null
                     )
                 },
                 shouldFallback = { results ->
@@ -254,23 +223,41 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
                         .toSet().containsAll(setOf("ar", "en")).not()
                 }
             )
-            exactFileResults + titleResults
+            (exactFileResults + titleResults).distinctBy { it.provider + ":" + it.sourceId }
         } else null
-        val combined = (
-            publicAttempt.getOrDefault(emptyList()) +
-                wyzieAttempt.getOrDefault(emptyList()) +
-                subdlAttempt?.getOrDefault(emptyList()).orEmpty()
-            ).distinctBy { it.provider + ":" + it.sourceId }
 
+        val primaryResults = subdlAttempt?.getOrDefault(emptyList()).orEmpty()
+        val primaryLanguages = primaryResults.map {
+            SubtitleQueryCleaner.normalizeLanguage(it.language)
+        }.toSet()
+        val needsBackup = primaryResults.isEmpty() ||
+            !primaryLanguages.containsAll(setOf("ar", "en"))
+        val imdbId = if (subdlKey != null) runCatching {
+            searchSubDlTvIdentity(
+                cleaned.title, cleaned.year, subdlKey,
+                if (season != null || episode != null) "tv" else "movie"
+            )
+        }.getOrNull() else null
+        val subf2mAttempt = if (needsBackup) runCatching {
+            subf2mProvider.search(cleaned.title, cleaned.year, season, episode, imdbId)
+        } else null
+        val backupResults = subf2mAttempt?.getOrDefault(emptyList()).orEmpty()
+        val foundLanguages = (primaryResults + backupResults).map {
+            SubtitleQueryCleaner.normalizeLanguage(it.language)
+        }.toSet()
+        val publicAttempt = if (!foundLanguages.containsAll(setOf("ar", "en"))) {
+            runCatching { searchPublic(cleaned.title, cleaned.year, season, episode) }
+        } else null
+
+        val combined = (primaryResults + backupResults +
+            publicAttempt?.getOrDefault(emptyList()).orEmpty())
+            .distinctBy { it.provider + ":" + it.sourceId }
         val failures = listOfNotNull(
-            publicAttempt.exceptionOrNull(),
-            wyzieAttempt.exceptionOrNull(),
-            subdlAttempt?.exceptionOrNull()
+            subdlAttempt?.exceptionOrNull(),
+            subf2mAttempt?.exceptionOrNull(),
+            publicAttempt?.exceptionOrNull()
         )
         if (combined.isEmpty() && failures.isNotEmpty()) {
-            // Do not disguise provider authentication/quota/network failures as
-            // an ordinary "no matching subtitles" result when every usable
-            // provider returned no candidates.
             val actionableFailure = failures.firstOrNull {
                 it is SubtitleHttpException && it.statusCode in setOf(401, 403, 429)
             } ?: failures.last()
@@ -371,7 +358,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         when (subtitle.provider) {
             PUBLIC_PROVIDER -> downloadPublic(subtitle)
             SUBDL_PROVIDER -> downloadSubDl(subtitle)
-            WYZIE_PROVIDER -> downloadWyzie(subtitle)
+            SUBF2M_PROVIDER -> downloadSubF2m(subtitle)
             else -> error("مزود الترجمة لهذا الملف غير مدعوم")
         }
     }
@@ -463,74 +450,22 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         return null
     }
 
-    private fun searchWyzie(
-        workerUrl: String,
-        imdbId: String,
-        season: Int?,
-        episode: Int?,
-        language: String,
-        mediaUri: Uri?
-    ): List<OnlineSubtitle> {
-        require((season == null) == (episode == null)) {
-            "يجب تحديد الموسم والحلقة معاً للبحث عن حلقة مسلسل"
-        }
-        val url = Uri.parse("$workerUrl/search").buildUpon()
-            .appendQueryParameter("id", imdbId)
-            .appendQueryParameter("language", language)
-            .appendQueryParameter("format", "srt,ass,vtt")
-            .appendQueryParameter("limit", "100")
-            .appendQueryParameter("sort", "quality")
-            .apply {
-                season?.let { appendQueryParameter("season", it.toString()) }
-                episode?.let { appendQueryParameter("episode", it.toString()) }
-                mediaUri?.let { uri ->
-                    val filename = runCatching {
-                        app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-                            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
-                    }.getOrNull().orEmpty().ifBlank { uri.lastPathSegment.orEmpty() }
-                    if (filename.isNotBlank()) appendQueryParameter("video", filename.take(240))
-                }
-            }.build().toString()
-        val payload = executeArray(
-            Request.Builder().url(url).header("User-Agent", AGENT)
-                .header("Accept", "application/json").get().build()
-        )
-        return buildList {
-            for (index in 0 until payload.length()) {
-                val item = payload.optJSONObject(index) ?: continue
-                val parsed = SubtitleProviderResultParser.wyzieSubtitle(item, season, episode)
-                    ?: continue
-                add(parsed)
-            }
-        }.distinctBy { it.sourceId }
-            .sortedWith(compareByDescending<OnlineSubtitle> { it.matchScore ?: -1 }.thenByDescending { it.downloads })
-            .take(100)
-    }
-
-    private suspend fun downloadWyzie(subtitle: OnlineSubtitle): Uri {
-        val rawUrl = subtitle.downloadUrl ?: error("رابط تنزيل Wyzie غير متوفر؛ أعد البحث")
-        require(isSafeSubtitleDownloadUrl(rawUrl, "sub.wyzie.io")) {
-            "رابط تنزيل Wyzie غير آمن"
-        }
+    private suspend fun downloadSubF2m(subtitle: OnlineSubtitle): Uri {
+        val detailUrl = subtitle.downloadUrl ?: error("رابط صفحة SubF2M غير متوفر؛ أعد البحث")
         val directory = File(app.cacheDir, "online-subtitles").apply { mkdirs() }
-        val prefix = "subtitle-wyzie-${subtitleCacheToken(subtitle.sourceId)}"
+        val prefix = "subtitle-subf2m-${subtitleCacheToken(subtitle.sourceId)}"
         directory.listFiles()?.firstOrNull {
             it.name.startsWith("$prefix.") && isValidCachedSubtitle(it)
         }?.let { return Uri.fromFile(it) }
-        val request = Request.Builder().url(rawUrl).header("User-Agent", AGENT).get().build()
-        return withDownloadResponse(request, "sub.wyzie.io") { response ->
-            require(isTrustedHttpsUrl(response.request.url.toString(), "sub.wyzie.io")) {
-                "حوّل Wyzie التنزيل إلى نطاق غير موثوق"
-            }
-            if (!response.isSuccessful) error("تعذر تنزيل ترجمة Wyzie (HTTP ${response.code})")
-            val bytes = response.body?.byteStream()?.use(::readBounded) ?: error("ملف الترجمة فارغ")
-            val target = if (bytes.isZip()) extract(bytes, directory, 0L, prefix) else {
-                val ext = detect(bytes) ?: subtitle.format
-                writeSubtitleAtomically(directory, "$prefix.$ext", bytes)
-            }
-            require(target.length() in 1..MAX_BYTES.toLong()) { "حجم ملف الترجمة غير صالح" }
-            Uri.fromFile(target)
+        val bytes = subf2mProvider.download(detailUrl)
+        val target = if (bytes.isZip()) {
+            extract(bytes, directory, 0L, prefix)
+        } else {
+            val extension = detect(bytes) ?: error("صيغة ملف ترجمة SubF2M غير مدعومة")
+            writeSubtitleAtomically(directory, "$prefix.$extension", bytes)
         }
+        require(target.length() in 1..MAX_BYTES.toLong()) { "حجم ملف الترجمة غير صالح" }
+        return Uri.fromFile(target)
     }
 
     private fun searchSubDlFilename(
@@ -966,19 +901,6 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
             JSONObject(body)
         }
 
-    private fun executeArray(request: Request): JSONArray {
-        val response = client.newCall(request).execute()
-        response.use {
-            val body = it.body?.string().orEmpty()
-            if (!it.isSuccessful) {
-                val message = runCatching { JSONObject(body).optString("message") }
-                    .getOrNull()?.takeIf(String::isNotBlank)
-                throw SubtitleHttpException(it.code, message ?: "وسيط Wyzie أعاد خطأ (HTTP ${it.code})")
-            }
-            return JSONArray(body)
-        }
-    }
-
     private fun execute(request: Request): JSONObject {
         val response = client.newCall(request).execute()
         response.use {
@@ -1075,8 +997,7 @@ class OnlineSubtitleRepository(context: Context, private val vault: NetworkCrede
         const val SUBDL_V2_FILES_API = "https://api.subdl.com/api/v2/files/search"
         const val SUBDL_V2_MOVIES_API = "https://api.subdl.com/api/v2/movies/search"
         const val SUBDL_PROVIDER = "subdl"
-        const val WYZIE_PROVIDER = "wyzie"
-        const val WYZIE_WORKER_URL_SLOT = "wyzie_worker_url"
+        const val SUBF2M_PROVIDER = "subf2m"
         const val AGENT = "MalekPlayer v2.0.0"
         const val KEY_SLOT = "opensubtitles_api_key"
         const val USER_SLOT = "opensubtitles_account"
