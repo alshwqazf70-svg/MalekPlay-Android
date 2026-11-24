@@ -118,43 +118,12 @@ fun LibraryScreen(
     var activeDragPointerRoot by remember { mutableStateOf(Offset.Zero) }
     var dragHasMoved by remember { mutableStateOf(false) }
     var lastDragTargetIndex by remember { mutableIntStateOf(-1) }
-    val latestVisibleItems by rememberUpdatedState(visibleItems)
     val dragEdgePx = with(LocalDensity.current) { 72.dp.toPx() }
     val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
     val selectionMode = selectedUris.isNotEmpty()
     LaunchedEffect(settings.sortMode) {
         if (settings.sortMode == SortMode.MANUAL) selectedUris.clear()
-    }
-    LaunchedEffect(activeDragId, settings.viewMode) {
-        val draggedId = activeDragId ?: return@LaunchedEffect
-        while (activeDragId == draggedId) {
-            if (dragHasMoved) {
-                val viewport = dragViewportBounds
-                if (viewport != null) {
-                    val pointerY = activeDragPointerRoot.y
-                    val scrollDelta = when {
-                        pointerY < viewport.top + dragEdgePx ->
-                            -((viewport.top + dragEdgePx - pointerY) * 0.22f).coerceIn(7f, 30f)
-                        pointerY > viewport.bottom - dragEdgePx ->
-                            ((pointerY - (viewport.bottom - dragEdgePx)) * 0.22f).coerceIn(7f, 30f)
-                        else -> 0f
-                    }
-                    if (scrollDelta != 0f) {
-                        if (settings.viewMode == ViewMode.GRID) gridState.scrollBy(scrollDelta)
-                        else listState.scrollBy(scrollDelta)
-                        val hit = latestVisibleItems.indexOfFirst { row ->
-                            itemBounds[row.media.id]?.contains(activeDragPointerRoot) == true
-                        }
-                        if (hit >= 0 && hit != lastDragTargetIndex) {
-                            lastDragTargetIndex = hit
-                            viewModel.moveManualItem(draggedId, hit, latestVisibleItems)
-                        }
-                    }
-                }
-            }
-            delay(16)
-        }
     }
     fun toggleSelection(uri: Uri) { if (uri in selectedUris) selectedUris.remove(uri) else selectedUris.add(uri) }
     var assistantQuery by remember { mutableStateOf("") }
@@ -186,6 +155,37 @@ fun LibraryScreen(
                 LibraryFilter.FAVOURITES -> rawItems.filter { it.isFavourite }
             }
             viewModel.applySort(chosen, settings.sortMode, settings.sortAscending, lastPlayedMediaId, settings.manualSortOrder)
+        }
+    }
+    val latestVisibleItems by rememberUpdatedState(visibleItems)
+    LaunchedEffect(activeDragId, settings.viewMode) {
+        val draggedId = activeDragId ?: return@LaunchedEffect
+        while (activeDragId == draggedId) {
+            if (dragHasMoved) {
+                val viewport = dragViewportBounds
+                if (viewport != null) {
+                    val pointerY = activeDragPointerRoot.y
+                    val scrollDelta = when {
+                        pointerY < viewport.top + dragEdgePx ->
+                            -((viewport.top + dragEdgePx - pointerY) * 0.22f).coerceIn(7f, 30f)
+                        pointerY > viewport.bottom - dragEdgePx ->
+                            ((pointerY - (viewport.bottom - dragEdgePx)) * 0.22f).coerceIn(7f, 30f)
+                        else -> 0f
+                    }
+                    if (scrollDelta != 0f) {
+                        if (settings.viewMode == ViewMode.GRID) gridState.scrollBy(scrollDelta)
+                        else listState.scrollBy(scrollDelta)
+                        val hit = latestVisibleItems.indexOfFirst { row ->
+                            itemBounds[row.media.id]?.contains(activeDragPointerRoot) == true
+                        }
+                        if (hit >= 0 && hit != lastDragTargetIndex) {
+                            lastDragTargetIndex = hit
+                            viewModel.moveManualItem(draggedId, hit, latestVisibleItems)
+                        }
+                    }
+                }
+            }
+            delay(16)
         }
     }
 
