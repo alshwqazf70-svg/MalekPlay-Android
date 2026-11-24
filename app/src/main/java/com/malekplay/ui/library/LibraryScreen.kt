@@ -537,7 +537,7 @@ fun LibraryScreen(
                                 onDeleted = viewModel::refresh,
                                 selectionMode = selectionMode,
                                 isSelected = item.media.uri in selectedUris,
-                                enableLongPressSelection = settings.sortMode != SortMode.MANUAL || selectionMode,
+                                enableLongPressSelection = settings.sortMode != SortMode.MANUAL,
                                 onSelect = { toggleSelection(item.media.uri) }
                             )
                             }
@@ -636,7 +636,7 @@ fun LibraryScreen(
                                 onDeleted = viewModel::refresh,
                                 selectionMode = selectionMode,
                                 isSelected = item.media.uri in selectedUris,
-                                enableLongPressSelection = settings.sortMode != SortMode.MANUAL || selectionMode,
+                                enableLongPressSelection = settings.sortMode != SortMode.MANUAL,
                                 onSelect = { toggleSelection(item.media.uri) }
                             )
                             }
