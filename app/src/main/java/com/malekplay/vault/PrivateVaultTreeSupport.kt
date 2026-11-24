@@ -29,7 +29,12 @@ data class VaultFolderResult(
 class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultRepository) {
     private val appContext = context.applicationContext
     private val resolver: ContentResolver = appContext.contentResolver
-    init { appContext.cacheDir.listFiles()?.filter { it.name.startsWith(".malek-vault-") || it.name.startsWith(".malek-restore-") }?.forEach { it.delete() } }
+    init {
+        val staleBefore = System.currentTimeMillis() - 24L * 60 * 60 * 1000
+        appContext.cacheDir.listFiles()?.filter {
+            (it.name.startsWith(".malek-vault-") || it.name.startsWith(".malek-restore-")) && it.lastModified() < staleBefore
+        }?.forEach { it.delete() }
+    }
     private data class Node(val uri: Uri, val name: String, val relativePath: String, val directory: Boolean)
 
     fun importFolder(treeUri: Uri, password: CharArray, moveSource: Boolean): VaultFolderResult {
@@ -51,7 +56,8 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                     files.forEach { node ->
                         val path = safeArchivePath(node.relativePath)
                         require(path.isNotEmpty()) { "مسار ملف غير صالح." }
-                        zip.putNextEntry(ZipEntry(path))
+                        val zipEntry = ZipEntry(path).apply { comment = resolver.getType(node.uri) ?: "application/octet-stream" }
+                        zip.putNextEntry(zipEntry)
                         resolver.openInputStream(node.uri)?.use { it.copyTo(zip) }
                             ?: throw IOException("تعذرت قراءة ${node.name}")
                         zip.closeEntry()
@@ -87,7 +93,7 @@ class PrivateVaultTreeSupport(context: Context, private val vault: PrivateVaultR
                                 val isDirectory = item.isDirectory || index < parts.lastIndex
                                 parent = findChild(parent, part, destinationTree) ?: DocumentsContract.createDocument(
                                     resolver, parent,
-                                    if (isDirectory) DocumentsContract.Document.MIME_TYPE_DIR else "application/octet-stream",
+                                    if (isDirectory) DocumentsContract.Document.MIME_TYPE_DIR else item.comment ?: "application/octet-stream",
                                     part
                                 ) ?: error("تعذر إنشاء $part")
                                 if (!isDirectory && index == parts.lastIndex) {
