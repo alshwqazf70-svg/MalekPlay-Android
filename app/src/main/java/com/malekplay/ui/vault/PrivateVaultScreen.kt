@@ -2,6 +2,7 @@ package com.malekplay.ui.vault
 
 import android.net.Uri
 import android.provider.DocumentsContract
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -48,6 +49,18 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
     var pendingExport by remember { mutableStateOf<PrivateVaultEntry?>(null) }
     var pendingFolderRestore by remember { mutableStateOf<PrivateVaultEntry?>(null) }
     var moveFolderSelection by remember { mutableStateOf(false) }
+
+    fun leaveVault() {
+        password = ""
+        confirmation = ""
+        entries.clear()
+        unlocked = false
+        pendingExport = null
+        pendingFolderRestore = null
+        onBack()
+    }
+
+    BackHandler(enabled = true) { leaveVault() }
 
     fun refresh() {
         scope.launch {
@@ -143,7 +156,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع") }
+            IconButton(onClick = { leaveVault() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع") }
             Text("الخزنة الخاصة", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
             Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         }
@@ -206,7 +219,7 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
                 }
             }
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = { password = ""; confirmation = ""; entries.clear(); unlocked = false }, modifier = Modifier.align(Alignment.End)) { Text("قفل الخزنة") }
+            TextButton(onClick = { password = ""; confirmation = ""; entries.clear(); unlocked = false; pendingExport = null; pendingFolderRestore = null }, modifier = Modifier.align(Alignment.End)) { Text("قفل الخزنة") }
         }
         if (busy) Text("جارٍ تنفيذ العملية…", color = MaterialTheme.colorScheme.primary)
         message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
