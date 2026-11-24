@@ -59,6 +59,19 @@ class Subf2mSubtitleProviderTest {
         assertEquals("/subtitles/chernobyl-first-season", matches.single().first)
     }
 
+    @Test fun rejectsDifferentYearForTvSearchWhenSiteProvidesYear() {
+        val html = """
+            <ul>
+              <li><div class="title">
+                <a href="/subtitles/show-first-season">Show - First Season (2018)</a>
+              </div></li>
+            </ul>
+        """.trimIndent()
+        assertTrue(provider.parseSearchResultCandidates(
+            html, "Show", 2020, 1
+        ).isEmpty())
+    }
+
     @Test fun rejectsWrongSeasonSearchResult() {
         val html = """
             <ul>
