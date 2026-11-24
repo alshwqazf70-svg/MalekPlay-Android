@@ -3,7 +3,6 @@ package com.malekplay.network
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
-import org.json.JSONObject
 
 class SubtitleProviderResultParserTest {
     @Test fun parsesProviderLanguageAliases() {
