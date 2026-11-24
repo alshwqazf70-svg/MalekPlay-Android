@@ -54,10 +54,10 @@ class PrivateVaultRepository(context: Context) {
                     override fun write(buffer: ByteArray, offset: Int, length: Int) = Unit
                 }, password)
             }
-            FileOutputStream(pending).use { it.fd.sync() }
-            check(temp.renameTo(target)) { "Could not finalize encrypted file." }
             val current = readIndex(password)
             check(current.size < maxEntries) { "Vault item limit reached." }
+            FileOutputStream(pending).use { it.fd.sync() }
+            check(temp.renameTo(target)) { "Could not finalize encrypted file." }
             val entry = PrivateVaultEntry(id, name, mime, target.length())
             persistIndex(current + entry, password)
             committed = true
