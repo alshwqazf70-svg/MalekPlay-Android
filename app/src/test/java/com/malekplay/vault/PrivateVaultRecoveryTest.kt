@@ -24,6 +24,19 @@ class PrivateVaultRecoveryTest {
     }
 
     @Test
+    fun plaintextIndexAndRestoreTemporariesAreRemovedAfterRestart() {
+        val indexPlain = File(directory, "index-550e8400-e29b-41d4-a716-446655440000.tmp")
+            .apply { writeText("private file names") }
+        val restoredPlain = File(directory, "restore-550e8400-e29b-41d4-a716-446655440000.tmp")
+            .apply { writeText("private media bytes") }
+
+        PrivateVaultRecovery.recover(directory, emptySet())
+
+        assertFalse(indexPlain.exists())
+        assertFalse(restoredPlain.exists())
+    }
+
+    @Test
     fun uncommittedImportIsDiscardedAfterRestart() {
         val payload = File(directory, "$interrupted.mkv").apply { writeText("ciphertext") }
         val temporary = File(directory, "$interrupted.tmp").apply { writeText("partial ciphertext") }
