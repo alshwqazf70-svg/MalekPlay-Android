@@ -1082,6 +1082,7 @@ object UltraShareWifiDirect {
             runCatching { onLocalAddress(null) }
             pairingTargetDeviceAddress = null
             wasConnected = false
+            formedGroupObserved = false
             if (peerDiscoveryActive) {
                 // Stop an earlier nearby-device scan serially before creating the
                 // receiver group. Starting both operations concurrently is rejected
@@ -1421,6 +1422,7 @@ object UltraShareWifiDirect {
             runCatching { onLocalAddress(null) }
             pairingTargetDeviceAddress = deviceAddress.lowercase()
             wasConnected = false
+            formedGroupObserved = false
             UltraShareDiagnostics.event(
                 "WIFI_DIRECT",
                 "CONNECT_TARGET_PINNED",
