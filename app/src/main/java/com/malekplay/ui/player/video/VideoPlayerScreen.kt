@@ -1463,8 +1463,8 @@ fun VideoPlayerScreen(
                 onDownload = viewModel::downloadOnlineSubtitle,
                 onDownloadAndTranslate = viewModel::downloadAndTranslateOnlineSubtitleToArabic,
                 onCancelTranslation = viewModel::cancelSubtitleTranslation,
-                onSaveCredentials = viewModel::saveOnlineSubtitleCredentials,
                 onSaveProviderKeys = viewModel::saveOnlineSubtitleProviderKeys,
+                onSaveWyzieWorkerUrl = viewModel::saveWyzieWorkerUrl,
                 onDismiss = { if (!onlineSubtitleLoading) showOnlineSubtitles = false }
             )
         }
