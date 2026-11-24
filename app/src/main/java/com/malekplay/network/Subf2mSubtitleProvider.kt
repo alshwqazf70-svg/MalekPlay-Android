@@ -97,7 +97,12 @@ internal class Subf2mSubtitleProvider {
     }
 
     internal fun resolveDownloadPageLink(page: String, detailUrl: String): String? {
-        val raw = DOWNLOAD_BUTTON.find(page)?.groupValues?.get(1)?.let(::decodeHtml) ?: return null
+        // SubF2M's current download action is an anchor with a download class;
+        // older layouts may wrap it in a download div or use a /download href.
+        val raw = DOWNLOAD_ANCHOR.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
+            ?: DOWNLOAD_HREF.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
+            ?: DOWNLOAD_BUTTON.find(page)?.groupValues?.get(1)?.let(::decodeHtml)
+            ?: return null
         return resolveSiteUrl(raw, detailUrl)
     }
 
@@ -356,6 +361,8 @@ internal class Subf2mSubtitleProvider {
         private val INNER_LI = Regex("(?is)<li[^>]*>(.*?)</li>")
         private val COMMENT = Regex("(?is)<div[^>]*class=['\"][^'\"]*\\bcomment-col\\b[^'\"]*['\"][^>]*>.*?<p[^>]*>(.*?)</p>")
         private val DOWNLOAD_LINK = Regex("(?is)<a\\b(?=[^>]*class=['\"][^'\"]*\\bdownload\\b)(?=[^>]*href=['\"]([^'\"]+)['\"])[^>]*>")
-        private val DOWNLOAD_BUTTON = Regex("(?is)<div[^>]*class=['\"][^'\"]*\\bdownload\\b[^'\"]*['\"][^>]*>.*?<a\\b[^>]*href=['\"]([^'\"]+)['\"]")
+        private val DOWNLOAD_ANCHOR = Regex("(?is)<a\\b(?=[^>]*class=['"][^'"]*\\bdownload\\b[^'"]*)(?=[^>]*href=['"]([^'"]+)['"])[^>]*>")
+        private val DOWNLOAD_HREF = Regex("(?is)<a\\b(?=[^>]*href=['"]([^'"]*/download(?:\\?[^'"]*)?)['"])[^>]*>")
+        private val DOWNLOAD_BUTTON = Regex("(?is)<div[^>]*class=['"][^'"]*\\bdownload\\b[^'"]*['"][^>]*>.*?<a\\b[^>]*href=['"]([^'"]+)['"]")
     }
 }
