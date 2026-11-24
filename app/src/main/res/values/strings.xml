@@ -67,6 +67,20 @@
     <string name="sort_name">Name (A–Z)</string>
     <string name="sort_duration">Longest duration</string>
     <string name="sort_size">Largest size</string>
+    <string name="sort_type">File type</string>
+    <string name="sort_last_played">Last played</string>
+    <string name="sort_manual">Manual order</string>
+    <string name="sort_ascending">Ascending</string>
+    <string name="sort_descending">Descending</string>
+    <string name="sort_folders_first">Folders first</string>
+    <string name="sort_files_first">Files first</string>
+    <string name="sort_manual_banner_title">Manual order active</string>
+    <string name="sort_manual_banner_hint">Drag the handle or use arrows to reorder items freely</string>
+    <string name="sort_manual_reset">Reset</string>
+    <string name="sort_manual_done">Done</string>
+    <string name="sort_manual_move_up">Move up</string>
+    <string name="sort_manual_move_down">Move down</string>
+    <string name="lib_clear_search">Clear search</string>
 
     <!-- Music -->
     <string name="music_songs">Songs</string>

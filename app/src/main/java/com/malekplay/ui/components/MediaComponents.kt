@@ -603,7 +603,7 @@ fun FolderRow(
                 Spacer(Modifier.height(3.dp))
                 val detail = when {
                     folder.videoCount > 0 && folder.audioCount > 0 ->
-                        "${fileLabel.format(folder.itemCount)}"
+                        "${videoLabel.format(folder.videoCount)}  •  ${audioLabel.format(folder.audioCount)}"
                     folder.videoCount > 0 -> videoLabel.format(folder.videoCount)
                     else -> audioLabel.format(folder.audioCount)
                 }
@@ -611,22 +611,23 @@ fun FolderRow(
                     text = "$detail  •  ${formatBytes(folder.totalBytes)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Spacer(Modifier.width(10.dp))
             Box(contentAlignment = Alignment.Center) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(52.dp)
+                    modifier = Modifier.size(54.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             Icons.Filled.Folder,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(27.dp)
                         )
                     }
                 }
@@ -637,12 +638,12 @@ fun FolderRow(
                             .align(Alignment.TopEnd)
                             .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
                             .border(1.dp, MaterialTheme.colorScheme.surface, RoundedCornerShape(50))
-                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
                     ) {
                         Text(
                             text = folder.newItemCount.toString(),
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimary
+                            color = contrastingOnColor(MaterialTheme.colorScheme.primary)
                         )
                     }
                 }

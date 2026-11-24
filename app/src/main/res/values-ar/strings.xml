@@ -67,6 +67,20 @@
     <string name="sort_name">الاسم أبجدياً</string>
     <string name="sort_duration">الأطول مدة</string>
     <string name="sort_size">الأكبر حجماً</string>
+    <string name="sort_type">نوع الملف</string>
+    <string name="sort_last_played">آخر مشاهدة</string>
+    <string name="sort_manual">ترتيب يدوي</string>
+    <string name="sort_ascending">تصاعدي</string>
+    <string name="sort_descending">تنازلي</string>
+    <string name="sort_folders_first">المجلدات أولاً</string>
+    <string name="sort_files_first">الملفات أولاً</string>
+    <string name="sort_manual_banner_title">الترتيب اليدوي نشط</string>
+    <string name="sort_manual_banner_hint">اسحب من المقبض أو استخدم الأسهم لإعادة الترتيب بحرية</string>
+    <string name="sort_manual_reset">إعادة ضبط</string>
+    <string name="sort_manual_done">تم</string>
+    <string name="sort_manual_move_up">تحريك للأعلى</string>
+    <string name="sort_manual_move_down">تحريك للأسفل</string>
+    <string name="lib_clear_search">مسح البحث</string>
 
     <!-- Music -->
     <string name="music_songs">الأغاني</string>
