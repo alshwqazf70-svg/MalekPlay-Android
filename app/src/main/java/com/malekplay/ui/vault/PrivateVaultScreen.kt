@@ -166,12 +166,16 @@ fun PrivateVaultScreen(onBack: () -> Unit) {
             ) { Text(if (configured) "فتح الخزنة" else "إنشاء الخزنة") }
             Text("إذا فُقدت كلمة المرور فلن يمكن فك تشفير الملفات. احتفظ بها في مكان آمن.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(entries.size.toString() + " ملف مشفّر", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Button(onClick = { importPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Icon(Icons.Filled.Add, contentDescription = null); Text("إضافة ملفات") }
-                TextButton(onClick = { moveFilesPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Text("نقل ملفات") }
-                TextButton(onClick = { moveFolderSelection = false; folderPicker.launch(null) }, enabled = !busy) { Text("نسخ مجلد") }
-                TextButton(onClick = { moveFolderSelection = true; folderPicker.launch(null) }, enabled = !busy) { Text("نقل مجلد") }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                Text(entries.size.toString() + " عنصر مشفّر", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(onClick = { importPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Icon(Icons.Filled.Add, contentDescription = null); Text("نسخ ملفات") }
+                    TextButton(onClick = { moveFilesPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Text("نقل ملفات") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { moveFolderSelection = false; folderPicker.launch(null) }, enabled = !busy) { Text("نسخ مجلد") }
+                    TextButton(onClick = { moveFolderSelection = true; folderPicker.launch(null) }, enabled = !busy) { Text("نقل مجلد") }
+                }
             }
             Text("النقل لا يحذف الأصول إلا بعد نجاح التشفير؛ وإذا رفض مزود الملفات الحذف فتبقى الأصول الأصلية.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
