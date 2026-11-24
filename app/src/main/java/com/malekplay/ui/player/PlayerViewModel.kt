@@ -30,6 +30,7 @@ import com.malekplay.domain.model.MediaItem as DomainMedia
 import com.malekplay.network.DiscoveredNetworkDevice
 import com.malekplay.network.OnlineSubtitle
 import com.malekplay.network.OnlineSubtitleRepository
+import com.malekplay.network.TvEpisodeGuide
 import com.malekplay.network.SubtitleQueryCleaner
 import com.malekplay.player.LocalSubtitleResolver
 import com.malekplay.player.PipController
@@ -209,6 +210,13 @@ class PlayerViewModel @Inject constructor(
 
     private val _onlineSubtitleResults = MutableStateFlow<List<OnlineSubtitle>>(emptyList())
     val onlineSubtitleResults: StateFlow<List<OnlineSubtitle>> = _onlineSubtitleResults.asStateFlow()
+    private val _onlineSubtitleEpisodeGuide = MutableStateFlow<TvEpisodeGuide?>(null)
+    val onlineSubtitleEpisodeGuide: StateFlow<TvEpisodeGuide?> = _onlineSubtitleEpisodeGuide.asStateFlow()
+    private val _onlineSubtitleGuideLoading = MutableStateFlow(false)
+    val onlineSubtitleGuideLoading: StateFlow<Boolean> = _onlineSubtitleGuideLoading.asStateFlow()
+    private val _onlineSubtitleGuideError = MutableStateFlow<String?>(null)
+    val onlineSubtitleGuideError: StateFlow<String?> = _onlineSubtitleGuideError.asStateFlow()
+    private var onlineSubtitleGuideRequestId = 0L
     private val _onlineSubtitleLoading = MutableStateFlow(false)
     val onlineSubtitleLoading: StateFlow<Boolean> = _onlineSubtitleLoading.asStateFlow()
     private val _onlineSubtitleError = MutableStateFlow<String?>(null)
@@ -1561,6 +1569,46 @@ class PlayerViewModel @Inject constructor(
                 android.widget.Toast.makeText(app, "تم حفظ مفاتيح مزودي الترجمة بأمان", android.widget.Toast.LENGTH_SHORT).show()
             }
             .onFailure { _onlineSubtitleError.value = it.message ?: "تعذر حفظ مفاتيح مزودي الترجمة" }
+    }
+
+    fun clearOnlineSubtitleEpisodeGuide() {
+        onlineSubtitleGuideRequestId++
+        _onlineSubtitleEpisodeGuide.value = null
+        _onlineSubtitleGuideLoading.value = false
+        _onlineSubtitleGuideError.value = null
+    }
+
+    fun loadOnlineSubtitleEpisodeGuide(title: String) {
+        if (_onlineSubtitleGuideLoading.value) return
+        val requestId = ++onlineSubtitleGuideRequestId
+        val targetMediaId = currentMediaId
+        viewModelScope.launch {
+            _onlineSubtitleGuideLoading.value = true
+            _onlineSubtitleGuideError.value = null
+            _onlineSubtitleEpisodeGuide.value = null
+            try {
+                val guide = withContext(Dispatchers.IO) {
+                    onlineSubtitleRepository.searchTvEpisodeGuide(title)
+                }
+                if (requestId != onlineSubtitleGuideRequestId || currentMediaId != targetMediaId) return@launch
+                _onlineSubtitleEpisodeGuide.value = guide
+                if (guide == null) {
+                    _onlineSubtitleGuideError.value =
+                        "لم نعثر على مسلسل مطابق بالاسم والسنة. تحقق من العنوان أو أدخل الموسم والحلقة يدويًا."
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (requestId == onlineSubtitleGuideRequestId && currentMediaId == targetMediaId) {
+                    _onlineSubtitleGuideError.value =
+                        "تعذر تحميل دليل الحلقات الآن. يمكنك متابعة البحث وإدخال الموسم والحلقة يدويًا."
+                }
+            } finally {
+                if (requestId == onlineSubtitleGuideRequestId) {
+                    _onlineSubtitleGuideLoading.value = false
+                }
+            }
+        }
     }
 
     fun searchOnlineSubtitles(title: String, language: String, season: Int?, episode: Int?) {
