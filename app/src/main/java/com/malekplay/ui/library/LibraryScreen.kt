@@ -570,8 +570,10 @@ fun LibraryScreen(
                                         }
                                         .zIndex(if (isDragging) 10f else 0f)
                                         .onGloballyPositioned {
-                                            itemPositionRoot = it.positionInRoot()
-                                            itemBounds[item.media.id] = it.boundsInRoot()
+                                            val bounds = it.boundsInRoot()
+                                            itemBounds[item.media.id] = bounds
+                                            // Keep the slot origin independent from the active graphics translation.
+                                            itemPositionRoot = bounds.topLeft - dragOffset
                                             if (isDragging) dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
                                         }
                                         .pointerInput(item.media.id, settings.sortMode, selectionMode) {
@@ -581,14 +583,17 @@ fun LibraryScreen(
                                                         requireUnconsumed = false,
                                                         pass = PointerEventPass.Initial
                                                     )
-                                                    val longPress = awaitLongPressOrCancellation(down.id)
-                                                        ?: return@awaitEachGesture
+                                                    val longPress = awaitLongPressOrCancellation(
+                                                        down.id,
+                                                        pass = PointerEventPass.Initial
+                                                    ) ?: return@awaitEachGesture
+                                                    longPress.consume()
                                                     isDragging = true
                                                     grabOffset = longPress.position
                                                     dragPointerRoot = itemPositionRoot + longPress.position
-                                                    var lastTarget = latestItems.indexOfFirst { it.media.id == item.media.id }
                                                     activeDragId = item.media.id
                                                     activeDragPointerRoot = dragPointerRoot
+                                                    activeDragGrabOffset = grabOffset
                                                     dragHasMoved = false
                                                     lastDragTargetIndex = latestItems.indexOfFirst { it.media.id == item.media.id }
                                                     var released = false
@@ -608,11 +613,10 @@ fun LibraryScreen(
                                                                     dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
                                                                     change.consume()
                                                                 }
-                                                                val hit = latestItems.indexOfFirst { row ->
-                                                                    itemBounds[row.media.id]?.contains(dragPointerRoot) == true
-                                                                }
-                                                                if (hit >= 0 && hit != lastTarget) {
-                                                                    lastTarget = hit
+                                                                val hit = findManualDropTargetIndex(
+                                                                    latestItems, itemBounds, item.media.id, dragPointerRoot, grabOffset
+                                                                )
+                                                                if (hit >= 0 && hit != lastDragTargetIndex) {
                                                                     lastDragTargetIndex = hit
                                                                     viewModel.moveManualItem(item.media.id, hit, latestItems)
                                                                 }
