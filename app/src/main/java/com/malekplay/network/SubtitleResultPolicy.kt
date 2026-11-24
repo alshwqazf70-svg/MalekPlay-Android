@@ -66,8 +66,9 @@ internal object SubtitleResultPolicy {
             val firstEpisode = match.groupValues[2].toIntOrNull()
             val lastSeason = match.groupValues[3].takeIf { it.isNotBlank() }?.toIntOrNull() ?: firstSeason
             val lastEpisode = match.groupValues[4].toIntOrNull()
-            firstSeason == season && lastSeason == season &&
-                firstEpisode != null && lastEpisode != null && lastEpisode > firstEpisode
+            (firstSeason == season || lastSeason == season) &&
+                firstEpisode != null && lastEpisode != null &&
+                (firstSeason != lastSeason || lastEpisode > firstEpisode)
         }
         val namedRange = namedEpisodeRange.findAll(normalized).any { match ->
             val firstSeason = match.groupValues[1].toIntOrNull()
