@@ -33,21 +33,33 @@ class PrivateVaultRepository(context: Context) {
     ): PrivateVaultEntry {
         val name = displayNameOverride?.takeIf { it.isNotBlank() } ?: queryName(uri)
         val mime = mimeTypeOverride?.takeIf { it.isNotBlank() } ?: resolver.getType(uri) ?: "application/octet-stream"
+        val input = resolver.openInputStream(uri) ?: error("Cannot read selected file.")
+        return importStream(name, mime, input, password)
+    }
+
+    /** Imports a private temporary stream without exposing it through a public document provider. */
+    @Synchronized fun importStream(
+        displayName: String,
+        mimeType: String,
+        input: InputStream,
+        password: CharArray
+    ): PrivateVaultEntry {
+        val name = displayName.takeIf { it.isNotBlank() } ?: "Private file"
+        val mime = mimeType.takeIf { it.isNotBlank() } ?: "application/octet-stream"
         val id = UUID.randomUUID().toString()
         val target = payload(id)
         val temp = File(directory, "$id.tmp")
         val pending = File(directory, "$id.pending")
         var committed = false
         try {
-            val input = resolver.openInputStream(uri) ?: error("Cannot read selected file.")
             input.use { source ->
                 FileOutputStream(temp).use { sink ->
                     PrivateVaultCrypto.encrypt(source, sink, password)
                     sink.fd.sync()
                 }
             }
-            // Re-open and authenticate the completed ciphertext before it can enter
-            // the index or before a caller is allowed to delete the original source.
+            // Authenticate the completed ciphertext before it can enter the index
+            // or before a caller is allowed to delete the original source.
             FileInputStream(temp).use { encrypted ->
                 PrivateVaultCrypto.decrypt(encrypted, object : OutputStream() {
                     override fun write(value: Int) = Unit
