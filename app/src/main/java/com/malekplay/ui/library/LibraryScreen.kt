@@ -24,6 +24,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -80,6 +83,9 @@ import com.malekplay.ui.components.MediaDeleteButton
 import com.malekplay.ui.components.MediaBulkDeleteBar
 import com.malekplay.ui.components.PlaylistPickerDialog
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
@@ -108,6 +114,9 @@ fun LibraryScreen(
     var playlistTarget by remember { mutableStateOf<MediaItem?>(null) }
     val selectedUris = remember { mutableStateListOf<Uri>() }
     val itemBounds = remember { mutableStateMapOf<String, Rect>() }
+    var dragViewportBounds by remember { mutableStateOf<Rect?>(null) }
+    val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
     val selectionMode = selectedUris.isNotEmpty()
     LaunchedEffect(settings.sortMode) {
         if (settings.sortMode == SortMode.MANUAL) selectedUris.clear()
@@ -378,7 +387,8 @@ fun LibraryScreen(
                 } else if (mode == ViewMode.GRID) {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 148.dp),
-                        modifier = Modifier.weight(1f),
+                        state = gridState,
+                        modifier = Modifier.weight(1f).onGloballyPositioned { dragViewportBounds = it.boundsInRoot() },
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -421,32 +431,60 @@ fun LibraryScreen(
                                                     dragPointerRoot = itemPositionRoot + longPress.position
                                                     var lastTarget = latestItems.indexOfFirst { it.media.id == item.media.id }
                                                     var released = false
-                                                    try {
-                                                        while (!released) {
-                                                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                                                            val change = event.changes.firstOrNull { it.id == longPress.id }
-                                                                ?: break
-                                                            if (!change.pressed) {
-                                                                released = true
-                                                            } else {
-                                                                val delta = change.positionChange()
-                                                                if (delta != Offset.Zero) {
-                                                                    dragPointerRoot += delta
-                                                                    dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
-                                                                    change.consume()
+                                                    var didMove = false
+                                                    coroutineScope {
+                                                        val autoScrollJob = launch {
+                                                            while (isDragging) {
+                                                                if (didMove) {
+                                                                    val viewport = dragViewportBounds
+                                                                    if (viewport != null) {
+                                                                        val edge = 72.dp.toPx()
+                                                                        val pointerY = dragPointerRoot.y
+                                                                        val scrollDelta = when {
+                                                                            pointerY < viewport.top + edge ->
+                                                                                -((viewport.top + edge - pointerY) * 0.22f).coerceIn(7f, 30f)
+                                                                            pointerY > viewport.bottom - edge ->
+                                                                                ((pointerY - (viewport.bottom - edge)) * 0.22f).coerceIn(7f, 30f)
+                                                                            else -> 0f
+                                                                        }
+                                                                        if (scrollDelta != 0f) {
+                                                                            if (mode == ViewMode.GRID) gridState.scrollBy(scrollDelta)
+                                                                            else listState.scrollBy(scrollDelta)
+                                                                        }
+                                                                    }
                                                                 }
-                                                                val hit = latestItems.indexOfFirst { row ->
-                                                                    itemBounds[row.media.id]?.contains(dragPointerRoot) == true
-                                                                }
-                                                                if (hit >= 0 && hit != lastTarget) {
-                                                                    lastTarget = hit
-                                                                    viewModel.moveManualItem(item.media.id, hit, latestItems)
-                                                                }
+                                                                delay(16)
                                                             }
                                                         }
-                                                    } finally {
-                                                        dragOffset = Offset.Zero
-                                                        isDragging = false
+                                                        try {
+                                                            while (!released) {
+                                                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                                                val change = event.changes.firstOrNull { it.id == longPress.id }
+                                                                    ?: break
+                                                                if (!change.pressed) {
+                                                                    released = true
+                                                                } else {
+                                                                    val delta = change.positionChange()
+                                                                    if (delta != Offset.Zero) {
+                                                                        didMove = true
+                                                                        dragPointerRoot += delta
+                                                                        dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
+                                                                        change.consume()
+                                                                    }
+                                                                    val hit = latestItems.indexOfFirst { row ->
+                                                                        itemBounds[row.media.id]?.contains(dragPointerRoot) == true
+                                                                    }
+                                                                    if (hit >= 0 && hit != lastTarget) {
+                                                                        lastTarget = hit
+                                                                        viewModel.moveManualItem(item.media.id, hit, latestItems)
+                                                                    }
+                                                                }
+                                                            }
+                                                        } finally {
+                                                            autoScrollJob.cancel()
+                                                            dragOffset = Offset.Zero
+                                                            isDragging = false
+                                                        }
                                                     }
                                                 }
                                             }
@@ -468,7 +506,8 @@ fun LibraryScreen(
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.weight(1f),
+                        state = listState,
+                        modifier = Modifier.weight(1f).onGloballyPositioned { dragViewportBounds = it.boundsInRoot() },
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(9.dp)
                     ) {
@@ -510,32 +549,60 @@ fun LibraryScreen(
                                                     dragPointerRoot = itemPositionRoot + longPress.position
                                                     var lastTarget = latestItems.indexOfFirst { it.media.id == item.media.id }
                                                     var released = false
-                                                    try {
-                                                        while (!released) {
-                                                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                                                            val change = event.changes.firstOrNull { it.id == longPress.id }
-                                                                ?: break
-                                                            if (!change.pressed) {
-                                                                released = true
-                                                            } else {
-                                                                val delta = change.positionChange()
-                                                                if (delta != Offset.Zero) {
-                                                                    dragPointerRoot += delta
-                                                                    dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
-                                                                    change.consume()
+                                                    var didMove = false
+                                                    coroutineScope {
+                                                        val autoScrollJob = launch {
+                                                            while (isDragging) {
+                                                                if (didMove) {
+                                                                    val viewport = dragViewportBounds
+                                                                    if (viewport != null) {
+                                                                        val edge = 72.dp.toPx()
+                                                                        val pointerY = dragPointerRoot.y
+                                                                        val scrollDelta = when {
+                                                                            pointerY < viewport.top + edge ->
+                                                                                -((viewport.top + edge - pointerY) * 0.22f).coerceIn(7f, 30f)
+                                                                            pointerY > viewport.bottom - edge ->
+                                                                                ((pointerY - (viewport.bottom - edge)) * 0.22f).coerceIn(7f, 30f)
+                                                                            else -> 0f
+                                                                        }
+                                                                        if (scrollDelta != 0f) {
+                                                                            if (mode == ViewMode.GRID) gridState.scrollBy(scrollDelta)
+                                                                            else listState.scrollBy(scrollDelta)
+                                                                        }
+                                                                    }
                                                                 }
-                                                                val hit = latestItems.indexOfFirst { row ->
-                                                                    itemBounds[row.media.id]?.contains(dragPointerRoot) == true
-                                                                }
-                                                                if (hit >= 0 && hit != lastTarget) {
-                                                                    lastTarget = hit
-                                                                    viewModel.moveManualItem(item.media.id, hit, latestItems)
-                                                                }
+                                                                delay(16)
                                                             }
                                                         }
-                                                    } finally {
-                                                        dragOffset = Offset.Zero
-                                                        isDragging = false
+                                                        try {
+                                                            while (!released) {
+                                                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                                                val change = event.changes.firstOrNull { it.id == longPress.id }
+                                                                    ?: break
+                                                                if (!change.pressed) {
+                                                                    released = true
+                                                                } else {
+                                                                    val delta = change.positionChange()
+                                                                    if (delta != Offset.Zero) {
+                                                                        didMove = true
+                                                                        dragPointerRoot += delta
+                                                                        dragOffset = dragPointerRoot - grabOffset - itemPositionRoot
+                                                                        change.consume()
+                                                                    }
+                                                                    val hit = latestItems.indexOfFirst { row ->
+                                                                        itemBounds[row.media.id]?.contains(dragPointerRoot) == true
+                                                                    }
+                                                                    if (hit >= 0 && hit != lastTarget) {
+                                                                        lastTarget = hit
+                                                                        viewModel.moveManualItem(item.media.id, hit, latestItems)
+                                                                    }
+                                                                }
+                                                            }
+                                                        } finally {
+                                                            autoScrollJob.cancel()
+                                                            dragOffset = Offset.Zero
+                                                            isDragging = false
+                                                        }
                                                     }
                                                 }
                                             }
