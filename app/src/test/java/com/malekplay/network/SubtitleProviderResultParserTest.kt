@@ -28,6 +28,8 @@ class SubtitleProviderResultParserTest {
         assertEquals(true, SubtitleProviderResultParser.subDlHasExactTitleMatch(results, "Dune Part Two", 2024, "movie"))
         assertEquals(false, SubtitleProviderResultParser.subDlHasExactTitleMatch(results, "Dune", 2024, "movie"))
         assertEquals(false, SubtitleProviderResultParser.subDlHasExactTitleMatch(results, "Dune Part Two", 2024, "tv"))
+        val subtitlesBelongToFirstOnly = JSONArray("[{\"name\":\"Dune\",\"year\":2021,\"type\":\"movie\"},{\"name\":\"Dune Part Two\",\"year\":2024,\"type\":\"movie\"}]")
+        assertEquals(false, SubtitleProviderResultParser.subDlHasExactTitleMatch(subtitlesBelongToFirstOnly, "Dune Part Two", 2024, "movie"))
     }
 
     @Test fun selectsOnlyExactSubDlTitleYearAndMediaTypeForImdbIdentity() {
