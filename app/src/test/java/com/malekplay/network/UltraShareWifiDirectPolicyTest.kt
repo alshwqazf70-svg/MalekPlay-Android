@@ -8,6 +8,15 @@ import org.junit.Test
 
 class UltraShareWifiDirectPolicyTest {
     @Test
+    fun losingAnEstablishedOrAdvertisedP2pGroupInvalidatesItsInvitation() {
+        assertTrue(shouldInvalidateWifiDirectInvitation(false, true, false))
+        assertTrue(shouldInvalidateWifiDirectInvitation(false, false, true))
+        assertTrue(shouldInvalidateWifiDirectInvitation(false, true, true))
+        assertFalse(shouldInvalidateWifiDirectInvitation(false, false, false))
+        assertFalse(shouldInvalidateWifiDirectInvitation(true, true, true))
+    }
+
+    @Test
     fun staleOwnerGroupInfoCannotReplaceConnectionInfoFormationConfirmation() {
         assertTrue(isFormedWifiDirectOwnerGroup(groupFormed = true, connectionInfoSaysOwner = true))
         assertFalse(isFormedWifiDirectOwnerGroup(groupFormed = false, connectionInfoSaysOwner = true))
