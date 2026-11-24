@@ -85,6 +85,9 @@ object UltraShareWifiDirect {
         private var connectionInProgress = false
         @Volatile private var peerDiscoveryActive = false
         private var wasConnected = false
+        // Tracks a previously confirmed P2P group even before its first client pairs.
+        // A receiver may publish DNS-SD while waiting for the first QR scan.
+        private var formedGroupObserved = false
         // Owner-side peer confirmation is retried because Android may report GROUP_FORMED
         // before GroupInfo.clientList is populated on some OEM P2P stacks.
         private var ownerPeerCheckToken = 0
@@ -2024,18 +2027,38 @@ object UltraShareWifiDirect {
                         groupCredentialsRequestToken++
                         cancelOwnerPeerConfirmation()
                         cancelClientPeerConfirmation()
-                        if (shouldClearWifiDirectLocalAddress(
-                                groupFormed = info.groupFormed,
-                                wasConnected = wasConnected
-                            )
-                        ) {
+                        val invitationMustBeRetired = shouldInvalidateWifiDirectInvitation(
+                            groupFormed = info.groupFormed,
+                            previouslyFormed = formedGroupObserved,
+                            invitationAdvertised = localInvitationService != null ||
+                                localInvitationOperationPending
+                        )
+                        formedGroupObserved = false
+                        if (invitationMustBeRetired || wasConnected) {
+                            // Retire every delayed advertisement callback before clearing
+                            // Android's local DNS-SD table. A QR published for a group
+                            // that no longer exists must never remain actionable.
+                            localInvitationToken++
+                            localInvitationAdvertisementTimeout?.let(mainHandler::removeCallbacks)
+                            localInvitationAdvertisementTimeout = null
+                            localInvitationOperationPending = false
+                            localInvitationCleanupPending = true
+                            localInvitationService = null
+                            localInvitationId = null
+                            runCatching { manager.clearLocalServices(channel, null) }
                             runCatching { onLocalAddress(null) }
                             wasConnected = false
                             pairingTargetDeviceAddress = null
-                            reportError("انقطع اتصال Wi-Fi Direct. أعد الاتصال أو استخدم مسار الشبكة المحلية الاحتياطي.")
+                            UltraShareDiagnostics.event(
+                                "WIFI_DIRECT",
+                                "FORMED_GROUP_LOST_INVITATION_RETIRED",
+                                mapOf("invitationWasAdvertised" to invitationMustBeRetired)
+                            )
+                            reportError("انقطع اتصال Wi-Fi Direct أو فُقدت مجموعة الدعوة. أُبطلت الدعوة القديمة؛ أعد الاتصال أو استخدم مسار الشبكة المحلية الاحتياطي.")
                         }
                         return@requestConnectionInfo
                     }
+                    formedGroupObserved = true
                     if (info.isGroupOwner) {
                         cancelClientPeerConfirmation()
                         val localGroupOwnerAddress = info.groupOwnerAddress?.hostAddress
@@ -2621,6 +2644,13 @@ internal fun shouldRetryWifiDirectPeerConfirmation(attempt: Int, maxAttempts: In
 
 /** Emits the connected callback only on a disconnected-to-connected transition. */
 internal fun shouldEmitWifiDirectConnected(wasConnected: Boolean): Boolean = !wasConnected
+
+/** Retire an invitation only after a real group existed or its DNS-SD record was installed. */
+internal fun shouldInvalidateWifiDirectInvitation(
+    groupFormed: Boolean,
+    previouslyFormed: Boolean,
+    invitationAdvertised: Boolean
+): Boolean = !groupFormed && (previouslyFormed || invitationAdvertised)
 
 /** GroupInfo alone is not readiness: ConnectionInfo must confirm a formed owner group. */
 internal fun isFormedWifiDirectOwnerGroup(
