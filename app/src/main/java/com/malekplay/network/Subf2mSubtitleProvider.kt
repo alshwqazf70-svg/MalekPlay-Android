@@ -51,7 +51,8 @@ internal class Subf2mSubtitleProvider {
                     candidates.putIfAbsent(path, resultTitle)
                 }
             }
-            if (candidates.isNotEmpty()) break
+            // Continue through alternate title/IMDb queries even after a fuzzy hit.
+            // The existing strict title matcher and hard candidate cap remain in force.
         }
 
         val results = mutableListOf<OnlineSubtitle>()
