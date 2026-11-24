@@ -46,9 +46,10 @@ internal class Subf2mSubtitleProvider {
                 .build().toString()
             val html = getText(searchUrl)
             parseSearchResultCandidates(html, title, year, season).forEach { (path, resultTitle) ->
-                candidates.putIfAbsent(path, resultTitle)
+                if (candidates.size < MAX_CANDIDATE_PAGES) {
+                    candidates.putIfAbsent(path, resultTitle)
+                }
             }
-            if (candidates.isNotEmpty()) break
         }
 
         val results = mutableListOf<OnlineSubtitle>()
@@ -115,9 +116,10 @@ internal class Subf2mSubtitleProvider {
         if (!imdbId.isNullOrBlank() && pageImdb != null && pageImdb != imdbId) return emptyList()
         val pageTitle = PAGE_TITLE.find(page)?.groupValues?.get(1)
             ?.let { decodeHtml(stripTags(it)).removePrefix("Subtitles for ").trim() }
+        val imdbIdentityConfirmed = !imdbId.isNullOrBlank() && pageImdb == imdbId
         if (!pageTitle.isNullOrBlank() &&
             !similarTitle(resultTitle.substringBefore(" ("), pageTitle) &&
-            pageImdb != imdbId
+            !imdbIdentityConfirmed
         ) return emptyList()
 
         val parsed = mutableListOf<OnlineSubtitle>()
@@ -332,6 +334,7 @@ internal class Subf2mSubtitleProvider {
         private const val MAX_HTML_BYTES = 3 * 1024 * 1024
         private const val MAX_BYTES = 8 * 1024 * 1024
         private const val MAX_TITLE_RESULTS = 3
+        private const val MAX_CANDIDATE_PAGES = 12
         private const val MAX_RESULTS = 40
         private const val MAX_REDIRECTS = 5
         private val SEASON_ORDINALS = listOf(
