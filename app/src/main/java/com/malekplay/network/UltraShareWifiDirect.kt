@@ -1308,7 +1308,7 @@ object UltraShareWifiDirect {
             try {
                 manager.requestConnectionInfo(channel) { info ->
                     if (!isCurrentWifiDirectGroupAttempt(closed, groupAttemptToken, token)) return@requestConnectionInfo
-                    if (info.groupFormed && info.isGroupOwner) {
+                    if (isFormedWifiDirectOwnerGroup(info.groupFormed, info.isGroupOwner)) {
                         finishGroupAttempt(token)
                         // Group creation is only receiver readiness. requestConnectionInfo()
                         // separately confirms a client through GroupInfo.clientList.
@@ -2621,6 +2621,12 @@ internal fun shouldRetryWifiDirectPeerConfirmation(attempt: Int, maxAttempts: In
 
 /** Emits the connected callback only on a disconnected-to-connected transition. */
 internal fun shouldEmitWifiDirectConnected(wasConnected: Boolean): Boolean = !wasConnected
+
+/** GroupInfo alone is not readiness: ConnectionInfo must confirm a formed owner group. */
+internal fun isFormedWifiDirectOwnerGroup(
+    groupFormed: Boolean,
+    connectionInfoSaysOwner: Boolean
+): Boolean = groupFormed && connectionInfoSaysOwner
 
 /** A formed owner group is paired only when both Android callbacks agree on role and peer. */
 internal fun isConfirmedWifiDirectOwnerPeer(
