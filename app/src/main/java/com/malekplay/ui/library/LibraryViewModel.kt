@@ -171,10 +171,13 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** Hide items whose original documents were successfully moved into the private vault. */
-    fun removeMovedMediaUris(uris: Collection<String>) {
+    /** Reconcile MediaStore, then remove moved source IDs from all library-derived views. */
+    fun reconcileMovedMediaUris(uris: Collection<String>) {
         if (uris.isEmpty()) return
-        viewModelScope.launch { mediaRepository.removeMediaUris(uris) }
+        viewModelScope.launch {
+            runCatching { mediaRepository.refresh() }
+            mediaRepository.removeMediaUris(uris)
+        }
     }
 
     /** Search indexed library metadata locally and rank the strongest matches. */
