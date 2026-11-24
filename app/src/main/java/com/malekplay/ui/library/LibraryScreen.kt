@@ -469,7 +469,6 @@ fun LibraryScreen(
                                                     isDragging = true
                                                     grabOffset = longPress.position
                                                     dragPointerRoot = itemPositionRoot + longPress.position
-                                                    var lastTarget = latestItems.indexOfFirst { it.media.id == item.media.id }
                                                     activeDragId = item.media.id
                                                     activeDragPointerRoot = dragPointerRoot
                                                     dragHasMoved = false
@@ -494,8 +493,7 @@ fun LibraryScreen(
                                                                 val hit = latestItems.indexOfFirst { row ->
                                                                     itemBounds[row.media.id]?.contains(dragPointerRoot) == true
                                                                 }
-                                                                if (hit >= 0 && hit != lastTarget) {
-                                                                    lastTarget = hit
+                                                                if (hit >= 0 && hit != lastDragTargetIndex) {
                                                                     lastDragTargetIndex = hit
                                                                     viewModel.moveManualItem(item.media.id, hit, latestItems)
                                                                 }
