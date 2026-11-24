@@ -49,6 +49,8 @@ class Subf2mSubtitleProviderTest {
         assertFalse(provider.isExactEpisode("Show.S01E02-03.1080p", 1, 2))
         assertFalse(provider.isExactEpisode("Show.1x02-03.720p", 1, 2))
         assertFalse(provider.isExactEpisode("Show.Season.1.Episodes.2-3", 1, 2))
+        assertFalse(provider.isExactEpisode("Show.S01E02-E03.1080p", 1, 3))
+        assertFalse(provider.isExactEpisode("Show.1x02-03.720p", 1, 3))
     }
 
     @Test fun parsesRealSubF2mSearchResultMarkupAndSeasonOrdinal() {
