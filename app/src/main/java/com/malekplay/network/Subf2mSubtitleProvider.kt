@@ -230,7 +230,7 @@ internal class Subf2mSubtitleProvider {
         return match?.groupValues?.get(1)?.toIntOrNull()
     }
 
-    private fun isExactEpisode(release: String, season: Int, episode: Int): Boolean {
+    internal fun isExactEpisode(release: String, season: Int, episode: Int): Boolean {
         val patterns = listOf(
             Regex("(?i)\\bs0*\\$season\\s*e0*\\$episode\\b"),
             Regex("(?i)\\b0*\\$season\\s*x\\s*0*\\$episode\\b"),
