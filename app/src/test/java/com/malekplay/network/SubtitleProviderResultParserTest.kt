@@ -24,7 +24,7 @@ class SubtitleProviderResultParserTest {
         val results = JSONArray(
             "[{\"name\":\"The Office\",\"original_name\":\"The Office\",\"year\":2005,\"type\":\"tv\",\"imdb_id\":\"tt0386676\"}," +
             "{\"name\":\"The Office\",\"year\":2001,\"type\":\"tv\",\"imdb_id\":\"tt9999999\"}," +
-            "{\"name\":\"Office Space\",\"year\":1999,\"type\":\"movie\",\"imdb_id\":\"tt015 gần\"}]"
+            "{\"name\":\"Office Space\",\"year\":1999,\"type\":\"movie\",\"imdb_id\":\"tt015099\"}]"
         )
         assertEquals("tt0386676", SubtitleProviderResultParser.subDlImdbId(results, "The Office", 2005, "tv"))
         assertNull(SubtitleProviderResultParser.subDlImdbId(results, "The Office", 2020, "tv"))
